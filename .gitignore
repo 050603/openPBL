@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# openPBL local demo state and AI provider secrets
+.openpbl-data/
+
+# runtime data and generated assets (classrooms, audio, media)
+/data/
+
+# local AI provider secrets (use server-providers.example.yml as template)
+/server-providers.yml
+
+# IDE / editor local state
+.trae/
+.DS_Store
+
+# backup files
+*.bak
+src/middleware-openmaic.ts.bak
