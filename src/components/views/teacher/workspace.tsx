@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { AvatarStack } from "@/components/dashboard-shell";
-import { Card, FileBadge, Pill, PrimaryButton, ProgressBar } from "@/components/ui";
+import { Card, FileBadge, Pill, PrimaryButton, ProgressBar, toast } from "@/components/ui";
 import type { Course, CourseUpload } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { buildTeacherInterventionSignals, diagnoseAllProposals, type TeacherInterventionSignal, type ProposalDiagnosisResult } from "@/lib/teaching-ai/client-api";
@@ -54,7 +54,7 @@ export function WorkspaceTeacherView({
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 制作观察刷新失败";
-      window.alert(message);
+      toast.error("AI 制作观察刷新失败", { description: message });
     } finally {
       setSignalsLoading(false);
     }
@@ -82,7 +82,7 @@ export function WorkspaceTeacherView({
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 方案诊断失败";
       setDiagnosisError(message);
-      window.alert(message);
+      toast.error("AI 方案诊断失败", { description: message });
     } finally {
       setDiagnosisLoading(false);
     }
@@ -169,17 +169,17 @@ export function WorkspaceTeacherView({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="text-sm text-slate-500">小组总数</div>
-          <div className="mt-2 text-2xl font-black">{groups.length}</div>
+          <div className="mt-2 text-2xl font-bold">{groups.length}</div>
         </Card>
         <Card>
           <div className="text-sm text-slate-500">已上传作品</div>
-          <div className="mt-2 text-2xl font-black text-emerald-700">
+          <div className="mt-2 text-2xl font-bold text-emerald-700">
             {(course.uploads ?? []).filter((u) => u.stageKey === "showcase" || u.stageKey === stageKey).length}
           </div>
         </Card>
         <Card>
           <div className="text-sm text-slate-500">平均进度</div>
-          <div className="mt-2 text-2xl font-black text-blue-700">
+          <div className="mt-2 text-2xl font-bold text-blue-700">
             {groups.length
               ? Math.round(
                   groups.reduce((sum, g) => {
@@ -194,7 +194,7 @@ export function WorkspaceTeacherView({
         </Card>
         <Card>
           <div className="text-sm text-slate-500">需介入</div>
-          <div className="mt-2 text-2xl font-black text-rose-700">
+          <div className="mt-2 text-2xl font-bold text-rose-700">
             {groups.filter((g) => {
               const m = g.members;
               if (!m.length) return false;
@@ -209,7 +209,7 @@ export function WorkspaceTeacherView({
         <Card>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <h3 className="flex items-center gap-2 text-base font-black">
+              <h3 className="flex items-center gap-2 text-base font-bold">
                 <ClipboardCheck className="text-amber-600" size={18} /> AI 方案诊断
               </h3>
               <p className="mt-1 text-xs text-slate-500">
@@ -236,7 +236,7 @@ export function WorkspaceTeacherView({
               {proposalDiagnosis.map((d) => (
                 <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-4" key={d.groupId}>
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="font-black">{d.groupName}</div>
+                    <div className="font-bold">{d.groupName}</div>
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${d.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
                       {d.source === "llm" ? "LLM" : "本地"}
                     </span>
@@ -275,7 +275,7 @@ export function WorkspaceTeacherView({
         <Card>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="flex items-center gap-2 text-base font-black">
+              <h3 className="flex items-center gap-2 text-base font-bold">
                 <Lightbulb className="text-blue-600" size={18} /> AI 制作观察
               </h3>
               <p className="mt-1 text-xs text-slate-500">
@@ -298,7 +298,7 @@ export function WorkspaceTeacherView({
 
       <div className="grid gap-3 xl:grid-cols-[minmax(18rem,20rem)_minmax(0,1fr)]">
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 各组制作进度
           </h2>
           <ul className="max-h-[32rem] space-y-1.5 overflow-auto pr-1">
@@ -333,7 +333,7 @@ export function WorkspaceTeacherView({
             <Card>
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="flex items-center gap-2 text-lg font-black">
+                  <h2 className="flex items-center gap-2 text-lg font-bold">
                     {active.name}
                     <Pill tone="blue">{active.topic || "待确定"}</Pill>
                   </h2>
@@ -369,7 +369,7 @@ export function WorkspaceTeacherView({
 
             <Card>
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 font-black">
+                <h3 className="flex items-center gap-2 font-bold">
                   <Lightbulb className="text-amber-600" size={18} /> AI 过程观察
                 </h3>
                 <Pill tone={activeSignal ? (activeSignal.riskLevel === "high" ? "red" : "orange") : "green"}>
@@ -378,7 +378,7 @@ export function WorkspaceTeacherView({
               </div>
               {activeSignal ? (
                 <div className="rounded-[8px] border border-amber-200 bg-amber-50/50 p-4">
-                  <div className="font-black text-amber-800">{activeSignal.reasons.join("、")}</div>
+                  <div className="font-bold text-amber-800">{activeSignal.reasons.join("、")}</div>
                   <p className="mt-2 text-sm leading-6 text-slate-700">{activeSignal.supportCard}</p>
                   <div className="mt-2 text-xs leading-5 text-slate-500">依据：{activeSignal.evidence.join("；")}</div>
                   <PrimaryButton className="mt-3 h-9 px-3 text-sm" onClick={confirmAiSupport} type="button">
@@ -394,7 +394,7 @@ export function WorkspaceTeacherView({
 
             <div className="grid gap-3 lg:grid-cols-2">
               <Card>
-                <h3 className="mb-3 flex items-center gap-2 font-black">
+                <h3 className="mb-3 flex items-center gap-2 font-bold">
                   <FileText className="text-blue-700" size={18} /> 方案文档
                 </h3>
                 {groupSubmission ? (
@@ -418,7 +418,7 @@ export function WorkspaceTeacherView({
               </Card>
 
               <Card>
-                <h3 className="mb-3 flex items-center gap-2 font-black">
+                <h3 className="mb-3 flex items-center gap-2 font-bold">
                   <Eye className="text-blue-700" size={18} /> 上传材料（{groupUploads.length}）
                 </h3>
                 {groupUploads.length > 0 ? (
@@ -462,7 +462,7 @@ export function WorkspaceTeacherView({
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-1 text-rose-600" size={20} />
                   <div>
-                    <h3 className="font-black text-rose-700">此小组进展停滞</h3>
+                    <h3 className="font-bold text-rose-700">此小组进展停滞</h3>
                     <p className="mt-1 text-sm text-slate-600">
                       当前进度仅 {groupProgressValue}%，建议发起一对一沟通或推送 AI 支架内容。
                     </p>
@@ -530,7 +530,7 @@ function UploadPreviewOverlay({ upload, onClose }: { upload: CourseUpload; onClo
         <div className="flex min-w-0 items-center gap-3">
           <FileBadge type={upload.fileType} />
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-black">{upload.fileName}</h3>
+            <h3 className="truncate text-lg font-bold">{upload.fileName}</h3>
             <p className="text-xs text-slate-500">
               {upload.title} · {upload.size} · 上传者：{upload.studentName ?? "未知"} · {new Date(upload.createdAt).toLocaleString("zh-CN")}
             </p>
@@ -598,7 +598,7 @@ function DocumentPreviewOverlay({
     <div className="fixed inset-0 z-40 flex flex-col bg-slate-900/60" role="dialog" aria-modal="true" data-testid="doc-preview-overlay">
       <div className="flex items-center justify-between bg-white px-5 py-3 shadow">
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-black">{groupName} · 方案文档</h3>
+          <h3 className="truncate text-lg font-bold">{groupName} · 方案文档</h3>
           <p className="text-xs text-slate-500">更新时间：{new Date(updatedAt).toLocaleString("zh-CN")}</p>
         </div>
         <button

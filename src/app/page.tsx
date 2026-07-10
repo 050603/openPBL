@@ -1,117 +1,31 @@
-"use client";
-
-import { useRouter } from "next/navigation";
-import { GraduationCap, Sparkles, UserRound } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, BookOpenText, GraduationCap, UsersRound } from "lucide-react";
 
 export default function Home() {
-  const router = useRouter();
-
   return (
-    <div className="min-h-screen bg-[#f5f7fb]">
-      <header className="flex h-16 items-center border-b border-slate-200/80 bg-white/95 px-10">
-        <div className="flex items-center gap-3">
-          <LogoMark />
-          <span className="text-xl font-black tracking-tight text-slate-950">
-            AI 探知 · 项目共创平台
-          </span>
-        </div>
-      </header>
-
-      <main className="mx-auto flex min-h-[calc(100vh-7rem)] max-w-5xl flex-col items-center justify-center px-10 py-12">
-        <div className="mb-10 text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600">
-            <Sparkles size={30} />
-          </div>
-          <h1 className="mt-5 text-[40px] font-black tracking-tight text-slate-950">
-            欢迎使用 AI 探知
-          </h1>
-          <p className="mt-3 text-base text-slate-500">
-            请选择你的身份，进入对应端开始体验
-          </p>
-        </div>
-
-        <div className="grid w-full grid-cols-1 gap-5 md:grid-cols-2">
-          <button
-            className="group flex flex-col items-start gap-5 rounded-[16px] border border-slate-200/80 bg-white p-8 text-left shadow-[0_18px_44px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-[0_24px_60px_rgba(37,99,235,0.18)]"
-            onClick={() => router.push("/teacher")}
-            type="button"
-          >
-            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-blue-600 text-white shadow-[0_10px_22px_rgba(37,99,235,0.28)] transition group-hover:scale-105">
-              <GraduationCap size={28} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">教师入口</h2>
-              <p className="mt-2 text-sm leading-7 text-slate-500">
-                创建与管理 PBL 课程、备课、核查、发布；按阶段推进课堂并实时同步到学生端。
-              </p>
-            </div>
-            <ul className="space-y-1.5 text-sm text-slate-600">
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                历史课程列表
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                备课 / 授课两阶段
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                邀请码邀请学生入班
-              </li>
-            </ul>
-            <span className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-blue-700">
-              进入教师端 →
-            </span>
-          </button>
-
-          <button
-            className="group flex flex-col items-start gap-5 rounded-[16px] border border-slate-200/80 bg-white p-8 text-left shadow-[0_18px_44px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_24px_60px_rgba(16,185,129,0.18)]"
-            onClick={() => router.push("/student")}
-            type="button"
-          >
-            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-600 text-white shadow-[0_10px_22px_rgba(16,185,129,0.28)] transition group-hover:scale-105">
-              <UserRound size={28} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-950">学生入口</h2>
-              <p className="mt-2 text-sm leading-7 text-slate-500">
-                输入教师提供的 6 位邀请码加入课堂。课堂进度由教师端控制，无自由导航。
-              </p>
-            </div>
-            <ul className="space-y-1.5 text-sm text-slate-600">
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                邀请码一键入班
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                阶段内容实时同步
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                跨阶段项目作品沉淀
-              </li>
-            </ul>
-            <span className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-emerald-700">
-              进入学生端 →
-            </span>
-          </button>
-        </div>
-
-        <footer className="mt-10 text-center text-sm text-slate-400">
-          © {new Date().getFullYear()} openPBL · 教学场景原型
-        </footer>
+    <div className="min-h-screen bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
+      <header className="border-b border-[var(--pbl-border)]"><div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between px-5 md:px-8"><div><strong className="text-base tracking-tight">openPBL</strong><span className="ml-3 hidden text-sm text-[var(--pbl-text-muted)] sm:inline">项目式课堂协作环境</span></div><span className="text-xs font-semibold text-[var(--pbl-ai)]">AI 是正式教学角色</span></div></header>
+      <main className="mx-auto max-w-7xl px-5 py-12 md:px-8 md:py-20">
+        <section className="grid gap-12 border-b border-[var(--pbl-border)] pb-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,.85fr)] lg:items-end">
+          <div><p className="text-sm font-semibold text-[var(--pbl-teacher)]">AI 授知—教师导学—项目共创</p><h1 className="font-editorial mt-4 max-w-4xl text-4xl font-semibold leading-tight tracking-tight md:text-6xl">课堂不再围绕菜单和聊天框展开，而是围绕问题、阶段与协作推进。</h1><p className="mt-6 max-w-3xl text-base leading-8 text-[var(--pbl-text-muted)] md:text-lg">AI 讲解知识并提供过程支架，教师组织课堂并作出关键判断，学生在真实问题中构思、制作、展示和反思。</p></div>
+          <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]"><RoleRow index="01" title="AI 授知" text="讲解、互动、路径调整、即时反馈与过程记录" tone="ai" /><RoleRow index="02" title="教师导学" text="启动项目、组织课堂、纠偏方案、综合评价与价值引导" tone="teacher" /><RoleRow index="03" title="学生共创" text="理解问题、小组构思、项目制作、展示互评与学习反思" tone="student" /></div>
+        </section>
+        <section className="grid gap-8 py-12 md:grid-cols-2 md:py-16">
+          <Entry href="/teacher" icon={<GraduationCap size={22} />} eyebrow="教师" title="进入课程设计或正在进行的课堂" description="继续未完成的备课，处理需要教师判断的问题，或进入七阶段课堂。" tone="teacher" />
+          <Entry href="/student" icon={<UsersRound size={22} />} eyebrow="学生" title="加入项目课堂，开始连续的学习与共创" description="使用教师提供的邀请码进入课堂，当前任务、阶段条件和项目作品会持续衔接。" tone="student" />
+        </section>
+        <section className="grid gap-6 border-t border-[var(--pbl-border)] pt-10 md:grid-cols-[220px_1fr]"><div className="flex items-center gap-3"><BookOpenText className="text-[var(--pbl-ai)]" size={22} /><h2 className="font-editorial text-xl font-semibold">七个课堂阶段</h2></div><p className="max-w-4xl text-sm leading-7 text-[var(--pbl-text-muted)]">项目启动 · AI 授知 · 小组构思 · 方案汇报与纠偏 · 项目制作与 AI 实时支架 · 最终汇报展示 · 综合评价与反思。每一阶段都有不同的主导角色、过程证据和进入条件。</p></section>
       </main>
     </div>
   );
 }
 
-function LogoMark() {
-  return (
-    <div className="relative h-9 w-9">
-      <div className="absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[4px] bg-blue-600" />
-      <div className="absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[4px] bg-sky-400" />
-      <div className="absolute bottom-0 left-[12px] h-3 w-3 rotate-45 bg-white" />
-    </div>
-  );
+function RoleRow({ index, text, title, tone }: { index: string; text: string; title: string; tone: "ai" | "teacher" | "student" }) {
+  const color = tone === "ai" ? "var(--pbl-ai)" : tone === "teacher" ? "var(--pbl-teacher)" : "var(--pbl-student)";
+  return <div className="grid grid-cols-[36px_100px_1fr] gap-3 py-4 text-sm"><span className="text-[var(--pbl-text-subtle)]">{index}</span><strong className="font-semibold" style={{ color }}>{title}</strong><span className="leading-6 text-[var(--pbl-text-muted)]">{text}</span></div>;
+}
+
+function Entry({ description, eyebrow, href, icon, title, tone }: { description: string; eyebrow: string; href: string; icon: React.ReactNode; title: string; tone: "teacher" | "student" }) {
+  const teacher = tone === "teacher";
+  return <Link className="group border-t-2 bg-[var(--pbl-surface)] p-6 transition-colors hover:bg-[var(--pbl-surface-raised)] md:p-8" href={href} style={{ borderColor: teacher ? "var(--pbl-teacher)" : "var(--pbl-student)" }}><div className="flex items-center gap-3 text-sm font-semibold" style={{ color: teacher ? "var(--pbl-teacher)" : "var(--pbl-student)" }}>{icon}{eyebrow}</div><h2 className="font-editorial mt-6 text-2xl font-semibold leading-snug">{title}</h2><p className="mt-3 text-sm leading-7 text-[var(--pbl-text-muted)]">{description}</p><span className="mt-8 inline-flex min-h-11 items-center gap-2 text-sm font-semibold">进入{eyebrow}端 <ArrowRight className="transition-transform group-hover:translate-x-1" size={16} /></span></Link>;
 }

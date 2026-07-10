@@ -142,7 +142,7 @@ function ThumbItemComponent({
           <div className="flex min-w-0 items-center gap-2">
             <span
               className={cn(
-                'flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-black leading-none tabular-nums',
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none tabular-nums',
                 active
                   ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/30 dark:bg-violet-500'
                   : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400',

@@ -20,9 +20,9 @@ export function WizardStepper({
             <div className="flex items-center gap-2">
               <span
                 className={cn(
-                  "grid h-7 w-7 place-items-center rounded-full text-sm font-black",
+                  "grid h-7 w-7 place-items-center rounded-full text-sm font-bold",
                   state === "done" && "bg-emerald-500 text-white",
-                  state === "current" && "bg-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)]",
+                  state === "current" && "bg-[var(--pbl-teacher)] text-white",
                   state === "todo" && "bg-slate-200 text-slate-500",
                 )}
               >

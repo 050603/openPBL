@@ -130,11 +130,11 @@ export function SceneSidebar({
             className="flex items-center gap-2 cursor-pointer rounded-lg px-1.5 -mx-1.5 py-1 -my-1 hover:bg-gray-100/80 dark:hover:bg-gray-800/60 active:scale-[0.97] transition-all duration-150"
             title={t('generation.backToHome')}
           >
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-600 text-[11px] font-black text-white shadow-sm">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-600 text-[11px] font-bold text-white shadow-sm">
               AI
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-black leading-4 text-slate-900 dark:text-slate-100">
+              <span className="block text-sm font-bold leading-4 text-slate-900 dark:text-slate-100">
                 openPBL
               </span>
               <span className="block text-[10px] font-semibold leading-3 text-slate-400 dark:text-slate-500">
@@ -186,7 +186,7 @@ export function SceneSidebar({
                   <div className="flex items-center gap-2 max-w-full">
                     <span
                       className={cn(
-                        'text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shrink-0',
+                        'text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shrink-0',
                         isActive
                           ? 'bg-purple-600 dark:bg-purple-500 text-white shadow-sm shadow-purple-500/30'
                           : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
@@ -381,7 +381,7 @@ export function SceneSidebar({
                     <div className="flex items-center gap-2 max-w-full">
                       <span
                         className={cn(
-                          'text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shrink-0',
+                          'text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shrink-0',
                           isActive && !isFailed
                             ? 'bg-purple-600 dark:bg-purple-500 text-white shadow-sm shadow-purple-500/30'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500',
@@ -493,7 +493,7 @@ export function SceneSidebar({
                     <div className="flex items-center gap-2 max-w-full">
                       <span
                         className={cn(
-                          'text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shrink-0',
+                          'text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shrink-0',
                           isActive
                             ? 'bg-amber-500 dark:bg-amber-400 text-white shadow-sm shadow-amber-500/30'
                             : 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400',

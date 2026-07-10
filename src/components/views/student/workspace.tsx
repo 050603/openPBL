@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChartColumn, Check, ClipboardCheck, Clock3, FileText, Lightbulb, ListChecks, ShieldCheck } from "lucide-react";
-import { Card, Pill, PrimaryButton } from "@/components/ui";
+import { Card, Pill, PrimaryButton, toast } from "@/components/ui";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import type { AiSupportRecord, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
@@ -106,6 +106,13 @@ export function WorkspaceView({ course }: { course: Course }) {
       session.upsertAiSupport({
         ...support,
         status: "student-applied",
+        adoption: {
+          decision: "adopted-after-edit",
+          before: documentText,
+          after: nextText,
+          handledBy: session.studentName ?? session.user.name,
+          handledAt: new Date().toISOString(),
+        },
       });
     }
   }
@@ -136,7 +143,7 @@ export function WorkspaceView({ course }: { course: Course }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 诊断失败";
       setStatus(message);
-      window.alert(message);
+      toast.error("AI 诊断失败", { description: message });
     }
   }
 
@@ -189,7 +196,7 @@ export function WorkspaceView({ course }: { course: Course }) {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-blue-700">{stageMode.eyebrow}</div>
-                <h2 className="mt-1 text-[24px] font-black text-slate-950">{stageMode.title}</h2>
+                <h2 className="mt-1 text-[24px] font-bold text-slate-950">{stageMode.title}</h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{stageMode.description}</p>
               </div>
               <Pill tone={isReviewStage ? "orange" : "blue"}>{isReviewStage ? "先纠偏再制作" : "边做边留证据"}</Pill>
@@ -198,7 +205,7 @@ export function WorkspaceView({ course }: { course: Course }) {
               <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {["问题是否清楚", "目标用户/场景", "成果形式", "实施步骤", "AI 使用边界", "风险与备选方案"].map((item, index) => (
                   <div className="flex items-center gap-3 rounded-[8px] border border-amber-100 bg-amber-50/50 px-3 py-2 text-sm font-semibold text-slate-700" key={item}>
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-black text-amber-700 ring-1 ring-amber-200">{index + 1}</span>
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-bold text-amber-700 ring-1 ring-amber-200">{index + 1}</span>
                     {item}
                   </div>
                 ))}
@@ -211,7 +218,7 @@ export function WorkspaceView({ course }: { course: Course }) {
                   ["已完成", "提交阶段成果并准备展示材料"],
                 ].map(([title, text], index) => (
                   <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3" key={title}>
-                    <div className="flex items-center gap-2 font-black text-slate-900">
+                    <div className="flex items-center gap-2 font-bold text-slate-900">
                       {index === 0 ? <ListChecks size={17} className="text-blue-700" /> : index === 1 ? <Clock3 size={17} className="text-blue-700" /> : <ClipboardCheck size={17} className="text-emerald-700" />}
                       {title}
                     </div>
@@ -224,7 +231,7 @@ export function WorkspaceView({ course }: { course: Course }) {
 
           <Card className="overflow-hidden p-0">
             <div className="p-6">
-              <h1 className="text-[26px] font-black">{stageMode.editorTitle}</h1>
+              <h1 className="text-[26px] font-bold">{stageMode.editorTitle}</h1>
               <div className="mt-5">
                 <RichTextEditor value={documentText} onChange={setDocumentText} onFileUpload={handleFileUpload} placeholder={stageMode.placeholder} />
               </div>
@@ -236,7 +243,7 @@ export function WorkspaceView({ course }: { course: Course }) {
           </Card>
 
           <Card>
-            <h2 className="mb-4 text-xl font-black">修改建议（{feedback.length}）</h2>
+            <h2 className="mb-4 text-xl font-bold">修改建议（{feedback.length}）</h2>
             <div className="space-y-3">
               {feedback.map((item) => (
                 <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3" key={item.id}>
@@ -253,7 +260,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         <aside className="space-y-4">
           <Card>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-black">{stageMode.aiTitle}</h2>
+              <h2 className="text-xl font-bold">{stageMode.aiTitle}</h2>
               <button className="text-sm font-semibold text-blue-700" onClick={() => { setAiCollapsed((value) => !value); session.setUiState(course.id, { aiPanelCollapsed: !aiCollapsed }); }} type="button">
                 {aiCollapsed ? "展开" : "收起"}
               </button>
@@ -277,7 +284,7 @@ export function WorkspaceView({ course }: { course: Course }) {
                       <div className="mb-2 flex gap-3">
                         <div className="grid h-8 w-8 place-items-center rounded-full bg-blue-50 text-blue-600"><Lightbulb size={18} /></div>
                         <div>
-                          <div className="font-black">{latestArtifactSupport.trigger}</div>
+                          <div className="font-bold">{latestArtifactSupport.trigger}</div>
                           <div className="text-xs text-slate-400">{latestArtifactSupport.status === "student-applied" ? "已采纳" : "待处理"}</div>
                         </div>
                       </div>
@@ -304,7 +311,7 @@ export function WorkspaceView({ course }: { course: Course }) {
           </Card>
 
           <Card>
-            <h2 className="mb-5 text-xl font-black">过程记录</h2>
+            <h2 className="mb-5 text-xl font-bold">过程记录</h2>
             <div className="space-y-4">
               {activity.map((item, index) => (
                 <div className="relative flex gap-3" key={item.id}>

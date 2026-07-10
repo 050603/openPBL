@@ -10,6 +10,7 @@ import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { isStudentOnline } from "@/lib/session/actions";
 import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/teacher-stage-resources";
+import { StageProgress } from "@/components/classroom/classroom-chrome";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
@@ -23,12 +24,6 @@ export default function StudentClassroomPage() {
     if (!hydrated) return;
     if (joinedCourseId && joinedCourseId !== params?.id) router.replace("/student");
   }, [hydrated, joinedCourseId, params?.id, router]);
-
-  useEffect(() => {
-    if (!hydrated || !course || course.status !== "finished") return;
-    const t = setTimeout(() => router.replace("/student"), 1800);
-    return () => clearTimeout(t);
-  }, [hydrated, course, router]);
 
   useEffect(() => {
     if (!hydrated || !course || course.status !== "teaching") return;
@@ -124,6 +119,8 @@ export default function StudentClassroomPage() {
       hideCourseSwitcher
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total, label: currentStage.label } : undefined}
+      currentTask={currentStage?.description}
+      leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "review" || currentStage?.key === "showcase" ? "教师" : "学生"}
       headerSlot={
         isTeaching && currentStage ? (
           <div className="hidden items-center gap-2 md:flex">
@@ -147,6 +144,7 @@ export default function StudentClassroomPage() {
         )
       }
     >
+      {isTeaching ? <div className="mb-4"><StageProgress course={course} readonly /></div> : null}
       {/* 小屏幕精简课程信息条 */}
       {isTeaching && currentStage ? (
         <div className="mb-3 flex items-center gap-2 md:hidden">
@@ -208,7 +206,7 @@ function FinishedState({ course }: { course: { name: string } }) {
         <Clock3 size={32} />
       </div>
       <h2 className="mt-4 text-2xl font-bold">课堂已结束</h2>
-      <p className="mt-2 text-sm text-slate-500">《{course.name}》已结束授课，正在返回学生端。</p>
+      <p className="mt-2 text-sm text-slate-500">《{course.name}》已结束授课。你可以留在这里回看作品、评价证据和反思记录。</p>
     </Card>
   );
 }

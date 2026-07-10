@@ -5,7 +5,7 @@ import {
   EvaluationRadar,
   type EvaluationRadarDatum,
 } from "@/components/charts";
-import { Card, PrimaryButton } from "@/components/ui";
+import { Card, PrimaryButton, toast } from "@/components/ui";
 import type {
   Course,
   EvaluationDimension,
@@ -308,7 +308,7 @@ export function ReflectionView({ course }: { course?: Course }) {
       session.setUiState(course.id, { aiAnalysisPending: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 反思提示生成失败";
-      window.alert(message);
+      toast.error("AI 反思建议生成失败", { description: message });
     }
   }
 
@@ -336,7 +336,7 @@ export function ReflectionView({ course }: { course?: Course }) {
     <div className="space-y-5">
       <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-3xl font-black leading-tight md:text-4xl">个人评价与反思</h1>
+          <h1 className="text-3xl font-bold leading-tight md:text-4xl">个人评价与反思</h1>
           <p className="mt-3 text-base text-slate-500">
             回顾项目全过程，查看评价与建议，反思成长与不足，持续提升综合素养。
           </p>
@@ -349,7 +349,7 @@ export function ReflectionView({ course }: { course?: Course }) {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-black">
+            <h2 className="text-xl font-bold">
               AI过程评价 <span className="text-slate-400">ⓘ</span>
             </h2>
             {latestRubric ? (
@@ -377,7 +377,7 @@ export function ReflectionView({ course }: { course?: Course }) {
             <EvaluationRadar data={radarData} />
             <div className="border-l border-slate-200 pl-7">
               <div className="text-base text-slate-600">综合得分</div>
-              <div className="mt-4 text-5xl font-black text-blue-600">
+              <div className="mt-4 text-5xl font-bold text-blue-600">
                 {overallScore}
                 <span className="text-lg text-slate-500"> /100</span>
               </div>
@@ -396,7 +396,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                   "暂无同级对比数据"
                 ) : (
                   <>
-                    超越班级 <span className="font-black text-blue-600">{classRankPercent}%</span> 的同学
+                    超越班级 <span className="font-bold text-blue-600">{classRankPercent}%</span> 的同学
                   </>
                 )}
               </div>
@@ -405,13 +405,13 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-5 text-xl font-black">教师评价</h2>
+          <h2 className="mb-5 text-xl font-bold">教师评价</h2>
           {teacherFeedback ? (
             <>
               <div className="mb-5 flex flex-wrap items-center gap-3">
                 <Avatar name={session.user?.name ?? "教师"} />
                 <div className="min-w-0">
-                  <div className="truncate font-black">{session.user?.name ?? "教师"}</div>
+                  <div className="truncate font-bold">{session.user?.name ?? "教师"}</div>
                   <div className="text-sm text-slate-500">{formatDate(teacherFeedback.createdAt)}</div>
                 </div>
                 <span className="ml-auto shrink-0 rounded-[6px] bg-emerald-50 px-3 py-2 font-bold text-emerald-700">
@@ -441,7 +441,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-5 text-xl font-black">
+          <h2 className="mb-5 text-xl font-bold">
             同伴互评（{peerEvaluations.length}） <span className="text-slate-400">ⓘ</span>
           </h2>
           {peerEvaluations.length === 0 ? (
@@ -455,7 +455,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                   <div className="mb-2 flex items-center gap-3">
                     <Avatar name={p.name} size={34} />
                     <div>
-                      <div className="font-black">{p.name}</div>
+                      <div className="font-bold">{p.name}</div>
                       <div className="text-sm text-slate-500">{formatDate(p.date)}</div>
                     </div>
                     <div className="ml-auto flex text-blue-600">
@@ -485,14 +485,14 @@ export function ReflectionView({ course }: { course?: Course }) {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-xl font-black">自我反思</h2>
+            <h2 className="text-xl font-bold">自我反思</h2>
             <button className="inline-flex h-9 items-center gap-1 rounded-[6px] border border-blue-300 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50" onClick={generateReflectionPrompts} type="button">
               <Wand2 size={15} /> 提取过程证据
             </button>
           </div>
           {latestReflectionSupport ? (
             <div className="mb-4 rounded-[8px] border border-blue-100 bg-blue-50/70 p-3">
-              <div className="font-black text-blue-800">{latestReflectionSupport.diagnosis}</div>
+              <div className="font-bold text-blue-800">{latestReflectionSupport.diagnosis}</div>
               <div className="mt-2 space-y-2">
                 {latestReflectionSupport.suggestions.map((item) => (
                   <div className="text-sm leading-6 text-slate-700" key={item}>· {item}</div>
@@ -515,7 +515,7 @@ export function ReflectionView({ course }: { course?: Course }) {
               {content.length}/1000 {saved ? "· 已保存" : ""}
             </span>
           </div>
-          <h3 className="mb-2 mt-5 text-base font-black">下一轮改进计划</h3>
+          <h3 className="mb-2 mt-5 text-base font-bold">下一轮改进计划</h3>
           <textarea
             className="min-h-[90px] w-full resize-none rounded-[8px] border border-slate-300 p-3 text-[14px] leading-7 outline-none focus:border-blue-500"
             onChange={(e) => {
@@ -534,7 +534,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-5 text-xl font-black">成长建议</h2>
+          <h2 className="mb-5 text-xl font-bold">成长建议</h2>
           {improvementSuggestions.length === 0 ? (
             <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
               暂未配置评价量规，无法生成具体建议。
@@ -543,7 +543,7 @@ export function ReflectionView({ course }: { course?: Course }) {
             <div className="space-y-5">
               {improvementSuggestions.map((item, index) => (
                 <div className="flex gap-3" key={`${index}-${item}`}>
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-500 font-black text-white">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-500 font-bold text-white">
                     {index + 1}
                   </span>
                   <p className="text-[15px] leading-7 text-slate-700">{item}</p>
@@ -554,7 +554,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-5 text-xl font-black">
+          <h2 className="mb-5 text-xl font-bold">
             成长里程碑{" "}
             <span className="text-base font-medium text-slate-500">
               （已完成 {milestonesCompleted} / {milestones.length}）
@@ -573,7 +573,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                   return (
                     <div className="flex items-center gap-3 text-[15px]" key={m.key}>
                       <span
-                        className={`grid h-5 w-5 place-items-center rounded-full text-xs font-black text-white ${
+                        className={`grid h-5 w-5 place-items-center rounded-full text-xs font-bold text-white ${
                           m.done ? "bg-emerald-500" : "bg-slate-300"
                         }`}
                       >

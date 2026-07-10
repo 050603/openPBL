@@ -20,7 +20,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { normalizeKnowledgeGraphForDisplay } from "@/components/knowledge-graph";
 import { KnowledgeGraphFlow } from "@/components/knowledge-graph-flow";
 import { WizardStepper } from "@/components/wizard-stepper";
-import { Card, Pill, PrimaryButton } from "@/components/ui";
+import { Card, Pill, PrimaryButton, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import type {
   CourseContent,
@@ -29,6 +29,7 @@ import type {
   OpenMaicSceneOutlineSnapshot,
   TeachingOutlineSection,
 } from "@/lib/session/types";
+import { DEFAULT_EVALUATION_FLOWS } from "@/lib/session/types";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
 import type { AgentInfo } from "@/lib/openmaic/generation/generation-pipeline";
 import { I18nProvider } from "@/lib/openmaic/hooks/use-i18n";
@@ -658,7 +659,7 @@ export default function VerifyCoursePage() {
         ? `请先生成或补充${SECTION_LABEL[currentSection]}，再确认进入下一步。`
         : "请先确认基础信息。";
       setError(message);
-      window.alert(message);
+      toast.error("当前步骤尚未完成", { description: message });
       return;
     }
     saveDraft(false);
@@ -680,7 +681,7 @@ export default function VerifyCoursePage() {
     if (missing) {
       const message = `请先完成并保存${SECTION_LABEL[missing]}，再进入课程生成。`;
       setError(message);
-      window.alert(message);
+      toast.error("课程核查尚未完成", { description: message });
       return;
     }
     const nextContent = buildPersistableContent();
@@ -721,7 +722,7 @@ export default function VerifyCoursePage() {
       node: (
         <div className="space-y-4">
           <div>
-            <div className="mb-2 text-sm font-black text-slate-800">PBL 项目主线说明</div>
+            <div className="mb-2 text-sm font-bold text-slate-800">PBL 项目主线说明</div>
             <textarea
               className="min-h-[100px] w-full rounded-[6px] border border-slate-300 px-4 py-3 text-[15px] leading-7 outline-none focus:border-blue-500"
               onChange={(e) =>
@@ -741,7 +742,7 @@ export default function VerifyCoursePage() {
                 key={section.id}
               >
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-50 text-xs font-black text-blue-700">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
                     {index + 1}
                   </span>
                   <input
@@ -839,43 +840,9 @@ export default function VerifyCoursePage() {
                   />
                 </div>
 
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-bold text-slate-500">
-                      关联知识点 ID（逗号分隔）
-                    </span>
-                    <input
-                      className="h-9 w-full rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
-                      onChange={(e) =>
-                        updateTeachingOutlineItem(setContent, section.id, {
-                          knowledgePointIds: e.target.value
-                            .split(/[,，]/)
-                            .map((item) => item.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                      placeholder="kp-1, kp-2"
-                      value={(section.knowledgePointIds ?? []).join(", ")}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-bold text-slate-500">
-                      可生成资源类型（逗号分隔）
-                    </span>
-                    <input
-                      className="h-9 w-full rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
-                      onChange={(e) =>
-                        updateTeachingOutlineItem(setContent, section.id, {
-                          resourceTypes: e.target.value
-                            .split(/[,，]/)
-                            .map((item) => item.trim())
-                            .filter(Boolean) as TeachingOutlineSection["resourceTypes"],
-                        })
-                      }
-                      placeholder="ppt, interactive-demo, script, project-brief"
-                      value={(section.resourceTypes ?? []).join(", ")}
-                    />
-                  </label>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <fieldset><legend className="mb-2 text-xs font-semibold text-[var(--pbl-text-muted)]">关联知识</legend><div className="flex flex-wrap gap-2">{(content?.knowledgePoints ?? []).map((point) => { const selected = (section.knowledgePointIds ?? []).includes(point.id); return <button aria-pressed={selected} className={cn("min-h-9 rounded-[var(--radius-xs)] border px-3 text-xs font-semibold", selected ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[var(--pbl-text-muted)]")} key={point.id} onClick={() => updateTeachingOutlineItem(setContent, section.id, { knowledgePointIds: selected ? (section.knowledgePointIds ?? []).filter((id) => id !== point.id) : [...(section.knowledgePointIds ?? []), point.id] })} type="button">{point.name}</button>; })}</div></fieldset>
+                  <fieldset><legend className="mb-2 text-xs font-semibold text-[var(--pbl-text-muted)]">学习资源</legend><div className="flex flex-wrap gap-2">{([{ value: "ppt", label: "演示文稿" }, { value: "interactive-demo", label: "互动演示" }, { value: "script", label: "教师讲稿" }, { value: "worksheet", label: "学习单" }, { value: "rubric", label: "评价量规" }, { value: "project-brief", label: "项目任务书" }] as const).map((resource) => { const selected = (section.resourceTypes ?? []).includes(resource.value); return <button aria-pressed={selected} className={cn("min-h-9 rounded-[var(--radius-xs)] border px-3 text-xs font-semibold", selected ? "border-[var(--pbl-ai)] bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]" : "border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[var(--pbl-text-muted)]")} key={resource.value} onClick={() => updateTeachingOutlineItem(setContent, section.id, { resourceTypes: selected ? (section.resourceTypes ?? []).filter((value) => value !== resource.value) : [...(section.resourceTypes ?? []), resource.value] })} type="button">{resource.label}</button>; })}</div></fieldset>
                 </div>
               </div>
             ))}
@@ -909,7 +876,7 @@ export default function VerifyCoursePage() {
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_520px]">
           <div className="space-y-5 xl:order-2">
             <div>
-              <div className="mb-2 text-sm font-black text-slate-800">知识节点</div>
+              <div className="mb-2 text-sm font-bold text-slate-800">知识节点</div>
               <div className="space-y-2">
                 {(content?.knowledgePoints ?? []).map((kp) => (
                   <div
@@ -1022,7 +989,7 @@ export default function VerifyCoursePage() {
             </div>
 
             <div>
-              <div className="mb-2 text-sm font-black text-slate-800">节点关系</div>
+              <div className="mb-2 text-sm font-bold text-slate-800">节点关系</div>
               <div className="space-y-2">
                 {(content ? ensureKnowledgeGraph(content).edges : []).map((edge) => (
                   <div
@@ -1150,7 +1117,7 @@ export default function VerifyCoursePage() {
 
           <div className="min-h-[620px] overflow-hidden rounded-[8px] border border-slate-200 bg-white xl:order-1">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <div className="flex items-center gap-2 font-black text-slate-900">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
                 <Network size={18} className="text-blue-700" />
                 知识图谱编辑预览
               </div>
@@ -1163,6 +1130,7 @@ export default function VerifyCoursePage() {
                 graph={content?.knowledgeGraph}
                 points={content?.knowledgePoints ?? []}
                 height={620}
+                onNodePositionChange={(nodeId, position) => setContent((current) => current ? { ...current, knowledgeGraph: { ...ensureKnowledgeGraph(current), nodes: ensureKnowledgeGraph(current).nodes.map((node) => node.id === nodeId ? { ...node, position } : node) } } : current)}
               />
             </div>
           </div>
@@ -1209,6 +1177,13 @@ export default function VerifyCoursePage() {
       key: "evaluationPlan",
       node: (
         <div className="space-y-3">
+          <section className="border-y border-[var(--pbl-border)] py-4">
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-semibold">四类评价来源</h3><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">每类评价都必须关联可查看的过程证据，AI 分数不能直接成为最终成绩。</p></div><span className={cn("text-sm font-semibold", (content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((item) => item.enabled).reduce((sum, item) => sum + item.weight, 0) === 100 ? "text-[var(--pbl-success)]" : "text-[var(--pbl-danger)]")}>权重合计 {(content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((item) => item.enabled).reduce((sum, item) => sum + item.weight, 0)}%</span></div>
+            <div className="mt-4 divide-y divide-[var(--pbl-border-soft)]">
+              {(content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).map((flow) => <div className="grid gap-3 py-4 md:grid-cols-[180px_100px_1fr] md:items-start" key={flow.id}><div><p className="font-semibold">{flow.name}</p><p className="mt-1 text-xs text-[var(--pbl-text-muted)]">{flow.sourceRole === "ai" ? "基于过程记录，教师最终确认" : flow.sourceRole === "teacher" ? "项目、汇报与价值判断" : flow.sourceRole === "peer" ? "同伴观察与反馈回应" : "个人判断与学习反思"}</p></div><label className="text-xs text-[var(--pbl-text-muted)]">权重<input className="mt-1 min-h-10 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-2 text-sm" max={100} min={0} onChange={(event) => setContent((current) => current ? { ...current, evaluationPlan: { ...current.evaluationPlan, flows: (current.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).map((item) => item.id === flow.id ? { ...item, weight: Number(event.target.value) || 0 } : item) } } : current)} type="number" value={flow.weight} /></label><div><p className="text-xs font-semibold text-[var(--pbl-text-muted)]">过程证据</p><div className="mt-2 flex flex-wrap gap-2">{flow.evidenceRequirements.map((evidence) => <span className="rounded-[var(--radius-xs)] border border-[var(--pbl-border)] px-2 py-1 text-xs" key={evidence}>{evidence}</span>)}</div></div></div>)}
+            </div>
+          </section>
+          <h3 className="pt-3 font-semibold">评价维度</h3>
           <div className="overflow-hidden rounded-[6px] border border-slate-200">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
@@ -1421,7 +1396,7 @@ export default function VerifyCoursePage() {
           <ArrowLeft size={17} />
         </Link>
         <div>
-          <h1 className="text-[28px] font-black">课程核查</h1>
+          <h1 className="font-editorial text-3xl font-semibold">课程核查</h1>
           <p className="mt-1 text-sm text-slate-500">
             {course.name} · {course.subject} · {course.grade} · {course.hours} 课时
           </p>
@@ -1454,30 +1429,18 @@ export default function VerifyCoursePage() {
         </div>
       ) : null}
 
-      <div className="mb-4 grid gap-2 md:grid-cols-5">
+      <nav aria-label="课程核查步骤" className="mb-6 overflow-x-auto border-b border-[var(--pbl-border)]">
+        <ol className="flex min-w-max items-end gap-1">
         {FLOW_STEPS.map((step, index) => (
-          <button
-            key={step.key}
-            type="button"
-            onClick={() => setFlowStep(index)}
-            className={cn(
-              "rounded-[8px] border px-3 py-2 text-left transition",
-              flowStep === index
-                ? "border-blue-300 bg-blue-50 text-blue-800"
-                : "border-slate-200 bg-white text-slate-600 hover:border-blue-200",
-            )}
-          >
-            <div className="text-xs font-black">第 {index + 1} 步</div>
-            <div className="mt-0.5 text-sm font-bold">{step.label}</div>
-            <div className="mt-1 line-clamp-2 text-xs opacity-75">{step.desc}</div>
-          </button>
+          <li key={step.key}><button aria-current={flowStep === index ? "step" : undefined} className={cn("min-h-12 border-b-2 px-4 text-sm font-semibold transition-colors", flowStep === index ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]" : "border-transparent text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]")} onClick={() => setFlowStep(index)} type="button"><span className="mr-2 text-xs">{index + 1}</span>{step.label}</button></li>
         ))}
-      </div>
+        </ol>
+      </nav>
 
       <div className="space-y-4">
         {FLOW_STEPS[flowStep]?.key === "base" ? (
           <Card>
-            <h2 className="text-lg font-black">确认课程基础信息</h2>
+            <h2 className="text-lg font-bold">确认课程基础信息</h2>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {[
                 ["课程名称", course.name],
@@ -1511,7 +1474,7 @@ export default function VerifyCoursePage() {
             >
               <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-black">{SECTION_LABEL[key]}</h2>
+                    <h2 className="text-lg font-bold">{SECTION_LABEL[key]}</h2>
                     {key === "knowledgePoints" &&
                     (content?.knowledgePoints.length ?? 0) > 0 ? (
                       <Pill tone="green">

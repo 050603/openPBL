@@ -7,6 +7,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from "react";
 import type { ReactNode } from "react";
 import {
@@ -43,6 +44,7 @@ import type {
 import { DEFAULT_STAGES } from "./types";
 import { loadJSON, saveJSON } from "./storage";
 import { generateInviteCode, normalizeInviteCode } from "./invite-code";
+import { toast } from "sonner";
 
 const IDENTITY_KEY = "openpbl.identity.v1";
 // Separate identity keys per role to prevent teacher/student identity cross-contamination
@@ -74,6 +76,10 @@ type IdentityState = Pick<
 };
 
 type SessionApi = SessionState & {
+  saveState: "idle" | "unsaved" | "saving" | "saved" | "error";
+  lastSavedAt?: string;
+  saveError?: string;
+  retrySave: () => Promise<void>;
   setUser: (u: SessionState["user"]) => void;
   createCourse: (input: Partial<Course>) => Course;
   updateCourse: (id: string, patch: Partial<Course>) => void;
@@ -168,9 +174,11 @@ async function postSessionAction(action: SessionAction): Promise<SessionState> {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialSessionState);
   const stateRef = useRef(state);
+  const [saveState, setSaveState] = useState<SessionApi["saveState"]>("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<string>();
+  const [saveError, setSaveError] = useState<string>();
+  const lastFailedActionRef = useRef<SessionAction | null>(null);
   const pollingRef = useRef(true);
-  const readErrorShownRef = useRef(false);
-  const writeErrorShownRef = useRef(false);
   // Tracks the number of in-flight commit POSTs. Only the LAST response
   // (when pending drops to 0) triggers a HYDRATE; intermediate responses
   // are ignored so they can't overwrite newer local optimistic state.
@@ -259,10 +267,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "HYDRATE", payload: next });
     } catch (error) {
       console.error("[session] Failed to fetch session state:", error);
-      if (!readErrorShownRef.current) {
-        readErrorShownRef.current = true;
-        window.alert("无法读取平台真实数据，请检查会话接口或服务器数据文件后刷新页面。");
-      }
+      toast.error("无法读取课堂数据", { id: "session-read-error", description: "请检查会话接口或服务器数据文件后重试。" });
       if (!stateRef.current.hydrated) {
         dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
       }
@@ -272,6 +277,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   function commit(action: SessionAction, options?: { localOnly?: boolean }) {
     dispatch(action);
     if (options?.localOnly) return;
+    setSaveState("saving");
+    setSaveError(undefined);
     pendingCommitsRef.current++;
     void postSessionAction(action)
       .then((next) => {
@@ -284,16 +291,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // response contains ALL accumulated changes.
         if (pendingCommitsRef.current === 0) {
           dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
+          setLastSavedAt(new Date().toISOString());
+          setSaveState("saved");
+          lastFailedActionRef.current = null;
         }
       })
       .catch((error) => {
         pendingCommitsRef.current--;
         console.error("[session] Failed to persist session action:", error);
-        if (!writeErrorShownRef.current) {
-          writeErrorShownRef.current = true;
-          window.alert("数据保存失败，请检查服务器状态。当前页面内容可能尚未写入真实数据源。");
-        }
+        lastFailedActionRef.current = action;
+        setSaveState("error");
+        setSaveError("数据保存失败，请检查服务器状态后重试。");
+        toast.error("课堂数据尚未保存", { id: "session-write-error", description: "当前页面内容仍保留在本地，可直接重试。" });
       });
+  }
+
+  async function retrySave() {
+    const action = lastFailedActionRef.current;
+    if (!action) return;
+    setSaveState("saving");
+    setSaveError(undefined);
+    try {
+      const next = await postSessionAction(action);
+      dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
+      setLastSavedAt(new Date().toISOString());
+      setSaveState("saved");
+      lastFailedActionRef.current = null;
+      toast.success("已重新保存");
+    } catch (error) {
+      console.error("[session] Retry failed:", error);
+      setSaveState("error");
+      setSaveError("重试失败，请确认服务器可用。");
+      toast.error("重新保存失败");
+    }
   }
 
   useEffect(() => {
@@ -343,6 +373,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const api: SessionApi = useMemo(() => {
     return {
       ...state,
+      saveState,
+      lastSavedAt,
+      saveError,
+      retrySave,
       setUser(u) {
         commit({ type: "SET_USER", payload: u }, { localOnly: true });
       },
@@ -387,6 +421,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           uploads: [],
           teamContributions: [],
           aiSupports: [],
+          teacherInterventions: [],
+          stageTransitions: [],
+          evaluations: [],
           uiState: {},
           createdAt: now,
           updatedAt: now,
@@ -613,6 +650,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           stageKey: input.stageKey,
           kind: input.kind,
           content: input.content,
+          sourceRole: input.sourceRole ?? "teacher",
+          sourceName: input.sourceName ?? state.user.name,
+          evidence: input.evidence ?? [],
+          status: input.status ?? "open",
           createdAt: new Date().toISOString(),
         };
         commit({ type: "ADD_FEEDBACK", payload: { courseId, feedback } });
@@ -858,6 +899,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           suggestions: input.suggestions,
           evidence: input.evidence,
           status: input.status,
+          source: input.source,
+          editedContent: input.editedContent,
+          structuredPayload: input.structuredPayload,
+          adoption: input.adoption,
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
         };
@@ -898,7 +943,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       refresh,
     };
-  }, [state]);
+  }, [state, saveState, lastSavedAt, saveError]);
 
   return <SessionContext.Provider value={api}>{children}</SessionContext.Provider>;
 }

@@ -5,6 +5,8 @@ import { GroupView } from "./group";
 import { WorkspaceView } from "./workspace";
 import { ShowcaseView } from "./showcase";
 import { ReflectionView } from "./reflection";
+import { ProposalReviewView } from "./proposal-review";
+import { ProjectMakingView } from "./project-making";
 
 export function StudentStageView({
   view,
@@ -22,6 +24,10 @@ export function StudentStageView({
       return <GroupView course={course} />;
     case "workspace":
       return <WorkspaceView course={course} />;
+    case "proposal-review":
+      return <ProposalReviewView course={course} />;
+    case "project-making":
+      return <ProjectMakingView course={course} />;
     case "showcase":
       return <ShowcaseView course={course} />;
     case "reflection":

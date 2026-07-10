@@ -9,12 +9,10 @@ import {
   ChevronRight,
   Edit3,
   MonitorPlay,
-  PlayCircle,
-  Send,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { WizardStepper } from "@/components/wizard-stepper";
-import { Card, Pill, PrimaryButton } from "@/components/ui";
+import { Button, Card, FlowActionBar, Pill, SaveStatus, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 
 const STEPS = [
@@ -27,10 +25,12 @@ const STEPS = [
 export default function PreviewCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, publishCourse, updateCourse } = useSession();
+  const session = useSession();
+  const { user, publishCourse } = session;
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
   const [publishing, setPublishing] = useState(false);
+  const [view, setView] = useState<"teacher" | "student">("teacher");
 
   if (!hydrated) {
     return (
@@ -54,15 +54,22 @@ export default function PreviewCoursePage() {
   }
 
   const isPublished = course.status === "ready" || course.status === "teaching" || course.status === "finished";
+  const evaluationWeight = course.content.evaluationPlan.flows?.filter((item) => item.enabled).reduce((sum, item) => sum + item.weight, 0) ?? 0;
+  const publishChecks = [
+    { label: "教学目标完整", done: Boolean(course.learningObjectives?.length || course.content.lessonOutline.some((item) => item.objectives.length)) },
+    { label: "七个课堂阶段已配置", done: course.stages.length === 7 },
+    { label: "AI 授知内容可用", done: Boolean(course.aiLearningClassroomId || course.content._openmaicClassroomId || course.content.lessonOutline.length) },
+    { label: `四类评价权重合计 ${evaluationWeight}%`, done: evaluationWeight === 100 },
+    { label: "没有未确认高风险", done: !(course.teacherInterventions ?? []).some((item) => item.severity === "high" && item.status === "open") },
+  ];
+  const readyToPublish = publishChecks.every((item) => item.done);
 
   async function publish() {
     if (!course) return;
     setPublishing(true);
     publishCourse(course.id);
-    setTimeout(() => {
-      setPublishing(false);
-      router.push("/teacher");
-    }, 500);
+    setPublishing(false);
+    toast.success("课程已发布", { description: "你仍停留在课程设计稿，可以继续检查或主动开始授课。" });
   }
 
   function startTeaching() {
@@ -82,7 +89,7 @@ export default function PreviewCoursePage() {
         </div>
       }
     >
-      <div className="mb-5 flex items-center gap-3">
+      <div className="mb-5 flex flex-wrap items-center gap-3">
         <Link
           className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
           href={`/teacher/prepare/${course.id}/verify`}
@@ -90,12 +97,12 @@ export default function PreviewCoursePage() {
           <ArrowLeft size={17} />
         </Link>
         <div>
-          <h1 className="text-[28px] font-black">课程预览</h1>
+          <h1 className="font-editorial text-3xl font-semibold">课程设计稿</h1>
           <p className="mt-1 text-sm text-slate-500">
             {course.name} · 完整预览后可发布或开始授课
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center gap-3">
           {isPublished ? <Pill tone="green">已发布</Pill> : <Pill tone="amber">未发布</Pill>}
           <Link
             className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
@@ -112,28 +119,19 @@ export default function PreviewCoursePage() {
               <MonitorPlay size={15} /> 教师授课资源
             </Link>
           ) : null}
-          {!isPublished ? (
-            <PrimaryButton
-              className="h-11 px-6"
-              disabled={publishing}
-              onClick={publish}
-              type="button"
-            >
-              <Send size={17} /> {publishing ? "发布中..." : "发布课程"}
-            </PrimaryButton>
-          ) : (
-            <PrimaryButton className="h-11 px-6" onClick={startTeaching} type="button">
-              <PlayCircle size={17} /> 开始授课
-            </PrimaryButton>
-          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_360px] gap-5">
+      <div className="mb-6 inline-flex border-b border-[var(--pbl-border)]" role="tablist" aria-label="预览视角">
+        <button aria-selected={view === "teacher"} className={`min-h-11 border-b-2 px-4 text-sm font-semibold ${view === "teacher" ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]" : "border-transparent text-[var(--pbl-text-muted)]"}`} onClick={() => setView("teacher")} role="tab" type="button">教师课程设计稿</button>
+        <button aria-selected={view === "student"} className={`min-h-11 border-b-2 px-4 text-sm font-semibold ${view === "student" ? "border-[var(--pbl-student)] text-[var(--pbl-student)]" : "border-transparent text-[var(--pbl-text-muted)]"}`} onClick={() => setView("student")} role="tab" type="button">学生课堂预览</button>
+      </div>
+
+      {view === "student" ? <StudentCoursePreview course={course} /> : <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-5">
           <Card>
             <div className="mb-4 flex items-center gap-2">
-              <h2 className="text-xl font-black">PBL 大纲</h2>
+              <h2 className="text-xl font-bold">PBL 大纲</h2>
               <Pill tone="blue">核心</Pill>
             </div>
             <p className="whitespace-pre-line text-[15px] leading-8 text-slate-700">
@@ -143,7 +141,7 @@ export default function PreviewCoursePage() {
 
           <Card>
             <div className="mb-4 flex items-center gap-2">
-              <h2 className="text-xl font-black">课程授课大纲</h2>
+              <h2 className="text-xl font-bold">课程授课大纲</h2>
               <Pill tone="blue">教案级</Pill>
             </div>
             {course.content.teachingOutline?.length ? (
@@ -154,10 +152,10 @@ export default function PreviewCoursePage() {
                     key={item.id}
                   >
                     <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-50 text-xs font-black text-blue-700">
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
                         {index + 1}
                       </span>
-                      <span className="font-black">{item.title}</span>
+                      <span className="font-bold">{item.title}</span>
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
                         {item.durationMin} 分钟
                       </span>
@@ -198,18 +196,18 @@ export default function PreviewCoursePage() {
           </Card>
 
           <Card>
-            <h2 className="mb-4 text-xl font-black">阶段安排</h2>
+            <h2 className="mb-4 text-xl font-bold">阶段安排</h2>
             <ol className="space-y-3">
               {course.stages.map((stage, i) => (
                 <li
                   className="flex items-start gap-3 rounded-[8px] border border-slate-200 p-4"
                   key={stage.key}
                 >
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-50 text-sm font-black text-blue-700">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-50 text-sm font-bold text-blue-700">
                     {i + 1}
                   </span>
                   <div className="flex-1">
-                    <div className="text-base font-black">{stage.label}</div>
+                    <div className="text-base font-bold">{stage.label}</div>
                     <p className="mt-1 text-sm text-slate-500">
                       {stage.description}
                     </p>
@@ -221,14 +219,14 @@ export default function PreviewCoursePage() {
           </Card>
 
           <Card>
-            <h2 className="mb-4 text-xl font-black">知识点（{course.content.knowledgePoints.length}）</h2>
+            <h2 className="mb-4 text-xl font-bold">知识点（{course.content.knowledgePoints.length}）</h2>
             <div className="grid grid-cols-2 gap-3">
               {course.content.knowledgePoints.map((kp) => (
                 <div
                   className="rounded-[8px] border border-slate-200 p-3"
                   key={kp.id}
                 >
-                  <div className="text-sm font-black">{kp.name}</div>
+                  <div className="text-sm font-bold">{kp.name}</div>
                   <p className="mt-1 text-xs leading-5 text-slate-500">
                     {kp.description}
                   </p>
@@ -238,7 +236,7 @@ export default function PreviewCoursePage() {
           </Card>
 
           <Card>
-            <h2 className="mb-4 text-xl font-black">
+            <h2 className="mb-4 text-xl font-bold">
               AI 授知章节（{course.content.lessonOutline.length}）
             </h2>
             {course.content.lessonOutline.length === 0 ? (
@@ -251,10 +249,10 @@ export default function PreviewCoursePage() {
                     key={lo.id}
                   >
                     <div className="mb-2 flex items-center gap-2">
-                      <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-50 text-xs font-black text-blue-700">
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
                         {i + 1}
                       </span>
-                      <span className="text-base font-black">{lo.title}</span>
+                      <span className="text-base font-bold">{lo.title}</span>
                       <span className="ml-auto text-xs text-slate-500">
                         {lo.durationMin} 分钟
                       </span>
@@ -284,7 +282,7 @@ export default function PreviewCoursePage() {
           </Card>
 
           <Card>
-            <h2 className="mb-4 text-xl font-black">评价方案</h2>
+            <h2 className="mb-4 text-xl font-bold">评价方案</h2>
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
@@ -314,7 +312,7 @@ export default function PreviewCoursePage() {
 
         <aside className="space-y-5">
           <Card>
-            <h2 className="text-lg font-black">课程信息</h2>
+            <h2 className="text-lg font-bold">课程信息</h2>
             <dl className="mt-3 space-y-2 text-sm">
               <div className="flex justify-between">
                 <dt className="text-slate-500">课程名称</dt>
@@ -349,7 +347,7 @@ export default function PreviewCoursePage() {
 
           {course.drivingQuestion ? (
             <Card>
-              <h2 className="text-lg font-black">驱动问题</h2>
+              <h2 className="text-lg font-bold">驱动问题</h2>
               <p className="mt-3 text-sm leading-7 text-slate-700">
                 {course.drivingQuestion}
               </p>
@@ -357,27 +355,9 @@ export default function PreviewCoursePage() {
           ) : null}
 
           <Card>
-            <h2 className="text-lg font-black">发布清单</h2>
+            <h2 className="text-lg font-bold">发布清单</h2>
             <ul className="mt-3 space-y-2 text-sm">
-              {[
-                { label: "PBL 大纲", done: !!course.content.pblOutline },
-                {
-                  label: `课程授课大纲 (${course.content.teachingOutline?.length ?? 0})`,
-                  done: (course.content.teachingOutline?.length ?? 0) > 0,
-                },
-                {
-                  label: `知识点 (${course.content.knowledgePoints.length})`,
-                  done: course.content.knowledgePoints.length > 0,
-                },
-                {
-                  label: `AI 授知章节 (${course.content.lessonOutline.length})`,
-                  done: course.content.lessonOutline.length > 0,
-                },
-                {
-                  label: `评价维度 (${course.content.evaluationPlan.dimensions.length})`,
-                  done: course.content.evaluationPlan.dimensions.length > 0,
-                },
-              ].map((item) => (
+              {publishChecks.map((item) => (
                 <li
                   className="flex items-center gap-2"
                   key={item.label}
@@ -399,7 +379,12 @@ export default function PreviewCoursePage() {
             </ul>
           </Card>
         </aside>
-      </div>
+      </div>}
+      <FlowActionBar back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/generate`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} state={session.saveState} onRetry={() => void session.retrySave()} />}>{!isPublished ? <Button disabled={!readyToPublish || publishing} loading={publishing} onClick={() => void publish()}>发布课程</Button> : <Button onClick={startTeaching}>开始授课</Button>}</FlowActionBar>
     </DashboardShell>
   );
+}
+
+function StudentCoursePreview({ course }: { course: NonNullable<ReturnType<typeof useCourse>> }) {
+  return <article className="mx-auto max-w-4xl border-y border-[var(--pbl-border)] py-8"><p className="text-sm font-semibold text-[var(--pbl-student)]">学生进入课堂后首先看到</p><h2 className="font-editorial mt-2 text-3xl font-semibold">{course.name}</h2><p className="mt-4 text-lg leading-8">{course.drivingQuestion}</p><section className="mt-8"><h3 className="text-lg font-semibold">你将在七个阶段完成这个项目</h3><ol className="mt-4 divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">{course.stages.map((stage, index) => <li className="grid gap-1 py-4 sm:grid-cols-[36px_180px_1fr]" key={stage.key}><span className="text-sm text-[var(--pbl-text-muted)]">{index + 1}</span><strong className="font-semibold">{stage.label}</strong><span className="text-sm leading-6 text-[var(--pbl-text-muted)]">{stage.description}</span></li>)}</ol></section><section className="mt-8 grid gap-6 sm:grid-cols-3"><div><h3 className="font-semibold text-[var(--pbl-ai)]">AI 授知</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">讲解知识、调整学习路径并记录过程证据。</p></div><div><h3 className="font-semibold text-[var(--pbl-teacher)]">教师导学</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">组织课堂、纠偏方案并确认关键阶段。</p></div><div><h3 className="font-semibold text-[var(--pbl-student)]">学生共创</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">理解问题、制作项目、展示并反思。</p></div></section></article>;
 }

@@ -273,6 +273,7 @@ export function StudentStageHost({
         <ServerProvidersInit />
         <MediaStageProvider value={classroomId}>
           <div
+            data-openpbl-embed
             data-back-href={backHref}
             className={cn(
               'relative flex flex-col overflow-hidden bg-background text-foreground',

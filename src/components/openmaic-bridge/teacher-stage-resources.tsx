@@ -19,6 +19,7 @@ import {
   teacherResourceTypeLabel,
 } from "@/lib/openmaic-bridge/teacher-resources";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui";
 
 function ResourceIcon({ type }: { type: TeacherResourceScene["type"] }) {
   if (type === "interactive") return <MousePointerClick size={16} />;
@@ -80,12 +81,12 @@ export function TeacherStageResources({
 
   function projectResource() {
     if (!selected) {
-      window.alert("授课资源数据不完整，请重新生成课程资源后再投屏。");
+      toast.error("授课资源数据不完整", { description: "请重新生成课程资源后再投屏。" });
       return;
     }
     const nextProjection = buildProjection(selected);
     if (!nextProjection) {
-      window.alert("授课资源课堂未关联，请重新生成课程资源后再投屏。");
+      toast.error("授课资源课堂未关联", { description: "请重新生成课程资源后再投屏。" });
       return;
     }
     setUiState(course.id, { teacherResourceProjection: nextProjection });
@@ -98,10 +99,10 @@ export function TeacherStageResources({
   }
 
   return (
-    <section className="overflow-hidden rounded-[var(--radius-lg)] border border-slate-200 bg-white shadow-sm">
+    <section data-openpbl-embed className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3">
         <div>
-          <h2 className="flex items-center gap-2 text-base font-black text-slate-900">
+          <h2 className="flex items-center gap-2 text-base font-bold text-slate-900">
             <Presentation className="text-indigo-600" size={18} /> 本阶段授课资源
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
@@ -134,7 +135,7 @@ export function TeacherStageResources({
       ) : (
         <div className="grid min-h-[560px] xl:grid-cols-[230px_minmax(0,1fr)_300px]">
           <div className="border-b border-slate-200 bg-slate-50/60 p-3 xl:border-b-0 xl:border-r">
-            <div className="mb-2 px-2 text-[11px] font-black uppercase text-slate-400">资源列表</div>
+            <div className="mb-2 px-2 text-[11px] font-bold uppercase text-slate-400">资源列表</div>
             <div className="space-y-1.5">
               {resources.map((resource, index) => (
                 <button
@@ -165,7 +166,7 @@ export function TeacherStageResources({
           <div className="min-w-0 border-b border-slate-200 p-3 xl:border-b-0 xl:border-r">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-sm font-black text-slate-900">{selected?.title}</div>
+                <div className="truncate text-sm font-bold text-slate-900">{selected?.title}</div>
                 <div className="text-xs text-slate-500">
                   {selected ? teacherResourceTypeLabel(selected.type) : ""}
                   {selectedIndex >= 0 ? ` · ${selectedIndex + 1}/${resources.length}` : ""}
@@ -220,7 +221,7 @@ export function TeacherStageResources({
           </div>
 
           <aside className="min-w-0 bg-white p-4">
-            <h3 className="flex items-center gap-2 text-sm font-black text-slate-900">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
               <FileText className="text-amber-600" size={17} /> 教师讲稿
             </h3>
             {selected?.description ? (
@@ -257,10 +258,10 @@ export function StudentProjectedTeacherResource({
   projection: TeacherResourceProjection;
 }) {
   return (
-    <section className="overflow-hidden rounded-[var(--radius-lg)] border border-indigo-200 bg-white shadow-sm">
+    <section data-openpbl-embed className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
       <div className="flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50 px-4 py-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-black text-indigo-900">
+          <div className="flex items-center gap-2 text-sm font-bold text-indigo-900">
             <MonitorUp size={17} /> 教师正在投屏
           </div>
           <div className="mt-0.5 truncate text-xs text-indigo-700">{projection.title}</div>

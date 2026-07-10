@@ -26,29 +26,15 @@ export function StudentAiChatPanel({
   const enabled = enabledStages.includes(stageKey);
 
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [messages, setMessages] = useState<ChatMsg[]>(() => enabled ? [{ role: "assistant", content: `你好，我是本阶段（${contextLabel}）的 AI 学习助手。可以问我关于选题、证据收集、AI 使用边界等问题，我会引导你自主思考，不会直接给出完整答案。`, ts: new Date().toISOString() }] : []);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  // 初始问候语（仅在面板首次启用时插入一次）
-  useEffect(() => {
-    if (enabled && messages.length === 0) {
-      setMessages([
-        {
-          role: "assistant",
-          content: `你好，我是本阶段（${contextLabel}）的 AI 学习助手。可以问我关于选题、证据收集、AI 使用边界等问题，我会引导你自主思考，不会直接给出完整答案。`,
-          ts: new Date().toISOString(),
-        },
-      ]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, stageKey]);
-
   // 自动滚动到底部
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    endRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages]);
 
   if (!enabled) return null;
@@ -61,8 +47,16 @@ export function StudentAiChatPanel({
     setInput("");
     setSending(true);
     setError(null);
+    const asksForCompleteWork = /完整|全部|直接生成|代写/.test(text);
+    const hasOwnWork = (course.submissions ?? []).some((item) => item.stageKey === stageKey && item.content.replace(/<[^>]+>/g, "").trim().length >= 30);
+    if (asksForCompleteWork && !hasOwnWork) {
+      setMessages((current) => [...current, { role: "assistant", content: "在我帮助生成高影响内容前，请先提交你的想法、草稿，或说明一个具体卡点。我可以先帮你检查范围、补充知识或诊断下一步。", ts: new Date().toISOString() }]);
+      setSending(false);
+      return;
+    }
     try {
-      const systemPrompt = `你是 PBL 课堂学习助手。当前课程：${course.name}（驱动问题：${course.drivingQuestion || "无"}）。学生正在「${contextLabel}」阶段。请基于学生的提问给出简短、可操作的引导（不超过 200 字），不要直接给出完整答案，引导学生自主思考。`;
+      const teacherContext = (course.teacherInterventions ?? []).filter((item) => item.stageKey === stageKey && item.status === "open").map((item) => `${item.action}：${item.instruction}`).join("；") || "暂无额外教师介入";
+      const systemPrompt = `你是 PBL 课堂学习助手。当前课程：${course.name}（驱动问题：${course.drivingQuestion || "无"}）。学生正在「${contextLabel}」阶段。教师最新导学要求：${teacherContext}。请基于当前项目与教师要求给出简短、可操作的引导（不超过 200 字），不要直接给出完整答案；说明建议关联的任务或证据，并引导学生自主判断。`;
       const reply = await callStudentChat([
         { role: "system", content: systemPrompt },
         ...messages.map((m) => ({ role: m.role, content: m.content })),
@@ -88,26 +82,16 @@ export function StudentAiChatPanel({
   }
 
   return (
-    <>
-      {/* 浮动触发按钮 */}
-      <button
-        className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-blue-600 text-white shadow-lg transition hover:bg-blue-700"
-        onClick={() => setOpen((v) => !v)}
-        type="button"
-        aria-label="AI 学习助手"
-      >
-        <MessageSquare size={22} />
-      </button>
-
-      {/* 聊天面板 */}
+    <section className="border-y border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+      <button aria-expanded={open} className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left" onClick={() => setOpen((value) => !value)} type="button"><span><span className="flex items-center gap-2 font-semibold text-[var(--pbl-ai)]"><MessageSquare size={18} />当前任务的 AI 支架</span><span className="mt-1 block text-sm text-[var(--pbl-text-muted)]">{contextLabel} · 基于项目内容和教师最新导学</span></span><span className="text-sm font-semibold text-[var(--pbl-ai)]">{open ? "收起" : "展开"}</span></button>
       {open ? (
-        <div className="fixed bottom-24 right-6 z-40 flex h-[460px] w-[380px] flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-100 bg-blue-50 px-4 py-3">
-            <div className="flex items-center gap-2 font-black text-blue-700">
+        <div className="flex min-h-[360px] max-h-[560px] flex-col overflow-hidden border-t border-[var(--pbl-border)]">
+          <div className="flex items-center justify-between bg-[var(--pbl-ai-soft)] px-4 py-3">
+            <div className="flex items-center gap-2 font-semibold text-[var(--pbl-ai)]">
               <Bot size={16} /> AI 学习助手 · {contextLabel}
             </div>
             <button
-              className="grid h-7 w-7 place-items-center rounded-[5px] text-slate-400 hover:bg-slate-100"
+              className="grid h-11 w-11 place-items-center rounded-[5px] text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]"
               onClick={() => setOpen(false)}
               type="button"
               aria-label="关闭"
@@ -124,8 +108,8 @@ export function StudentAiChatPanel({
                 <div
                   className={`max-w-[80%] rounded-[8px] px-3 py-2 text-sm leading-6 ${
                     m.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-100 text-slate-700"
+                      ? "bg-[var(--pbl-student)] text-white"
+                      : "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text)]"
                   }`}
                 >
                   {m.content}
@@ -166,6 +150,6 @@ export function StudentAiChatPanel({
           </div>
         </div>
       ) : null}
-    </>
+    </section>
   );
 }

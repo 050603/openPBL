@@ -12,50 +12,50 @@
 
 :root {
   /* —— 背景与表面 —— */
-  --background: #f5f7fa;
-  --foreground: #0b1220;
-  --pbl-bg: #f5f7fa;
-  --pbl-surface: #ffffff;
-  --pbl-surface-soft: #f8fafc;
-  --pbl-surface-raised: #ffffff;
+  --background: #f4f2ed;
+  --foreground: #1f2933;
+  --pbl-bg: #f4f2ed;
+  --pbl-surface: #fcfbf8;
+  --pbl-surface-soft: #f0eee8;
+  --pbl-surface-raised: #fffefa;
 
   /* —— 文本 —— */
-  --pbl-text: #0b1220;
-  --pbl-text-strong: #020617;
-  --pbl-text-muted: #475569;
-  --pbl-text-subtle: #94a3b8;
+  --pbl-text: #1f2933;
+  --pbl-text-strong: #17212b;
+  --pbl-text-muted: #5f6b76;
+  --pbl-text-subtle: #87919a;
 
   /* —— 边框 —— */
-  --pbl-border: #e2e8f0;
-  --pbl-border-strong: #cbd5e1;
-  --pbl-border-soft: #eef2f7;
+  --pbl-border: #d8d6d0;
+  --pbl-border-strong: #bbb9b3;
+  --pbl-border-soft: #e7e4dd;
 
   /* —— 身份色：教师端（靛蓝）—— */
-  --pbl-teacher: #4338ca;
-  --pbl-teacher-hover: #3730a3;
-  --pbl-teacher-soft: #eef2ff;
-  --pbl-teacher-border: #c7d2fe;
+  --pbl-teacher: #344a6a;
+  --pbl-teacher-hover: #283d5b;
+  --pbl-teacher-soft: #e9edf2;
+  --pbl-teacher-border: #bdc8d5;
 
   /* —— 身份色：学生端（青绿）—— */
-  --pbl-student: #0d9488;
-  --pbl-student-hover: #0f766e;
-  --pbl-student-soft: #f0fdfa;
-  --pbl-student-border: #99f6e4;
+  --pbl-student: #2f6f65;
+  --pbl-student-hover: #255a52;
+  --pbl-student-soft: #e7f0ed;
+  --pbl-student-border: #b6cec8;
 
   /* —— AI 辅助色（天蓝）—— */
-  --pbl-ai: #0284c7;
-  --pbl-ai-soft: #e0f2fe;
-  --pbl-ai-border: #bae6fd;
+  --pbl-ai: #566f7f;
+  --pbl-ai-soft: #e9eef1;
+  --pbl-ai-border: #c4cfd5;
 
   /* —— 状态色 —— */
-  --pbl-success: #059669;
-  --pbl-success-soft: #ecfdf5;
-  --pbl-warning: #d97706;
-  --pbl-warning-soft: #fffbeb;
-  --pbl-danger: #e11d48;
-  --pbl-danger-soft: #fff1f2;
-  --pbl-achievement: #b45309;
-  --pbl-achievement-soft: #fef3c7;
+  --pbl-success: #3f7161;
+  --pbl-success-soft: #eaf2ee;
+  --pbl-warning: #8a6422;
+  --pbl-warning-soft: #f5efe1;
+  --pbl-danger: #8a3e3e;
+  --pbl-danger-soft: #f5eaea;
+  --pbl-achievement: #7b622d;
+  --pbl-achievement-soft: #f2ecdc;
 
   /* —— 中性墨色 —— */
   --pbl-ink: #0f172a;
@@ -63,18 +63,18 @@
 
   /* —— 圆角阶梯（4档统一）—— */
   --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 14px;
   --radius-pill: 999px;
 
   /* —— 阴影阶梯（语义化）—— */
   --shadow-flat: none;
-  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
-  --shadow-raised: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
-  --shadow-floating: 0 12px 32px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.06);
-  --shadow-hero: 0 20px 48px rgba(15, 23, 42, 0.14), 0 8px 16px rgba(15, 23, 42, 0.08);
+  --shadow-soft: none;
+  --shadow-raised: none;
+  --shadow-floating: 0 16px 42px rgba(31, 41, 51, 0.14), 0 2px 8px rgba(31, 41, 51, 0.08);
+  --shadow-hero: var(--shadow-floating);
 
   /* —— 间距阶梯（4px基准）—— */
   --space-1: 4px;
@@ -115,7 +115,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-sans: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-serif: "Noto Serif SC", "Songti SC", serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
@@ -137,6 +138,7 @@ body {
 
 html {
   scroll-behavior: smooth;
+  background: var(--pbl-bg);
 }
 
 button,
@@ -162,7 +164,7 @@ select {
 }
 
 ::selection {
-  background: #c7d2fe;
+  background: var(--pbl-teacher-border);
   color: var(--pbl-text-strong);
 }
 
@@ -189,49 +191,64 @@ select {
    ============================================================ */
 
 .pbl-app-bg {
-  background:
-    radial-gradient(circle at 100% 0%, rgba(67, 56, 202, 0.04), transparent 32rem),
-    radial-gradient(circle at 0% 100%, rgba(13, 148, 136, 0.04), transparent 32rem),
-    var(--background);
-  background-attachment: fixed;
+  background: var(--background);
 }
 
 .pbl-app-bg-role-teacher {
-  background:
-    radial-gradient(circle at 100% 0%, rgba(67, 56, 202, 0.06), transparent 32rem),
-    radial-gradient(circle at 0% 100%, rgba(67, 56, 202, 0.03), transparent 28rem),
-    var(--background);
-  background-attachment: fixed;
+  background: var(--background);
 }
 
 .pbl-app-bg-role-student {
-  background:
-    radial-gradient(circle at 100% 0%, rgba(13, 148, 136, 0.06), transparent 32rem),
-    radial-gradient(circle at 0% 100%, rgba(13, 148, 136, 0.03), transparent 28rem),
-    var(--background);
-  background-attachment: fixed;
+  background: var(--background);
 }
 
 /* 玻璃顶栏：更克制，去除过度模糊 */
 .pbl-glass {
   border: 1px solid var(--pbl-border);
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--pbl-surface) 96%, transparent);
+  box-shadow: 0 3px 12px rgba(31, 41, 51, 0.06);
 }
 
 /* 卡片：统一表面，去除多层渐变 */
 .pbl-card {
   border: 1px solid var(--pbl-border);
   background: var(--pbl-surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .pbl-card-raised {
   border: 1px solid var(--pbl-border);
   background: var(--pbl-surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
+}
+
+.font-editorial {
+  font-family: var(--font-serif);
+}
+
+.pbl-page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 96rem;
+  padding-inline: clamp(1rem, 3vw, 2rem);
+}
+
+.pbl-focus-ring:focus-visible {
+  outline: 2px solid var(--pbl-teacher);
+  outline-offset: 3px;
+}
+
+.pbl-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+[data-openpbl-embed] {
+  --primary: var(--pbl-ai);
+  --ring: var(--pbl-ai);
+  --background: var(--pbl-surface);
+  --card: var(--pbl-surface);
+  --border: var(--pbl-border);
+  color: var(--pbl-text);
 }
 
 /* 面板：浅灰底，用于次级分组 */

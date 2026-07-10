@@ -65,7 +65,7 @@ export function GroupBoardEditor({ course, groupId, readOnly = false }: GroupBoa
     <Card className="overflow-hidden p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-xl font-black">
+          <h2 className="text-xl font-bold">
             {mode === "mindmap" ? "协作思维导图" : "协作白板"}
           </h2>
           <Pill tone="blue">

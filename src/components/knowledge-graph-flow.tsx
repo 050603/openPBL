@@ -172,7 +172,7 @@ function layoutNodes(nodes: KnowledgeGraphNode[]): { id: string; position: { x: 
     tierNodes.forEach((node, idx) => {
       results.push({
         id: node.id,
-        position: {
+        position: node.position ?? {
           x: -totalWidth / 2 + idx * NODE_GAP,
           y: tierIndex * TIER_HEIGHT,
         },
@@ -203,12 +203,14 @@ export function KnowledgeGraphFlow({
   activeNodeId,
   height = 360,
   showMiniMap = true,
+  onNodePositionChange,
 }: {
   graph?: KnowledgeGraph;
   points?: KnowledgePoint[];
   activeNodeId?: string | null;
   height?: number;
   showMiniMap?: boolean;
+  onNodePositionChange?: (nodeId: string, position: { x: number; y: number }) => void;
 }) {
   const normalized = useMemo(
     () => normalizeKnowledgeGraphForDisplay(graph, points),
@@ -315,6 +317,7 @@ export function KnowledgeGraphFlow({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onNodeDragStop={(_, node) => onNodePositionChange?.(node.id, node.position)}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView

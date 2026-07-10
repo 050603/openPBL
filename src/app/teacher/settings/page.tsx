@@ -667,7 +667,7 @@ export default function TeacherSettingsPage() {
             <main className="min-w-0">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-xl font-black text-slate-950">{tabCopy.title}</h2>
+                  <h2 className="text-xl font-bold text-slate-950">{tabCopy.title}</h2>
                   <p className="mt-1 text-sm text-slate-500">{tabCopy.description}</p>
                 </div>
                 <div className="relative w-full md:w-[320px]">
@@ -769,7 +769,7 @@ export default function TeacherSettingsPage() {
                           <ProviderLogo icon={provider.icon} name={provider.name} />
                           <span className="min-w-0 flex-1">
                             <span className="flex flex-wrap items-center gap-2">
-                              <span className="font-black text-slate-950">{provider.name}</span>
+                              <span className="font-bold text-slate-950">{provider.name}</span>
                               <ProviderStateBadge provider={provider} saved={saved} />
                             </span>
                             <span className="mt-1 block truncate text-xs text-slate-500">
@@ -819,12 +819,12 @@ export default function TeacherSettingsPage() {
               <Card className="sticky top-24">
                 <div className="mb-4 flex items-center gap-2">
                   <SlidersHorizontal size={18} className="text-blue-600" />
-                  <h3 className="text-base font-black text-slate-950">操作顺序</h3>
+                  <h3 className="text-base font-bold text-slate-950">操作顺序</h3>
                 </div>
                 <div className="space-y-3">
                   {tabCopy.tips.map((tip, index) => (
                     <div key={tip} className="flex gap-3 text-sm text-slate-600">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-black text-blue-700">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
                         {index + 1}
                       </span>
                       <span className="leading-6">{tip}</span>
@@ -851,7 +851,7 @@ export default function TeacherSettingsPage() {
       {deletingProvider ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm">
           <div className="mx-4 max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-black text-slate-950">确认删除配置</h3>
+            <h3 className="text-lg font-bold text-slate-950">确认删除配置</h3>
             <p className="mt-3 text-sm leading-6 text-slate-600">
               即将删除 <span className="font-bold text-slate-900">{deletingProvider.name}</span> 的 API Key、
               Base URL、模型列表等全部配置。删除后需重新填写才能使用该服务。
@@ -920,7 +920,7 @@ function ProviderList({
           >
             <ProviderLogo icon={provider.icon} name={provider.name} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-black text-slate-950">
+              <span className="block truncate text-sm font-bold text-slate-950">
                 {provider.name}
               </span>
               <span className="mt-1 flex items-center gap-2">
@@ -1302,7 +1302,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 flex items-center gap-2 text-sm font-black text-slate-800">
+      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-800">
         {Icon ? <Icon size={16} className="text-slate-400" /> : null}
         {label}
       </span>
@@ -1407,7 +1407,7 @@ function StatusTile({
           <span className="block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">
             {label}
           </span>
-          <span className="mt-1 block truncate text-lg font-black text-slate-950">{value}</span>
+          <span className="mt-1 block truncate text-lg font-bold text-slate-950">{value}</span>
           <span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-500">{helper}</span>
         </span>
       </div>
@@ -1468,7 +1468,7 @@ function ProviderLogo({ icon, name }: { icon?: string; name: string }) {
   }
 
   return (
-    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-slate-100 text-sm font-black text-slate-600">
+    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-slate-100 text-sm font-bold text-slate-600">
       {name.slice(0, 2)}
     </span>
   );

@@ -225,7 +225,7 @@ export function SlidePreview({ className }: { className?: string }) {
     >
       <CampusPhoto className="h-[60%] w-[80%] rounded-[6px] opacity-50" />
       <div className="px-6 pb-4">
-        <p className="text-base font-black text-slate-600">演示预览占位</p>
+        <p className="text-base font-bold text-slate-600">演示预览占位</p>
         <p className="mt-1 text-sm text-slate-500">
           上传 PPT 或视频后，将在此处显示真实预览。
         </p>
@@ -266,7 +266,7 @@ export function MindMap() {
 
   return (
     <div className="relative h-[20rem] overflow-hidden rounded-[8px] border border-slate-200 bg-[radial-gradient(#dbeafe_1px,transparent_1px)] bg-[length:18px_18px]">
-      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[8px] border border-emerald-300 bg-emerald-50 px-7 py-3 text-xl font-black text-emerald-700 shadow-sm">
+      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[8px] border border-emerald-300 bg-emerald-50 px-7 py-3 text-xl font-bold text-emerald-700 shadow-sm">
         校园低碳生活推广方案
       </div>
       <svg className="absolute inset-0 h-full w-full" aria-hidden>

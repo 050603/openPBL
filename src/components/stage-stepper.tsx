@@ -49,7 +49,7 @@ export function StageStepper({
                 <ChevronLeft size={15} />
               </button>
               <button
-                className={cn("grid h-8 w-8 place-items-center rounded-[var(--radius-sm)] text-white shadow-[var(--shadow-soft)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0", advanceBtn)}
+                className={cn("grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40", advanceBtn)}
                 disabled={!canNext}
                 onClick={() => onAdvance(1)}
                 type="button"

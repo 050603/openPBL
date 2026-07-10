@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applySessionAction,
   initialSessionState,
+  normalizeCourse,
   type SessionAction,
   type SessionState,
 } from "./actions";
@@ -415,5 +416,20 @@ describe("applySessionAction — SET_STAGE", () => {
     });
 
     expect(next.courses[0].currentStageIndex).toBe(DEFAULT_STAGES.length - 1);
+  });
+});
+
+describe("normalizeCourse — v2 migration", () => {
+  it("migrates shared workspace stages, feedback lanes and evaluation flows", () => {
+    const legacy = makeCourse({
+      stages: DEFAULT_STAGES.map((stage) => stage.key === "review" || stage.key === "make" ? { ...stage, view: "workspace" } : stage),
+      feedback: [{ id: "f1", courseId: "course-1", targetType: "group", targetId: "g1", stageKey: "review", kind: "comment", content: "请补充证据", createdAt: "2024-01-01T00:00:00.000Z" }],
+    });
+    const result = normalizeCourse(legacy);
+    expect(result.stages.find((stage) => stage.key === "review")?.view).toBe("proposal-review");
+    expect(result.stages.find((stage) => stage.key === "make")?.view).toBe("project-making");
+    expect(result.feedback?.[0]).toMatchObject({ sourceRole: "teacher", status: "open", evidence: [] });
+    expect(result.content.evaluationPlan.flows?.map((flow) => flow.sourceRole)).toEqual(["ai", "teacher", "peer", "self"]);
+    expect(result.content.evaluationPlan.flows?.reduce((sum, flow) => sum + flow.weight, 0)).toBe(100);
   });
 });

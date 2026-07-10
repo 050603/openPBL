@@ -50,13 +50,13 @@ export function InviteCodeCard({
   return (
     <div
       className={cn(
-        "rounded-[10px] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-sky-50 p-6 text-center shadow-[0_18px_44px_rgba(37,99,235,0.12)]",
+        "rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-6 text-center",
       )}
     >
       <div className="text-sm font-semibold text-blue-700">{label}</div>
       <div
         className={cn(
-          "mt-3 font-black tracking-[0.4em] text-blue-700",
+          "mt-3 font-bold tracking-[0.4em] text-blue-700",
           size === "lg" ? "text-[64px] leading-[64px]" : "text-[44px] leading-[44px]",
         )}
       >
@@ -65,7 +65,7 @@ export function InviteCodeCard({
       {hint ? <p className="mt-3 text-sm text-slate-500">{hint}</p> : null}
       <div className="mt-5 flex items-center justify-center gap-3">
         <button
-          className="inline-flex h-10 items-center gap-2 rounded-[6px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] hover:bg-blue-700"
+          className="inline-flex min-h-11 items-center gap-2 rounded-[6px] bg-[var(--pbl-student)] px-4 text-sm font-semibold text-white hover:bg-[var(--pbl-student-hover)]"
           onClick={copy}
           type="button"
         >

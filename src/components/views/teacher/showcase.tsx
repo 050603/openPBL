@@ -16,7 +16,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { Avatar, AvatarStack } from "@/components/dashboard-shell";
-import { Card, FileBadge, Pill, PrimaryButton, TextArea } from "@/components/ui";
+import { Card, FileBadge, Pill, PrimaryButton, TextArea, toast } from "@/components/ui";
 import type {
   Course,
   EvaluationDimension,
@@ -114,7 +114,7 @@ export function ShowcaseTeacherView({
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 实时评价失败";
       setEvalError(message);
-      window.alert(message);
+      toast.error("AI 汇报评价失败", { description: message });
     } finally {
       setEvalLoading(false);
     }
@@ -236,7 +236,7 @@ export function ShowcaseTeacherView({
 
       <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 小组列表
           </h2>
           <ul className="space-y-2">
@@ -286,7 +286,7 @@ export function ShowcaseTeacherView({
             <Card>
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-black">
+                  <h2 className="text-lg font-bold">
                     {active.name}
                     <span className="ml-2 text-base font-semibold text-slate-500">
                       {active.topic}
@@ -322,7 +322,7 @@ export function ShowcaseTeacherView({
 
             <div className="grid gap-5 xl:grid-cols-2">
               <Card>
-                <h3 className="mb-3 flex items-center gap-2 font-black">
+                <h3 className="mb-3 flex items-center gap-2 font-bold">
                   <FileText className="text-blue-700" size={18} /> 方案材料
                 </h3>
                 {activeUploads.length ? (
@@ -366,7 +366,7 @@ export function ShowcaseTeacherView({
 
               <Card className="xl:col-span-2">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="flex items-center gap-2 font-black">
+                  <h3 className="flex items-center gap-2 font-bold">
                     <Gauge className="text-amber-600" size={18} /> AI 评价参考
                   </h3>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${liveEvaluation?.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
@@ -404,7 +404,7 @@ export function ShowcaseTeacherView({
               </Card>
               <Card className="xl:col-span-2">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="flex items-center gap-2 font-black">
+                  <h3 className="flex items-center gap-2 font-bold">
                     <Star className="text-amber-600" size={18} /> 实时评分
                   </h3>
                   <PrimaryButton
@@ -449,7 +449,7 @@ export function ShowcaseTeacherView({
             </div>
 
             <Card>
-              <h3 className="mb-3 flex items-center gap-2 font-black">
+              <h3 className="mb-3 flex items-center gap-2 font-bold">
                 <MessageCircle className="text-blue-700" size={18} /> 提问 / 点评
               </h3>
               <TextArea
@@ -521,7 +521,7 @@ function Metric({
     <Card>
       <div className="text-sm text-slate-500">{label}</div>
       <div
-        className={`mt-2 truncate text-2xl font-black ${
+        className={`mt-2 truncate text-2xl font-bold ${
           tone === "blue"
             ? "text-blue-700"
             : tone === "green"
@@ -555,7 +555,7 @@ function ScoreChip({
   return (
     <div className={`rounded-[6px] border p-3 ${className}`}>
       <div className="text-xs font-semibold">{label}</div>
-      <div className="mt-1 text-2xl font-black">{value}</div>
+      <div className="mt-1 text-2xl font-bold">{value}</div>
     </div>
   );
 }
@@ -595,7 +595,7 @@ function DimensionRow({
       <div className="rounded-[6px] border border-blue-100 bg-blue-50/70 p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-bold text-blue-700">AI 参考评分</span>
-          <span className="text-lg font-black text-blue-800">
+          <span className="text-lg font-bold text-blue-800">
             {typeof aiScore === "number" ? `${aiScore} 分` : "待生成"}
           </span>
         </div>

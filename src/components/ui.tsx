@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
    OpenPBL 基础组件库 v2
    - 统一圆角（8/12/16）
    - 语义化变体
-   - 克制字重（去除 font-black 滥用，最多到 font-bold）
+   - 克制字重（去除 font-bold 滥用，最多到 font-bold）
    - 身份色通过 role 传入
    ============================================================ */
 
@@ -607,3 +607,32 @@ export function FileBadge({ type }: { type: string }) {
 export function roleColor(role: Role): string {
   return role === "teacher" ? "var(--pbl-teacher)" : role === "student" ? "var(--pbl-student)" : "var(--pbl-ai)";
 }
+
+// OPENPBL_DEV_ENTRY: v2 components are exported here so legacy imports can be
+// migrated incrementally without duplicating page-level Tailwind recipes.
+export { Button } from "@/components/ui/button";
+export { FormField, Input, NativeSelect, Textarea } from "@/components/ui/form";
+export {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerTrigger,
+} from "@/components/ui/overlays";
+export { FlowActionBar, PageState, SaveStatus } from "@/components/ui/states";
+export { toast } from "@/components/ui/feedback";

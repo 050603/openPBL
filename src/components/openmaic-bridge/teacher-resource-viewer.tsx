@@ -52,7 +52,7 @@ export function TeacherResourceViewer({
           <ArrowLeft size={17} />
         </Link>
         <div className="min-w-0">
-          <h1 className="truncate text-[24px] font-black">{courseName} · 教师授课资源</h1>
+          <h1 className="truncate text-[24px] font-bold">{courseName} · 教师授课资源</h1>
           <p className="text-sm text-slate-500">
             按课程阶段生成的 PPT、互动演示与讲稿 · {scenes.length} 个资源场景
           </p>
@@ -145,7 +145,7 @@ function ScriptTab({
         >
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <span className="grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] bg-blue-50 text-xs font-black text-blue-700">
+              <span className="grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] bg-blue-50 text-xs font-bold text-blue-700">
                 {index + 1}
               </span>
               <div>

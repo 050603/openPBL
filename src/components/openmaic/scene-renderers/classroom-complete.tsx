@@ -291,7 +291,7 @@ function QuizRing({ pct, delay = 0 }: { pct: number; delay?: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-xl font-black text-amber-700 dark:text-amber-300">
+        <span className="text-xl font-bold text-amber-700 dark:text-amber-300">
           <AnimatedCounter value={pct} delay={delay} duration={1.0} />
           <span className="text-sm font-bold">%</span>
         </span>
@@ -418,7 +418,7 @@ export function ClassroomCompletePage({ scenes, title }: ClassroomCompletePagePr
             transition={{ delay: 0.78, duration: 0.4, ease: 'easeOut' }}
             className="text-center space-y-1.5"
           >
-            <h2 className="text-3xl md:text-4xl font-black leading-tight bg-gradient-to-br from-amber-700 via-orange-600 to-amber-800 dark:from-amber-200 dark:via-orange-200 dark:to-amber-300 bg-clip-text text-transparent">
+            <h2 className="text-3xl md:text-4xl font-bold leading-tight bg-gradient-to-br from-amber-700 via-orange-600 to-amber-800 dark:from-amber-200 dark:via-orange-200 dark:to-amber-300 bg-clip-text text-transparent">
               {title || t('classroomComplete.title')}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">{dateLabel}</p>
@@ -454,7 +454,7 @@ export function ClassroomCompletePage({ scenes, title }: ClassroomCompletePagePr
                       className="w-6 h-6 text-amber-500 dark:text-amber-400"
                       strokeWidth={1.8}
                     />
-                    <div className="text-3xl font-black text-gray-900 dark:text-gray-100 leading-none">
+                    <div className="text-3xl font-bold text-gray-900 dark:text-gray-100 leading-none">
                       <AnimatedCounter value={count} delay={cardDelay + 0.15} />
                     </div>
                     <div className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">

@@ -22,6 +22,7 @@ import type {
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
+import { DEFAULT_EVALUATION_FLOWS } from "./types";
 
 export type SessionState = {
   courses: Course[];
@@ -658,11 +659,26 @@ function activity(actor: string, action: string, detail: string | undefined, cre
 }
 
 export function normalizeCourse(course: Course): Course {
+  const stages = (course.stages ?? []).map((stage) => ({
+    ...stage,
+    label: stage.key === "review" ? "方案汇报与纠偏" : stage.key === "make" ? "项目制作与 AI 实时支架" : stage.key === "showcase" ? "最终汇报展示" : stage.key === "reflection" ? "综合评价与反思" : stage.key === "ai-learning" ? "AI 授知" : stage.label,
+    view: stage.key === "review"
+      ? "proposal-review" as const
+      : stage.key === "make"
+        ? "project-making" as const
+        : stage.view,
+  }));
   return {
     ...course,
+    stages,
     students: course.students ?? [],
     submissions: course.submissions ?? [],
-    feedback: course.feedback ?? [],
+    feedback: (course.feedback ?? []).map((item) => ({
+      sourceRole: "teacher" as const,
+      evidence: [],
+      status: "open" as const,
+      ...item,
+    })),
     rubricScores: course.rubricScores ?? [],
     reflections: course.reflections ?? [],
     activityLog: course.activityLog ?? [],
@@ -677,7 +693,19 @@ export function normalizeCourse(course: Course): Course {
     uploads: course.uploads ?? [],
     teamContributions: course.teamContributions ?? [],
     aiSupports: course.aiSupports ?? [],
+    teacherInterventions: course.teacherInterventions ?? [],
+    stageTransitions: course.stageTransitions ?? [],
+    evaluations: course.evaluations ?? [],
     uiState: course.uiState ?? {},
+    content: {
+      ...course.content,
+      evaluationPlan: {
+        ...course.content.evaluationPlan,
+        flows: course.content.evaluationPlan.flows?.length
+          ? course.content.evaluationPlan.flows
+          : DEFAULT_EVALUATION_FLOWS.map((flow) => ({ ...flow, evidenceRequirements: [...flow.evidenceRequirements] })),
+      },
+    },
   };
 }
 

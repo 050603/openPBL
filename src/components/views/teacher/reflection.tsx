@@ -20,6 +20,7 @@ import {
   Pill,
   PrimaryButton,
   ProgressBar,
+  toast,
 } from "@/components/ui";
 import type {
   Course,
@@ -184,7 +185,7 @@ export function ReflectionTeacherView({
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 过程评价失败";
       setEvalError(message);
-      window.alert(message);
+      toast.error("AI 过程评价失败", { description: message });
     } finally {
       setEvalLoading(false);
     }
@@ -297,7 +298,7 @@ export function ReflectionTeacherView({
             <div className="text-sm text-slate-500">班级平均分</div>
             <TrendingUp className="text-blue-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-blue-700">
+          <div className="mt-2 text-2xl font-bold text-blue-700">
             {students.length > 0 ? classAvg : "—"}
           </div>
         </Card>
@@ -306,27 +307,27 @@ export function ReflectionTeacherView({
             <div className="text-sm text-slate-500">优秀（≥90）</div>
             <Award className="text-emerald-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-emerald-700">{excellentCount}</div>
+          <div className="mt-2 text-2xl font-bold text-emerald-700">{excellentCount}</div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-500">合格（75-89）</div>
             <Star className="text-amber-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-amber-700">{passCount}</div>
+          <div className="mt-2 text-2xl font-bold text-amber-700">{passCount}</div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-500">待改进（&lt;75）</div>
             <Lightbulb className="text-rose-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-rose-700">{needImproveCount}</div>
+          <div className="mt-2 text-2xl font-bold text-rose-700">{needImproveCount}</div>
         </Card>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 班级综合评价汇总
             {!anyScored ? (
               <span className="ml-2 rounded-[6px] bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
@@ -355,7 +356,7 @@ export function ReflectionTeacherView({
         </Card>
 
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <Lightbulb className="text-amber-600" size={20} /> AI 班级整体点评
           </h2>
           <div className="rounded-[8px] border border-amber-200 bg-amber-50/60 p-4 text-sm leading-7 text-slate-700">
@@ -367,7 +368,7 @@ export function ReflectionTeacherView({
       <Card>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-black">
+            <h2 className="flex items-center gap-2 text-lg font-bold">
               <ClipboardCheck className="text-amber-600" size={20} /> AI 过程性评价报告
             </h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -437,7 +438,7 @@ export function ReflectionTeacherView({
                   <li key={d.name} className="rounded-[6px] border border-slate-200 bg-white px-3 py-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-slate-800">{d.name}</span>
-                      <span className="text-sm font-black text-blue-700">{d.score} 分</span>
+                      <span className="text-sm font-bold text-blue-700">{d.score} 分</span>
                     </div>
                     <ProgressBar
                       className="mt-2 h-1.5"
@@ -483,7 +484,7 @@ export function ReflectionTeacherView({
       </Card>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <MessageSquare className="text-blue-700" size={20} /> 个别学生评语
         </h2>
         {students.length > 0 ? (
@@ -557,7 +558,7 @@ export function ReflectionTeacherView({
       </Card>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <Send className="text-blue-700" size={20} /> 批量操作
         </h2>
         <div className="flex flex-wrap items-center gap-3">

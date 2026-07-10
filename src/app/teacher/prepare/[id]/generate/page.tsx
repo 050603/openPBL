@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { WizardStepper } from "@/components/wizard-stepper";
-import { Card, PrimaryButton } from "@/components/ui";
+import { Button, Card, FlowActionBar, PrimaryButton, SaveStatus, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 import type { LessonOutlineSection } from "@/lib/session/types";
@@ -50,6 +50,14 @@ type SseEvent =
   | { type: "error"; error?: string; details?: string };
 
 const SCENE_OUTLINE_TYPES = new Set(["slide", "quiz", "interactive", "pbl"]);
+const GENERATION_TIMELINE = [
+  { label: "整理课程结构", threshold: 10 },
+  { label: "生成学习场景", threshold: 30 },
+  { label: "补充教学素材", threshold: 50 },
+  { label: "配置互动活动", threshold: 70 },
+  { label: "检查教学目标覆盖", threshold: 88 },
+  { label: "准备课程预览", threshold: 100 },
+];
 
 function normalizeSceneOutline(outline: unknown, index: number): SceneOutline {
   const raw = outline && typeof outline === "object" ? outline as Record<string, unknown> : {};
@@ -93,8 +101,8 @@ function lessonSectionToSceneOutline(
 
 export default function GenerateCoursePage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const { user, updateCourse } = useSession();
+  const session = useSession();
+  const { user, updateCourse } = session;
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
 
@@ -321,15 +329,11 @@ export default function GenerateCoursePage() {
         throw new Error(`内容分流失败：${splitMessage}`);
       }
 
-      // 短暂展示成功后跳转预览
-      setTimeout(() => {
-        router.push(`/teacher/prepare/${course.id}/preview?classroomId=${classroomId}`);
-      }, 1500);
     } catch (err) {
       const message = err instanceof Error ? err.message : "生成失败";
       setError(message);
       setStatus("error");
-      window.alert(message);
+      toast.error("课程内容生成失败", { description: message });
     }
   }
 
@@ -382,24 +386,33 @@ export default function GenerateCoursePage() {
           <ArrowLeft size={17} />
         </Link>
         <div>
-          <h1 className="text-[28px] font-black">生成课程</h1>
+          <h1 className="text-[28px] font-bold">生成课程</h1>
           <p className="mt-1 text-sm text-slate-500">
             {course.name} · 正在生成 AI 授知内容
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_360px] gap-5">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         {!started ? (
           <Card>
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-black">生成选项</h2>
+              <h2 className="font-editorial text-2xl font-semibold">将生成的课程内容</h2>
             </div>
             <p className="mb-4 text-sm leading-7 text-slate-500">
-              请选择要启用的 AI 生成阶段（可全部关闭，仅生成基础场景内容）。配置完成后点击「开始生成」按钮。媒体/TTS/Web Search 阶段需在「设置」页配置对应 Provider。
+              系统将按已确认的课程结构生成学习内容，并在完成后分别整理教师资源、学生内容与评价材料。
             </p>
 
-            <div className="space-y-3">
+            <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
+              ["学习场景", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
+              ["互动活动", "按教学活动配置"], ["知识检查", "覆盖学习目标"],
+              ["教师资源", `${course.content.teachingOutline?.filter((item) => item.openMaicUse === "teacher-resource").length ?? 0} 组`],
+              ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
+            ].map(([label, value]) => <div className="border-t border-[var(--pbl-border)] pt-3" key={label}><dt className="text-xs text-[var(--pbl-text-muted)]">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
+
+            <details className="border-y border-[var(--pbl-border)] py-3">
+              <summary className="cursor-pointer text-sm font-semibold">生成设置 <span className="font-normal text-[var(--pbl-text-muted)]">· 联网、配图、视频与语音</span></summary>
+            <div className="mt-4 space-y-3">
               <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-slate-200 px-4 py-3 hover:bg-slate-50">
                 <input
                   type="checkbox"
@@ -460,6 +473,7 @@ export default function GenerateCoursePage() {
                 </div>
               </label>
             </div>
+            </details>
 
             <div className="mt-5 flex items-center gap-3">
               <PrimaryButton onClick={beginGeneration} type="button">
@@ -476,7 +490,7 @@ export default function GenerateCoursePage() {
         ) : (
           <Card>
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-black">生成状态</h2>
+              <h2 className="text-xl font-bold">生成状态</h2>
               {status === "loading" && steps.length > 0 ? (
                 <span className="text-xs font-semibold text-slate-500">
                   已接收 {steps.length} 条进度
@@ -487,7 +501,7 @@ export default function GenerateCoursePage() {
             <div className="flex items-start gap-4 rounded-[8px] border border-slate-200 px-4 py-4">
               <span
                 className={cn(
-                  "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-black",
+                  "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
                   status === "loading" && "bg-blue-600 text-white",
                   status === "success" && "bg-emerald-500 text-white",
                   status === "error" && "bg-red-500 text-white",
@@ -513,7 +527,7 @@ export default function GenerateCoursePage() {
                   {status === "loading"
                     ? "正在生成 AI 授知课程..."
                     : status === "success"
-                      ? "生成完成，正在跳转预览..."
+                      ? "生成完成，等待教师确认"
                       : "生成失败"}
                 </div>
                 <div className="mt-1 text-sm leading-7 text-slate-500">
@@ -529,7 +543,12 @@ export default function GenerateCoursePage() {
             {/* 实时进度步骤列表 */}
             {steps.length > 0 ? (
               <div className="mt-5">
-                <h3 className="mb-2 text-sm font-bold text-slate-700">实时进度</h3>
+                <h3 className="mb-3 text-sm font-semibold text-[var(--pbl-text)]">生成任务</h3>
+                <ol className="divide-y divide-[var(--pbl-border-soft)] border-y border-[var(--pbl-border)]">
+                  {GENERATION_TIMELINE.map((item, index) => { const progress = Math.max(0, ...steps.map((step) => step.progress)); const complete = status === "success" || progress >= item.threshold; const active = !complete && (index === 0 || progress >= GENERATION_TIMELINE[index - 1].threshold); return <li className="flex items-center gap-3 py-3 text-sm" key={item.label}><span className={cn("grid h-6 w-6 place-items-center rounded-full border text-xs", complete ? "border-[var(--pbl-success)] bg-[var(--pbl-success)] text-white" : active ? "border-[var(--pbl-ai)] text-[var(--pbl-ai)]" : "border-[var(--pbl-border-strong)] text-[var(--pbl-text-subtle)]")}>{complete ? <Check size={13} /> : index + 1}</span><span className={complete || active ? "font-semibold" : "text-[var(--pbl-text-muted)]"}>{item.label}</span>{active && status === "loading" ? <Loader2 className="ml-auto animate-spin text-[var(--pbl-ai)]" size={15} /> : null}</li>; })}
+                </ol>
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-[var(--pbl-text-muted)]">查看详细生成日志</summary>
                 <ol className="max-h-72 space-y-1 overflow-y-auto rounded-[6px] border border-slate-100 bg-slate-50/50 p-3 text-xs">
                   {steps.map((s, i) => (
                     <li
@@ -550,6 +569,7 @@ export default function GenerateCoursePage() {
                     </li>
                   ))}
                 </ol>
+                </details>
               </div>
             ) : null}
 
@@ -564,12 +584,18 @@ export default function GenerateCoursePage() {
                 </PrimaryButton>
               </div>
             ) : null}
+            {status === "success" && result ? (
+              <div className="mt-5 flex flex-col gap-3 border-t border-[var(--pbl-border)] pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[var(--pbl-text-muted)]">已保留生成结果，不会自动离开本页。请查看摘要后主动进入预览。</p>
+                <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link>
+              </div>
+            ) : null}
           </Card>
         )}
 
         <aside className="space-y-5">
           <Card>
-            <h2 className="flex items-center gap-2 text-lg font-black">
+            <h2 className="flex items-center gap-2 text-lg font-bold">
               <Lightbulb className="text-blue-600" size={18} /> AI 授知生成
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
@@ -578,7 +604,7 @@ export default function GenerateCoursePage() {
           </Card>
 
           <Card>
-            <h2 className="flex items-center gap-2 text-lg font-black">
+            <h2 className="flex items-center gap-2 text-lg font-bold">
               <CircleAlert className="text-amber-500" size={18} /> 提示
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
@@ -587,6 +613,7 @@ export default function GenerateCoursePage() {
           </Card>
         </aside>
       </div>
+      <FlowActionBar back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/verify`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}>{status === "success" && result ? <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link> : <Button disabled={started && status === "loading"} loading={started && status === "loading"} onClick={started ? () => void startGeneration() : beginGeneration}>{started && status === "error" ? "重新生成" : "生成课程内容"}</Button>}</FlowActionBar>
     </DashboardShell>
   );
 }

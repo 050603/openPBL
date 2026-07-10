@@ -48,7 +48,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-lg font-black">
+            <h2 className="flex items-center gap-2 text-lg font-bold">
               <Flag className="text-blue-700" size={20} /> 项目概览
             </h2>
             <Pill tone="blue">阶段一 · 项目启动</Pill>
@@ -68,7 +68,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
             <Megaphone className="text-amber-600" size={20} /> 发布课堂公告
           </h2>
           <div className="space-y-3">
@@ -83,7 +83,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
         <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
             <Megaphone className="text-blue-700" size={20} /> 课堂公告管理
           </h2>
           <ul className="space-y-3">
@@ -115,7 +115,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 已加入学生（{joined}）
           </h2>
           {joined > 0 ? (
@@ -170,7 +170,7 @@ function StatCard({ title, value, sub, icon, progress, tone = "blue" }: { title:
         <div className="text-sm text-slate-500">{title}</div>
         <div className={`grid h-9 w-9 place-items-center rounded-full ${toneColor}`}>{icon}</div>
       </div>
-      <div className="mt-2 text-2xl font-black text-slate-950">{value}</div>
+      <div className="mt-2 text-2xl font-bold text-slate-950">{value}</div>
       <div className="mt-1 text-xs text-slate-500">{sub}</div>
       <div className="mt-3">
         <ProgressBar className="h-1.5" tone={tone === "blue" ? "blue" : tone === "emerald" ? "green" : "orange"} value={progress} />

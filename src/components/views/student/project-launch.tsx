@@ -66,7 +66,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
       <div className="min-w-0 space-y-5">
         <div className="flex flex-wrap items-center gap-4">
-          <h1 className="text-3xl font-black tracking-[0] leading-tight text-slate-950 md:text-4xl">{title}</h1>
+          <h1 className="text-3xl font-bold tracking-[0] leading-tight text-slate-950 md:text-4xl">{title}</h1>
           <Pill tone="green">进行中</Pill>
         </div>
         <ProjectCoverImage course={course} className="h-56 w-full sm:h-60 md:h-64" />
@@ -83,7 +83,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
               <FileText size={26} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-slate-950">成果要求</h2>
+              <h2 className="text-xl font-bold text-slate-950">成果要求</h2>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] leading-7 text-slate-700">
                 <li>按教师设定的课程阶段推进项目，完成各阶段任务。</li>
                 <li>在「方案阶段」提交完整项目方案文档。</li>
@@ -99,13 +99,13 @@ export function ProjectLaunchView({ course }: { course: Course }) {
             <div className="grid h-11 w-11 place-items-center rounded-full bg-blue-50 text-blue-600">
               <Flag size={25} />
             </div>
-            <h2 className="text-xl font-black">时间安排</h2>
+            <h2 className="text-xl font-bold">时间安排</h2>
           </div>
           <div className="relative grid grid-cols-7 gap-2 overflow-x-auto pb-1">
             <div className="absolute left-[6%] right-[7%] top-[18px] h-1 rounded-full bg-slate-200" />
             {projectTimeline.map(([step, label, date], index) => (
               <div className="relative z-10 min-w-[86px] text-center" key={step}>
-                <div className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-base font-black text-white ${index <= course.currentStageIndex ? "bg-blue-600" : "bg-slate-300"}`}>
+                <div className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-base font-bold text-white ${index <= course.currentStageIndex ? "bg-blue-600" : "bg-slate-300"}`}>
                   {step}
                 </div>
                 <div className={index <= course.currentStageIndex ? "mt-3 font-bold text-blue-700" : "mt-3 font-semibold text-slate-600"}>{label}</div>
@@ -118,7 +118,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
 
       <aside className="min-w-0 space-y-5">
         <Card>
-          <h2 className="mb-4 text-xl font-black">学生待办</h2>
+          <h2 className="mb-4 text-xl font-bold">学生待办</h2>
           {(course.todos ?? []).map((todo) => {
             const done = Boolean(studentId && todo.completedBy.includes(studentId));
             const Icon = todo.id.includes("group") ? Users : todo.id.includes("direction") ? Compass : FileText;
@@ -146,7 +146,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
 
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-black">相关资源</h2>
+            <h2 className="text-xl font-bold">相关资源</h2>
             <Pill tone="blue">{course.resources?.length ?? 0} 个</Pill>
           </div>
           <div className="space-y-3">
@@ -174,7 +174,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
 
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-black">项目公告 / 讨论</h2>
+            <h2 className="text-xl font-bold">项目公告 / 讨论</h2>
             <Pill tone="gray">{course.announcements?.length ?? 0} 条</Pill>
           </div>
           <div className="space-y-3">
@@ -242,7 +242,7 @@ function InfoBlock({ icon, title, text }: { icon: ReactNode; title: string; text
           {icon}
         </div>
         <div>
-          <h2 className="text-xl font-black text-slate-950">{title}</h2>
+          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
           <p className="mt-2 text-[15px] leading-7 text-slate-700">{text}</p>
         </div>
       </div>

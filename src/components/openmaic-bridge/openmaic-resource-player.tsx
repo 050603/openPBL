@@ -13,6 +13,7 @@ import { useStageStore } from "@openmaic/lib/store";
 import { useSettingsStore } from "@openmaic/lib/store/settings";
 import type { Scene, Stage as StageType } from "@openmaic/lib/types/stage";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui";
 
 const log = createLogger("OpenMaicResourcePlayer");
 
@@ -100,7 +101,7 @@ export function OpenMaicResourcePlayer({
       log.error("Failed to load projected teacher resource:", error);
       setErrorMessage(message);
       setState("error");
-      window.alert(message);
+      toast.error("资源加载失败", { description: message });
     }
   }, [classroomId, sceneId]);
 

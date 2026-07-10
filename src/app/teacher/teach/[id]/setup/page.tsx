@@ -115,7 +115,7 @@ export default function TeachSetupPage() {
           <ArrowLeft size={17} />
         </Link>
         <div>
-          <h1 className="text-[28px] font-black">班级配置</h1>
+          <h1 className="text-[28px] font-bold">班级配置</h1>
           <p className="mt-1 text-sm text-slate-500">{course.name} · 设置分组与人数，开始上课</p>
         </div>
       </div>
@@ -123,7 +123,7 @@ export default function TeachSetupPage() {
       <div className="grid grid-cols-[1fr_400px] gap-5">
         <div className="space-y-5">
           <Card>
-            <h2 className="text-xl font-black">分组方式</h2>
+            <h2 className="text-xl font-bold">分组方式</h2>
             <p className="mt-1 text-sm text-slate-500">选择适合本课程的小组形式</p>
             <div className="mt-4 grid grid-cols-2 gap-3">
               {GROUP_OPTIONS.map((opt) => {
@@ -155,7 +155,7 @@ export default function TeachSetupPage() {
                       </span>
                       <span
                         className={
-                          "text-base font-black " +
+                          "text-base font-bold " +
                           (active ? "text-blue-700" : "text-slate-800")
                         }
                       >
@@ -172,7 +172,7 @@ export default function TeachSetupPage() {
           </Card>
 
           <Card>
-            <h2 className="text-xl font-black">人数与配置</h2>
+            <h2 className="text-xl font-bold">人数与配置</h2>
             <div className="mt-4 grid grid-cols-3 gap-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-700">
@@ -224,7 +224,7 @@ export default function TeachSetupPage() {
           </Card>
 
           <Card>
-            <h2 className="text-xl font-black">课程信息确认</h2>
+            <h2 className="text-xl font-bold">课程信息确认</h2>
             <dl className="mt-3 grid grid-cols-2 gap-y-3 text-sm">
               <div>
                 <dt className="text-slate-500">课程</dt>
@@ -261,7 +261,7 @@ export default function TeachSetupPage() {
             />
           ) : (
             <Card>
-              <h2 className="text-lg font-black">邀请码</h2>
+              <h2 className="text-lg font-bold">邀请码</h2>
               <p className="mt-3 text-sm leading-7 text-slate-600">
                 点击「开始上课」后，系统将自动生成 6 位邀请码，学生可在学生端输入加入。
               </p>
@@ -269,7 +269,7 @@ export default function TeachSetupPage() {
           )}
 
           <Card>
-            <h2 className="text-lg font-black">在线学生</h2>
+            <h2 className="text-lg font-bold">在线学生</h2>
             <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
               <Users className="text-slate-400" size={16} />
               {isTeaching
@@ -286,7 +286,7 @@ export default function TeachSetupPage() {
                       key={s.id}
                     >
                       <span className="relative">
-                        <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-50 text-xs font-black text-blue-700">
+                        <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
                           {s.name.slice(0, 1)}
                         </span>
                         <span

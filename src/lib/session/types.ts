@@ -20,6 +20,8 @@ export type StageViewKey =
   | "ai-learning"
   | "group"
   | "workspace"
+  | "proposal-review"
+  | "project-making"
   | "showcase"
   | "reflection";
 
@@ -89,8 +91,24 @@ export type ProjectGroup = {
   keywords: string[];
   selectedForms: string[];
   members: GroupMemberRole[];
+  proposal?: ProjectProposal;
+  teacherApproval?: {
+    status: "pending" | "approved" | "revision";
+    teacherName?: string;
+    note?: string;
+    updatedAt: string;
+  };
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProjectProposal = {
+  projectQuestion: string;
+  outcomeFormat: string;
+  implementationPlan: string;
+  requiredKnowledge: string[];
+  aiUsePlan: string;
+  risks: string[];
 };
 
 export type GroupAnnouncement = {
@@ -223,6 +241,14 @@ export type AiSupportRecord = {
   editedContent?: string;
   /** AI 生成的结构化扩展内容（如项目骨架 JSON、过程评价报告 JSON），用于可编辑展示 */
   structuredPayload?: unknown;
+  adoption?: {
+    decision: "adopted" | "adopted-after-edit" | "rejected";
+    reason?: string;
+    before?: string;
+    after?: string;
+    handledBy: string;
+    handledAt: string;
+  };
   createdAt: string;
   updatedAt: string;
 };
@@ -289,6 +315,50 @@ export type StudentAiProgress = {
   quizScore?: number;
   lastActiveAt: string;
   masteryLevel: "not-started" | "in-progress" | "completed" | "mastered";
+  currentGoals?: string[];
+  achievedGoals?: string[];
+  unmetGoals?: string[];
+  pathAdjustmentReason?: string;
+  currentTeachingAction?: string;
+  nextStageCondition?: string;
+};
+
+export type TeacherInterventionScope = "student" | "group" | "course";
+export type TeacherInterventionAction =
+  | "guidance"
+  | "scope-adjustment"
+  | "regroup"
+  | "evaluation-requirement"
+  | "pause-ai"
+  | "request-reasoning"
+  | "override-stage";
+
+export type TeacherIntervention = {
+  id: string;
+  stageKey: string;
+  scope: TeacherInterventionScope;
+  targetIds: string[];
+  reason: string;
+  evidence: string[];
+  action: TeacherInterventionAction;
+  instruction: string;
+  severity: "notice" | "warning" | "high";
+  status: "open" | "resolved";
+  teacherName: string;
+  createdAt: string;
+  resolvedAt?: string;
+};
+
+export type StageTransitionRecord = {
+  id: string;
+  fromStageKey: string;
+  toStageKey: string;
+  gateStatus: "passed" | "overridden";
+  blockers: string[];
+  warnings: string[];
+  overrideReason?: string;
+  actor: string;
+  createdAt: string;
 };
 
 export type Course = {
@@ -299,6 +369,8 @@ export type Course = {
   hours: number;
   summary: string;
   drivingQuestion: string;
+  learningObjectives?: string[];
+  expectedOutcome?: string;
   status: CourseStatus;
   stages: Stage[];
   currentStageIndex: number;
@@ -326,6 +398,9 @@ export type Course = {
   uploads?: CourseUpload[];
   teamContributions?: TeamContribution[];
   aiSupports?: AiSupportRecord[];
+  teacherInterventions?: TeacherIntervention[];
+  stageTransitions?: StageTransitionRecord[];
+  evaluations?: EvaluationRecord[];
   uiState?: CourseUiState;
   /** OpenMAIC AI 课堂 ID（生成后关联） */
   aiLearningClassroomId?: string;
@@ -411,6 +486,7 @@ export type KnowledgeGraphNode = {
   keyInfo?: string;
   level?: "foundation" | "core" | "application" | "extension";
   relatedLessonIds?: string[];
+  position?: { x: number; y: number };
 };
 
 export type KnowledgeGraphEdge = {
@@ -450,7 +526,41 @@ export type LessonOutlineSection = {
 export type EvaluationPlan = {
   dimensions: EvaluationDimension[];
   overallRubric: string;
+  flows?: EvaluationFlow[];
 };
+
+export type EvaluationSourceRole = "ai" | "teacher" | "peer" | "self";
+
+export type EvaluationFlow = {
+  id: string;
+  sourceRole: EvaluationSourceRole;
+  name: string;
+  weight: number;
+  evidenceRequirements: string[];
+  enabled: boolean;
+};
+
+export type EvaluationRecord = {
+  id: string;
+  courseId: string;
+  stageKey: string;
+  sourceRole: EvaluationSourceRole;
+  targetType: "student" | "group";
+  targetId: string;
+  score?: number;
+  comment: string;
+  evidence: string[];
+  status: "draft" | "submitted" | "confirmed";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const DEFAULT_EVALUATION_FLOWS: EvaluationFlow[] = [
+  { id: "evaluation-ai", sourceRole: "ai", name: "AI 过程评价", weight: 25, evidenceRequirements: ["学习目标达成记录", "AI 支架与采纳记录"], enabled: true },
+  { id: "evaluation-teacher", sourceRole: "teacher", name: "教师项目与汇报评价", weight: 50, evidenceRequirements: ["项目作品版本", "汇报与答辩记录"], enabled: true },
+  { id: "evaluation-peer", sourceRole: "peer", name: "学生互评", weight: 15, evidenceRequirements: ["同伴反馈与回应"], enabled: true },
+  { id: "evaluation-self", sourceRole: "self", name: "学生自评", weight: 10, evidenceRequirements: ["个人反思与判断说明"], enabled: true },
+];
 
 export type EvaluationDimension = {
   id: string;
@@ -498,6 +608,10 @@ export type TeacherFeedback = {
   stageKey: string;
   kind: "comment" | "question" | "ai-support" | "revision" | "praise";
   content: string;
+  sourceRole?: "ai" | "teacher" | "peer";
+  sourceName?: string;
+  evidence?: string[];
+  status?: "open" | "resolved";
   createdAt: string;
 };
 
@@ -575,14 +689,14 @@ export const DEFAULT_STAGES: Stage[] = [
   },
   {
     key: "review",
-    label: "方案汇报",
-    view: "workspace",
+    label: "方案汇报与纠偏",
+    view: "proposal-review",
     description: "中期方案汇报与教师纠偏",
   },
   {
     key: "make",
     label: "项目制作",
-    view: "workspace",
+    view: "project-making",
     description: "项目方案执行与作品制作",
   },
   {

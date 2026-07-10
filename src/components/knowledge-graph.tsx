@@ -72,7 +72,7 @@ export function KnowledgeGraphView({
   return (
     <div className="overflow-hidden rounded-[8px] border border-slate-200 bg-white">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center gap-2 font-black text-slate-900">
+        <div className="flex items-center gap-2 font-bold text-slate-900">
           <Network size={18} className="text-blue-700" />
           {title}
         </div>
@@ -141,7 +141,7 @@ export function KnowledgeGraphView({
                   transform: "translate(-50%, -50%)",
                 }}
               >
-                <span className="block truncate font-black">{node.label}</span>
+                <span className="block truncate font-bold">{node.label}</span>
                 <span className="mt-0.5 block text-[10px] opacity-70">{LEVEL_LABEL[level]}</span>
               </button>
             );
@@ -152,7 +152,7 @@ export function KnowledgeGraphView({
             {selected ? (
               <div>
                 <div className="text-xs font-bold text-slate-400">当前知识节点</div>
-                <h3 className="mt-1 text-base font-black text-slate-950">{selected.label}</h3>
+                <h3 className="mt-1 text-base font-bold text-slate-950">{selected.label}</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{selected.description || "暂无描述"}</p>
                 {selected.keyInfo ? (
                   <div className="mt-3 rounded-[6px] border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">

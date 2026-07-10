@@ -637,7 +637,7 @@ function ScoreBanner({
         <div>
           <p className="text-white/80 text-sm font-medium">{c.text}</p>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-4xl font-black">{score}</span>
+            <span className="text-4xl font-bold">{score}</span>
             <span className="text-white/60 text-lg">/ {total}</span>
           </div>
           <div className="flex gap-3 mt-3 text-xs">
@@ -676,7 +676,7 @@ function ScoreBanner({
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-lg font-black">{pct}%</span>
+            <span className="text-lg font-bold">{pct}%</span>
           </div>
         </div>
       </div>

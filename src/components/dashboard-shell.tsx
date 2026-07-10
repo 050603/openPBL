@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { COURSE_STATUS_LABEL } from "@/lib/session/types";
 import type { CourseStatus } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { PrimaryButton, TextInput } from "@/components/ui";
+import { PrimaryButton, SaveStatus, TextInput } from "@/components/ui";
 
 type Role = "student" | "teacher";
 
@@ -41,6 +41,8 @@ export type DashboardShellProps = {
   currentCourse?: { id: string; name: string; status: CourseStatus };
   currentStage?: { index: number; total: number; label: string };
   userName?: string;
+  currentTask?: string;
+  leadRole?: "AI" | "教师" | "学生";
 };
 
 type OpenPanel = "courses" | "notifications" | "profile" | null;
@@ -59,6 +61,8 @@ export function DashboardShell({
   currentCourse,
   currentStage,
   userName,
+  currentTask,
+  leadRole,
 }: DashboardShellProps) {
   const session = useSession();
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
@@ -98,33 +102,29 @@ export function DashboardShell({
 
   return (
     <div className={cn("min-h-screen text-slate-900", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
-      <header className="fixed inset-x-0 top-0 z-30 px-3 pt-3 md:px-6">
-        <div className="pbl-glass mx-auto flex h-14 max-w-[1760px] items-center rounded-[var(--radius-md)] px-3 py-2 md:px-4">
-          <Link className="flex min-w-0 items-center gap-2.5" href={homeHref}>
+      <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+        <div className="mx-auto flex min-h-16 max-w-[1760px] items-center px-3 py-2 md:px-6">
+          <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
-              <div className="truncate text-[15px] font-bold tracking-tight text-slate-900 md:text-base">
-                {isTeacher ? "教师课堂主控台" : title}
-              </div>
-              <div className="mt-0.5 text-[11px] font-medium text-slate-500">
-                {isTeacher ? "PBL 教师导学" : "PBL 学生工作台"}
-              </div>
+              <div className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</div>
+              <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
             </div>
           </Link>
 
           <div className="ml-3 flex min-w-0 flex-1 items-center gap-3 md:ml-6">
             {(courseName || stageLabel) && !hideCourseSwitcher ? (
               <button
-                className="hidden h-10 max-w-[520px] min-w-0 items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-left text-[13px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white md:inline-flex"
+                className="hidden min-h-11 max-w-[620px] min-w-0 items-center gap-3 border-l border-[var(--pbl-border)] px-4 text-left text-sm font-semibold text-[var(--pbl-text)] transition-colors hover:bg-[var(--pbl-surface-soft)] md:inline-flex"
                 onClick={() => toggle("courses")}
                 type="button"
               >
-                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-50 text-indigo-700" : "bg-teal-50 text-teal-700")}>
-                  <GraduationCap size={15} />
+                <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]")}>
+                  <GraduationCap size={16} />
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate">{stageLabel || courseName}</span>
-                  {courseName ? <span className="block truncate text-[11px] text-slate-500">{courseName}</span> : null}
+                  <span className="block truncate text-xs font-normal text-[var(--pbl-text-muted)]">{[leadRole ? `${leadRole}主导` : null, currentTask ?? courseName].filter(Boolean).join(" · ")}</span>
                 </span>
                 {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
                 <ChevronDown size={14} className={cn("shrink-0 text-slate-400 transition", openPanel === "courses" && "rotate-180")} />
@@ -134,6 +134,9 @@ export function DashboardShell({
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+            <div className="hidden lg:block">
+              <SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />
+            </div>
             {isTeacher ? (
               <Link
                 className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-[13px] font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 md:inline-flex"
@@ -143,7 +146,7 @@ export function DashboardShell({
               </Link>
             ) : null}
             <button
-              className="relative grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-transparent text-slate-600 transition hover:border-slate-200 hover:bg-white"
+              className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-slate-600 transition hover:border-slate-200 hover:bg-white"
               onClick={() => toggle("notifications")}
               type="button"
               aria-label="通知中心"
@@ -156,7 +159,7 @@ export function DashboardShell({
               ) : null}
             </button>
             <button
-              className="flex h-10 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white"
+              className="flex min-h-11 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white"
               onClick={() => toggle("profile")}
               type="button"
             >
@@ -213,7 +216,7 @@ export function DashboardShell({
         </TopPopover>
       ) : null}
 
-      <main className={classroomBar ? "pt-[150px] md:pt-[156px]" : "pt-[84px]"}>
+      <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
         <div className={cn("mx-auto w-full px-4 pb-10 md:px-7", wide ? "max-w-[1720px]" : "max-w-[1540px]")}>
           {subtitle ? <p className="mb-2 text-sm font-medium text-slate-500">{subtitle}</p> : null}
           {children}

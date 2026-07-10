@@ -4,9 +4,11 @@ import Link from "next/link";
 import { CalendarDays, ChevronRight, Clock3, Trash2, Users } from "lucide-react";
 import type { Course, CourseStatus } from "@/lib/session/types";
 import { COURSE_STATUS_LABEL } from "@/lib/session/types";
-import { Pill, ProgressBar } from "@/components/ui";
+import { ProgressBar } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/session/store";
+import { useState } from "react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui";
 
 const STATUS_TONE: Record<CourseStatus, string> = {
   draft: "bg-slate-100 text-slate-600",
@@ -34,6 +36,7 @@ function formatDate(iso: string): string {
 }
 
 export function CourseCard({ course }: { course: Course }) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const action = STATUS_ACTION[course.status];
   const href = action.href(course);
   const isTeaching = course.status === "teaching";
@@ -43,30 +46,24 @@ export function CourseCard({ course }: { course: Course }) {
   );
   const { deleteCourse } = useSession();
 
-  function handleDelete() {
-    const hasStudents = course.students.length > 0;
-    const msg = hasStudents
-      ? `确定删除课程「${course.name}」吗？\n该课程已有 ${course.students.length} 名学生加入，删除后学生将无法继续访问，且数据不可恢复。`
-      : `确定删除课程「${course.name}」吗？\n此操作不可撤销。`;
-    if (window.confirm(msg)) {
-      deleteCourse(course.id);
-    }
-  }
-
   return (
     <article
       className={cn(
-        "flex h-full flex-col rounded-[10px] border bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] transition",
-        "border-slate-200/80 hover:border-blue-300 hover:shadow-[0_18px_44px_rgba(37,99,235,0.12)]",
+        "flex h-full flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] transition-colors hover:border-[var(--pbl-border-strong)]",
       )}
     >
+      <div className="min-h-28 border-b border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] p-5" style={course.coverImageUrl ? { backgroundImage: `linear-gradient(rgba(31,41,51,.2),rgba(31,41,51,.35)),url(${course.coverImageUrl})`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}>
+        <p className={cn("text-xs font-semibold uppercase tracking-[0.12em]", course.coverImageUrl ? "text-white" : "text-[var(--pbl-text-muted)]")}>{course.subject || "项目课程"} · {course.grade || "全年级"}</p>
+        <p className={cn("font-editorial mt-3 line-clamp-2 text-lg font-semibold leading-7", course.coverImageUrl ? "text-white" : "text-[var(--pbl-text)]")}>{course.drivingQuestion || "等待定义驱动问题"}</p>
+      </div>
+      <div className="flex flex-1 flex-col p-5">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-black leading-tight text-slate-950">
+          <h3 className="text-lg font-semibold leading-tight text-[var(--pbl-text-strong)]">
             {course.name}
           </h3>
           <p className="mt-1 text-sm text-slate-500">
-            {course.subject} · {course.grade} · {course.hours} 课时
+            {course.hours} 课时 · 最近修改 {formatDate(course.updatedAt)}
           </p>
         </div>
         <span
@@ -121,26 +118,24 @@ export function CourseCard({ course }: { course: Course }) {
       <footer className="mt-5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
-            className="text-sm font-semibold text-slate-500 hover:text-blue-600"
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)] hover:text-[var(--pbl-teacher)]"
             href={`/teacher/prepare/${course.id}/preview`}
           >
             详情
           </Link>
-          <button
-            className="inline-flex h-8 items-center gap-1 rounded-[6px] border border-slate-200 px-2.5 text-xs font-semibold text-slate-500 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600"
-            onClick={handleDelete}
-            type="button"
-          >
-            <Trash2 size={13} /> 删除
-          </button>
+          <AlertDialog onOpenChange={setDeleteOpen} open={deleteOpen}>
+            <AlertDialogTrigger asChild><button className="inline-flex min-h-11 items-center gap-1 rounded-[6px] border border-slate-200 px-2.5 text-xs font-semibold text-slate-500 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600" type="button"><Trash2 size={13} /> 删除</button></AlertDialogTrigger>
+            <AlertDialogContent><AlertDialogTitle>删除“{course.name}”？</AlertDialogTitle><AlertDialogDescription>{course.students.length ? `已有 ${course.students.length} 名学生加入，删除后学生将无法继续访问，所有课堂数据不可恢复。` : "课程和备课数据将被永久删除，此操作不可撤销。"}</AlertDialogDescription><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => deleteCourse(course.id)}>永久删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+          </AlertDialog>
         </div>
         <Link
-          className="inline-flex h-10 items-center gap-1.5 rounded-[6px] bg-blue-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] hover:bg-blue-700"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white hover:bg-[var(--pbl-teacher-hover)]"
           href={href}
         >
           {action.label} <ChevronRight size={16} />
         </Link>
       </footer>
+      </div>
     </article>
   );
 }

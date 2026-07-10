@@ -5,6 +5,8 @@ import { GroupTeacherView } from "./group";
 import { WorkspaceTeacherView } from "./workspace";
 import { ShowcaseTeacherView } from "./showcase";
 import { ReflectionTeacherView } from "./reflection";
+import { ProposalReviewTeacherView } from "./proposal-review";
+import { ProjectMakingTeacherView } from "./project-making";
 
 /**
  * Teacher-side stage view dispatcher.
@@ -44,6 +46,10 @@ export function TeacherStageView({
           onSelectGroup={onSelectGroup}
         />
       );
+    case "proposal-review":
+      return <ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />;
+    case "project-making":
+      return <ProjectMakingTeacherView course={course} onSelectGroup={onSelectGroup} />;
     case "showcase":
       return (
         <ShowcaseTeacherView

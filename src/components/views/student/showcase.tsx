@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Compass, Eye, PauseCircle, PlayCircle, RotateCcw, UploadCloud, X } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
-import { Card, FileBadge, PrimaryButton } from "@/components/ui";
+import { Card, FileBadge, PrimaryButton, toast } from "@/components/ui";
 import { EvidenceStrip, SlidePreview } from "@/components/visuals";
 import type { Course, CourseUpload } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
@@ -142,7 +142,7 @@ export function ShowcaseView({ course }: { course: Course }) {
       session.setUiState(course.id, { aiAnalysisPending: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 汇报教练生成失败";
-      window.alert(message);
+      toast.error("AI 汇报教练生成失败", { description: message });
     }
   }
 
@@ -150,7 +150,7 @@ export function ShowcaseView({ course }: { course: Course }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-3xl font-black leading-tight md:text-4xl">成果提交与演示准备</h1>
+          <h1 className="text-3xl font-bold leading-tight md:text-4xl">成果提交与演示准备</h1>
           <p className="mt-3 break-words text-base text-slate-500">完成成果上传、预览演示与团队贡献记录 · {course.name}</p>
         </div>
         <div className="inline-flex shrink-0 items-center gap-2 rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600">
@@ -162,14 +162,14 @@ export function ShowcaseView({ course }: { course: Course }) {
 
       <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr_minmax(18rem,1fr)]">
         <Card className="overflow-hidden p-0">
-          <h2 className="border-b border-slate-100 px-5 py-4 text-xl font-black">成果上传列表</h2>
+          <h2 className="border-b border-slate-100 px-5 py-4 text-xl font-bold">成果上传列表</h2>
           {uploadSlots.map((slot) => {
             const uploaded = uploads.find((item) => item.title === slot.title);
             const isUploading = uploading === slot.title;
             return (
               <div className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 sm:grid-cols-[58px_1fr_1fr_116px]" key={slot.title}>
                 <FileBadge type={slot.type} />
-                <div><div className="font-black">{slot.title}{slot.title.includes("报告") || slot.title.includes("PPT") ? <span className="text-red-500"> *</span> : null}</div><div className="mt-1 text-sm text-slate-500">{slot.rule}</div></div>
+                <div><div className="font-bold">{slot.title}{slot.title.includes("报告") || slot.title.includes("PPT") ? <span className="text-red-500"> *</span> : null}</div><div className="mt-1 text-sm text-slate-500">{slot.rule}</div></div>
                 <div>
                   <div className="truncate text-sm font-semibold">{uploaded ? uploaded.fileName : isUploading ? "上传中..." : "尚未上传"}</div>
                   <div className="mt-1 text-sm text-slate-500">{uploaded ? uploaded.size : isUploading ? "请稍候..." : ""}</div>
@@ -185,10 +185,10 @@ export function ShowcaseView({ course }: { course: Course }) {
         </Card>
 
         <Card>
-          <h2 className="mb-4 text-xl font-black">演示预览区</h2>
+          <h2 className="mb-4 text-xl font-bold">演示预览区</h2>
           {previewUpload ? (
             <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center gap-3"><FileBadge type={previewUpload.fileType} /><div className="min-w-0"><div className="truncate font-black">{previewUpload.fileName}</div><div className="text-sm text-slate-500">{previewUpload.size}</div></div></div>
+              <div className="flex items-center gap-3"><FileBadge type={previewUpload.fileType} /><div className="min-w-0"><div className="truncate font-bold">{previewUpload.fileName}</div><div className="text-sm text-slate-500">{previewUpload.size}</div></div></div>
               <div className="mt-4 flex gap-2">
                 <a className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-[6px] bg-blue-600 font-semibold text-white" href={previewUpload.url} target="_blank" rel="noreferrer"><Eye size={16} /> 打开预览</a>
                 <button className="grid h-10 w-10 place-items-center rounded-[6px] border border-slate-200" onClick={() => session.setPreviewUpload(course.id, undefined)} type="button"><X size={16} /></button>
@@ -205,10 +205,10 @@ export function ShowcaseView({ course }: { course: Course }) {
 
         <aside className="space-y-4">
           <Card>
-            <h2 className="mb-4 inline-flex items-center gap-2 text-xl font-black">演示计时</h2>
+            <h2 className="mb-4 inline-flex items-center gap-2 text-xl font-bold">演示计时</h2>
             <div className="rounded-[8px] border border-slate-200 p-5 text-center">
               <div className="text-sm text-slate-500">当前用时</div>
-              <time aria-live="polite" className="mt-4 block text-3xl font-black tabular-nums" data-testid="presentation-timer">
+              <time aria-live="polite" className="mt-4 block text-3xl font-bold tabular-nums" data-testid="presentation-timer">
                 {String(Math.floor(timer / 60)).padStart(2, "0")}:{String(timer % 60).padStart(2, "0")} <span className="text-base font-medium text-slate-500">/ 08:00</span>
               </time>
               <div className="mt-5 flex gap-2">
@@ -224,7 +224,7 @@ export function ShowcaseView({ course }: { course: Course }) {
           </Card>
 
           <Card>
-            <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-black">团队贡献</h2><button className="text-sm font-semibold text-blue-700" onClick={saveContributions} type="button">保存</button></div>
+            <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold">团队贡献</h2><button className="text-sm font-semibold text-blue-700" onClick={saveContributions} type="button">保存</button></div>
             {(group?.members ?? []).map((member) => (
               <div className="mb-3 flex items-center gap-3 last:mb-0" key={member.studentId}>
                 <Avatar name={member.name} size={30} />
@@ -240,7 +240,7 @@ export function ShowcaseView({ course }: { course: Course }) {
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr_minmax(18rem,1fr)]">
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-xl font-black">
+            <h2 className="flex items-center gap-2 text-xl font-bold">
               <Compass className="text-amber-600" size={20} /> AI 汇报教练
             </h2>
             <button className="text-sm font-semibold text-blue-700" onClick={prepareShowcaseCoach} type="button">生成检查清单</button>
@@ -252,7 +252,7 @@ export function ShowcaseView({ course }: { course: Course }) {
               </div>
               {latestShowcaseSupport.suggestions.map((tip, index) => (
                 <div className="flex gap-3" key={tip}>
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-600 font-black text-white">{index + 1}</span>
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-600 font-bold text-white">{index + 1}</span>
                   <p className="text-[15px] leading-7 text-slate-700">{tip}</p>
                 </div>
               ))}
@@ -262,12 +262,12 @@ export function ShowcaseView({ course }: { course: Course }) {
             </div>
           ) : (
             ["突出问题与洞察：用数据和事实清晰展示关键问题。", "展示方案亮点：说明创新点、可行性及预期效果。", "总结与展望：提出未来改进方向或行动倡议。"].map((tip, index) => (
-              <div className="mb-4 flex gap-3 last:mb-0" key={tip}><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-600 font-black text-white">{index + 1}</span><p className="text-[15px] leading-7 text-slate-700">{tip}</p></div>
+              <div className="mb-4 flex gap-3 last:mb-0" key={tip}><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-600 font-bold text-white">{index + 1}</span><p className="text-[15px] leading-7 text-slate-700">{tip}</p></div>
             ))
           )}
         </Card>
         <Card>
-          <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-black">过程证据</h2><label className="cursor-pointer text-sm font-semibold text-blue-700">上传证据<input className="hidden" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile({ category: "evidence", type: "FILE", title: "过程证据", rule: "课堂过程记录" }, file, event.target); }} /></label></div>
+          <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold">过程证据</h2><label className="cursor-pointer text-sm font-semibold text-blue-700">上传证据<input className="hidden" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile({ category: "evidence", type: "FILE", title: "过程证据", rule: "课堂过程记录" }, file, event.target); }} /></label></div>
           <EvidenceStrip />
         </Card>
         <div />

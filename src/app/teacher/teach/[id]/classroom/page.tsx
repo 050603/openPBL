@@ -22,30 +22,40 @@ import {
   UserRoundCheck,
   Users,
   X,
+  Maximize2,
+  Minimize2,
+  PanelRightClose,
 } from "lucide-react";
 import { DashboardShell, Avatar } from "@/components/dashboard-shell";
-import { StageStepper } from "@/components/stage-stepper";
 import { TeacherClassroomBanner } from "@/components/classroom-ux";
+import { StageGateDialog, StageProgress } from "@/components/classroom/classroom-chrome";
 import { TeacherStageView } from "@/components/views/teacher/stage-dispatcher";
 import { AiChatStageToggle } from "@/components/views/teacher/ai-chat-stage-toggle";
 import { TeacherStageResources } from "@/components/openmaic-bridge/teacher-stage-resources";
-import { ProgressBar } from "@/components/ui";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, Button, FlowActionBar, ProgressBar, SaveStatus } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { isStudentOnline } from "@/lib/session/actions";
 import { cn } from "@/lib/utils";
+import { evaluateStageGate } from "@/lib/classroom/stage-gates";
+import { makeRecordId } from "@/lib/session/actions";
 
 type ToolPanel = "timer" | "invite" | "students" | null;
 
 export default function TeachClassroomPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, advanceStage, setStage, endTeaching, generateNewInviteCode } = useSession();
+  const session = useSession();
+  const { user, endTeaching, generateNewInviteCode, updateCourse } = session;
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
   const [seconds, setSeconds] = useState(0);
   const [paused, setPaused] = useState(false);
   const [nowTick, setNowTick] = useState(0);
   const [toolPanel, setToolPanel] = useState<ToolPanel>(null);
+  const [targetStageIndex, setTargetStageIndex] = useState<number | null>(null);
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
 
   useEffect(() => {
     if (paused) return;
@@ -147,9 +157,37 @@ export default function TeachClassroomPage() {
 
   function endClass() {
     if (!course) return;
-    if (!window.confirm("确定结束本次授课？结束后将无法继续推进阶段。")) return;
     endTeaching(course.id);
-    router.push("/teacher");
+    setEndDialogOpen(false);
+  }
+
+  function requestStage(index: number) {
+    if (!course) return;
+    if (index < 0 || index >= course.stages.length || index === course.currentStageIndex) return;
+    setTargetStageIndex(index);
+  }
+
+  function confirmStage(overrideReason?: string) {
+    if (!course || targetStageIndex === null) return;
+    const gate = evaluateStageGate(course);
+    const from = course.stages[course.currentStageIndex];
+    const to = course.stages[targetStageIndex];
+    updateCourse(course.id, {
+      currentStageIndex: targetStageIndex,
+      stageTransitions: [...(course.stageTransitions ?? []), {
+        id: makeRecordId("transition"),
+        fromStageKey: from.key,
+        toStageKey: to.key,
+        gateStatus: overrideReason ? "overridden" : "passed",
+        blockers: gate.blockers.map((item) => item.message),
+        warnings: gate.warnings.map((item) => item.message),
+        overrideReason,
+        actor: user.name,
+        createdAt: new Date().toISOString(),
+      }],
+      uiState: { ...(course.uiState ?? {}), teacherResourceProjection: null },
+    });
+    setTargetStageIndex(null);
   }
 
   return (
@@ -159,6 +197,8 @@ export default function TeachClassroomPage() {
       variant="bare"
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total: course.stages.length, label: currentStage.label } : undefined}
+      currentTask={currentStage ? `检查${currentStage.label}的阶段产出` : undefined}
+      leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "group" || currentStage?.key === "make" ? "学生" : "教师"}
       wide
       headerSlot={
         <div className="hidden items-center gap-1 md:flex">
@@ -192,6 +232,8 @@ export default function TeachClassroomPage() {
             {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
           </button>
           <div className="mx-0.5 h-5 w-px bg-slate-200" />
+          <button aria-label={focusMode ? "退出专注授课" : "进入专注授课"} className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600" onClick={() => setFocusMode((value) => !value)} type="button"><PanelRightClose size={14} /></button>
+          {currentStage?.key === "showcase" ? <button aria-label="进入投影展示模式" className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600" onClick={() => setPresentationMode(true)} type="button"><Maximize2 size={14} /></button> : null}
           {/* 查看课程 */}
           <Link
             className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700"
@@ -203,7 +245,7 @@ export default function TeachClassroomPage() {
           {/* 结束授课 */}
           <button
             className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-rose-200 bg-white/80 text-rose-600 transition hover:bg-rose-50"
-            onClick={endClass}
+            onClick={() => setEndDialogOpen(true)}
             type="button"
             aria-label="结束授课"
           >
@@ -248,7 +290,7 @@ export default function TeachClassroomPage() {
           </Link>
           <button
             className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-rose-200 bg-white text-rose-600"
-            onClick={endClass}
+            onClick={() => setEndDialogOpen(true)}
             type="button"
             aria-label="结束授课"
           >
@@ -258,7 +300,7 @@ export default function TeachClassroomPage() {
       </div>
 
       {/* 双栏布局：中主区 + 右数据面板 */}
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className={cn("grid gap-3", !focusMode && "xl:grid-cols-[minmax(0,1fr)_340px]")}>
         {/* 中间：阶段控制 + 横幅 + 阶段视图 */}
         <div className="min-w-0 space-y-3">
           {course.uiState?.aiAnalysisPending ? (
@@ -268,15 +310,7 @@ export default function TeachClassroomPage() {
             </div>
           ) : null}
 
-          <StageStepper
-            canNext={canNext}
-            canPrev={canPrev}
-            currentIndex={course.currentStageIndex}
-            stages={course.stages}
-            variant="teacher"
-            onAdvance={(d) => advanceStage(course.id, d)}
-            onSelect={(i) => setStage(course.id, i)}
-          />
+          <StageProgress course={course} onSelect={requestStage} />
 
           {currentStage ? (
             <TeacherClassroomBanner
@@ -304,7 +338,7 @@ export default function TeachClassroomPage() {
         </div>
 
         {/* 右侧：数据面板（完成度分布 + 风险预警 + AI 建议） */}
-        <aside className="space-y-3">
+        {!focusMode ? <aside className="space-y-3">
           <DataPanelCard
             icon={<Users size={15} />}
             title="完成度分布"
@@ -438,8 +472,30 @@ export default function TeachClassroomPage() {
 
           {/* AI 对话开关：保留功能，置入右栏底部 */}
           <AiChatStageToggle course={course} />
-        </aside>
+        </aside> : null}
       </div>
+
+      {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="mx-auto mb-6 flex max-w-[1440px] items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="mx-auto max-w-[1440px]"><TeacherStageView course={course} view={currentStage.view} /></main></div> : null}
+
+      <FlowActionBar
+        back={canPrev ? <Button onClick={() => requestStage(course.currentStageIndex - 1)} variant="text">上一步</Button> : null}
+        saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}
+      >
+        {canNext ? <Button onClick={() => requestStage(course.currentStageIndex + 1)}>检查条件并进入下一阶段</Button> : <Button onClick={() => setEndDialogOpen(true)}>检查评价并结束课程</Button>}
+      </FlowActionBar>
+
+      {targetStageIndex !== null ? <StageGateDialog course={course} onConfirm={confirmStage} onOpenChange={(open) => { if (!open) setTargetStageIndex(null); }} open targetIndex={targetStageIndex} /> : null}
+
+      <AlertDialog onOpenChange={setEndDialogOpen} open={endDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>结束本次课堂？</AlertDialogTitle>
+          <AlertDialogDescription>课堂结束后学生将进入只读回看。结束前请确认多元评价和学生反思已经完成；系统不会自动跳转离开当前页面。</AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>继续授课</AlertDialogCancel>
+            <AlertDialogAction onClick={endClass}>结束课堂</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 工具弹窗：点击顶栏工具按钮后显示 */}
       {toolPanel ? (

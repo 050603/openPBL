@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { AvatarStack } from "@/components/dashboard-shell";
-import { Card, Pill, PrimaryButton, ProgressBar, TextInput } from "@/components/ui";
+import { Card, Pill, PrimaryButton, ProgressBar, TextInput, toast } from "@/components/ui";
 import { GROUP_MODE_LABEL } from "@/lib/session/types";
 import type { Course, ProjectGroup } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
@@ -64,7 +64,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 小组观察刷新失败";
-      window.alert(message);
+      toast.error("AI 小组观察刷新失败", { description: message });
     } finally {
       setSignalsLoading(false);
     }
@@ -139,7 +139,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
         <Card>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-black">
+              <h2 className="flex items-center gap-2 text-lg font-bold">
                 <Users className="text-blue-700" size={20} /> 课堂态势图
               </h2>
               <p className="mt-1 text-xs text-slate-500">用空间位置呈现小组成熟度、风险和协作规模，列表保留为精确管理入口。</p>
@@ -303,7 +303,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
         <Card>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-black">
+              <h2 className="flex items-center gap-2 text-lg font-bold">
                 <Lightbulb className="text-amber-600" size={20} /> 风险队列
                 {aiAnalysisPending ? (
                   <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
@@ -349,7 +349,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
         </Card>
 
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <LayoutPanelLeft className="text-blue-700" size={20} /> 全班学生进度
           </h2>
           {course.students.length ? (
@@ -374,7 +374,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
       </section>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <Flag className="text-blue-700" size={20} /> 选题分布
         </h2>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -424,7 +424,7 @@ function GroupConstellationMap({
     <div className="mb-3 overflow-hidden rounded-[var(--radius-sm)] border border-slate-900/10 bg-slate-950 text-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
-          <div className="text-sm font-black">Group Constellation</div>
+          <div className="text-sm font-bold">Group Constellation</div>
           <div className="mt-0.5 text-xs text-slate-300">横轴：构思成熟度；纵轴：教师介入优先级；圆点大小：成员规模。</div>
         </div>
         <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
@@ -459,7 +459,7 @@ function GroupConstellationMap({
               title={`${group.name}：${progress}%`}
             >
               <span className="flex h-full w-full flex-col items-center justify-center px-1">
-                <span className="max-w-[90%] truncate text-[11px] font-black">{group.name}</span>
+                <span className="max-w-[90%] truncate text-[11px] font-bold">{group.name}</span>
                 <span className="text-[10px] opacity-80">{progress}%</span>
               </span>
               {signal ? (
@@ -490,7 +490,7 @@ function GroupMonitorOverlay({
     <div className="fixed inset-0 z-40 flex flex-col bg-slate-900/60" role="dialog" aria-modal="true">
       <div className="flex items-center justify-between bg-white px-5 py-3 shadow">
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-black">{group.name} · 协作板监控</h3>
+          <h3 className="truncate text-lg font-bold">{group.name} · 协作板监控</h3>
           <p className="text-xs text-slate-500">只读视图 · 实时同步 · {group.members.length} 名组员</p>
         </div>
         <button
@@ -512,7 +512,7 @@ function Metric({ title, value, sub, tone = "blue" }: { title: string; value: st
   return (
     <Card>
       <div className="text-sm text-slate-500">{title}</div>
-      <div className={`mt-2 text-2xl font-black ${tone === "green" ? "text-emerald-700" : tone === "orange" ? "text-orange-700" : "text-blue-700"}`}>{value}</div>
+      <div className={`mt-2 text-2xl font-bold ${tone === "green" ? "text-emerald-700" : tone === "orange" ? "text-orange-700" : "text-blue-700"}`}>{value}</div>
       {sub ? <div className="mt-1 text-xs text-slate-500">{sub}</div> : null}
     </Card>
   );

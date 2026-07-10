@@ -68,7 +68,7 @@ export default function TeacherResourcesPage() {
             <ArrowLeft size={17} />
           </Link>
           <div>
-            <h1 className="text-[28px] font-black">教师授课资源</h1>
+            <h1 className="text-[28px] font-bold">教师授课资源</h1>
             <p className="mt-1 text-sm text-slate-500">
               {course.name} · 按阶段生成的 PPT、互动演示与讲稿
             </p>

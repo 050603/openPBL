@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -31,6 +31,7 @@ import {
   AlignRight,
   UploadCloud,
 } from "lucide-react";
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, FormField, Input } from "@/components/ui";
 
 type RichTextEditorProps = {
   value: string;
@@ -41,6 +42,12 @@ type RichTextEditorProps = {
   /** Optional callback when student uploads a file. If provided, an upload button appears in the toolbar. */
   onFileUpload?: (file: File) => void;
 };
+
+function ToolBtn({ active, disabled, onClick, title, children }: { active?: boolean; disabled?: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
+  return <button type="button" title={title} aria-label={title} disabled={disabled} onClick={onClick} className={`grid h-11 w-11 place-items-center rounded-[5px] text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 ${active ? "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]" : ""}`}>{children}</button>;
+}
+
+function Divider() { return <span className="mx-1 h-5 w-px bg-slate-200" />; }
 
 /**
  * TipTap-powered rich text editor with a formatting toolbar. Used for the
@@ -56,6 +63,8 @@ export function RichTextEditor({
   minHeight = 360,
   onFileUpload,
 }: RichTextEditorProps) {
+  const [linkDialog, setLinkDialog] = useState<"image" | "link" | null>(null);
+  const [urlDraft, setUrlDraft] = useState("");
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -101,21 +110,27 @@ export function RichTextEditor({
 
   const insertImage = useCallback(() => {
     if (!editor) return;
-    const url = window.prompt("请输入图片 URL：");
-    if (url) editor.chain().focus().setImage({ src: url }).run();
+    setUrlDraft("");
+    setLinkDialog("image");
   }, [editor]);
 
   const insertLink = useCallback(() => {
     if (!editor) return;
     const prev = editor.getAttributes("link").href;
-    const url = window.prompt("链接 URL：", prev ?? "https://");
-    if (url === null) return;
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      return;
-    }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    setUrlDraft(prev ?? "https://");
+    setLinkDialog("link");
   }, [editor]);
+
+  function applyUrl() {
+    if (!editor) return;
+    const url = urlDraft.trim();
+    if (linkDialog === "image" && url) editor.chain().focus().setImage({ src: url }).run();
+    if (linkDialog === "link") {
+      if (url) editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+      else editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    }
+    setLinkDialog(null);
+  }
 
   const insertTable = useCallback(() => {
     if (!editor) return;
@@ -131,36 +146,8 @@ export function RichTextEditor({
     );
   }
 
-  const ToolBtn = ({
-    active,
-    disabled,
-    onClick,
-    title,
-    children,
-  }: {
-    active?: boolean;
-    disabled?: boolean;
-    onClick: () => void;
-    title: string;
-    children: React.ReactNode;
-  }) => (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      disabled={disabled}
-      onClick={onClick}
-      className={`grid h-8 w-8 place-items-center rounded-[5px] text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 ${
-        active ? "bg-blue-50 text-blue-700" : ""
-      }`}
-    >
-      {children}
-    </button>
-  );
-
-  const Divider = () => <span className="mx-1 h-5 w-px bg-slate-200" />;
-
   return (
+    <>
     <div className="overflow-hidden rounded-[8px] border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-100 bg-slate-50/80 px-2 py-1.5">
         <ToolBtn title="撤销" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}>
@@ -305,5 +292,13 @@ export function RichTextEditor({
         }
       `}</style>
     </div>
+    <Dialog onOpenChange={(open) => { if (!open) setLinkDialog(null); }} open={linkDialog !== null}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>{linkDialog === "image" ? "插入图片" : "编辑链接"}</DialogTitle><DialogDescription>{linkDialog === "image" ? "粘贴可公开访问的图片地址。" : "输入链接地址；留空保存可移除当前链接。"}</DialogDescription></DialogHeader>
+        <FormField label="URL">{({ id }) => <Input autoFocus id={id} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://" value={urlDraft} />}</FormField>
+        <DialogFooter><Button onClick={() => setLinkDialog(null)} variant="secondary">取消</Button><Button disabled={linkDialog === "image" && !urlDraft.trim()} onClick={applyUrl}>应用</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

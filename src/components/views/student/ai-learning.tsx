@@ -17,6 +17,8 @@ export function AiLearningView({ course }: { course?: Course }) {
   const knowledgePoints = course?.content.knowledgePoints ?? [];
   const graph = course?.content.knowledgeGraph;
   const progress = course?.students.find((student) => student.id === studentId)?.stageProgress["ai-learning"] ?? 0;
+  const aiProgress = studentId ? course?.aiLearningProgress?.[studentId] : undefined;
+  const goals = aiProgress?.currentGoals?.length ? aiProgress.currentGoals : (course?.learningObjectives ?? course?.content.lessonOutline.flatMap((section) => section.objectives).slice(0, 4) ?? []);
 
   // ===== OpenMAIC 场景-知识点联动 =====
   // 订阅 useStageStore 的 currentSceneId 变化，匹配当前讲解的知识点
@@ -60,14 +62,14 @@ export function AiLearningView({ course }: { course?: Course }) {
     return (
       <div className="space-y-5">
         <div>
-          <h1 className="text-3xl font-black leading-tight text-slate-950 md:text-4xl">AI 授知</h1>
+          <h1 className="text-3xl font-bold leading-tight text-slate-950 md:text-4xl">AI 授知</h1>
           <p className="mt-1 text-base text-slate-600 md:text-xl">进入 AI 课堂，完成核心概念学习。</p>
         </div>
         <Card className="text-center">
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-50 text-amber-600">
             <Bot size={32} />
           </div>
-          <h2 className="mt-4 text-2xl font-black">AI 课堂尚未生成</h2>
+          <h2 className="mt-4 text-2xl font-bold">AI 课堂尚未生成</h2>
           <p className="mt-2 text-sm text-slate-500">
             请等待教师生成 AI 授知内容。生成完成后，本阶段会直接显示 AI 学习课堂。
           </p>
@@ -85,7 +87,7 @@ export function AiLearningView({ course }: { course?: Course }) {
         <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-blue-50 text-blue-700">
           <Bot size={32} />
         </div>
-        <h2 className="mt-4 text-2xl font-black">正在初始化学习身份</h2>
+        <h2 className="mt-4 text-2xl font-bold">正在初始化学习身份</h2>
         <p className="mt-2 text-sm text-slate-500">请从学生端重新进入课堂，以便记录学习进度。</p>
       </Card>
     );
@@ -93,6 +95,11 @@ export function AiLearningView({ course }: { course?: Course }) {
 
   return (
     <div className="space-y-3">
+      <section className="grid gap-5 border-y border-[var(--pbl-border)] bg-[var(--pbl-surface)] py-5 lg:grid-cols-[1.2fr_1fr_1fr]">
+        <div><p className="text-xs font-semibold text-[var(--pbl-ai)]">当前学习目标</p><ul className="mt-2 space-y-2 text-sm leading-6">{goals.length ? goals.map((goal) => <li key={goal}>· {goal}</li>) : <li className="text-[var(--pbl-text-muted)]">教师尚未补充可观察目标</li>}</ul></div>
+        <div><p className="text-xs font-semibold text-[var(--pbl-student)]">为什么与项目有关</p><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">这些知识将帮助你判断并回答：{course?.drivingQuestion || "当前项目问题"}</p><p className="mt-3 text-xs font-semibold text-[var(--pbl-text-muted)]">进入下一阶段：{aiProgress?.nextStageCondition ?? "完成核心内容与知识检查，等待教师确认"}</p></div>
+        <div><p className="text-xs font-semibold text-[var(--pbl-ai)]">AI 为什么调整路径</p><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">{aiProgress?.pathAdjustmentReason ?? "当前按课程既定路径讲解；完成知识检查后，AI 会依据未达成目标调整案例与练习。"}</p>{aiProgress?.currentTeachingAction ? <p className="mt-3 text-sm font-semibold">正在进行：{aiProgress.currentTeachingAction}</p> : null}</div>
+      </section>
       <section className="overflow-hidden rounded-[var(--radius-lg)] border border-slate-200 bg-white shadow-sm">
         {/* 集成工具条 */}
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-3 py-2">

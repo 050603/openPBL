@@ -1,9 +1,9 @@
-﻿﻿﻿﻿﻿﻿﻿﻿"use client";
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, FileText, Image as ImageIcon, Lightbulb, Megaphone, PenLine, Plus, Save, Trash2, Video, Wand2 } from "lucide-react";
 import { AvatarStack } from "@/components/dashboard-shell";
-import { Card, Pill, PrimaryButton, ProgressBar, Select, TextArea, TextInput } from "@/components/ui";
+import { Card, Pill, PrimaryButton, ProgressBar, Select, TextArea, TextInput, toast } from "@/components/ui";
 import { useSession } from "@/lib/session/store";
 import type { Course, ProjectGroup } from "@/lib/session/types";
 import { diagnoseGroupIdea } from "@/lib/teaching-ai/client-api";
@@ -46,6 +46,10 @@ export function GroupView({ course }: { course: Course }) {
   const [announcementContent, setAnnouncementContent] = useState("");
   const [promptBatch, setPromptBatch] = useState(0);
   const [taskDraft, setTaskDraft] = useState({ role: "", memberName: "", task: "" });
+  const [rejectingSuggestion, setRejectingSuggestion] = useState<string>();
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [editingSuggestion, setEditingSuggestion] = useState<string>();
+  const [editedSuggestion, setEditedSuggestion] = useState("");
 
   // Find the group that THIS student belongs to. Do NOT fall back to
   // course.groups[0], because that would show another group's data when
@@ -125,7 +129,7 @@ export function GroupView({ course }: { course: Course }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 方案检查失败";
       setStatus(message);
-      window.alert(message);
+      toast.error("AI 方案建议生成失败", { description: message });
     }
   }
 
@@ -144,6 +148,25 @@ export function GroupView({ course }: { course: Course }) {
 
   // Pre-populate member dropdown options from real group members
   const memberOptions = group.members.map((m) => ({ value: m.name, label: m.name }));
+  const proposal = group.proposal ?? {
+    projectQuestion: group.topic,
+    outcomeFormat: group.selectedForms.join("、"),
+    implementationPlan: group.goal ?? "",
+    requiredKnowledge: group.keywords,
+    aiUsePlan: "",
+    risks: [],
+  };
+  function updateProposal(patch: Partial<typeof proposal>) {
+    updateGroup({ proposal: { ...proposal, ...patch } });
+  }
+  function decideSuggestion(suggestion: string, decision: "adopted" | "adopted-after-edit" | "rejected", appliedText = suggestion) {
+    if (!latestIdeaSupport) return;
+    const before = proposal.implementationPlan;
+    const after = decision === "rejected" ? before : `${before}${before ? "\n" : ""}${appliedText}`;
+    if (decision !== "rejected") updateProposal({ implementationPlan: after });
+    session.upsertAiSupport({ ...latestIdeaSupport, status: decision === "rejected" ? "dismissed" : "student-applied", adoption: { decision, reason: decision === "rejected" ? rejectionReason.trim() : undefined, before, after, handledBy: session.studentName ?? session.user.name, handledAt: new Date().toISOString() } });
+    setRejectingSuggestion(undefined); setRejectionReason(""); setEditingSuggestion(undefined); setEditedSuggestion("");
+  }
 
   return (
     <div className="space-y-5">
@@ -184,6 +207,18 @@ export function GroupView({ course }: { course: Course }) {
           </div>
         </Card>
       ) : null}
+
+      <section className="border-y border-[var(--pbl-border)] py-6">
+        <div className="mb-5"><p className="text-sm font-semibold text-[var(--pbl-student)]">结构化项目方案</p><h2 className="font-editorial mt-1 text-2xl font-semibold">让每个决定都能被讨论、修改和追溯</h2></div>
+        <div className="grid gap-5 md:grid-cols-2">
+          <label className="text-sm font-semibold">项目问题<TextArea className="mt-2 min-h-24" onChange={(event) => updateProposal({ projectQuestion: event.target.value })} value={proposal.projectQuestion} /></label>
+          <label className="text-sm font-semibold">成果形式<TextArea className="mt-2 min-h-24" onChange={(event) => updateProposal({ outcomeFormat: event.target.value })} value={proposal.outcomeFormat} /></label>
+          <label className="text-sm font-semibold">实施计划<TextArea className="mt-2 min-h-28" onChange={(event) => updateProposal({ implementationPlan: event.target.value })} value={proposal.implementationPlan} /></label>
+          <label className="text-sm font-semibold">所需知识<span className="ml-2 text-xs font-normal text-[var(--pbl-text-muted)]">每行一项</span><TextArea className="mt-2 min-h-28" onChange={(event) => updateProposal({ requiredKnowledge: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} value={proposal.requiredKnowledge.join("\n")} /></label>
+          <label className="text-sm font-semibold">AI 使用计划<TextArea className="mt-2 min-h-28" onChange={(event) => updateProposal({ aiUsePlan: event.target.value })} placeholder="我们在哪些环节需要知识补充、诊断或案例？哪些判断必须由小组完成？" value={proposal.aiUsePlan} /></label>
+          <label className="text-sm font-semibold">风险与困难<span className="ml-2 text-xs font-normal text-[var(--pbl-text-muted)]">每行一项</span><TextArea className="mt-2 min-h-28" onChange={(event) => updateProposal({ risks: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} value={proposal.risks.join("\n")} /></label>
+        </div>
+      </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(20rem,1fr)]">
         <Card>
@@ -244,7 +279,7 @@ export function GroupView({ course }: { course: Course }) {
                 {latestIdeaSupport.suggestions.map((item, index) => (
                   <div className="flex gap-3 text-[15px] leading-7" key={item}>
                     <span className="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-sm font-black text-blue-700">{index + 1}</span>
-                    <p>{item}</p>
+                    <div className="flex-1"><p>{item}</p><div className="mt-2 flex flex-wrap gap-2"><button className="min-h-9 rounded-[var(--radius-xs)] border border-[var(--pbl-student)] px-3 text-xs font-semibold text-[var(--pbl-student)]" onClick={() => decideSuggestion(item, "adopted")} type="button">采纳到实施计划</button><button className="min-h-9 px-3 text-xs font-semibold text-[var(--pbl-student)]" onClick={() => { setEditingSuggestion(item); setEditedSuggestion(item); }} type="button">修改后采纳</button><button className="min-h-9 px-3 text-xs font-semibold text-[var(--pbl-text-muted)]" onClick={() => setRejectingSuggestion(item)} type="button">不采纳</button></div>{editingSuggestion === item ? <div className="mt-2 flex flex-col gap-2 sm:flex-row"><TextInput onChange={(event) => setEditedSuggestion(event.target.value)} value={editedSuggestion} /><button className="min-h-11 shrink-0 rounded-[var(--radius-xs)] bg-[var(--pbl-student)] px-3 text-xs font-semibold text-white" disabled={!editedSuggestion.trim()} onClick={() => decideSuggestion(item, "adopted-after-edit", editedSuggestion.trim())} type="button">保存并采纳</button></div> : null}{rejectingSuggestion === item ? <div className="mt-2 flex flex-col gap-2 sm:flex-row"><TextInput onChange={(event) => setRejectionReason(event.target.value)} placeholder="说明不采纳的理由" value={rejectionReason} /><button className="min-h-11 shrink-0 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-3 text-xs font-semibold text-white" disabled={!rejectionReason.trim()} onClick={() => decideSuggestion(item, "rejected")} type="button">记录决定</button></div> : null}</div>
                   </div>
                 ))}
               </div>

@@ -110,7 +110,7 @@ export function StudentClassroomBar({
 }) {
   const help = getStageHelp(currentStage);
   return (
-    <section className={cn("relative overflow-hidden rounded-[18px] text-white shadow-[0_18px_44px_rgba(15,23,42,0.18)]", stageHeroBg(help.tone))}>
+    <section className={cn("relative overflow-hidden rounded-[var(--radius-lg)] text-white", stageHeroBg(help.tone))}>
       <div className="pbl-hero-grid absolute inset-0 opacity-50" aria-hidden="true" />
       <div className="absolute -right-16 -top-20 h-48 w-48 rounded-full bg-white/14 blur-3xl" aria-hidden="true" />
       <div className="relative grid min-h-[76px] gap-3 px-3 py-3 md:px-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -133,7 +133,7 @@ export function StudentClassroomBar({
               </button>
             </div>
             <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="truncate text-[22px] font-black leading-tight md:text-[26px]">{currentStage.label}</h1>
+              <h1 className="truncate text-[22px] font-bold leading-tight md:text-[26px]">{currentStage.label}</h1>
               <span className="min-w-0 truncate text-sm font-semibold text-white/72">{course.name}</span>
             </div>
           </div>
@@ -143,7 +143,7 @@ export function StudentClassroomBar({
           <div className="rounded-[12px] bg-white/12 px-3 py-2 ring-1 ring-white/14">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/58">progress</span>
-              <span className="text-sm font-black">{progress}%</span>
+              <span className="text-sm font-bold">{progress}%</span>
             </div>
             <ProgressBar className="mt-1.5 h-1.5 bg-white/18" value={progress} tone={progress >= 100 ? "green" : "blue"} />
             <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] font-semibold text-white/68">
@@ -185,7 +185,7 @@ export function StageGoalBar({
 }) {
   const help = getStageHelp(currentStage);
   return (
-    <section className={cn("relative overflow-hidden rounded-[18px] text-white shadow-[0_22px_58px_rgba(15,23,42,0.18)]", stageHeroBg(help.tone))}>
+    <section className={cn("relative overflow-hidden rounded-[var(--radius-lg)] text-white", stageHeroBg(help.tone))}>
       <div className="pbl-hero-grid absolute inset-0 opacity-60" aria-hidden="true" />
       <div className="absolute -right-20 -top-24 h-64 w-64 rounded-full bg-white/14 blur-3xl" aria-hidden="true" />
       <div className="relative grid gap-0 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -202,7 +202,7 @@ export function StageGoalBar({
                 <span className="rounded-full bg-white/12 px-3 py-1 text-white/82">{statusText}</span>
               </div>
               <div className="truncate text-sm font-semibold text-white/68">{course.name}</div>
-              <h1 className="mt-1 text-3xl font-black leading-tight md:text-4xl">{currentStage.label}</h1>
+              <h1 className="mt-1 text-3xl font-bold leading-tight md:text-4xl">{currentStage.label}</h1>
               <p className="mt-2 max-w-4xl text-sm leading-6 text-white/82">{help.goal}</p>
             </div>
           </div>
@@ -218,7 +218,7 @@ export function StageGoalBar({
           <div className="mt-3 rounded-[12px] bg-white/10 p-3 ring-1 ring-white/12">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-[0.14em] text-white/58">progress</span>
-              <span className="text-xl font-black">{progress}%</span>
+              <span className="text-xl font-bold">{progress}%</span>
             </div>
             <ProgressBar className="h-2 bg-white/18" value={progress} tone={progress >= 100 ? "green" : "blue"} />
           </div>
@@ -249,7 +249,7 @@ export function TeacherClassroomBanner({
   const help = getStageHelp(currentStage);
   const groupCount = course.groups?.length ?? 0;
   return (
-    <section className="relative overflow-hidden rounded-[16px] bg-slate-950 text-white shadow-[0_18px_42px_rgba(15,23,42,0.18)]">
+    <section className="relative overflow-hidden rounded-[var(--radius-lg)] bg-[var(--pbl-teacher)] text-white">
       <div className="pbl-hero-grid absolute inset-0 opacity-55" aria-hidden="true" />
       <div className="absolute -right-16 -top-28 h-64 w-64 rounded-full bg-blue-500/28 blur-3xl" aria-hidden="true" />
       <div className="relative grid gap-3 p-3 md:p-4 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
@@ -271,7 +271,7 @@ export function TeacherClassroomBanner({
                 <HelpCircle size={13} />
               </button>
             </div>
-            <h1 className="truncate text-2xl font-black leading-tight md:text-3xl">{currentStage.label}</h1>
+            <h1 className="truncate text-2xl font-bold leading-tight md:text-3xl">{currentStage.label}</h1>
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-4">
@@ -305,7 +305,7 @@ function HeroChip({ icon, label, value }: { icon: ReactNode; label: string; valu
         {icon}
         {label}
       </div>
-      <div className="mt-1 truncate text-sm font-black text-white">{value}</div>
+      <div className="mt-1 truncate text-sm font-bold text-white">{value}</div>
     </div>
   );
 }
@@ -339,17 +339,17 @@ function TeacherMetric({
         {icon}
         {label}
       </div>
-      <div className="mt-0.5 text-xl font-black text-white">{value}</div>
+      <div className="mt-0.5 text-xl font-bold text-white">{value}</div>
     </div>
   );
 }
 
 function stageHeroBg(tone: Tone) {
   return {
-    blue: "bg-gradient-to-br from-blue-700 via-sky-700 to-slate-950",
-    green: "bg-gradient-to-br from-teal-700 via-emerald-700 to-slate-950",
-    orange: "bg-gradient-to-br from-amber-600 via-orange-700 to-slate-950",
-    red: "bg-gradient-to-br from-rose-700 via-red-700 to-slate-950",
+    blue: "bg-[var(--pbl-ai)]",
+    green: "bg-[var(--pbl-student)]",
+    orange: "bg-[var(--pbl-warning)]",
+    red: "bg-[var(--pbl-danger)]",
   }[tone];
 }
 

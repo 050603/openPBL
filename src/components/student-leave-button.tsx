@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { useSession } from "@/lib/session/store";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui";
 
 export function StudentLeaveButton({
   redirectTo = "/student",
@@ -17,7 +18,6 @@ export function StudentLeaveButton({
   const { leaveClass, joinedCourseId, studentId } = useSession();
 
   function handleClick() {
-    if (!window.confirm("确定离开当前课堂？离开后需要重新输入邀请码。")) return;
     // Fire-and-forget: mark the student offline on the server before
     // navigating away. sendBeacon works even during unload.
     if (joinedCourseId && studentId) {
@@ -33,7 +33,8 @@ export function StudentLeaveButton({
   }
 
   return (
-    <button
+    <AlertDialog>
+      <AlertDialogTrigger asChild><button
       className={
         "inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 " +
         (className ?? "")
@@ -42,6 +43,8 @@ export function StudentLeaveButton({
       type="button"
     >
       <LogOut size={15} /> {label}
-    </button>
+      </button></AlertDialogTrigger>
+      <AlertDialogContent><AlertDialogTitle>离开当前课堂？</AlertDialogTitle><AlertDialogDescription>离开后当前身份会退出课堂，再次进入需要重新输入邀请码。</AlertDialogDescription><AlertDialogFooter><AlertDialogCancel>继续学习</AlertDialogCancel><AlertDialogAction onClick={handleClick}>确认离开</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+    </AlertDialog>
   );
 }
