@@ -36,6 +36,8 @@ export type DashboardShellProps = {
   wide?: boolean;
   variant?: "default" | "bare";
   headerSlot?: ReactNode;
+  classroomBar?: ReactNode;
+  hideCourseSwitcher?: boolean;
   currentCourse?: { id: string; name: string; status: CourseStatus };
   currentStage?: { index: number; total: number; label: string };
   userName?: string;
@@ -46,12 +48,14 @@ type OpenPanel = "courses" | "notifications" | "profile" | null;
 export function DashboardShell({
   role,
   phase = "",
-  title = "AI探知—项目共创平台",
+  title = "AI 授知项目共创平台",
   subtitle,
   course,
   children,
   wide = false,
   headerSlot,
+  classroomBar,
+  hideCourseSwitcher = false,
   currentCourse,
   currentStage,
   userName,
@@ -61,11 +65,10 @@ export function DashboardShell({
   const isTeacher = role === "teacher";
   const [nameDraft, setNameDraft] = useState(() => {
     const name = userName ?? session.user.name;
-    // 学生端：不使用默认"教师"身份初始化
     if (!isTeacher && name === "教师") return "";
     return name;
   });
-  // 学生端：未加入课堂时不显示默认"教师"身份，仅显示已确认的学生身份
+
   const displayName = isTeacher
     ? (userName ?? session.user.name ?? "教师")
     : (session.studentName || (userName && userName !== "教师" ? userName : ""));
@@ -94,125 +97,125 @@ export function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
-      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center border-b border-slate-200/80 bg-white/95 px-7 backdrop-blur">
-        <Link className="flex min-w-0 items-center gap-3" href={homeHref}>
-          <LogoMark />
-          <span className="truncate text-xl font-black tracking-[0] text-slate-950">
-            {isTeacher ? "AI探知—教师端" : title}
-          </span>
-        </Link>
+    <div className={cn("min-h-screen text-slate-900", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
+      <header className="fixed inset-x-0 top-0 z-30 px-3 pt-3 md:px-6">
+        <div className="pbl-glass mx-auto flex h-14 max-w-[1760px] items-center rounded-[var(--radius-md)] px-3 py-2 md:px-4">
+          <Link className="flex min-w-0 items-center gap-2.5" href={homeHref}>
+            <LogoMark role={role} />
+            <div className="hidden min-w-0 sm:block">
+              <div className="truncate text-[15px] font-bold tracking-tight text-slate-900 md:text-base">
+                {isTeacher ? "教师课堂主控台" : title}
+              </div>
+              <div className="mt-0.5 text-[11px] font-medium text-slate-500">
+                {isTeacher ? "PBL 教师导学" : "PBL 学生工作台"}
+              </div>
+            </div>
+          </Link>
 
-        <div className="ml-6 flex items-center gap-3">
-          {(courseName || stageLabel) ? (
+          <div className="ml-3 flex min-w-0 flex-1 items-center gap-3 md:ml-6">
+            {(courseName || stageLabel) && !hideCourseSwitcher ? (
+              <button
+                className="hidden h-10 max-w-[520px] min-w-0 items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-left text-[13px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white md:inline-flex"
+                onClick={() => toggle("courses")}
+                type="button"
+              >
+                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-50 text-indigo-700" : "bg-teal-50 text-teal-700")}>
+                  <GraduationCap size={15} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate">{stageLabel || courseName}</span>
+                  {courseName ? <span className="block truncate text-[11px] text-slate-500">{courseName}</span> : null}
+                </span>
+                {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
+                <ChevronDown size={14} className={cn("shrink-0 text-slate-400 transition", openPanel === "courses" && "rotate-180")} />
+              </button>
+            ) : null}
+            {headerSlot}
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+            {isTeacher ? (
+              <Link
+                className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-[13px] font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 md:inline-flex"
+                href="/teacher/settings"
+              >
+                <Settings size={14} /> AI 设置
+              </Link>
+            ) : null}
             <button
-              className="hidden h-10 max-w-[430px] items-center gap-3 rounded-[6px] border border-slate-200 bg-white px-4 text-left text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700 md:inline-flex"
-              onClick={() => toggle("courses")}
+              className="relative grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-transparent text-slate-600 transition hover:border-slate-200 hover:bg-white"
+              onClick={() => toggle("notifications")}
+              type="button"
+              aria-label="通知中心"
+            >
+              <Bell size={18} strokeWidth={1.8} />
+              {unreadCount ? (
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
+                  {unreadCount}
+                </span>
+              ) : null}
+            </button>
+            <button
+              className="flex h-10 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white"
+              onClick={() => toggle("profile")}
               type="button"
             >
-              {isTeacher ? (
-                <span className="inline-flex items-center gap-2 text-blue-700">
-                  <GraduationCap size={17} /> {stageLabel || courseName}
-                </span>
-              ) : (
-                <>
-                  <span className="truncate">{courseName}</span>
-                  {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
-                </>
-              )}
-              <ChevronDown size={16} className={cn("transition", openPanel === "courses" && "rotate-180")} />
+              <Avatar name={displayName || (isTeacher ? "教师" : "学生")} />
+              <span className="hidden max-w-[100px] truncate text-[13px] font-semibold md:inline">
+                {displayName || "未加入课堂"}
+              </span>
+              <ChevronDown size={14} className={cn("text-slate-400 transition", openPanel === "profile" && "rotate-180")} />
             </button>
-          ) : null}
-          {headerSlot}
+          </div>
         </div>
-
-        <div className="ml-auto flex items-center gap-3">
-          {isTeacher ? (
-            <Link
-              className="hidden h-10 items-center gap-2 rounded-[6px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-blue-300 hover:text-blue-700 md:inline-flex"
-              href="/teacher/settings"
-            >
-              <Settings size={16} /> AI 设置
-            </Link>
-          ) : null}
-          <button
-            className="relative grid h-10 w-10 place-items-center rounded-full border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white"
-            onClick={() => toggle("notifications")}
-            type="button"
-            aria-label="通知中心"
-          >
-            <Bell size={22} strokeWidth={1.8} />
-            <span className="absolute right-1 top-0 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-xs font-black leading-none text-white">
-              {unreadCount}
-            </span>
-          </button>
-          <button
-            className="flex h-11 items-center gap-3 rounded-[6px] px-2 transition hover:bg-slate-50"
-            onClick={() => toggle("profile")}
-            type="button"
-          >
-            <Avatar name={displayName || (isTeacher ? "教师" : "学生")} />
-            {displayName ? (
-              <span className="hidden max-w-[96px] truncate text-base font-semibold md:inline">
-                {displayName}
-              </span>
-            ) : (
-              <span className="hidden text-sm text-slate-400 md:inline">
-                未加入课堂
-              </span>
-            )}
-            <ChevronDown size={16} className={cn("text-slate-500 transition", openPanel === "profile" && "rotate-180")} />
-          </button>
-        </div>
+        {classroomBar ? (
+          <div className="mx-auto mt-2 max-w-[1760px]">
+            {classroomBar}
+          </div>
+        ) : null}
       </header>
 
       {openPanel ? (
         <TopPopover onClose={() => setOpenPanel(null)}>
           {openPanel === "courses" ? (
-            <CourseMenu
-              currentId={currentCourse?.id}
-              isTeacher={isTeacher}
-              onClose={() => setOpenPanel(null)}
-            />
+            <CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} />
           ) : null}
-          {openPanel === "notifications" ? (
-            <NotificationMenu items={notifications} />
-          ) : null}
+          {openPanel === "notifications" ? <NotificationMenu items={notifications} /> : null}
           {openPanel === "profile" ? (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               <div>
-                <div className="text-lg font-black text-slate-950">个人信息</div>
-                <p className="mt-1 text-sm text-slate-500">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
+                <div className="text-base font-bold text-slate-900">个人信息</div>
+                <p className="mt-0.5 text-[13px] text-slate-500">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
               </div>
-              <label className="block text-sm font-semibold text-slate-700">
+              <label className="block text-[13px] font-semibold text-slate-700">
                 显示姓名
-                <TextInput className="mt-2" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} />
+                <TextInput className="mt-1.5 h-10" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} />
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton>
                 <Link
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50"
                   href={isTeacher ? "/teacher/settings" : "/student/reflection"}
                   onClick={() => setOpenPanel(null)}
                 >
-                  <UserRound size={16} /> 个人中心
+                  <UserRound size={15} /> 个人中心
                 </Link>
               </div>
               <Link
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-[6px] border border-red-200 bg-red-50 text-sm font-semibold text-red-600 hover:bg-red-100"
+                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-rose-200 bg-rose-50 text-[13px] font-semibold text-rose-600 transition hover:bg-rose-100"
                 href={homeHref}
                 onClick={() => setOpenPanel(null)}
               >
-                <LogOut size={16} /> 返回首页
+                <LogOut size={15} /> 返回首页
               </Link>
             </div>
           ) : null}
         </TopPopover>
       ) : null}
 
-      <main className={cn("pt-16", wide ? "min-w-[1260px]" : "min-w-[1060px]")}>
-        <div className="mx-auto max-w-[1510px] px-10 py-7">
-          {subtitle ? <p className="mb-1 text-base font-medium text-slate-500">{subtitle}</p> : null}
+      <main className={classroomBar ? "pt-[150px] md:pt-[156px]" : "pt-[84px]"}>
+        <div className={cn("mx-auto w-full px-4 pb-10 md:px-7", wide ? "max-w-[1720px]" : "max-w-[1540px]")}>
+          {subtitle ? <p className="mb-2 text-sm font-medium text-slate-500">{subtitle}</p> : null}
           {children}
         </div>
       </main>
@@ -224,12 +227,12 @@ function StatusPill({ status }: { status: CourseStatus }) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center rounded-full px-2 text-xs font-semibold",
-        status === "ready" && "bg-emerald-50 text-emerald-700",
-        status === "teaching" && "bg-blue-50 text-blue-700",
-        status === "preparing" && "bg-amber-50 text-amber-700",
-        status === "draft" && "bg-slate-100 text-slate-600",
-        status === "finished" && "bg-slate-100 text-slate-500",
+        "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-semibold ring-1",
+        status === "ready" && "bg-emerald-50 text-emerald-700 ring-emerald-200",
+        status === "teaching" && "bg-indigo-50 text-indigo-700 ring-indigo-200",
+        status === "preparing" && "bg-amber-50 text-amber-700 ring-amber-200",
+        status === "draft" && "bg-slate-100 text-slate-600 ring-slate-200",
+        status === "finished" && "bg-slate-100 text-slate-500 ring-slate-200",
       )}
     >
       {COURSE_STATUS_LABEL[status]}
@@ -239,14 +242,14 @@ function StatusPill({ status }: { status: CourseStatus }) {
 
 function TopPopover({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed right-6 top-[70px] z-40 w-[360px] rounded-[8px] border border-slate-200 bg-white p-4 shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
+    <div className="pbl-glass fixed right-4 top-[84px] z-40 w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-md)] p-4 md:right-8">
       <button
-        className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-[6px] text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-slate-400 transition hover:bg-white hover:text-slate-700"
         onClick={onClose}
         type="button"
         aria-label="关闭"
       >
-        <X size={16} />
+        <X size={15} />
       </button>
       {children}
     </div>
@@ -257,11 +260,11 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
   const { courses } = useSession();
   return (
     <div>
-      <div className="mb-3 pr-9">
-        <div className="text-lg font-black text-slate-950">课程切换</div>
-        <p className="mt-1 text-sm text-slate-500">选择要进入的课堂或项目页。</p>
+      <div className="mb-3 pr-8">
+        <div className="text-base font-bold text-slate-900">课堂切换</div>
+        <p className="mt-0.5 text-[13px] text-slate-500">选择要进入的课堂或项目页面。</p>
       </div>
-      <div className="max-h-[360px] space-y-2 overflow-auto pr-1">
+      <div className="max-h-[360px] space-y-1.5 overflow-auto pr-1">
         {courses.map((item) => {
           const href = isTeacher
             ? item.status === "teaching"
@@ -273,18 +276,18 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
           return (
             <Link
               className={cn(
-                "block rounded-[8px] border px-3 py-3 transition hover:border-blue-300 hover:bg-blue-50/50",
-                item.id === currentId ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white",
+                "block rounded-[var(--radius-sm)] border px-3 py-2.5 transition hover:border-indigo-300 hover:bg-indigo-50/40",
+                item.id === currentId ? "border-indigo-300 bg-indigo-50/60" : "border-slate-200 bg-white/80",
               )}
               href={href}
               key={item.id}
               onClick={onClose}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-black text-slate-900">{item.name}</span>
+                <span className="truncate text-[13px] font-bold text-slate-900">{item.name}</span>
                 <StatusPill status={item.status} />
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-0.5 text-[11px] text-slate-500">
                 {item.subject} · {item.grade} · 阶段 {item.currentStageIndex + 1}/{item.stages.length}
               </div>
             </Link>
@@ -298,24 +301,24 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
 function NotificationMenu({ items }: { items: { id: string; actor: string; action: string; detail?: string; createdAt: string }[] }) {
   return (
     <div>
-      <div className="mb-3 pr-9">
-        <div className="text-lg font-black text-slate-950">通知中心</div>
-        <p className="mt-1 text-sm text-slate-500">展示课堂最近活动与反馈。</p>
+      <div className="mb-3 pr-8">
+        <div className="text-base font-bold text-slate-900">通知中心</div>
+        <p className="mt-0.5 text-[13px] text-slate-500">课堂最近活动与反馈会显示在这里。</p>
       </div>
       {items.length ? (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {items.map((item) => (
-            <div className="rounded-[8px] border border-slate-200 bg-slate-50/60 p-3" key={item.id}>
-              <div className="text-sm font-bold text-slate-900">
+            <div className="rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 p-2.5" key={item.id}>
+              <div className="text-[13px] font-semibold text-slate-900">
                 {item.actor} · {item.action}
               </div>
-              {item.detail ? <div className="mt-1 text-sm text-slate-500">{item.detail}</div> : null}
-              <div className="mt-2 text-xs text-slate-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+              {item.detail ? <div className="mt-0.5 text-[13px] text-slate-500">{item.detail}</div> : null}
+              <div className="mt-1.5 text-[11px] text-slate-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="rounded-[8px] border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-sm text-slate-500">
+        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-slate-300 bg-slate-50/40 py-8 text-center text-[13px] text-slate-500">
           暂无通知，课堂活动会在这里出现。
         </div>
       )}
@@ -323,21 +326,22 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
   );
 }
 
-export function LogoMark() {
+export function LogoMark({ role = "teacher" }: { role?: Role }) {
+  const isTeacher = role === "teacher";
   return (
     <div className="relative h-9 w-9 shrink-0">
-      <div className="absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[4px] bg-blue-600" />
-      <div className="absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[4px] bg-sky-400" />
+      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-700" : "bg-teal-600")} />
+      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-400" : "bg-teal-400")} />
       <div className="absolute bottom-0 left-[12px] h-3 w-3 rotate-45 bg-white" />
     </div>
   );
 }
 
-export function Avatar({ name, size = 38 }: { name: string; size?: number }) {
+export function Avatar({ name, size = 34 }: { name: string; size?: number }) {
   const initials = name.slice(0, 1);
   return (
     <div
-      className="grid shrink-0 place-items-center rounded-full border border-white bg-gradient-to-br from-slate-900 via-slate-700 to-slate-300 text-sm font-black text-white shadow-sm"
+      className="grid shrink-0 place-items-center rounded-full bg-slate-800 text-sm font-bold text-white"
       style={{ height: size, width: size }}
       title={name}
     >
@@ -367,29 +371,29 @@ export function Toolbar() {
   const icons = [ClipboardList, FileText, CalendarDays, Database, Star];
   return (
     <div className="flex h-11 items-center gap-1 border-b border-slate-200 bg-slate-50 px-3">
-      <select className="h-8 rounded-[5px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
         <option>正文</option>
       </select>
-      <select className="h-8 rounded-[5px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
         <option>系统字体</option>
       </select>
-      <select className="h-8 rounded-[5px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
         <option>14</option>
       </select>
       <span className="mx-2 h-6 w-px bg-slate-200" />
       {["B", "I", "U", "S"].map((item) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[5px] text-base font-bold hover:bg-white" key={item} type="button">
+        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-base font-bold hover:bg-white" key={item} type="button">
           {item}
         </button>
       ))}
       <span className="mx-2 h-6 w-px bg-slate-200" />
       {icons.map((Icon, index) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[5px] text-slate-700 hover:bg-white" key={index} type="button">
+        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-slate-700 hover:bg-white" key={index} type="button">
           <Icon size={17} />
         </button>
       ))}
-      <span className="ml-auto text-slate-400">↶</span>
-      <span className="text-slate-400">↷</span>
+      <span className="ml-auto text-slate-400">撤销</span>
+      <span className="text-slate-400">重做</span>
     </div>
   );
 }

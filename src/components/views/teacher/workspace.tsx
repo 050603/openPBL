@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertCircle,
+  ClipboardCheck,
   Download,
   Eye,
   FileText,
+  Lightbulb,
   Loader2,
   MessageSquare,
   RefreshCw,
   Send,
-  Sparkles,
   Users,
+  Wand2,
   X,
 } from "lucide-react";
 import { AvatarStack } from "@/components/dashboard-shell";
@@ -34,12 +36,13 @@ export function WorkspaceTeacherView({
   const [docPreviewOpen, setDocPreviewOpen] = useState(false);
 
   const stageKey = course.stages[course.currentStageIndex]?.key ?? "make";
-  // AI 干预信号异步加载（LLM 优先，失败回退本地规则）
+  const isReviewStage = stageKey === "review";
+  // AI 干预信号只在教师点击刷新时请求；失败时直接提示，不写入本地兜底结果。
   const [interventionSignals, setInterventionSignals] = useState<TeacherInterventionSignal[]>([]);
   const [signalsLoading, setSignalsLoading] = useState(false);
-  const aiAnalysisPending = course.uiState?.aiAnalysisPending ?? false;
 
   async function refreshSignals() {
+    if (signalsLoading) return;
     setSignalsLoading(true);
     try {
       const signals = await buildTeacherInterventionSignals(course, stageKey);
@@ -49,33 +52,13 @@ export function WorkspaceTeacherView({
         aiAnalysisPending: false,
         aiAnalysisRefreshedAt: new Date().toISOString(),
       });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "AI 制作观察刷新失败";
+      window.alert(message);
     } finally {
       setSignalsLoading(false);
     }
   }
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadSignals() {
-      setSignalsLoading(true);
-      try {
-        const signals = await buildTeacherInterventionSignals(course, stageKey);
-        if (!cancelled) {
-          setInterventionSignals(signals);
-          setUiState(course.id, {
-            aiAnalysisPending: false,
-            aiAnalysisRefreshedAt: new Date().toISOString(),
-          });
-        }
-      } finally {
-        if (!cancelled) setSignalsLoading(false);
-      }
-    }
-    loadSignals();
-    return () => { cancelled = true; };
-    // 仅在课程 ID/更新时间/阶段变化时重新加载，避免 polling 引起的频繁 LLM 调用
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [course.id, course.updatedAt, stageKey]);
 
   const activeSignal = interventionSignals.find((signal) => signal.groupId === active?.id);
 
@@ -97,7 +80,9 @@ export function WorkspaceTeacherView({
       }
       setEditedQuestions(initEdited);
     } catch (e) {
-      setDiagnosisError(e instanceof Error ? e.message : "AI 方案诊断失败");
+      const message = e instanceof Error ? e.message : "AI 方案诊断失败";
+      setDiagnosisError(message);
+      window.alert(message);
     } finally {
       setDiagnosisLoading(false);
     }
@@ -181,7 +166,7 @@ export function WorkspaceTeacherView({
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="text-sm text-slate-500">小组总数</div>
           <div className="mt-2 text-2xl font-black">{groups.length}</div>
@@ -220,78 +205,103 @@ export function WorkspaceTeacherView({
         </Card>
       </div>
 
-      <Card>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-base font-black">
-              <Sparkles className="text-amber-600" size={18} /> AI 方案诊断（阶段四）
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              批量分析所有小组的方案文档，生成诊断摘要、风险点和可推送的追问问题（追问内容可编辑）。
-            </p>
+      {isReviewStage ? (
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-base font-black">
+                <ClipboardCheck className="text-amber-600" size={18} /> AI 方案诊断
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                批量分析所有小组的方案文档，生成诊断摘要、风险点和可推送的追问问题（追问内容可编辑）。
+              </p>
+            </div>
+            <PrimaryButton
+              onClick={() => void runProposalDiagnosis()}
+              disabled={diagnosisLoading || !groups.length}
+              type="button"
+              className="h-9 px-3 text-sm"
+            >
+              {diagnosisLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+              {diagnosisLoading ? "诊断中..." : "批量诊断所有小组方案"}
+            </PrimaryButton>
           </div>
-          <PrimaryButton
-            onClick={() => void runProposalDiagnosis()}
-            disabled={diagnosisLoading || !groups.length}
-            type="button"
-            className="h-9 px-3 text-sm"
-          >
-            {diagnosisLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            {diagnosisLoading ? "诊断中..." : "批量诊断所有小组方案"}
-          </PrimaryButton>
-        </div>
-        {diagnosisError ? (
-          <div className="rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-            {diagnosisError}
-          </div>
-        ) : null}
-        {proposalDiagnosis.length > 0 ? (
-          <div className="grid gap-3 xl:grid-cols-2">
-            {proposalDiagnosis.map((d) => (
-              <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-4" key={d.groupId}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="font-black">{d.groupName}</div>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${d.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                    {d.source === "llm" ? "LLM" : "本地"}
-                  </span>
+          {diagnosisError ? (
+            <div className="rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+              {diagnosisError}
+            </div>
+          ) : null}
+          {proposalDiagnosis.length > 0 ? (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {proposalDiagnosis.map((d) => (
+                <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-4" key={d.groupId}>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="font-black">{d.groupName}</div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${d.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                      {d.source === "llm" ? "LLM" : "本地"}
+                    </span>
+                  </div>
+                  <div className="mb-1 text-xs text-slate-500">选题：{d.topic || "未填写"}</div>
+                  <p className="text-sm leading-6 text-slate-700">{d.diagnosis}</p>
+                  {d.risks.length > 0 ? (
+                    <div className="mt-2 text-xs leading-5 text-rose-700">风险：{d.risks.join("、")}</div>
+                  ) : null}
+                  <div className="mt-3">
+                    <div className="mb-1 text-xs font-semibold text-slate-700">可推送的追问问题（可编辑）：</div>
+                    <textarea
+                      className="min-h-[60px] w-full rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                      value={editedQuestions[d.groupId] ?? ""}
+                      onChange={(e) =>
+                        setEditedQuestions((prev) => ({ ...prev, [d.groupId]: e.target.value }))
+                      }
+                      placeholder="编辑后推送给学生..."
+                    />
+                    <PrimaryButton
+                      className="mt-2 h-8 px-3 text-xs"
+                      onClick={() => pushQuestion(d.groupId, d.groupName)}
+                      disabled={!(editedQuestions[d.groupId] ?? "").trim()}
+                      type="button"
+                      variant="outline"
+                    >
+                      <Send size={13} /> 推送追问给该组
+                    </PrimaryButton>
+                  </div>
                 </div>
-                <div className="mb-1 text-xs text-slate-500">选题：{d.topic || "未填写"}</div>
-                <p className="text-sm leading-6 text-slate-700">{d.diagnosis}</p>
-                {d.risks.length > 0 ? (
-                  <div className="mt-2 text-xs leading-5 text-rose-700">风险：{d.risks.join("、")}</div>
-                ) : null}
-                <div className="mt-3">
-                  <div className="mb-1 text-xs font-semibold text-slate-700">可推送的追问问题（可编辑）：</div>
-                  <textarea
-                    className="min-h-[60px] w-full rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-                    value={editedQuestions[d.groupId] ?? ""}
-                    onChange={(e) =>
-                      setEditedQuestions((prev) => ({ ...prev, [d.groupId]: e.target.value }))
-                    }
-                    placeholder="编辑后推送给学生..."
-                  />
-                  <PrimaryButton
-                    className="mt-2 h-8 px-3 text-xs"
-                    onClick={() => pushQuestion(d.groupId, d.groupName)}
-                    disabled={!(editedQuestions[d.groupId] ?? "").trim()}
-                    type="button"
-                    variant="outline"
-                  >
-                    <Send size={13} /> 推送追问给该组
-                  </PrimaryButton>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : (
+        <Card>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="flex items-center gap-2 text-base font-black">
+                <Lightbulb className="text-blue-600" size={18} /> AI 制作观察
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                刷新后按小组进度、材料上传、AI 支架采纳记录生成干预线索，重点识别停滞、缺证据和偏题。
+              </p>
+            </div>
+            <PrimaryButton
+              onClick={() => void refreshSignals()}
+              disabled={signalsLoading}
+              type="button"
+              className="h-9 px-3 text-sm"
+              variant="outline"
+            >
+              {signalsLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {signalsLoading ? "刷新中..." : "刷新制作风险"}
+            </PrimaryButton>
           </div>
-        ) : null}
-      </Card>
+        </Card>
+      )}
 
-      <div className="grid grid-cols-[360px_1fr] gap-5">
+      <div className="grid gap-3 xl:grid-cols-[300px_minmax(0,1fr)]">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
             <Users className="text-blue-700" size={20} /> 各组制作进度
           </h2>
-          <ul className="space-y-2">
+          <ul className="max-h-[560px] space-y-1.5 overflow-auto pr-1">
             {groups.map((g) => {
               const m = g.members;
               const prog = m.length
@@ -306,8 +316,8 @@ export function WorkspaceTeacherView({
                   key={g.id}
                   onClick={() => setActiveId(g.id)}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">{g.name}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-semibold">{g.name}</span>
                     <Pill tone={tone}>{prog}%</Pill>
                   </div>
                   <div className="mt-1 truncate text-xs text-slate-500">{g.topic || "待确定选题"}</div>
@@ -319,7 +329,7 @@ export function WorkspaceTeacherView({
         </Card>
 
         {active ? (
-          <div className="space-y-5">
+          <div className="space-y-3">
             <Card>
               <div className="flex items-center justify-between">
                 <div>
@@ -360,7 +370,7 @@ export function WorkspaceTeacherView({
             <Card>
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-2 font-black">
-                  <Sparkles className="text-amber-600" size={18} /> AI过程观察
+                  <Lightbulb className="text-amber-600" size={18} /> AI 过程观察
                 </h3>
                 <Pill tone={activeSignal ? (activeSignal.riskLevel === "high" ? "red" : "orange") : "green"}>
                   {activeSignal ? "需确认" : "稳定推进"}
@@ -372,17 +382,17 @@ export function WorkspaceTeacherView({
                   <p className="mt-2 text-sm leading-6 text-slate-700">{activeSignal.supportCard}</p>
                   <div className="mt-2 text-xs leading-5 text-slate-500">依据：{activeSignal.evidence.join("；")}</div>
                   <PrimaryButton className="mt-3 h-9 px-3 text-sm" onClick={confirmAiSupport} type="button">
-                    <Sparkles size={15} /> 教师确认并推送
+                    <Send size={15} /> 教师确认并推送
                   </PrimaryButton>
                 </div>
               ) : (
                 <div className="rounded-[8px] border border-dashed border-slate-300 py-7 text-center text-sm text-slate-500">
-                  当前小组没有明显停滞、缺证据或过度依赖 AI 的线索。
+                  点击上方刷新获取 AI 观察。
                 </div>
               )}
             </Card>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid gap-3 lg:grid-cols-2">
               <Card>
                 <h3 className="mb-3 flex items-center gap-2 font-black">
                   <FileText className="text-blue-700" size={18} /> 方案文档
@@ -462,7 +472,7 @@ export function WorkspaceTeacherView({
                         onClick={() => activeSignal ? confirmAiSupport() : sendFeedback("ai-support", "请先列出可获取的数据，再用三步法完善实施路径。")}
                         type="button"
                       >
-                        <Sparkles size={15} /> 推送 AI 支架
+                        <Send size={15} /> 推送 AI 支架
                       </PrimaryButton>
                       <PrimaryButton
                         className="h-9 px-3 text-sm"

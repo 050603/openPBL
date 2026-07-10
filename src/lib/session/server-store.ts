@@ -1,34 +1,33 @@
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { applySessionAction, initialSessionState } from "./actions";
 import type { SessionAction, SessionState } from "./actions";
-import { makeSeedCourses } from "./seed";
 import type { Course } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".openpbl-data");
 const SESSION_FILE = path.join(DATA_DIR, "session.json");
-const SESSION_FILE_TMP = path.join(DATA_DIR, "session.json.tmp");
+const WRITE_RETRIES = 6;
+const WRITE_RETRY_DELAY_MS = 80;
 
 async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
 }
 
-function seededState(): SessionState {
+function emptyPersistedState(): SessionState {
   return {
     ...initialSessionState(),
-    courses: makeSeedCourses(),
+    courses: [],
     hydrated: true,
     updatedAt: new Date().toISOString(),
   };
 }
 
 // Read the persisted session state.
-// If the file is missing or corrupt we fall back to seed data, but ONLY
-// when the file genuinely does not exist yet. Transient read failures
-// (e.g. the file is being atomically renamed by a concurrent write on
-// Windows) are retried instead of silently replacing real state with
-// seed data, which previously caused the "course disappears" bug.
+// If the file is missing we initialise an empty real state. Corrupt or
+// repeatedly unreadable data is surfaced as an error instead of being replaced
+// with demo content.
 export async function readSessionState(): Promise<SessionState> {
   await ensureDataDir();
 
@@ -40,15 +39,15 @@ export async function readSessionState(): Promise<SessionState> {
       const raw = await readFile(SESSION_FILE, "utf8");
       const parsed = JSON.parse(raw) as SessionState;
       return {
-        ...seededState(),
+        ...emptyPersistedState(),
         ...parsed,
         hydrated: true,
         courses: parsed.courses ?? [],
       };
     } catch (err) {
-      // If the file simply does not exist yet, seed it for the first time.
+      // If the file simply does not exist yet, initialise it without demo data.
       if (!existsSync(SESSION_FILE)) {
-        const initial = seededState();
+        const initial = emptyPersistedState();
         await writeSessionState(initial);
         return initial;
       }
@@ -58,15 +57,12 @@ export async function readSessionState(): Promise<SessionState> {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
         continue;
       }
-      // Last resort: return seed state without throwing, so the
-      // server does not crash. The serialization queue below ensures
-      // we rarely reach this point.
       console.error("[server-store] readSessionState exhausted retries:", err);
-      return seededState();
+      throw err;
     }
   }
 
-  return seededState();
+  return emptyPersistedState();
 }
 
 // Atomically write the session state.
@@ -77,9 +73,24 @@ export async function readSessionState(): Promise<SessionState> {
 export async function writeSessionState(state: SessionState): Promise<void> {
   await ensureDataDir();
   const payload = JSON.stringify({ ...state, hydrated: true }, null, 2);
-  // Write to temp file, then atomically rename.
-  await writeFile(SESSION_FILE_TMP, payload, "utf8");
-  await rename(SESSION_FILE_TMP, SESSION_FILE);
+  const tmpFile = path.join(DATA_DIR, `session.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+
+  try {
+    await writeFile(tmpFile, payload, "utf8");
+    for (let attempt = 0; attempt < WRITE_RETRIES; attempt++) {
+      try {
+        await rename(tmpFile, SESSION_FILE);
+        return;
+      } catch (err) {
+        if (attempt === WRITE_RETRIES - 1) throw err;
+        await new Promise((resolve) =>
+          setTimeout(resolve, WRITE_RETRY_DELAY_MS * (attempt + 1)),
+        );
+      }
+    }
+  } finally {
+    await rm(tmpFile, { force: true }).catch(() => undefined);
+  }
 }
 
 // Process a session action.

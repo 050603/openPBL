@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   Edit3,
+  MonitorPlay,
   PlayCircle,
   Send,
 } from "lucide-react";
@@ -102,6 +103,15 @@ export default function PreviewCoursePage() {
           >
             <Edit3 size={15} /> 修改
           </Link>
+          {course.teacherClassroomId ? (
+            <Link
+              className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-indigo-200 bg-indigo-50 px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+              href={`/teacher/prepare/${course.id}/resources`}
+              title="查看课程引入与 PBL 题目讲解资源"
+            >
+              <MonitorPlay size={15} /> 教师授课资源
+            </Link>
+          ) : null}
           {!isPublished ? (
             <PrimaryButton
               className="h-11 px-6"
@@ -129,6 +139,62 @@ export default function PreviewCoursePage() {
             <p className="whitespace-pre-line text-[15px] leading-8 text-slate-700">
               {course.content.pblOutline || "（未填写）"}
             </p>
+          </Card>
+
+          <Card>
+            <div className="mb-4 flex items-center gap-2">
+              <h2 className="text-xl font-black">课程授课大纲</h2>
+              <Pill tone="blue">教案级</Pill>
+            </div>
+            {course.content.teachingOutline?.length ? (
+              <ol className="space-y-3">
+                {course.content.teachingOutline.map((item, index) => (
+                  <li
+                    className="rounded-[8px] border border-slate-200 p-4"
+                    key={item.id}
+                  >
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-50 text-xs font-black text-blue-700">
+                        {index + 1}
+                      </span>
+                      <span className="font-black">{item.title}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        {item.durationMin} 分钟
+                      </span>
+                      {item.openMaicUse ? (
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                          {item.openMaicUse === "student-ai-learning"
+                            ? "学生 AI 授知"
+                            : item.openMaicUse === "teacher-resource"
+                              ? "教师资源"
+                              : "普通活动"}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-3 text-sm md:grid-cols-2">
+                      <p className="leading-6 text-slate-600">
+                        <b className="text-slate-800">目标：</b>
+                        {item.teachingGoal}
+                      </p>
+                      <p className="leading-6 text-slate-600">
+                        <b className="text-slate-800">学生活动：</b>
+                        {item.studentActivity}
+                      </p>
+                      <p className="leading-6 text-slate-600">
+                        <b className="text-slate-800">教师：</b>
+                        {item.teacherRole}
+                      </p>
+                      <p className="leading-6 text-slate-600">
+                        <b className="text-slate-800">平台 / AI：</b>
+                        平台：{item.platformRole}；AI：{item.aiRole}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-slate-500">暂无课程授课大纲。</p>
+            )}
           </Card>
 
           <Card>
@@ -295,6 +361,10 @@ export default function PreviewCoursePage() {
             <ul className="mt-3 space-y-2 text-sm">
               {[
                 { label: "PBL 大纲", done: !!course.content.pblOutline },
+                {
+                  label: `课程授课大纲 (${course.content.teachingOutline?.length ?? 0})`,
+                  done: (course.content.teachingOutline?.length ?? 0) > 0,
+                },
                 {
                   label: `知识点 (${course.content.knowledgePoints.length})`,
                   done: course.content.knowledgePoints.length > 0,

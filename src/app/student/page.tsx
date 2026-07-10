@@ -3,10 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, KeyRound, Sparkles, RotateCcw } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  ClipboardList,
+  Flag,
+  KeyRound,
+  Lightbulb,
+  Presentation,
+  RotateCcw,
+  Target,
+  Users,
+} from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { JoinClassForm } from "@/components/join-class-form";
-import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useSession, useHydrated } from "@/lib/session/store";
 
 export default function StudentEntryPage() {
@@ -64,76 +74,190 @@ export default function StudentEntryPage() {
       userName={joinedCourse ? (studentName ?? user.name) : undefined}
       variant="bare"
     >
-      <div className="mx-auto flex min-h-[calc(100vh-7rem)] max-w-3xl flex-col items-stretch justify-center py-10">
-        <div className="mb-7 text-center">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-blue-600">
-            <Sparkles size={26} />
+      <div className="mx-auto max-w-[1180px] py-6 md:py-10">
+        {/* 品牌引导区 */}
+        <div className="mb-8">
+          <div className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-teal-700 ring-1 ring-teal-200">
+            <Lightbulb size={12} /> 学生工作台
           </div>
-          <h1 className="mt-4 text-[34px] font-black tracking-tight text-slate-950">
-            学生端
+          <h1 className="mt-3 text-[30px] font-bold leading-tight tracking-tight text-slate-900">
+            AI 探知 · 项目共创
           </h1>
-          <p className="mt-2 text-base text-slate-500">
-            AI 探知 · 项目共创平台 — 输入教师提供的 6 位邀请码加入课堂
+          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+            输入教师提供的 6 位邀请码加入课堂，开启你的项目式学习之旅。加入后你将看到当前学习任务、阶段进度与 AI 学习伙伴。
           </p>
         </div>
 
         {!hydrated ? (
-          <div className="mx-auto w-full max-w-md rounded-[12px] border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
-            加载中…
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+            <div className="pbl-skeleton h-96 rounded-[var(--radius-lg)]" />
+            <div className="pbl-skeleton h-96 rounded-[var(--radius-lg)]" />
           </div>
         ) : joinedCourse && joinedCourse.status !== "teaching" ? (
           <FinishedState course={joinedCourse} onRejoin={handleRejoinWithCode} />
         ) : (
-          <>
-            {/* Show rejoin cards for previously left courses */}
-            {leftHistory.length > 0 && (
-              <div className="mb-5 space-y-3">
-                <div className="text-center text-sm font-semibold text-slate-500">快速重新加入</div>
-                {leftHistory.map((record) => (
-                  <Card key={record.courseId} className="mx-auto w-full max-w-md">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-black">{record.courseName}</div>
-                        <div className="mt-1 text-sm text-slate-500">
-                          以 <span className="font-semibold">{record.studentName}</span> 身份重新加入
-                        </div>
-                      </div>
-                      <PrimaryButton
-                        className="h-9 px-4 text-sm"
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+            {/* 左：邀请码加入 / 重新加入 */}
+            <div className="space-y-4">
+              {leftHistory.length > 0 ? (
+                <div className="pbl-card rounded-[var(--radius-lg)] p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <RotateCcw size={15} className="text-teal-600" />
+                    <span className="text-sm font-bold text-slate-900">快速重新加入</span>
+                  </div>
+                  <div className="space-y-2">
+                    {leftHistory.map((record) => (
+                      <button
+                        key={record.courseId}
+                        className="flex w-full items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white p-3 text-left transition hover:border-teal-300 hover:bg-teal-50/40 disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={busy}
                         onClick={() => handleRejoin(record)}
                         type="button"
                       >
-                        <RotateCcw size={15} /> 重新加入
-                      </PrimaryButton>
-                    </div>
-                  </Card>
-                ))}
-                <div className="text-center text-xs text-slate-400">或使用邀请码加入新课堂</div>
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-bold text-slate-900">{record.courseName}</div>
+                          <div className="mt-0.5 truncate text-xs text-slate-500">
+                            以 <span className="font-semibold text-slate-700">{record.studentName}</span> 身份重新加入
+                          </div>
+                        </div>
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-teal-600 text-white">
+                          <ArrowRight size={13} />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 border-t border-slate-100 pt-3 text-center text-xs text-slate-400">
+                    或使用邀请码加入新课堂
+                  </div>
+                </div>
+              ) : null}
+
+              <JoinClassForm
+                busy={busy}
+                errorMessage={error}
+                onSubmit={handleJoin}
+              />
+            </div>
+
+            {/* 右：加入后你将看到 —— 任务结构预览 */}
+            <div className="pbl-card rounded-[var(--radius-lg)] p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-teal-600">学习路径预览</div>
+                  <h2 className="mt-1 text-lg font-bold text-slate-900">加入课堂后你将完成</h2>
+                </div>
+                <div className="grid h-10 w-10 place-items-center rounded-[var(--radius-sm)] bg-teal-50 text-teal-700">
+                  <ClipboardList size={18} />
+                </div>
               </div>
-            )}
-            <JoinClassForm
-              busy={busy}
-              errorMessage={error}
-              onSubmit={handleJoin}
-            />
-          </>
+
+              {/* 阶段任务预览 */}
+              <div className="space-y-2.5">
+                <TaskPreviewItem
+                  icon={<Flag size={15} />}
+                  step="01"
+                  title="项目启动"
+                  desc="理解真实问题、明确成果要求，完成入组准备"
+                  tone="indigo"
+                />
+                <TaskPreviewItem
+                  icon={<BookOpen size={15} />}
+                  step="02"
+                  title="AI 授知"
+                  desc="AI 辅助知识学习，完成基础概念建构与小测"
+                  tone="blue"
+                />
+                <TaskPreviewItem
+                  icon={<Lightbulb size={15} />}
+                  step="03"
+                  title="小组构思"
+                  desc="把真实问题转化为小组选题、成果形式和分工计划"
+                  tone="teal"
+                />
+                <TaskPreviewItem
+                  icon={<Target size={15} />}
+                  step="04"
+                  title="方案汇报与制作"
+                  desc="中期方案汇报、教师纠偏，迭代作品并提交过程证据"
+                  tone="amber"
+                />
+                <TaskPreviewItem
+                  icon={<Presentation size={15} />}
+                  step="05"
+                  title="最终展示与反思"
+                  desc="成果展示、现场汇报，完成综合评价与成长反思"
+                  tone="green"
+                />
+              </div>
+
+              {/* 学习承诺 */}
+              <div className="mt-5 rounded-[var(--radius-sm)] border border-teal-200 bg-teal-50/50 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <Users size={16} className="mt-0.5 shrink-0 text-teal-700" />
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-bold text-teal-900">协作 · 探究 · 迭代</div>
+                    <p className="mt-1 text-xs leading-5 text-teal-800/80">
+                      PBL 课堂强调小组协作与真实问题解决。你的每一次提交、每一份证据都会成为最终评价的一部分。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
-        <div className="mt-6 flex items-center justify-center gap-4 text-sm text-slate-500">
+        {/* 底部辅助链接 */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-4 text-[13px] text-slate-500">
           <Link
-            className="inline-flex items-center gap-1 hover:text-blue-700"
+            className="inline-flex items-center gap-1 hover:text-teal-700"
             href="/"
           >
-            <ArrowRight size={14} className="rotate-180" /> 返回首页
+            <ArrowRight size={13} className="rotate-180" /> 返回首页
           </Link>
           <span className="text-slate-300">|</span>
           <span className="inline-flex items-center gap-1">
-            <KeyRound size={14} /> 没有邀请码？请向任课教师索取
+            <KeyRound size={13} /> 没有邀请码？请向任课教师索取
           </span>
         </div>
       </div>
     </DashboardShell>
+  );
+}
+
+/* —— 任务预览项 —— */
+function TaskPreviewItem({
+  icon,
+  step,
+  title,
+  desc,
+  tone,
+}: {
+  icon: React.ReactNode;
+  step: string;
+  title: string;
+  desc: string;
+  tone: "indigo" | "blue" | "teal" | "amber" | "green";
+}) {
+  const toneMap = {
+    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+    blue: "bg-blue-50 text-blue-700 ring-blue-100",
+    teal: "bg-teal-50 text-teal-700 ring-teal-100",
+    amber: "bg-amber-50 text-amber-700 ring-amber-100",
+    green: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+  };
+  return (
+    <div className="flex items-start gap-3 rounded-[var(--radius-sm)] border border-slate-100 bg-slate-50/50 p-3 transition hover:border-slate-200 hover:bg-white">
+      <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)] ring-1 ${toneMap[tone]}`}>
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-400">STEP {step}</span>
+          <span className="text-[13px] font-bold text-slate-900">{title}</span>
+        </div>
+        <p className="mt-0.5 text-xs leading-5 text-slate-500">{desc}</p>
+      </div>
+    </div>
   );
 }
 
@@ -145,22 +269,26 @@ function FinishedState({
   onRejoin: () => void;
 }) {
   return (
-    <Card className="mx-auto w-full max-w-md text-center">
-      <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-50 text-amber-600">
-        <KeyRound size={26} />
+    <div className="pbl-card mx-auto max-w-md rounded-[var(--radius-lg)] p-6 text-center">
+      <div className="mx-auto grid h-12 w-12 place-items-center rounded-[var(--radius-md)] bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+        <KeyRound size={22} />
       </div>
-      <h2 className="mt-4 text-[24px] font-black">课堂已结束</h2>
-      <p className="mt-2 text-sm text-slate-500">
+      <h2 className="mt-3 text-xl font-bold text-slate-900">课堂已结束</h2>
+      <p className="mt-1.5 text-sm leading-6 text-slate-500">
         「{course.name}」已结束授课。如需重新加入，请输入新的邀请码。
       </p>
       <div className="mt-4 flex justify-center">
-        <Pill tone="orange">已结束</Pill>
+        <span className="inline-flex h-6 items-center rounded-full bg-slate-100 px-2.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+          已结束
+        </span>
       </div>
-      <div className="mt-6">
-        <PrimaryButton className="h-11 w-full justify-center" onClick={onRejoin} type="button">
-          重新输入邀请码
-        </PrimaryButton>
-      </div>
-    </Card>
+      <button
+        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-teal-600 text-sm font-semibold text-white transition hover:bg-teal-700"
+        onClick={onRejoin}
+        type="button"
+      >
+        重新输入邀请码
+      </button>
+    </div>
   );
 }

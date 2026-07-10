@@ -7,12 +7,13 @@ import {
   Download,
   Eye,
   FileText,
+  Gauge,
   Lightbulb,
   Loader2,
   MessageCircle,
-  Sparkles,
   Star,
   Users,
+  Wand2,
 } from "lucide-react";
 import { Avatar, AvatarStack } from "@/components/dashboard-shell";
 import { Card, FileBadge, Pill, PrimaryButton, TextArea } from "@/components/ui";
@@ -83,6 +84,9 @@ export function ShowcaseTeacherView({
       setComment("");
     }
     setMessage(null);
+    setLiveEvaluation(null);
+    setEvalError(undefined);
+    setTeacherNotes("");
   }, [active?.id]);
 
   function flashMessage(text: string, tone: "ok" | "err") {
@@ -108,20 +112,23 @@ export function ShowcaseTeacherView({
       });
       setLiveEvaluation(result);
     } catch (e) {
-      setEvalError(e instanceof Error ? e.message : "AI 实时评价失败");
+      const message = e instanceof Error ? e.message : "AI 实时评价失败";
+      setEvalError(message);
+      window.alert(message);
     } finally {
       setEvalLoading(false);
     }
   }
 
-  function applyScore(dimensionName: string, suggestedScore: number) {
-    const dim = dimensions.find((d) => d.name === dimensionName);
-    if (!dim) {
-      flashMessage(`未找到维度：${dimensionName}`, "err");
+  function importAiScoresToDraft() {
+    const aiScores = aiScoresFromEvaluation(liveEvaluation, dimensions);
+    if (!aiScores) {
+      flashMessage("请先生成 AI 评价参考，再导入到实时评分", "err");
       return;
     }
-    setScores((prev) => ({ ...prev, [dim.id]: suggestedScore }));
-    flashMessage(`已将「${dim.name}」滑块设为 ${suggestedScore} 分`, "ok");
+    setScores((prev) => ({ ...prev, ...aiScores }));
+    setComment(buildAiEvaluationComment(liveEvaluation, comment));
+    flashMessage("已将 AI 参考分和点评草稿导入，请确认后再提交评分或发送点评", "ok");
   }
 
   async function submitFeedback(kind: "question" | "comment") {
@@ -188,6 +195,10 @@ export function ShowcaseTeacherView({
     session.setPresentingGroup(course.id, group.id);
     session.addActivity(course.id, "切换当前汇报组", group.name, "教师");
   }
+
+  const teacherScoreTotal = weightedTotal(scores, dimensions);
+  const aiReferenceScores = aiScoresFromEvaluation(liveEvaluation, dimensions);
+  const aiReferenceTotal = aiReferenceScores ? weightedTotal(aiReferenceScores, dimensions) : null;
 
   return (
     <div className="space-y-5">
@@ -356,18 +367,18 @@ export function ShowcaseTeacherView({
               <Card className="xl:col-span-2">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="flex items-center gap-2 font-black">
-                    <Sparkles className="text-amber-600" size={18} /> AI 实时评价建议
+                    <Gauge className="text-amber-600" size={18} /> AI 评价参考
                   </h3>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${liveEvaluation?.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                    {liveEvaluation ? (liveEvaluation.source === "llm" ? "LLM 生成" : "本地兜底") : "未生成"}
+                    {liveEvaluation ? (liveEvaluation.source === "llm" ? "已生成" : "已生成") : "待生成"}
                   </span>
                 </div>
                 <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold text-slate-700">现场速记（可选，提供给 AI 作为参考）：</div>
+                  <div className="mb-1 text-xs font-semibold text-slate-700">现场表现速记（可选）</div>
                   <TextArea
                     className="h-16"
                     onChange={(e) => setTeacherNotes(e.target.value)}
-                    placeholder="如：表达清晰，但数据来源未说明..."
+                    placeholder="记录学生现场表现要点，AI 将据此生成各指标参考分与理由。"
                     value={teacherNotes}
                   />
                 </div>
@@ -377,8 +388,8 @@ export function ShowcaseTeacherView({
                   disabled={evalLoading || !active}
                   type="button"
                 >
-                  {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                  {evalLoading ? "评价中..." : "生成评价建议"}
+                  {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                  {evalLoading ? "正在生成..." : "生成 AI 评价"}
                 </PrimaryButton>
                 {evalError ? (
                   <div className="mt-3 rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
@@ -386,44 +397,30 @@ export function ShowcaseTeacherView({
                   </div>
                 ) : null}
                 {liveEvaluation ? (
-                  <div className="mt-4 space-y-3">
-                    <ul className="space-y-2">
-                      {liveEvaluation.dimensions.map((d) => (
-                        <li key={d.name} className="rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm font-semibold text-slate-800">{d.name}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-black text-blue-700">{d.suggestedScore} 分</span>
-                              <button
-                                className="inline-flex h-7 items-center gap-1 rounded-[5px] border border-blue-300 px-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                                onClick={() => applyScore(d.name, d.suggestedScore)}
-                                type="button"
-                              >
-                                应用到滑块
-                              </button>
-                            </div>
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">{d.rationale}</div>
-                        </li>
-                      ))}
-                    </ul>
-                    {liveEvaluation.overallComment ? (
-                      <div className="rounded-[6px] border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-6 text-slate-700">
-                        <span className="font-semibold text-amber-700">总体评价：</span>
-                        {liveEvaluation.overallComment}
-                      </div>
-                    ) : null}
+                  <div className="mt-3 rounded-[6px] border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs leading-5 text-blue-700">
+                    AI 评价已生成。各指标参考分与建议理由已更新到下方“实时评分”滑块右侧，请在确认后选择是否一键导入。
                   </div>
                 ) : null}
               </Card>
-
-              <Card>
-                <h3 className="mb-3 flex items-center gap-2 font-black">
-                  <Star className="text-amber-600" size={18} /> 实时评分
-                </h3>
+              <Card className="xl:col-span-2">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="flex items-center gap-2 font-black">
+                    <Star className="text-amber-600" size={18} /> 实时评分
+                  </h3>
+                  <PrimaryButton
+                    className="h-9 px-3 text-sm"
+                    onClick={importAiScoresToDraft}
+                    disabled={!liveEvaluation}
+                    type="button"
+                    variant="outline"
+                  >
+                    <CheckCircle2 size={15} /> 一键导入 AI 参考
+                  </PrimaryButton>
+                </div>
                 <ul className="space-y-3">
                   {dimensions.map((d) => (
                     <DimensionRow
+                      aiDimension={findAiDimension(liveEvaluation, d)}
                       dimension={d}
                       key={d.id}
                       onChange={(v) =>
@@ -433,19 +430,20 @@ export function ShowcaseTeacherView({
                     />
                   ))}
                 </ul>
-                <div className="mt-3 rounded-[6px] border border-emerald-200 bg-emerald-50/60 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-emerald-700">
-                      加权总分
-                    </span>
-                    <span className="text-2xl font-black text-emerald-700">
-                      {weightedTotal(scores, dimensions)}
-                    </span>
+                {liveEvaluation?.overallComment ? (
+                  <div className="mt-3 rounded-[6px] border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-6 text-slate-700">
+                    <span className="font-semibold text-amber-700">AI 点评草稿：</span>
+                    {liveEvaluation.overallComment}
                   </div>
+                ) : null}
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <ScoreChip label="教师评分" value={teacherScoreTotal} tone="emerald" />
+                  <ScoreChip label="AI 参考" value={aiReferenceTotal ?? "-"} tone="blue" />
+                  <ScoreChip label="当前最终分" value={teacherScoreTotal} tone="amber" />
                 </div>
-                <div className="mt-2 rounded-[6px] border border-blue-100 bg-blue-50/40 p-2 text-xs text-blue-700">
-                  <span className="font-semibold">评分影响：</span>
-                  提交后，该分数将同步至「评价反思」页的班级均分统计，并自动推送给该组学生（约 1.5 秒内），学生在「个人评价与反思」页可实时查看雷达图与综合得分。
+                <div className="mt-2 rounded-[6px] border border-blue-100 bg-blue-50/40 p-2 text-xs leading-5 text-blue-700">
+                  <span className="font-semibold">评分流程：</span>
+                  AI 只提供右侧参考分与理由；教师可一键导入为评分草稿，也可手动调整。提交后才会形成最终评分并同步给学生。
                 </div>
               </Card>
             </div>
@@ -539,33 +537,72 @@ function Metric({
   );
 }
 
+function ScoreChip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone: "emerald" | "blue" | "amber";
+}) {
+  const className =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "blue"
+        ? "border-blue-200 bg-blue-50 text-blue-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+  return (
+    <div className={`rounded-[6px] border p-3 ${className}`}>
+      <div className="text-xs font-semibold">{label}</div>
+      <div className="mt-1 text-2xl font-black">{value}</div>
+    </div>
+  );
+}
+
 function DimensionRow({
   dimension,
   value,
   onChange,
+  aiDimension,
 }: {
   dimension: EvaluationDimension;
   value: number;
   onChange: (v: number) => void;
+  aiDimension?: LiveEvaluation["dimensions"][number];
 }) {
+  const aiScore = aiDimension?.suggestedScore;
   return (
-    <li>
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-800">
-          {dimension.name}
-          <span className="ml-2 text-xs text-slate-500">权重 {dimension.weight}%</span>
-        </span>
-        <span className="text-sm font-bold">{value}</span>
+    <li className="grid gap-3 rounded-[8px] border border-slate-200 bg-white p-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div>
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-800">
+            {dimension.name}
+            <span className="ml-2 text-xs text-slate-500">权重 {dimension.weight}%</span>
+          </span>
+          <span className="text-sm font-bold">{value}</span>
+        </div>
+        <div className="mt-1 text-xs text-slate-500">{dimension.description}</div>
+        <input
+          className="mt-1 w-full accent-blue-600"
+          max={100}
+          min={0}
+          onChange={(e) => onChange(Number(e.target.value))}
+          type="range"
+          value={value}
+        />
       </div>
-      <div className="mt-1 text-xs text-slate-500">{dimension.description}</div>
-      <input
-        className="mt-1 w-full accent-blue-600"
-        max={100}
-        min={0}
-        onChange={(e) => onChange(Number(e.target.value))}
-        type="range"
-        value={value}
-      />
+      <div className="rounded-[6px] border border-blue-100 bg-blue-50/70 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-bold text-blue-700">AI 参考评分</span>
+          <span className="text-lg font-black text-blue-800">
+            {typeof aiScore === "number" ? `${aiScore} 分` : "待生成"}
+          </span>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          {aiDimension?.rationale ?? "生成 AI 评价后，这里会显示该指标的建议理由。"}
+        </p>
+      </div>
     </li>
   );
 }
@@ -581,4 +618,34 @@ function weightedTotal(
       0,
     ),
   );
+}
+
+function aiScoresFromEvaluation(
+  liveEvaluation: LiveEvaluation | null,
+  dimensions: EvaluationDimension[],
+): Record<string, number> | null {
+  if (!liveEvaluation?.dimensions.length) return null;
+  const scores: Record<string, number> = {};
+  for (const dimension of dimensions) {
+    const aiDimension = findAiDimension(liveEvaluation, dimension);
+    if (aiDimension) scores[dimension.id] = aiDimension.suggestedScore;
+  }
+  return Object.keys(scores).length ? scores : null;
+}
+
+function findAiDimension(liveEvaluation: LiveEvaluation | null | undefined, dimension: EvaluationDimension) {
+  return liveEvaluation?.dimensions.find(
+    (item) => item.dimensionId === dimension.id || item.name === dimension.name,
+  );
+}
+
+function buildAiEvaluationComment(liveEvaluation: LiveEvaluation | null, currentComment: string): string {
+  if (!liveEvaluation) return currentComment;
+  const lines = [
+    liveEvaluation.overallComment.trim(),
+    ...liveEvaluation.dimensions.map((item) => `${item.name}：${item.rationale}`),
+  ].filter(Boolean);
+  const aiComment = lines.join("\n");
+  if (!currentComment.trim()) return aiComment;
+  return `${currentComment.trim()}\n\nAI 评价参考：\n${aiComment}`;
 }

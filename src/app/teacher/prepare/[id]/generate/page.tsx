@@ -7,9 +7,10 @@ import {
   ArrowLeft,
   Check,
   CircleAlert,
+  Lightbulb,
   Loader2,
   RefreshCw,
-  Sparkles,
+  Wand2,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { WizardStepper } from "@/components/wizard-stepper";
@@ -18,6 +19,7 @@ import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 import type { LessonOutlineSection } from "@/lib/session/types";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
+import { splitClassroomScenes } from "@/lib/openmaic-bridge/post-generation-split";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -92,7 +94,7 @@ function lessonSectionToSceneOutline(
 export default function GenerateCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, updateCourse } = useSession();
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
 
@@ -113,15 +115,48 @@ export default function GenerateCoursePage() {
   function buildRequirement(): string {
     if (!course) return "";
     const stages = (course.stages ?? [])
-      .map((s) => s.label)
+      .map((s) => `${s.label}(${s.key})`)
       .filter(Boolean)
       .join("、");
+    const teacherResourceActivities = (course.content.teachingOutline ?? []).filter(
+      (activity) => activity.openMaicUse === "teacher-resource",
+    );
     return [
-      "请为以下PBL课程生成AI授知内容：",
+      "请为以下 PBL 课程生成 OpenMAIC 内容。生成后系统会拆分为：学生 AI 授知课堂 + 教师授课资源。",
+      "",
+      "【核心定位】",
+      "- 学生 AI 授知课堂只保留 AI 授知阶段核心知识点内容，用于学生学习、互动和测验。",
+      "- 课程引入、PBL 项目布置、项目介绍材料、教师讲稿和 PPT 等内容必须标记为教师资源，生成后只在教师授课资源区展示，不进入学生 AI 授知阶段。",
+      "- 整课授课大纲中每个 openMaicUse=teacher-resource 的活动都必须生成可直接授课的资源场景；根据 resourceTypes 生成 slide/PPT、interactive 演示或 pbl 项目布置。",
+      "- 教师资源标题必须同时包含用途和阶段，格式为【教师资源-用途】【阶段:stageKey】标题；stageKey 必须使用课程阶段括号中的真实 key。",
+      teacherResourceActivities.length
+        ? `- 必须覆盖这些教师资源活动：${JSON.stringify(teacherResourceActivities)}`
+        : "- 如生成课程引入或 PBL 项目布置，仍需按教师资源格式标记。",
+      "",
+      "【课程信息】",
       `课程名称：${course.name}`,
       `课程摘要：${course.summary ?? ""}`,
       `驱动问题：${course.drivingQuestion ?? ""}`,
       stages ? `课程阶段：${stages}` : "",
+      "",
+      "【已确认知识图谱】",
+      JSON.stringify({
+        knowledgePoints: course.content.knowledgePoints ?? [],
+        knowledgeGraph: course.content.knowledgeGraph ?? null,
+      }),
+      "",
+      "【已确认整课授课大纲】",
+      JSON.stringify(course.content.teachingOutline ?? []),
+      "",
+      "【已确认 OpenMAIC 场景大纲】",
+      JSON.stringify(buildConfirmedSceneOutlines().map((outline) => ({
+        id: outline.id,
+        type: outline.type,
+        title: outline.title,
+        description: outline.description,
+        keyPoints: outline.keyPoints,
+        order: outline.order,
+      }))),
     ]
       .filter(Boolean)
       .join("\n");
@@ -235,14 +270,66 @@ export default function GenerateCoursePage() {
 
       setResult(doneEvent);
       setStatus("success");
-      // 短暂展示成功后跳转预览
+
+      // 生成后分流：将引入+PBL场景拆分为教师授课资源，学生课堂仅保留知识点教学场景
       const classroomId = doneEvent.id;
+      try {
+        setSteps((prev) => [
+          ...prev,
+          {
+            step: "内容分流",
+            progress: 100,
+            message: "正在拆分学生课堂与教师授课资源...",
+            ts: Date.now(),
+          },
+        ]);
+        const splitResult = await splitClassroomScenes(classroomId, course?.name ?? "课程");
+        if (splitResult.teacherClassroomId && course) {
+          updateCourse(course.id, {
+            teacherClassroomId: splitResult.teacherClassroomId,
+            content: {
+              ...course.content,
+              teacherClassroomId: splitResult.teacherClassroomId,
+              teacherResources: {
+                generatedAt: new Date().toISOString(),
+                scenes: splitResult.teacherResourceScenes,
+              },
+              _openmaicScenesCount: splitResult.studentSceneCount,
+            },
+          });
+          setSteps((prev) => [
+            ...prev,
+            {
+              step: "内容分流完成",
+              progress: 100,
+              message: `学生 ${splitResult.studentSceneCount} 场 · 教师资源 ${splitResult.teacherSceneCount} 场`,
+              ts: Date.now(),
+            },
+          ]);
+        }
+      } catch (splitErr) {
+        const splitMessage = splitErr instanceof Error ? splitErr.message : "未知错误";
+        setSteps((prev) => [
+          ...prev,
+          {
+            step: "内容分流",
+            progress: 100,
+            message: `分流失败：${splitMessage}`,
+            ts: Date.now(),
+          },
+        ]);
+        throw new Error(`内容分流失败：${splitMessage}`);
+      }
+
+      // 短暂展示成功后跳转预览
       setTimeout(() => {
         router.push(`/teacher/prepare/${course.id}/preview?classroomId=${classroomId}`);
-      }, 1000);
+      }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "生成失败");
+      const message = err instanceof Error ? err.message : "生成失败";
+      setError(message);
       setStatus("error");
+      window.alert(message);
     }
   }
 
@@ -376,7 +463,7 @@ export default function GenerateCoursePage() {
 
             <div className="mt-5 flex items-center gap-3">
               <PrimaryButton onClick={beginGeneration} type="button">
-                <Sparkles size={18} /> 开始生成
+                <Wand2 size={18} /> 开始生成
               </PrimaryButton>
               <Link
                 className="text-sm font-semibold text-slate-500 hover:underline"
@@ -483,7 +570,7 @@ export default function GenerateCoursePage() {
         <aside className="space-y-5">
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-black">
-              <Sparkles className="text-blue-600" size={18} /> OpenMAIC 接入
+              <Lightbulb className="text-blue-600" size={18} /> OpenMAIC 接入
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
               本页已接入 OpenMAIC 真实生成链路。系统会根据课程名称、摘要、驱动问题和阶段定义生成完整 AI 授知内容（含场景、文案、互动等）。

@@ -2,21 +2,21 @@ import { useMemo, useState } from "react";
 import {
   Award,
   CheckCircle2,
+  ClipboardCheck,
   Edit3,
+  Lightbulb,
   Loader2,
   MessageSquare,
   Save,
   Send,
-  Sparkles,
   Star,
   TrendingUp,
   Users,
+  Wand2,
 } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
 import {
   Card,
-  CircularProgress,
-  Metric,
   Pill,
   PrimaryButton,
   ProgressBar,
@@ -86,9 +86,9 @@ export function ReflectionTeacherView({
 
   const students = course.students;
   const dimensions = course.content.evaluationPlan.dimensions;
-  const rubricScores = course.rubricScores ?? [];
-  const feedback = course.feedback ?? [];
-  const groups = course.groups ?? [];
+  const rubricScores = useMemo(() => course.rubricScores ?? [], [course.rubricScores]);
+  const feedback = useMemo(() => course.feedback ?? [], [course.feedback]);
+  const groups = useMemo(() => course.groups ?? [], [course.groups]);
   const stageKeys = course.stages.map((s) => s.key);
 
   // 每个学生的真实综合得分
@@ -182,7 +182,9 @@ export function ReflectionTeacherView({
       setProcessEval(result);
       setEditedSummary(result.summary);
     } catch (e) {
-      setEvalError(e instanceof Error ? e.message : "AI 过程评价失败");
+      const message = e instanceof Error ? e.message : "AI 过程评价失败";
+      setEvalError(message);
+      window.alert(message);
     } finally {
       setEvalLoading(false);
     }
@@ -289,7 +291,7 @@ export function ReflectionTeacherView({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-500">班级平均分</div>
@@ -316,13 +318,13 @@ export function ReflectionTeacherView({
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-500">待改进（&lt;75）</div>
-            <Sparkles className="text-rose-600" size={20} />
+            <Lightbulb className="text-rose-600" size={20} />
           </div>
           <div className="mt-2 text-2xl font-black text-rose-700">{needImproveCount}</div>
         </Card>
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid gap-5 xl:grid-cols-2">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
             <Users className="text-blue-700" size={20} /> 班级综合评价汇总
@@ -354,7 +356,7 @@ export function ReflectionTeacherView({
 
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
-            <Sparkles className="text-amber-600" size={20} /> AI 班级整体点评
+            <Lightbulb className="text-amber-600" size={20} /> AI 班级整体点评
           </h2>
           <div className="rounded-[8px] border border-amber-200 bg-amber-50/60 p-4 text-sm leading-7 text-slate-700">
             {aiClassComment}
@@ -366,7 +368,7 @@ export function ReflectionTeacherView({
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-black">
-              <Sparkles className="text-amber-600" size={20} /> AI 过程性评价报告
+              <ClipboardCheck className="text-amber-600" size={20} /> AI 过程性评价报告
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               基于学生过程数据（活动记录、AI 支架采纳率、上传材料、提交记录）生成全班过程评价；总结可编辑后发送给学生。
@@ -375,7 +377,7 @@ export function ReflectionTeacherView({
           <div className="flex items-center gap-2">
             {processEval ? (
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${processEval.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                {processEval.source === "llm" ? "LLM 生成" : "本地兜底"}
+                {processEval.source === "llm" ? "AI 生成" : "已记录"}
               </span>
             ) : null}
             <PrimaryButton
@@ -384,7 +386,7 @@ export function ReflectionTeacherView({
               onClick={() => void runProcessEval()}
               type="button"
             >
-              {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+              {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
               {evalLoading ? "评价中..." : "生成全班过程评价"}
             </PrimaryButton>
           </div>
@@ -485,7 +487,7 @@ export function ReflectionTeacherView({
           <MessageSquare className="text-blue-700" size={20} /> 个别学生评语
         </h2>
         {students.length > 0 ? (
-          <ul className="space-y-3">
+          <ul className="max-h-[620px] space-y-2 overflow-auto pr-1">
             {students.map((s) => {
               const score = studentScores.get(s.id) ?? 0;
               const tone = score >= 90 ? "green" : score >= 75 ? "blue" : "orange";
@@ -494,7 +496,7 @@ export function ReflectionTeacherView({
               const latestFb = studentLatestFeedback.get(group?.id ?? s.id);
               return (
                 <li
-                  className="rounded-[8px] border border-slate-200 bg-white p-3"
+                  className="rounded-[8px] border border-slate-200 bg-white p-2.5"
                   key={s.id}
                 >
                   <div className="flex items-center gap-3">
@@ -536,7 +538,7 @@ export function ReflectionTeacherView({
                     </div>
                   ) : null}
                   <textarea
-                    className="mt-2 h-16 w-full rounded-[6px] border border-slate-200 p-2 text-sm outline-none focus:border-blue-500"
+                    className="mt-2 h-11 w-full rounded-[6px] border border-slate-200 p-2 text-sm outline-none focus:border-blue-500"
                     onChange={(e) =>
                       setComments((p) => ({ ...p, [s.id]: e.target.value }))
                     }

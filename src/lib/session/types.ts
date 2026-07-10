@@ -193,7 +193,7 @@ export type AiSupportStatus =
 /**
  * 标识 AiSupportRecord 的来源：
  * - llm：由真实 LLM 调用生成（统一使用系统 LLM 配置）
- * - local：LLM 不可用或调用失败时，由本地规则函数兜底生成
+ * - local：仅用于历史数据或显式标记的规则诊断，不作为 AI 调用失败兜底
  */
 export type AiSupportSource = "llm" | "local";
 
@@ -213,7 +213,7 @@ export type AiSupportRecord = {
   suggestions: string[];
   evidence: string[];
   status: AiSupportStatus;
-  /** 标识本记录由 LLM 还是本地规则生成（LLM 不可用时回退到 local） */
+  /** 标识本记录由 LLM 还是显式规则诊断生成；AI 调用失败时不再自动回退到 local。 */
   source?: AiSupportSource;
   /**
    * 教师/学生二次编辑后的内容。
@@ -247,6 +247,17 @@ export type CourseUiState = {
   aiAnalysisPending?: boolean;
   /** 上次教师主动刷新 AI 分析的时间戳，用于 UI 显示"已刷新 X 分钟前" */
   aiAnalysisRefreshedAt?: string;
+  /** 教师当前投屏的 OpenMAIC 授课资源；null 表示已停止投屏。 */
+  teacherResourceProjection?: TeacherResourceProjection | null;
+};
+
+export type TeacherResourceProjection = {
+  classroomId: string;
+  sceneId: string;
+  stageKey: string;
+  title: string;
+  sceneType: TeacherResourceScene["type"];
+  startedAt: string;
 };
 
 export type OpenMaicSceneOutlineSnapshot = {
@@ -316,6 +327,8 @@ export type Course = {
   uiState?: CourseUiState;
   /** OpenMAIC AI 课堂 ID（生成后关联） */
   aiLearningClassroomId?: string;
+  /** 教师授课资源 OpenMAIC 课堂 ID（课程引入+PBL讲解，供教师 PPT 预览播放） */
+  teacherClassroomId?: string;
   /** 学生在 AI 课堂中的学习进度，key 为 studentId */
   aiLearningProgress?: Record<string, StudentAiProgress>;
   createdAt: string;
@@ -325,6 +338,12 @@ export type Course = {
 export type CourseContent = {
   pblOutline: string;
   knowledgePoints: KnowledgePoint[];
+  knowledgeGraph?: KnowledgeGraph;
+  /**
+   * 教师备课阶段确认的整节课程授课大纲。
+   * 粒度接近教案：说明教师、平台与 AI 在每个教学活动中的分工。
+   */
+  teachingOutline?: TeachingOutlineSection[];
   lessonOutline: LessonOutlineSection[];
   evaluationPlan: EvaluationPlan;
   /** 临时字段：OpenMAIC classroom ID（迁移期间使用） */
@@ -333,12 +352,88 @@ export type CourseContent = {
   _openmaicScenesCount?: number;
   /** Confirmed OpenMAIC outline snapshot used by the final classroom generator. */
   _openmaicSceneOutlines?: OpenMaicSceneOutlineSnapshot[];
+  /**
+   * 教师授课资源：从 OpenMAIC 生成结果中拆分出的课程引入与 PBL 题目讲解内容。
+   * 这些内容不会出现在学生 AI 授知课堂中，仅供教师在授课时使用。
+   */
+  teacherResources?: TeacherResources;
+  /** 教师授课资源对应的 OpenMAIC classroom ID（用于 PPT 预览播放） */
+  teacherClassroomId?: string;
+};
+
+/**
+ * 教师授课资源：课程引入 + PBL 题目讲解
+ */
+export type TeacherResources = {
+  /** 资源生成时间（ISO） */
+  generatedAt: string;
+  /** 教师资源场景列表 */
+  scenes: TeacherResourceScene[];
+};
+
+export type TeacherResourceScene = {
+  id: string;
+  /** 场景角色：课程引入 / PBL 题目讲解 / 其他课堂演示资源 */
+  role: "introduction" | "pbl-topic" | "teaching-aid";
+  /** 对应课程阶段 key。旧数据可能没有，由课堂端按角色与标题推断。 */
+  stageKey?: string;
+  /** 场景标题 */
+  title: string;
+  /** OpenMAIC 场景真实类型。 */
+  type: "slide" | "quiz" | "interactive" | "pbl";
+  /** 大纲描述 */
+  description: string;
+  /** 核心要点 */
+  keyPoints: string[];
+  /** 讲稿文本（从 speech action 汇总） */
+  script?: string;
 };
 
 export type KnowledgePoint = {
   id: string;
   name: string;
   description: string;
+  keyInfo?: string;
+  relatedIds?: string[];
+};
+
+export type KnowledgeGraph = {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+};
+
+export type KnowledgeGraphNode = {
+  id: string;
+  label: string;
+  description: string;
+  keyInfo?: string;
+  level?: "foundation" | "core" | "application" | "extension";
+  relatedLessonIds?: string[];
+};
+
+export type KnowledgeGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+};
+
+export type TeachingOutlineSection = {
+  id: string;
+  stageKey: string;
+  title: string;
+  durationMin: number;
+  teachingGoal: string;
+  teacherRole: string;
+  platformRole: string;
+  aiRole: string;
+  studentActivity: string;
+  knowledgePointIds?: string[];
+  openMaicUse?: "none" | "student-ai-learning" | "teacher-resource";
+  resourceTypes?: Array<
+    "ppt" | "interactive-demo" | "script" | "worksheet" | "rubric" | "project-brief"
+  >;
+  notes?: string;
 };
 
 export type LessonOutlineSection = {
@@ -410,6 +505,11 @@ export type RubricScore = {
   groupId: string;
   stageKey: string;
   dimensionScores: Record<string, number>;
+  teacherTotal?: number;
+  aiDimensionScores?: Record<string, number>;
+  aiTotal?: number | null;
+  finalTotal?: number;
+  scoringMode?: "teacher" | "hybrid" | "ai-import";
   comment: string;
   total: number;
   status: "draft" | "submitted" | "passed" | "revision";

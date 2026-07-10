@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, Copy, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Copy, Loader2, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { WizardStepper } from "@/components/wizard-stepper";
@@ -58,7 +58,9 @@ export default function PrepareNewPage() {
         result.evaluationDimensions.map((d) => ({ ...d })),
       );
     } catch (e) {
-      setSkeletonError(e instanceof Error ? e.message : "AI 生成失败");
+      const message = e instanceof Error ? e.message : "AI 生成失败";
+      setSkeletonError(message);
+      window.alert(message);
     } finally {
       setSkeletonLoading(false);
     }
@@ -189,7 +191,7 @@ export default function PrepareNewPage() {
                 disabled={skeletonLoading || !name.trim()}
                 type="button"
               >
-                {skeletonLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                {skeletonLoading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                 {skeletonLoading ? "生成中..." : "生成项目骨架"}
               </PrimaryButton>
             </div>
@@ -204,10 +206,10 @@ export default function PrepareNewPage() {
             <div className="mt-5 space-y-4 rounded-[8px] border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-black">
-                  <Sparkles size={16} className="mr-1 inline text-amber-600" />
+                  <Wand2 size={16} className="mr-1 inline text-amber-600" />
                   AI 项目骨架
                   <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${skeleton.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                    {skeleton.source === "llm" ? "LLM 生成" : "本地兜底"}
+                    {skeleton.source === "llm" ? "AI 生成" : "已记录"}
                   </span>
                 </h3>
               </div>
@@ -322,7 +324,7 @@ export default function PrepareNewPage() {
           <Card>
             <h2 className="text-lg font-black">小贴士</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              若不希望 AI 生成完整内容，可只填写课程名称与学科，直接在「课程核查」页通过「使用示例内容」填充示例数据。
+              课程核查页会调用真实 AI 生成课程结构；若模型未配置或返回结构不完整，系统会直接提示错误，避免混入示例数据。
             </p>
           </Card>
         </aside>
@@ -345,7 +347,7 @@ export default function PrepareNewPage() {
             onClick={next}
             type="button"
           >
-            <Sparkles size={18} /> 下一步：AI 课程核查
+            <Wand2 size={18} /> 下一步：AI 课程核查
           </PrimaryButton>
         </div>
       </div>

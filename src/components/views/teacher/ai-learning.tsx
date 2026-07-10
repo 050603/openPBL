@@ -1,4 +1,4 @@
-import {
+﻿import {
   AlertTriangle,
   BookOpen,
   Bot,
@@ -95,7 +95,7 @@ export function AiLearningTeacherView({
         </Card>
       ) : null}
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-500">班级平均进度</div>
@@ -136,7 +136,7 @@ export function AiLearningTeacherView({
         </Card>
       </div>
 
-      <div className="grid grid-cols-[1.4fr_1fr] gap-5">
+      <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
             <Users className="text-blue-700" size={20} /> 全班学习进度
@@ -147,7 +147,7 @@ export function AiLearningTeacherView({
                 .slice()
                 .sort((a, b) => b.progress - a.progress)
                 .map((sp) => {
-                  const { student: s, progress: p, entry } = sp;
+                  const { student: s, progress: p } = sp;
                   const tone = progressTone(p);
                   return (
                     <li
@@ -264,7 +264,7 @@ export function AiLearningTeacherView({
 
       <Card>
         <h2 className="mb-3 text-lg font-black">本阶段学习指标（班级）</h2>
-        <div className="grid grid-cols-4 divide-x divide-slate-200">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200">
           <Metric
             icon={<Clock3 size={27} />}
             label="已开始学习的学生数"

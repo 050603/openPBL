@@ -11,6 +11,7 @@ import yaml from 'js-yaml';
 import { createLogger } from '@openmaic/lib/logger';
 
 const log = createLogger('ServerProviderConfig');
+const DEFAULT_FILENAME = 'server-providers.yml';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -152,16 +153,16 @@ type YamlData = Partial<{
   'web-search': Record<string, Partial<ServerProviderEntry>>;
 }>;
 
-function loadYamlFile(filename: string): YamlData {
+function loadDefaultYamlFile(): YamlData {
   try {
-    const filePath = path.join(process.cwd(), filename);
+    const filePath = path.join(/* turbopackIgnore: true */ process.cwd(), DEFAULT_FILENAME);
     if (!fs.existsSync(filePath)) return {};
     const raw = fs.readFileSync(filePath, 'utf-8');
     const parsed = yaml.load(raw) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== 'object') return {};
     return parsed as YamlData;
   } catch (e) {
-    log.warn(`[ServerProviderConfig] Failed to load ${filename}:`, e);
+    log.warn(`[ServerProviderConfig] Failed to load ${DEFAULT_FILENAME}:`, e);
     return {};
   }
 }
@@ -279,7 +280,6 @@ function collectDisabledTTS(
 // Module-level cache (process singleton)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_FILENAME = 'server-providers.yml';
 const OPENAI_IMAGE_PROVIDER_ID = 'openai-image';
 
 /** Cache keyed by YAML filename (empty string = default file). */
@@ -355,7 +355,7 @@ function getConfig(): ServerConfig {
   const cached = _configs.get('');
   if (cached) return cached;
 
-  const yamlData = loadYamlFile(DEFAULT_FILENAME);
+  const yamlData = loadDefaultYamlFile();
   const config = buildConfig(yamlData);
   logConfig(config, DEFAULT_FILENAME);
   _configs.set('', config);

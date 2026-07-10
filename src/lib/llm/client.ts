@@ -1,23 +1,28 @@
 // LLM client. Reads endpoint / api key / model from settings page (server-providers.yml),
 // legacy ai-settings.json, or OPENPBL_LLM_* env vars (in that order via getActiveAiSettings).
-// When all are missing, throws LlmNotConfiguredError so the UI can fall back to sample content.
+// When all are missing, throws LlmNotConfiguredError so the UI can show an explicit error.
 
 import {
   buildEvaluationPlanPrompt,
   buildFullCoursePrompt,
+  buildKnowledgeGraphPrompt,
   buildLessonOutlinePrompt,
   buildPblOutlinePrompt,
+  buildTeachingOutlinePrompt,
 } from "./prompts";
 import type { GenerateInput, LlmCallRequest, LlmCallResponse } from "./types";
 import { LlmNotConfiguredError } from "./types";
-import { buildSampleContent, buildSamplePblOutline } from "./fallback";
-import type { CourseContent, EvaluationPlan, LessonOutlineSection } from "../session/types";
+import type {
+  CourseContent,
+  EvaluationPlan,
+  KnowledgeGraph,
+  LessonOutlineSection,
+  TeachingOutlineSection,
+} from "../session/types";
 import { getActiveAiSettings } from "./settings";
 
 function env(name: string): string | undefined {
-  if (typeof process !== "undefined" && process.env) {
-    return process.env[name];
-  }
+  if (typeof process !== "undefined" && process.env) return process.env[name];
   return undefined;
 }
 
@@ -32,22 +37,33 @@ export async function isActiveLlmConfigured(): Promise<boolean> {
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-/**
- * 公共 LLM 调用入口：供 support-engine.ts 等模块使用，
- * 统一走系统 LLM 配置（ai-settings.json / server-providers.yml / 环境变量）。
- *
- * - LLM 未配置或调用失败时抛出 LlmNotConfiguredError / Error
- * - 调用方可通过 try/catch 自行实现本地规则兜底
- * - jsonMode=true 时优先用 response_format，不支持则自动降级重试
- *
- * @example
- * ```ts
- * const text = await callLLM([
- *   { role: "system", content: "你是 PBL 课程设计专家。" },
- *   { role: "user", content: "请生成 3 个驱动问题。" },
- * ], { jsonMode: true });
- * ```
- */
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+let llmCooldownUntil = 0;
+
+export class LlmRateLimitError extends Error {
+  readonly retryAfterMs: number;
+
+  constructor(retryAfterMs: number, detail = "") {
+    super(`LLM 调用触发限流，${Math.ceil(retryAfterMs / 1000)} 秒后再试${detail ? `：${detail}` : ""}`);
+    this.name = "LlmRateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+export function isLlmCoolingDown(): boolean {
+  return Date.now() < llmCooldownUntil;
+}
+
+function setRateLimitCooldown(res: Response, detail = ""): LlmRateLimitError {
+  const retryAfter = res.headers.get("retry-after");
+  const retryAfterSeconds = retryAfter ? Number(retryAfter) : Number.NaN;
+  const retryAfterMs = Number.isFinite(retryAfterSeconds)
+    ? Math.max(1_000, retryAfterSeconds * 1_000)
+    : DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+  llmCooldownUntil = Math.max(llmCooldownUntil, Date.now() + retryAfterMs);
+  return new LlmRateLimitError(retryAfterMs, detail);
+}
+
 export async function callLLM(
   messages: ChatMessage[],
   opts: { jsonMode?: boolean; abortSignal?: AbortSignal } = {},
@@ -58,22 +74,14 @@ export async function callLLM(
   });
 }
 
-/**
- * 检查当前是否配置了可用 LLM。
- * 供 support-engine.ts 在调用前预检，未配置时直接走本地兜底。
- */
 export async function isLlmReady(): Promise<boolean> {
   try {
-    return await isActiveLlmConfigured();
+    return !isLlmCoolingDown() && (await isActiveLlmConfigured());
   } catch {
     return false;
   }
 }
 
-/**
- * 从 LLM 返回文本中提取 JSON 对象。
- * 优先严格 JSON.parse，失败时回退到匹配第一个 {...} 块。
- */
 export function parseLLMJson<T = unknown>(text: string): T {
   return extractJson(text) as T;
 }
@@ -82,14 +90,16 @@ async function callChatCompletions(
   messages: ChatMessage[],
   opts: { jsonMode: boolean; abortSignal?: AbortSignal },
 ): Promise<string> {
+  if (isLlmCoolingDown()) {
+    throw new LlmRateLimitError(Math.max(0, llmCooldownUntil - Date.now()));
+  }
+
   const settings = await getActiveAiSettings();
   const endpoint = settings.endpoint || env("OPENPBL_LLM_ENDPOINT");
   const apiKey = settings.apiKey || env("OPENPBL_LLM_API_KEY");
   const model = settings.model || env("OPENPBL_LLM_MODEL") || "gpt-5.4-mini";
 
-  if (!endpoint || !apiKey) {
-    throw new LlmNotConfiguredError();
-  }
+  if (!endpoint || !apiKey) throw new LlmNotConfiguredError();
 
   const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
 
@@ -112,8 +122,6 @@ async function callChatCompletions(
 
   let res = await doFetch(opts.jsonMode);
 
-  // 部分 provider/模型不支持 response_format 参数，
-  // 首次调用失败时去掉 JSON 模式重试一次（依赖 prompt 引导 + extractJson 兜底）
   if (!res.ok && opts.jsonMode) {
     const errText = await res.text().catch(() => "");
     if (
@@ -123,13 +131,14 @@ async function callChatCompletions(
     ) {
       res = await doFetch(false);
     }
-    // 若仍失败，继续走下面的错误处理
   }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (res.status === 429) throw setRateLimitCooldown(res, text);
     throw new Error(`LLM 调用失败：${res.status} ${text}`);
   }
+
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
@@ -139,111 +148,255 @@ async function callChatCompletions(
 }
 
 function extractJson(text: string): unknown {
-  // Try strict parse first
   try {
     return JSON.parse(text);
   } catch {
-    // Fall back: find first { ... } block
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error("LLM 返回非 JSON");
-    return JSON.parse(m[0]);
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("LLM 返回非 JSON");
+    return JSON.parse(match[0]);
   }
 }
 
+function emptyCourseContent(): CourseContent {
+  return {
+    pblOutline: "",
+    knowledgePoints: [],
+    knowledgeGraph: { nodes: [], edges: [] },
+    teachingOutline: [],
+    lessonOutline: [],
+    evaluationPlan: { dimensions: [], overallRubric: "" },
+  };
+}
+
+function requireText(value: unknown, scope: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${scope}失败：AI 返回结构不完整，请检查模型输出后重试。`);
+  }
+  return value.trim();
+}
+
+function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("知识图谱生成失败：AI 未返回知识点。");
+  }
+  return raw.map((item, index) => {
+    const point = item && typeof item === "object"
+      ? item as { id?: string; name?: string; description?: string; keyInfo?: string; relatedIds?: unknown }
+      : {};
+    return {
+      id: typeof point.id === "string" && point.id.trim() ? point.id.trim() : `kp-${index + 1}`,
+      name: requireText(point.name, "知识点"),
+      description: typeof point.description === "string" ? point.description.trim() : "",
+      keyInfo: typeof point.keyInfo === "string" && point.keyInfo.trim() ? point.keyInfo.trim() : undefined,
+      relatedIds: Array.isArray(point.relatedIds)
+        ? point.relatedIds.filter((id): id is string => typeof id === "string")
+        : undefined,
+    };
+  });
+}
+
+function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["knowledgePoints"]): KnowledgeGraph {
+  const obj = raw && typeof raw === "object" ? raw as Partial<KnowledgeGraph> : {};
+  if (!Array.isArray(obj.nodes) || obj.nodes.length === 0) {
+    throw new Error("知识图谱生成失败：AI 未返回图谱节点。");
+  }
+
+  const nodes: KnowledgeGraph["nodes"] = obj.nodes.map((node, index) => ({
+    id: typeof node.id === "string" && node.id ? node.id : knowledgePoints[index]?.id ?? `kp-${index + 1}`,
+    label:
+      typeof node.label === "string" && node.label.trim()
+        ? node.label.trim()
+        : knowledgePoints[index]?.name ?? requireText(undefined, "知识图谱节点"),
+    description:
+      typeof node.description === "string" && node.description.trim()
+        ? node.description.trim()
+        : knowledgePoints[index]?.description ?? "",
+    keyInfo:
+      typeof node.keyInfo === "string" && node.keyInfo.trim()
+        ? node.keyInfo.trim()
+        : knowledgePoints[index]?.keyInfo,
+    level:
+      node.level === "foundation" ||
+      node.level === "core" ||
+      node.level === "application" ||
+      node.level === "extension"
+        ? node.level
+        : index < 2
+          ? "foundation"
+          : index < Math.max(4, Math.ceil(knowledgePoints.length * 0.6))
+            ? "core"
+            : "application",
+    relatedLessonIds: Array.isArray(node.relatedLessonIds)
+      ? node.relatedLessonIds.filter((id): id is string => typeof id === "string")
+      : undefined,
+  }));
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges = Array.isArray(obj.edges)
+    ? obj.edges
+        .map((edge, index) => ({
+          id: typeof edge.id === "string" && edge.id ? edge.id : `edge-${index + 1}`,
+          source: typeof edge.source === "string" ? edge.source : "",
+          target: typeof edge.target === "string" ? edge.target : "",
+          label: typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : "关联",
+        }))
+        .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target)
+    : [];
+
+  return { nodes, edges };
+}
+
+function validateLessonOutline(raw: unknown, input: GenerateInput): LessonOutlineSection[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("AI 授知大纲生成失败：AI 未返回章节大纲。");
+  }
+  return raw.map((item, index) => {
+    const section = item && typeof item === "object" ? item as Partial<LessonOutlineSection> : {};
+    return {
+      id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `lo-${index + 1}`,
+      stageKey: typeof section.stageKey === "string" && section.stageKey.trim()
+        ? section.stageKey.trim()
+        : input.stages[0]?.key ?? "ai-learning",
+      title: requireText(section.title, "AI 授知大纲"),
+      objectives: Array.isArray(section.objectives)
+        ? section.objectives.map((objective) => String(objective)).filter(Boolean)
+        : [],
+      activities: Array.isArray(section.activities)
+        ? section.activities.map((activity) => String(activity)).filter(Boolean)
+        : [],
+      durationMin: Number.isFinite(Number(section.durationMin)) ? Number(section.durationMin) : 45,
+    };
+  });
+}
+
+const OPEN_MAIC_USE_VALUES = new Set(["none", "student-ai-learning", "teacher-resource"]);
+const RESOURCE_TYPE_VALUES = new Set([
+  "ppt",
+  "interactive-demo",
+  "script",
+  "worksheet",
+  "rubric",
+  "project-brief",
+]);
+
+function validateTeachingOutline(raw: unknown, input: GenerateInput): TeachingOutlineSection[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("授课大纲生成失败：AI 未返回教案级授课大纲。");
+  }
+  const stageKeys = new Set(input.stages.map((stage) => stage.key));
+  return raw.map((item, index) => {
+    const section =
+      item && typeof item === "object" ? item as Partial<TeachingOutlineSection> : {};
+    const openMaicUse =
+      typeof section.openMaicUse === "string" && OPEN_MAIC_USE_VALUES.has(section.openMaicUse)
+        ? section.openMaicUse
+        : "none";
+    return {
+      id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `to-${index + 1}`,
+      stageKey: (() => {
+        const requested = typeof section.stageKey === "string" ? section.stageKey.trim() : "";
+        if (requested && stageKeys.has(requested)) return requested;
+        return input.stages[Math.min(index, input.stages.length - 1)]?.key ?? "launch";
+      })(),
+      title: requireText(section.title, "授课大纲"),
+      durationMin: Number.isFinite(Number(section.durationMin)) ? Number(section.durationMin) : 10,
+      teachingGoal: requireText(section.teachingGoal, "授课大纲"),
+      teacherRole: requireText(section.teacherRole, "授课大纲"),
+      platformRole: requireText(section.platformRole, "授课大纲"),
+      aiRole: requireText(section.aiRole, "授课大纲"),
+      studentActivity: requireText(section.studentActivity, "授课大纲"),
+      knowledgePointIds: Array.isArray(section.knowledgePointIds)
+        ? section.knowledgePointIds.filter((id): id is string => typeof id === "string")
+        : [],
+      openMaicUse,
+      resourceTypes: Array.isArray(section.resourceTypes)
+        ? section.resourceTypes.filter(
+            (type): type is NonNullable<TeachingOutlineSection["resourceTypes"]>[number] =>
+              typeof type === "string" && RESOURCE_TYPE_VALUES.has(type),
+          )
+        : [],
+      notes: typeof section.notes === "string" ? section.notes.trim() : "",
+    };
+  });
+}
+
+function validateEvaluationPlan(raw: unknown): EvaluationPlan {
+  const plan = raw && typeof raw === "object" ? raw as Partial<EvaluationPlan> : {};
+  if (!Array.isArray(plan.dimensions) || plan.dimensions.length === 0) {
+    throw new Error("评价方案生成失败：AI 未返回评价维度。");
+  }
+  return {
+    dimensions: (plan.dimensions as { id?: string; name?: string; weight?: number; description?: string }[])
+      .map((dimension, index) => ({
+        id: typeof dimension.id === "string" && dimension.id.trim() ? dimension.id.trim() : `ev-${index + 1}`,
+        name: requireText(dimension.name, "评价方案"),
+        weight: Number(dimension.weight ?? 0),
+        description: typeof dimension.description === "string" ? dimension.description.trim() : "",
+      })),
+    overallRubric: typeof plan.overallRubric === "string" ? plan.overallRubric.trim() : "",
+  };
+}
+
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {
-  const j = json as Partial<CourseContent>;
-  if (!j || typeof j !== "object") throw new Error("LLM 返回结构错误");
-
-  const pblOutline = String(j.pblOutline ?? "").trim();
-  const knowledgePoints = Array.isArray(j.knowledgePoints)
-    ? (j.knowledgePoints as { id?: string; name?: string; description?: string }[]).map((k, i) => ({
-        id: String(k.id ?? `kp-${i + 1}`),
-        name: String(k.name ?? "").trim() || `知识点 ${i + 1}`,
-        description: String(k.description ?? "").trim(),
-      }))
-    : [];
-
-  const lessonOutline: LessonOutlineSection[] = Array.isArray(j.lessonOutline)
-    ? (j.lessonOutline as Partial<LessonOutlineSection>[]).map((l, i) => ({
-        id: String(l.id ?? `lo-${i + 1}`),
-        stageKey: String(l.stageKey ?? input.stages[0]?.key ?? "ai-learning"),
-        title: String(l.title ?? "").trim() || `章节 ${i + 1}`,
-        objectives: Array.isArray(l.objectives) ? l.objectives.map((o) => String(o)) : [],
-        activities: Array.isArray(l.activities) ? l.activities.map((a) => String(a)) : [],
-        durationMin: Number(l.durationMin ?? 45),
-      }))
-    : [];
-
-  const ep = (j.evaluationPlan ?? {}) as Partial<EvaluationPlan>;
-  const dimensions = Array.isArray(ep.dimensions)
-    ? (ep.dimensions as { id?: string; name?: string; weight?: number; description?: string }[]).map(
-        (d, i) => ({
-          id: String(d.id ?? `ev-${i + 1}`),
-          name: String(d.name ?? "").trim() || `维度 ${i + 1}`,
-          weight: Number(d.weight ?? 0),
-          description: String(d.description ?? "").trim(),
-        }),
-      )
-    : [];
-  const overallRubric = String(ep.overallRubric ?? "").trim();
-
-  return { pblOutline, knowledgePoints, lessonOutline, evaluationPlan: { dimensions, overallRubric } };
+  const data = json && typeof json === "object" ? json as Partial<CourseContent> : {};
+  const knowledgePoints = validateKnowledgePoints(data.knowledgePoints);
+  return {
+    pblOutline: requireText(data.pblOutline, "PBL 大纲"),
+    knowledgePoints,
+    knowledgeGraph: normalizeKnowledgeGraph(data.knowledgeGraph, knowledgePoints),
+    teachingOutline: data.teachingOutline
+      ? validateTeachingOutline(data.teachingOutline, input)
+      : [],
+    lessonOutline: validateLessonOutline(data.lessonOutline, input),
+    evaluationPlan: validateEvaluationPlan(data.evaluationPlan),
+  };
 }
 
 export async function generateCourseContent(
   request: LlmCallRequest,
   opts?: { signal?: AbortSignal },
 ): Promise<LlmCallResponse> {
-  const { action, input, useSample } = request;
+  const { action, input } = request;
 
-  // Caller asked explicitly for the sample (UI fallback button).
-  if (useSample) {
-    if (action === "pblOutline") {
-      return {
-        content: { ...buildSampleContent(input), ...buildSamplePblOutline(input) } as CourseContent,
-        source: "sample",
-      };
-    }
-    return { content: buildSampleContent(input), source: "sample" };
-  }
+  if (!(await isActiveLlmConfigured())) throw new LlmNotConfiguredError();
 
-  // LLM not configured → return sample so the demo flow can still run.
-  if (!(await isActiveLlmConfigured())) {
-    if (action === "pblOutline") {
-      return {
-        content: { ...buildSampleContent(input), ...buildSamplePblOutline(input) } as CourseContent,
-        source: "sample",
-      };
-    }
-    return { content: buildSampleContent(input), source: "sample" };
-  }
-
-  // Real LLM call.
   let system = "";
   let user = "";
   switch (action) {
     case "pblOutline": {
-      const p = buildPblOutlinePrompt(input);
-      system = p.system;
-      user = p.user;
+      const prompt = buildPblOutlinePrompt(input, request.context);
+      system = prompt.system;
+      user = prompt.user;
       break;
     }
     case "lessonOutline": {
-      const p = buildLessonOutlinePrompt(input);
-      system = p.system;
-      user = p.user;
+      const prompt = buildLessonOutlinePrompt(input, request.context);
+      system = prompt.system;
+      user = prompt.user;
+      break;
+    }
+    case "teachingOutline": {
+      const prompt = buildTeachingOutlinePrompt(input, request.context);
+      system = prompt.system;
+      user = prompt.user;
+      break;
+    }
+    case "knowledgeGraph": {
+      const prompt = buildKnowledgeGraphPrompt(input, request.context);
+      system = prompt.system;
+      user = prompt.user;
       break;
     }
     case "evaluationPlan": {
-      const p = buildEvaluationPlanPrompt(input);
-      system = p.system;
-      user = p.user;
+      const prompt = buildEvaluationPlanPrompt(input, request.context);
+      system = prompt.system;
+      user = prompt.user;
       break;
     }
     case "fullCourse": {
-      const p = buildFullCoursePrompt(input);
-      system = p.system;
-      user = p.user;
+      const prompt = buildFullCoursePrompt(input);
+      system = prompt.system;
+      user = prompt.user;
       break;
     }
   }
@@ -259,23 +412,47 @@ export async function generateCourseContent(
   const json = extractJson(text);
 
   if (action === "pblOutline") {
-    const sample = buildSamplePblOutline(input);
     return {
-      content: { ...buildSampleContent(input), pblOutline: String((json as { pblOutline?: string }).pblOutline ?? sample.pblOutline) },
+      content: { ...emptyCourseContent(), pblOutline: requireText((json as { pblOutline?: unknown }).pblOutline, "PBL 大纲") },
       source: "llm",
     };
   }
   if (action === "lessonOutline") {
-    const sample = buildSampleContent(input);
     return {
-      content: { ...sample, lessonOutline: validateFullCourse({ lessonOutline: (json as { lessonOutline?: unknown }).lessonOutline, knowledgePoints: sample.knowledgePoints, pblOutline: sample.pblOutline, evaluationPlan: sample.evaluationPlan }, input).lessonOutline },
+      content: { ...emptyCourseContent(), lessonOutline: validateLessonOutline((json as { lessonOutline?: unknown }).lessonOutline, input) },
+      source: "llm",
+    };
+  }
+  if (action === "teachingOutline") {
+    return {
+      content: {
+        ...emptyCourseContent(),
+        pblOutline:
+          typeof (json as { pblOutline?: unknown }).pblOutline === "string"
+            ? ((json as { pblOutline: string }).pblOutline).trim()
+            : "",
+        teachingOutline: validateTeachingOutline(
+          (json as { teachingOutline?: unknown }).teachingOutline,
+          input,
+        ),
+      },
+      source: "llm",
+    };
+  }
+  if (action === "knowledgeGraph") {
+    const knowledgePoints = validateKnowledgePoints((json as { knowledgePoints?: unknown }).knowledgePoints);
+    return {
+      content: {
+        ...emptyCourseContent(),
+        knowledgePoints,
+        knowledgeGraph: normalizeKnowledgeGraph((json as { knowledgeGraph?: unknown }).knowledgeGraph, knowledgePoints),
+      },
       source: "llm",
     };
   }
   if (action === "evaluationPlan") {
-    const sample = buildSampleContent(input);
     return {
-      content: { ...sample, evaluationPlan: validateFullCourse({ evaluationPlan: (json as { evaluationPlan?: unknown }).evaluationPlan, knowledgePoints: sample.knowledgePoints, pblOutline: sample.pblOutline, lessonOutline: sample.lessonOutline }, input).evaluationPlan },
+      content: { ...emptyCourseContent(), evaluationPlan: validateEvaluationPlan((json as { evaluationPlan?: unknown }).evaluationPlan) },
       source: "llm",
     };
   }

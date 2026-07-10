@@ -1,8 +1,5 @@
 import type {
   CourseContent,
-  EvaluationDimension,
-  KnowledgePoint,
-  LessonOutlineSection,
 } from "../session/types";
 
 export type GenerateInput = {
@@ -15,11 +12,6 @@ export type GenerateInput = {
   stages: { key: string; label: string; description: string }[];
 };
 
-export type LlmGenerateOptions = {
-  // If true, return the sample content (used as a UI fallback when LLM is not configured).
-  useSample?: boolean;
-};
-
 export class LlmNotConfiguredError extends Error {
   constructor() {
     super("LLM_NOT_CONFIGURED");
@@ -28,12 +20,23 @@ export class LlmNotConfiguredError extends Error {
 }
 
 export type LlmCallRequest = {
-  action: "pblOutline" | "lessonOutline" | "evaluationPlan" | "fullCourse";
+  action:
+    | "pblOutline"
+    | "knowledgeGraph"
+    | "teachingOutline"
+    | "lessonOutline"
+    | "evaluationPlan"
+    | "fullCourse";
   input: GenerateInput;
-  useSample?: boolean;
+  context?: Partial<
+    Pick<
+      CourseContent,
+      "pblOutline" | "knowledgePoints" | "knowledgeGraph" | "teachingOutline" | "lessonOutline"
+    >
+  >;
 };
 
 export type LlmCallResponse = {
   content: CourseContent;
-  source: "llm" | "sample";
+  source: "llm";
 };

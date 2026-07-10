@@ -34,7 +34,10 @@ const HANDLERS: Record<
   buildReflectionEvidencePrompts: (input) =>
     buildReflectionEvidencePrompts(input as Parameters<typeof buildReflectionEvidencePrompts>[0]),
   buildTeacherInterventionSignals: (input) => {
-    const { course, stageKey } = input as { course: Parameters<typeof buildTeacherInterventionSignals>[0]; stageKey: string };
+    const { course, stageKey } = input as {
+      course: Parameters<typeof buildTeacherInterventionSignals>[0];
+      stageKey: string;
+    };
     return buildTeacherInterventionSignals(course, stageKey);
   },
   generateProjectSkeleton: (input) =>

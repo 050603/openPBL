@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   createContext,
@@ -43,7 +43,6 @@ import type {
 import { DEFAULT_STAGES } from "./types";
 import { loadJSON, saveJSON } from "./storage";
 import { generateInviteCode, normalizeInviteCode } from "./invite-code";
-import { makeSeedCourses } from "./seed";
 
 const IDENTITY_KEY = "openpbl.identity.v1";
 // Separate identity keys per role to prevent teacher/student identity cross-contamination
@@ -140,10 +139,9 @@ function makeStudentId(): string {
   return "s-" + Math.random().toString(36).slice(2, 8);
 }
 
-function makeLocalFallback(): SessionState {
+function makeEmptyHydratedState(): SessionState {
   return {
     ...initialSessionState(),
-    courses: makeSeedCourses(),
     hydrated: true,
     updatedAt: new Date().toISOString(),
   };
@@ -171,6 +169,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialSessionState);
   const stateRef = useRef(state);
   const pollingRef = useRef(true);
+  const readErrorShownRef = useRef(false);
+  const writeErrorShownRef = useRef(false);
   // Tracks the number of in-flight commit POSTs. Only the LAST response
   // (when pending drops to 0) triggers a HYDRATE; intermediate responses
   // are ignored so they can't overwrite newer local optimistic state.
@@ -232,7 +232,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                           {
                             studentId: identity.studentId!,
                             name: identity.studentName!,
-                            role: identity.joinedGroupRole ?? "成员",
+                            role: identity.joinedGroupRole ?? "鎴愬憳",
                           },
                         ],
                       }
@@ -249,7 +249,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function refresh() {
-    // Skip polling refresh while commits are in-flight — the server file
+    // Skip polling refresh while commits are in-flight 鈥?the server file
     // may not yet reflect those actions (they're queued), and HYDRATEing
     // would overwrite local optimistic state, causing the same
     // "course disappears" symptom as the commit race condition.
@@ -257,9 +257,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const next = applyIdentity(await fetchSession());
       dispatch({ type: "HYDRATE", payload: next });
-    } catch {
+    } catch (error) {
+      console.error("[session] Failed to fetch session state:", error);
+      if (!readErrorShownRef.current) {
+        readErrorShownRef.current = true;
+        window.alert("无法读取平台真实数据，请检查会话接口或服务器数据文件后刷新页面。");
+      }
       if (!stateRef.current.hydrated) {
-        dispatch({ type: "HYDRATE", payload: makeLocalFallback() });
+        dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
       }
     }
   }
@@ -281,9 +286,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         pendingCommitsRef.current--;
-        // Optimistic state keeps the classroom demo usable while the dev server restarts.
+        console.error("[session] Failed to persist session action:", error);
+        if (!writeErrorShownRef.current) {
+          writeErrorShownRef.current = true;
+          window.alert("数据保存失败，请检查服务器状态。当前页面内容可能尚未写入真实数据源。");
+        }
       });
   }
 
@@ -355,6 +364,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           content: input.content ?? {
             pblOutline: "",
             knowledgePoints: [],
+            teachingOutline: [],
             lessonOutline: [],
             evaluationPlan: { dimensions: [], overallRubric: "" },
           },
@@ -368,7 +378,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           activityLog: [],
           announcements: [],
           todos: defaultTodos(),
-          resources: defaultResources(),
+          resources: [],
           groups: [],
           groupAnnouncements: [],
           workPlan: [],
@@ -426,7 +436,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!target) {
           return { ok: false, reason: "邀请码无效，或教师尚未开始授课" };
         }
-        const trimmedName = name?.trim() || "学生";
+        const trimmedName = name?.trim() || "瀛︾敓";
 
         // ===== Same-name account merge =====
         // If a student with the same name already exists in this course,
@@ -448,7 +458,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             };
 
         // Update the user object so the top-right avatar shows the student's
-        // name and role, not the default "张老师".
+        // name and role, not the default "寮犺€佸笀".
         const studentUser = { role: "student" as const, name: student.name };
         // Pre-seed the identity cache so the next polling refresh cannot
         // drop the just-joined student from course.students before the
@@ -507,12 +517,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Remove stale history entry
           const history = loadJSON<LeftClassRecord[]>(LEFT_CLASS_HISTORY_KEY, []);
           saveJSON(LEFT_CLASS_HISTORY_KEY, history.filter((r) => r.courseId !== record.courseId));
-          return { ok: false as const, reason: "课堂已结束或不存在，无法重新加入" };
+          return { ok: false as const, reason: "璇惧爞宸茬粨鏉熸垨涓嶅瓨鍦紝鏃犳硶閲嶆柊鍔犲叆" };
         }
         // Check if student is still in the course's student list
         const existingStudent = target.students.find((s) => s.id === record.studentId);
         if (existingStudent) {
-          // Student record still exists (teacher may not have removed them) — just restore identity
+          // Student record still exists (teacher may not have removed them) 鈥?just restore identity
           const studentUser = { role: "student" as const, name: record.studentName };
           const identity: IdentityState = {
             user: studentUser,
@@ -526,7 +536,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           commit({ type: "SET_USER", payload: studentUser });
           commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student: existingStudent } });
         } else {
-          // Student was removed from the course — re-add them
+          // Student was removed from the course 鈥?re-add them
           const student: Student = {
             id: record.studentId,
             name: record.studentName,
@@ -618,6 +628,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           groupId: input.groupId,
           stageKey: input.stageKey,
           dimensionScores: input.dimensionScores,
+          teacherTotal: input.teacherTotal,
+          aiDimensionScores: input.aiDimensionScores,
+          aiTotal: input.aiTotal,
+          finalTotal: input.finalTotal,
+          scoringMode: input.scoringMode,
           comment: input.comment,
           total: input.total,
           status: input.status,
@@ -709,7 +724,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           name: name || `第 ${(course?.groups?.length ?? 0) + 1} 组`,
           topic: course?.drivingQuestion || "待确定选题方向",
           goal: "明确问题、形成可落地方案，并准备阶段性汇报。",
-          keywords: ["低碳生活", "校园场景", "数据驱动"],
+          keywords: ["项目研究", "真实情境", "数据驱动"],
           selectedForms: ["方案报告"],
           members: [],
           createdAt: now,
@@ -930,41 +945,9 @@ function defaultTodos(): CourseTodo[] {
     {
       id: "todo-pick-direction",
       title: "选择兴趣方向",
-      description: "确定你希望研究的校园问题切入点。",
+      description: "确定你希望研究的问题切入点。",
       stageKey: "group",
       completedBy: [],
-    },
-  ];
-}
-
-function defaultResources() {
-  return [
-    {
-      id: "res-brief",
-      title: "项目说明书_校园低碳生活解决方案.pdf",
-      type: "PDF",
-      size: "1.2 MB",
-      description: "项目背景、任务说明与成果要求",
-      url: "/api/uploads?file=demo-project-brief.txt",
-      downloadedBy: [],
-    },
-    {
-      id: "res-data",
-      title: "校园低碳生活现状调研数据.xlsx",
-      type: "XLSX",
-      size: "58 KB",
-      description: "示例调研数据与统计模板",
-      url: "/api/uploads?file=demo-campus-data.txt",
-      downloadedBy: [],
-    },
-    {
-      id: "res-rubric",
-      title: "评价量规与汇报标准.pdf",
-      type: "PDF",
-      size: "890 KB",
-      description: "评分维度、权重与汇报建议",
-      url: "/api/uploads?file=demo-rubric.txt",
-      downloadedBy: [],
     },
   ];
 }

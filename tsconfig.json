@@ -27,11 +27,12 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "*.config.ts",
+    "*.config.mts",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "OpenMAIC-main", "packages/*/src", "packages/@openmaic/*/src", "packages/docs", "e2e"]
+  "exclude": ["node_modules", "OpenMAIC-main", "packages/**/src", "packages/docs", "e2e"]
 }

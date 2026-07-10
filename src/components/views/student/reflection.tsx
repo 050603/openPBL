@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ClipboardPlus, PenLine, Save, Sparkles, Star } from "lucide-react";
+import { ClipboardPlus, PenLine, Save, Star, Wand2 } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
 import {
   EvaluationRadar,
@@ -60,11 +60,26 @@ export function ReflectionView({ course }: { course?: Course }) {
   const studentName = session.studentName ?? "访客学生";
 
   // ===== 真实数据：从 store 读取 =====
-  const dimensions: EvaluationDimension[] = course?.content.evaluationPlan.dimensions ?? [];
-  const allRubricScores: RubricScore[] = course?.rubricScores ?? [];
-  const allFeedback: TeacherFeedback[] = course?.feedback ?? [];
-  const allReflections: ReflectionRecord[] = course?.reflections ?? [];
-  const stages: Stage[] = course?.stages ?? [];
+  const dimensions: EvaluationDimension[] = useMemo(
+    () => course?.content.evaluationPlan.dimensions ?? [],
+    [course?.content.evaluationPlan.dimensions],
+  );
+  const allRubricScores: RubricScore[] = useMemo(
+    () => course?.rubricScores ?? [],
+    [course?.rubricScores],
+  );
+  const allFeedback: TeacherFeedback[] = useMemo(
+    () => course?.feedback ?? [],
+    [course?.feedback],
+  );
+  const allReflections: ReflectionRecord[] = useMemo(
+    () => course?.reflections ?? [],
+    [course?.reflections],
+  );
+  const stages: Stage[] = useMemo(
+    () => course?.stages ?? [],
+    [course?.stages],
+  );
 
   // 当前学生所属小组
   const myGroup = useMemo(
@@ -292,7 +307,8 @@ export function ReflectionView({ course }: { course?: Course }) {
       // 提醒教师有新数据可刷新
       session.setUiState(course.id, { aiAnalysisPending: true });
     } catch (err) {
-      console.warn("[reflection] AI 反思提示生成失败：", err);
+      const message = err instanceof Error ? err.message : "AI 反思提示生成失败";
+      window.alert(message);
     }
   }
 
@@ -471,7 +487,7 @@ export function ReflectionView({ course }: { course?: Course }) {
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-xl font-black">自我反思</h2>
             <button className="inline-flex h-9 items-center gap-1 rounded-[6px] border border-blue-300 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50" onClick={generateReflectionPrompts} type="button">
-              <Sparkles size={15} /> 提取过程证据
+              <Wand2 size={15} /> 提取过程证据
             </button>
           </div>
           {latestReflectionSupport ? (

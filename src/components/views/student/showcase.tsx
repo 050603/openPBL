@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Eye, PauseCircle, PlayCircle, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
+import { Clock3, Compass, Eye, PauseCircle, PlayCircle, RotateCcw, UploadCloud, X } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
 import { Card, FileBadge, PrimaryButton } from "@/components/ui";
 import { EvidenceStrip, SlidePreview } from "@/components/visuals";
@@ -141,7 +141,8 @@ export function ShowcaseView({ course }: { course: Course }) {
       // 提醒教师有新数据可刷新
       session.setUiState(course.id, { aiAnalysisPending: true });
     } catch (err) {
-      console.warn("[showcase] AI 汇报教练生成失败：", err);
+      const message = err instanceof Error ? err.message : "AI 汇报教练生成失败";
+      window.alert(message);
     }
   }
 
@@ -238,7 +239,7 @@ export function ShowcaseView({ course }: { course: Course }) {
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-xl font-black">
-              <Sparkles className="text-amber-600" size={20} /> AI汇报教练
+              <Compass className="text-amber-600" size={20} /> AI 汇报教练
             </h2>
             <button className="text-sm font-semibold text-blue-700" onClick={prepareShowcaseCoach} type="button">生成检查清单</button>
           </div>

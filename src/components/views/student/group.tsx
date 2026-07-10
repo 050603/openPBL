@@ -1,7 +1,7 @@
-"use client";
+﻿﻿﻿﻿"use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, ClipboardCheck, Megaphone, PenLine, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, FileText, Image as ImageIcon, Lightbulb, Megaphone, PenLine, Plus, Save, Trash2, Video, Wand2 } from "lucide-react";
 import { AvatarStack } from "@/components/dashboard-shell";
 import { Card, Pill, PrimaryButton, ProgressBar, Select, TextArea, TextInput } from "@/components/ui";
 import { useSession } from "@/lib/session/store";
@@ -10,7 +10,12 @@ import { diagnoseGroupIdea } from "@/lib/teaching-ai/client-api";
 import { GroupBoardEditor } from "./group-board-editor";
 import { StudentAiChatPanel } from "./ai-chat-panel";
 
-const forms = ["方案报告", "海报手册", "短视频", "数据看板"];
+const forms = [
+  { label: "方案报告", icon: FileText, color: "bg-blue-600" },
+  { label: "海报手册", icon: ImageIcon, color: "bg-emerald-600" },
+  { label: "短视频", icon: Video, color: "bg-violet-600" },
+  { label: "数据看板", icon: BarChart3, color: "bg-orange-500" },
+];
 // 通用构思引导问题：与具体主题无关，用于在没有 LLM 接入时
 // 引导小组讨论方向。完整 AI 建议将在 LLM 接入后基于课程内容生成。
 const brainstormBatches = [
@@ -43,7 +48,7 @@ export function GroupView({ course }: { course: Course }) {
   const [taskDraft, setTaskDraft] = useState({ role: "", memberName: "", task: "" });
 
   // Find the group that THIS student belongs to. Do NOT fall back to
-  // course.groups[0] — that would show another group's seed data when
+  // course.groups[0], because that would show another group's data when
   // the student hasn't been assigned to any group yet.
   const maybeGroup = useMemo(() => {
     return course.groups?.find((item) => item.members.some((member) => member.studentId === session.studentId));
@@ -116,9 +121,11 @@ export function GroupView({ course }: { course: Course }) {
       session.updateStudentProgress("group", 85);
       // 提醒教师有新数据可刷新
       session.setUiState(course.id, { aiAnalysisPending: true });
-      setStatus(draft.source === "llm" ? "已完成 AI 方案检查" : "已完成方案检查（本地兜底）");
+      setStatus("已完成 AI 方案检查");
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "AI 方案检查失败");
+      const message = err instanceof Error ? err.message : "AI 方案检查失败";
+      setStatus(message);
+      window.alert(message);
     }
   }
 
@@ -144,7 +151,7 @@ export function GroupView({ course }: { course: Course }) {
         <button className="grid h-10 w-10 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={() => window.history.back()} type="button">
           <ArrowLeft size={18} />
         </button>
-        <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-600"><Sparkles size={27} /></div>
+        <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-600"><Lightbulb size={27} /></div>
         <div className="min-w-0">
           <h1 className="truncate text-[30px] font-black">{group.name}</h1>
           <p className="text-sm text-slate-500">{group.members.length} 名成员 · {group.topic}</p>
@@ -204,11 +211,13 @@ export function GroupView({ course }: { course: Course }) {
         <Card>
           <h2 className="mb-5 text-xl font-black">成果形式选择 <span className="text-base font-medium text-slate-500">（可多选）</span></h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {forms.map((label, index) => {
+            {forms.map(({ label, icon: Icon, color }) => {
               const selected = group.selectedForms.includes(label);
               return (
                 <button className={`relative flex h-[132px] flex-col items-center justify-center gap-3 rounded-[8px] border text-base font-black transition ${selected ? "border-blue-600 bg-blue-50 text-slate-950" : "border-slate-200 bg-white hover:border-blue-300"}`} key={label} onClick={() => toggleForm(label)} type="button">
-                  <span className={`grid h-11 w-11 place-items-center rounded-[5px] text-white ${["bg-blue-600", "bg-emerald-600", "bg-violet-600", "bg-orange-500"][index]}`}>▣</span>
+                  <span className={`grid h-11 w-11 place-items-center rounded-[5px] text-white ${color}`}>
+                    <Icon size={22} strokeWidth={2.2} />
+                  </span>
                   {label}
                   {selected ? <CheckCircle2 className="absolute right-2 top-2 text-blue-600" size={18} /> : null}
                 </button>
@@ -297,7 +306,7 @@ export function GroupView({ course }: { course: Course }) {
       <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-5 rounded-[10px] border border-slate-200/80 bg-white px-6 py-5">
         {status ? <Pill tone="green">{status}</Pill> : null}
         <PrimaryButton className="w-[260px]" onClick={() => saveIdea(false)} variant="outline"><Save size={21} /> 保存构思</PrimaryButton>
-        <PrimaryButton className="w-[260px]" onClick={checkIdea}><Sparkles size={21} /> 检查方案完整性</PrimaryButton>
+        <PrimaryButton className="w-[260px]" onClick={checkIdea}><Wand2 size={21} /> 检查方案完整性</PrimaryButton>
       </div>
       <StudentAiChatPanel course={course} stageKey="group" contextLabel="小组构思" />
     </div>

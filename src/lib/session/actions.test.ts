@@ -217,6 +217,28 @@ describe("applySessionAction — ADVANCE_STAGE", () => {
 
     expect(next.courses[0].currentStageIndex).toBe(0);
   });
+
+  it("stops teacher resource projection when the stage changes", () => {
+    const course = makeCourse({
+      uiState: {
+        teacherResourceProjection: {
+          classroomId: "teacher-classroom",
+          sceneId: "scene-1",
+          stageKey: "launch",
+          title: "课程引入",
+          sceneType: "slide",
+          startedAt: "2024-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "ADVANCE_STAGE",
+      payload: { id: course.id, direction: 1 },
+    });
+
+    expect(next.courses[0].uiState?.teacherResourceProjection).toBeNull();
+  });
 });
 
 describe("applySessionAction — UPSERT_UPLOAD", () => {

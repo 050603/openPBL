@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartColumn, Check, Clock3, FileText, ShieldCheck, Sparkles, UploadCloud } from "lucide-react";
-import { Card, Pill, PrimaryButton, ProgressBar } from "@/components/ui";
+import { ChartColumn, Check, ClipboardCheck, Clock3, FileText, Lightbulb, ListChecks, ShieldCheck } from "lucide-react";
+import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import type { AiSupportRecord, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
@@ -22,6 +22,26 @@ function plainTextLength(html: string): number {
 export function WorkspaceView({ course }: { course: Course }) {
   const session = useSession();
   const stageKey = course.stages[course.currentStageIndex]?.key ?? "make";
+  const isReviewStage = stageKey === "review";
+  const stageMode = isReviewStage
+    ? {
+        eyebrow: "阶段四 · 方案汇报与纠偏",
+        title: "方案汇报准备区",
+        description: "先讲清楚做什么、为什么做、怎么做，再接收 AI、教师和同伴反馈。",
+        editorTitle: "结构化方案文档",
+        placeholder: "按问题、用户/场景、成果形式、实施步骤、AI 使用方式、风险预案来补全方案...",
+        submitLabel: "提交方案并等待纠偏",
+        aiTitle: "AI方案纠偏",
+      }
+    : {
+        eyebrow: "阶段五 · 项目制作与 AI 实时支架",
+        title: "项目制作工作台",
+        description: "围绕已确认方案制作作品，持续上传过程证据，并用 AI 检查实施、证据和风险。",
+        editorTitle: "项目作品与过程文档",
+        placeholder: "记录项目制作过程、资料来源、作品迭代、测试结果和下一步修改计划...",
+        submitLabel: "提交阶段成果",
+        aiTitle: "AI任务支架",
+      };
   const group = useMemo(() => course.groups?.find((item) => item.members.some((member) => member.studentId === session.studentId)) ?? course.groups?.[0], [course.groups, session.studentId]);
   const existing = course.submissions?.find((item) => item.groupId === group?.id && item.stageKey === stageKey && item.type === "document");
   const [documentText, setDocumentText] = useState(existing?.content ?? defaultDoc);
@@ -39,16 +59,6 @@ export function WorkspaceView({ course }: { course: Course }) {
   const myStageProgress = session.studentId
     ? (course.students.find((s) => s.id === session.studentId)?.stageProgress ?? {})
     : {};
-  const stageKeys = course.stages.map((s) => s.key);
-  const myOverallProgress = stageKeys.length > 0
-    ? Math.round(stageKeys.reduce((acc, k) => acc + (myStageProgress[k] ?? 0), 0) / stageKeys.length)
-    : 0;
-  // 已完成的阶段数
-  const completedStagesCount = stageKeys.filter((k) => (myStageProgress[k] ?? 0) >= 100).length;
-
-  // 待办数：从 course.todos 中统计学生已完成
-  const myTodos = course.todos ?? [];
-  const completedTodos = myTodos.filter((t) => session.studentId && t.completedBy.includes(session.studentId)).length;
 
   function saveDocument(action = "保存项目文档") {
     session.upsertSubmission({
@@ -122,9 +132,11 @@ export function WorkspaceView({ course }: { course: Course }) {
       session.updateStudentProgress(stageKey, Math.max(80, myStageProgress[stageKey] ?? 0));
       // 同时置位 aiAnalysisPending，提醒教师有新数据可刷新
       session.setUiState(course.id, { aiAnalysisPending: true });
-      setStatus(draft.source === "llm" ? "已生成 AI 诊断" : "已生成诊断（本地兜底）");
+      setStatus("已生成 AI 诊断");
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "AI 诊断失败");
+      const message = err instanceof Error ? err.message : "AI 诊断失败";
+      setStatus(message);
+      window.alert(message);
     }
   }
 
@@ -171,21 +183,50 @@ export function WorkspaceView({ course }: { course: Course }) {
 
   return (
     <div className="space-y-5">
-      <Card>
-        <div className="grid gap-6 lg:grid-cols-[1fr_220px_1fr] lg:items-center">
-          <div><div className="text-sm text-slate-500">当前项目</div><div className="mt-2 flex items-center gap-4"><h1 className="text-2xl font-black">{course.name}</h1><Pill tone="green">进行中</Pill></div></div>
-          <div className="border-l border-slate-200 pl-6"><div className="text-sm text-slate-500">剩余时间</div><div className="mt-2 flex items-center gap-2 text-2xl font-black"><Clock3 size={24} /> {completedStagesCount}/{stageKeys.length} 阶段</div><div className="mt-1 text-sm text-slate-500">已完成 {completedStagesCount} 个阶段</div></div>
-          <div className="border-l border-slate-200 pl-6"><div className="mb-3 text-sm font-semibold text-slate-600">整体进度</div><div className="flex items-center gap-4"><ProgressBar className="h-3 flex-1" value={myOverallProgress} /><span className="text-lg font-bold">{myOverallProgress}%</span></div><div className="mt-2 text-sm text-slate-500">已完成 {completedTodos}/{myTodos.length} 项任务</div></div>
-        </div>
-      </Card>
-
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
         <div className="space-y-4">
+          <Card>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-blue-700">{stageMode.eyebrow}</div>
+                <h2 className="mt-1 text-[24px] font-black text-slate-950">{stageMode.title}</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{stageMode.description}</p>
+              </div>
+              <Pill tone={isReviewStage ? "orange" : "blue"}>{isReviewStage ? "先纠偏再制作" : "边做边留证据"}</Pill>
+            </div>
+            {isReviewStage ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {["问题是否清楚", "目标用户/场景", "成果形式", "实施步骤", "AI 使用边界", "风险与备选方案"].map((item, index) => (
+                  <div className="flex items-center gap-3 rounded-[8px] border border-amber-100 bg-amber-50/50 px-3 py-2 text-sm font-semibold text-slate-700" key={item}>
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-black text-amber-700 ring-1 ring-amber-200">{index + 1}</span>
+                    {item}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                {[
+                  ["待做", "补充资料、明确下一步制作任务"],
+                  ["进行中", "上传草稿、记录 AI 建议采纳情况"],
+                  ["已完成", "提交阶段成果并准备展示材料"],
+                ].map(([title, text], index) => (
+                  <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3" key={title}>
+                    <div className="flex items-center gap-2 font-black text-slate-900">
+                      {index === 0 ? <ListChecks size={17} className="text-blue-700" /> : index === 1 ? <Clock3 size={17} className="text-blue-700" /> : <ClipboardCheck size={17} className="text-emerald-700" />}
+                      {title}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">{text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
           <Card className="overflow-hidden p-0">
             <div className="p-6">
-              <h1 className="text-[26px] font-black">项目方案编辑区</h1>
+              <h1 className="text-[26px] font-black">{stageMode.editorTitle}</h1>
               <div className="mt-5">
-                <RichTextEditor value={documentText} onChange={setDocumentText} onFileUpload={handleFileUpload} placeholder="在此编写项目方案内容，支持文字格式化、列表、表格、图片等..." />
+                <RichTextEditor value={documentText} onChange={setDocumentText} onFileUpload={handleFileUpload} placeholder={stageMode.placeholder} />
               </div>
             </div>
             <div className="flex h-10 items-center justify-between border-t border-slate-100 px-5 text-sm text-slate-500">
@@ -212,7 +253,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         <aside className="space-y-4">
           <Card>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-black">AI任务支架</h2>
+              <h2 className="text-xl font-black">{stageMode.aiTitle}</h2>
               <button className="text-sm font-semibold text-blue-700" onClick={() => { setAiCollapsed((value) => !value); session.setUiState(course.id, { aiPanelCollapsed: !aiCollapsed }); }} type="button">
                 {aiCollapsed ? "展开" : "收起"}
               </button>
@@ -221,20 +262,20 @@ export function WorkspaceView({ course }: { course: Course }) {
               <>
                 <div className="grid gap-2">
                   <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-blue-200 text-sm font-semibold text-blue-700 hover:bg-blue-50" onClick={() => runArtifactCheck("steps")} type="button">
-                    <ChartColumn size={16} /> 检查实施步骤
+                    <ChartColumn size={16} /> {isReviewStage ? "检查方案结构" : "检查实施步骤"}
                   </button>
                   <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-emerald-200 text-sm font-semibold text-emerald-700 hover:bg-emerald-50" onClick={() => runArtifactCheck("evidence")} type="button">
-                    <FileText size={16} /> 查找证据缺口
+                    <FileText size={16} /> {isReviewStage ? "检查论证证据" : "查找证据缺口"}
                   </button>
                   <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-orange-200 text-sm font-semibold text-orange-700 hover:bg-orange-50" onClick={() => runArtifactCheck("risk")} type="button">
-                    <ShieldCheck size={16} /> 扫描风险与伦理
+                    <ShieldCheck size={16} /> {isReviewStage ? "扫描方案风险" : "扫描风险与伦理"}
                   </button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {latestArtifactSupport ? (
                     <div className="rounded-[8px] border border-slate-200 p-4">
                       <div className="mb-2 flex gap-3">
-                        <div className="grid h-8 w-8 place-items-center rounded-full bg-blue-50 text-blue-600"><Sparkles size={18} /></div>
+                        <div className="grid h-8 w-8 place-items-center rounded-full bg-blue-50 text-blue-600"><Lightbulb size={18} /></div>
                         <div>
                           <div className="font-black">{latestArtifactSupport.trigger}</div>
                           <div className="text-xs text-slate-400">{latestArtifactSupport.status === "student-applied" ? "已采纳" : "待处理"}</div>
@@ -275,7 +316,11 @@ export function WorkspaceView({ course }: { course: Course }) {
           </Card>
         </aside>
       </div>
-      <div className="flex items-center justify-end gap-3">{status ? <Pill tone="green">{status}</Pill> : null}<PrimaryButton variant="outline" onClick={() => saveDocument()}>保存当前项目文档</PrimaryButton><PrimaryButton tone="green" onClick={submitDocument}>提交方案</PrimaryButton></div>
+      <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-3 rounded-[10px] border border-slate-200/80 bg-white/95 px-4 py-3 shadow-[0_16px_44px_rgba(15,23,42,0.12)] backdrop-blur">
+        {status ? <Pill tone="green">{status}</Pill> : null}
+        <PrimaryButton variant="outline" onClick={() => saveDocument()}>保存当前项目文档</PrimaryButton>
+        <PrimaryButton tone="green" onClick={submitDocument}>{stageMode.submitLabel}</PrimaryButton>
+      </div>
       <StudentAiChatPanel course={course} stageKey="workspace" contextLabel="项目制作" />
     </div>
   );

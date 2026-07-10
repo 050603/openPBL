@@ -240,10 +240,8 @@ export async function generateClassroom(
     const result = await callLLM(
       {
         model: languageModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: modelInfo?.outputWindow,
       },
       'generate-classroom',
@@ -257,10 +255,8 @@ export async function generateClassroom(
     const result = await callLLM(
       {
         model: languageModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: modelInfo?.outputWindow,
         maxRetries: 0,
       },
@@ -275,10 +271,8 @@ export async function generateClassroom(
     const result = await callLLM(
       {
         model: searchQueryModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: 256,
       },
       'web-search-query-rewrite',

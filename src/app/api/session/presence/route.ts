@@ -20,12 +20,23 @@ export const dynamic = "force-dynamic";
  * DELETE /api/session/presence?courseId=...&studentId=...
  *   - Marks the student offline (clears lastSeenAt). Called on page unload.
  *
+ * POST /api/session/presence?courseId=...&studentId=...
+ *   - Also marks the student offline. This supports navigator.sendBeacon,
+ *     which cannot reliably send DELETE during unload.
+ *
  * The sweep ensures that even if a student's browser closes without sending
  * a DELETE (e.g. process kill, network drop), the teacher's view will still
  * converge to "offline" within HEARTBEAT_TIMEOUT_MS because other students'
  * heartbeats trigger the sweep.
  */
 export async function POST(req: Request) {
+  const url = new URL(req.url);
+  const queryCourseId = url.searchParams.get("courseId");
+  const queryStudentId = url.searchParams.get("studentId");
+  if (queryCourseId && queryStudentId) {
+    return markStudentOffline(queryCourseId, queryStudentId);
+  }
+
   let body: { courseId?: string; studentId?: string };
   try {
     body = (await req.json()) as { courseId?: string; studentId?: string };
@@ -82,7 +93,10 @@ export async function DELETE(req: Request) {
     );
   }
 
-  // Mark just this student offline.
+  return markStudentOffline(courseId, studentId);
+}
+
+async function markStudentOffline(courseId: string, studentId: string) {
   const markOfflineAction: SessionAction = {
     type: "MARK_STUDENTS_OFFLINE",
     payload: { courseId, studentIds: [studentId] },

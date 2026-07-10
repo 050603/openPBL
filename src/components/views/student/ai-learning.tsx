@@ -1,58 +1,240 @@
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bot, LogIn, Sparkles } from "lucide-react";
-import { Card, PrimaryButton } from "@/components/ui";
-import type { Course } from "@/lib/session/types";
+import { Bot, ChevronDown, ExternalLink, Map, Network } from "lucide-react";
+import { useStageStore } from "@openmaic/lib/store";
+import { KnowledgeGraphFlow } from "@/components/knowledge-graph-flow";
+import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
+import { Card, PrimaryButton, ProgressBar } from "@/components/ui";
+import { useSession } from "@/lib/session/store";
+import type { Course, KnowledgePoint } from "@/lib/session/types";
 
 export function AiLearningView({ course }: { course?: Course }) {
   const classroomId = course?.aiLearningClassroomId;
   const hasClassroom = Boolean(classroomId);
+  const { studentId, studentName, user } = useSession();
+  const [graphCollapsed, setGraphCollapsed] = useState(false);
 
-  return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-[34px] font-black text-slate-950">AI学习</h1>
-        <p className="mt-1 text-xl text-slate-600">阶段二：AI授知</p>
-      </div>
+  const knowledgePoints = course?.content.knowledgePoints ?? [];
+  const graph = course?.content.knowledgeGraph;
+  const progress = course?.students.find((student) => student.id === studentId)?.stageProgress["ai-learning"] ?? 0;
 
-      {hasClassroom && classroomId ? (
-        <Card>
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
-                <Sparkles size={26} />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-xl font-black text-slate-950">AI 课堂已就绪</h2>
-                <p className="mt-2 text-[15px] leading-7 text-slate-600">
-                  AI 授知内容已生成，点击进入课堂即可开始自主学习。课堂包含由 AI 生成的幻灯片、测验与互动内容。
-                </p>
-                <p className="mt-2 text-xs text-slate-400">
-                  课堂 ID：{classroomId}
-                </p>
-              </div>
-            </div>
-            <Link
-              href={`/student/ai-learning/${classroomId}?courseId=${encodeURIComponent(course?.id ?? "")}`}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-[6px] bg-blue-600 px-6 text-base font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.22)] transition hover:bg-blue-700"
-            >
-              <LogIn size={18} /> 进入 AI 课堂
-            </Link>
-          </div>
-        </Card>
-      ) : (
+  // ===== OpenMAIC 场景-知识点联动 =====
+  // 订阅 useStageStore 的 currentSceneId 变化，匹配当前讲解的知识点
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [activeSceneTitle, setActiveSceneTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasClassroom) return;
+    let prevSceneId = useStageStore.getState().currentSceneId;
+    // 初始匹配
+    const matchInitial = () => {
+      const state = useStageStore.getState();
+      const sceneId = state.currentSceneId;
+      if (!sceneId) return;
+      const scene = state.scenes.find((s) => s.id === sceneId);
+      if (!scene) return;
+      const matchedId = matchSceneToKnowledgePoint(scene, knowledgePoints, graph);
+      setActiveNodeId(matchedId);
+      setActiveSceneTitle(scene.title ?? null);
+    };
+    matchInitial();
+    const unsubscribe = useStageStore.subscribe((current) => {
+      if (current.currentSceneId === prevSceneId) return;
+      prevSceneId = current.currentSceneId;
+      const scene = current.scenes.find((s) => s.id === current.currentSceneId);
+      if (!scene) {
+        setActiveNodeId(null);
+        setActiveSceneTitle(null);
+        return;
+      }
+      const matchedId = matchSceneToKnowledgePoint(scene, knowledgePoints, graph);
+      setActiveNodeId(matchedId);
+      setActiveSceneTitle(scene.title ?? null);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [hasClassroom, knowledgePoints, graph]);
+
+  if (!hasClassroom || !classroomId) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-[30px] font-black text-slate-950 md:text-[34px]">AI 授知</h1>
+          <p className="mt-1 text-base text-slate-600 md:text-xl">进入 OpenMAIC 课堂，完成核心概念学习。</p>
+        </div>
         <Card className="text-center">
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-50 text-amber-600">
             <Bot size={32} />
           </div>
           <h2 className="mt-4 text-2xl font-black">AI 课堂尚未生成</h2>
           <p className="mt-2 text-sm text-slate-500">
-            请等待教师生成 AI 授知内容，生成完成后即可进入课堂学习。
+            请等待教师生成 AI 授知内容。生成完成后，本阶段会直接显示 OpenMAIC 学习课堂。
           </p>
           <PrimaryButton className="mx-auto mt-6" variant="outline" disabled>
-            进入 AI 课堂
+            等待课堂生成
           </PrimaryButton>
         </Card>
-      )}
+      </div>
+    );
+  }
+
+  if (!studentId) {
+    return (
+      <Card className="text-center">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-blue-50 text-blue-700">
+          <Bot size={32} />
+        </div>
+        <h2 className="mt-4 text-2xl font-black">正在初始化学习身份</h2>
+        <p className="mt-2 text-sm text-slate-500">请从学生端重新进入课堂，以便记录学习进度。</p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <section className="overflow-hidden rounded-[var(--radius-lg)] border border-slate-200 bg-white shadow-sm">
+        {/* 集成工具条 */}
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setGraphCollapsed((v) => !v)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-slate-600 transition hover:bg-white hover:text-blue-700"
+            aria-expanded={!graphCollapsed}
+          >
+            <Map size={15} />
+            知识地图
+            <ChevronDown className={graphCollapsed ? "rotate-180 transition" : "transition"} size={14} />
+          </button>
+          <Link
+            href={`/student/ai-learning/${classroomId}?courseId=${encodeURIComponent(course?.id ?? "")}`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-slate-500 transition hover:bg-white hover:text-blue-700"
+          >
+            <ExternalLink size={14} /> 全屏学习
+          </Link>
+        </div>
+
+        {/* 播放器 */}
+        <StudentStageHost
+          classroomId={classroomId}
+          courseId={course?.id}
+          studentId={studentId}
+          studentName={studentName ?? user.name}
+          backHref={course?.id ? `/student/classroom/${course.id}` : "/student"}
+          variant="embedded"
+          className="min-h-[560px] border-0 rounded-none"
+        />
+
+        {/* 底部独立知识图谱展示区 */}
+        {!graphCollapsed ? (
+          <div className="border-t border-slate-200 bg-slate-50/50">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-blue-50 text-blue-700">
+                  <Network size={15} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-bold text-slate-900">知识图谱联动</div>
+                  <p className="truncate text-xs text-slate-500">
+                    {activeSceneTitle
+                      ? `当前讲解：${activeSceneTitle}`
+                      : "随课堂讲解自动高亮当前知识点"}
+                  </p>
+                </div>
+              </div>
+              <div className="shrink-0 text-xs font-semibold text-slate-400">
+                {knowledgePoints.length} 节点
+              </div>
+            </div>
+            <div className="h-[320px] w-full bg-white">
+              {knowledgePoints.length > 0 ? (
+                <KnowledgeGraphFlow
+                  graph={graph}
+                  points={knowledgePoints}
+                  activeNodeId={activeNodeId}
+                  height={320}
+                />
+              ) : (
+                <div className="grid h-full place-items-center text-sm text-slate-400">
+                  按课堂内容推进即可。
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      {/* 简洁进度条 */}
+      <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-4 py-2.5">
+        <span className="shrink-0 text-[13px] font-semibold text-slate-600">学习进度</span>
+        <ProgressBar value={progress} className="flex-1" />
+        <span className="shrink-0 text-[13px] font-bold text-blue-700">{progress}%</span>
+      </div>
     </div>
   );
+}
+
+// ===== 场景-知识点匹配逻辑 =====
+// 从场景标题、内容文本中提取关键词，匹配知识点名称
+function matchSceneToKnowledgePoint(
+  scene: { id?: string; title?: string; content?: unknown; keyPoints?: unknown },
+  points: KnowledgePoint[],
+  graph?: Course["content"]["knowledgeGraph"],
+): string | null {
+  if (points.length === 0 && !graph?.nodes.length) return null;
+
+  if (scene.id && graph?.nodes.length) {
+    const linkedNode = graph.nodes.find((node) => node.relatedLessonIds?.includes(scene.id!));
+    if (linkedNode) return linkedNode.id;
+  }
+
+  // 收集场景中所有文本
+  const texts: string[] = [];
+  if (scene.title) texts.push(scene.title);
+  if (Array.isArray(scene.keyPoints)) {
+    texts.push(...scene.keyPoints.filter((item): item is string => typeof item === "string"));
+  }
+  // 尝试从 content 中提取文本（slide content 的 elements 含 text）
+  const content = scene.content as {
+    title?: string;
+    description?: string;
+    keyPoints?: string[];
+    elements?: Array<{ text?: string; content?: string }>;
+  } | undefined;
+  if (typeof content?.title === "string") texts.push(content.title);
+  if (typeof content?.description === "string") texts.push(content.description);
+  if (Array.isArray(content?.keyPoints)) texts.push(...content.keyPoints);
+  if (content?.elements) {
+    for (const el of content.elements) {
+      if (typeof el.text === "string") texts.push(el.text);
+      if (typeof el.content === "string") texts.push(el.content);
+    }
+  }
+  const haystack = texts.join(" ");
+
+  if (!haystack) return null;
+
+  const candidates = [
+    ...(graph?.nodes ?? []).map((node) => ({
+      id: node.id,
+      terms: [node.label, node.keyInfo].filter((item): item is string => Boolean(item)),
+    })),
+    ...points.map((point) => ({
+      id: point.id,
+      terms: [point.name, point.keyInfo].filter((item): item is string => Boolean(item)),
+    })),
+  ];
+
+  const matched = candidates
+    .map((candidate) => ({
+      id: candidate.id,
+      score: Math.max(
+        ...candidate.terms.map((term) => (term && haystack.includes(term) ? term.length : 0)),
+        0,
+      ),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return matched[0]?.id ?? null;
 }

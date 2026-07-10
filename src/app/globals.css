@@ -1,8 +1,115 @@
 @import "tailwindcss";
 
+/* ============================================================
+   OpenPBL Design System v2
+   设计原则：克制、专业、有身份感
+   - 教师端：靛蓝（Indigo）- 主控、权威
+   - 学生端：青绿（Teal）- 探索、成长
+   - AI：天蓝（Sky）- 智能、辅助
+   - 警示：琥珀 - 提醒、风险
+   - 危险：玫瑰 - 错误、删除
+   ============================================================ */
+
 :root {
-  --background: #f5f7fb;
-  --foreground: #0f172a;
+  /* —— 背景与表面 —— */
+  --background: #f5f7fa;
+  --foreground: #0b1220;
+  --pbl-bg: #f5f7fa;
+  --pbl-surface: #ffffff;
+  --pbl-surface-soft: #f8fafc;
+  --pbl-surface-raised: #ffffff;
+
+  /* —— 文本 —— */
+  --pbl-text: #0b1220;
+  --pbl-text-strong: #020617;
+  --pbl-text-muted: #475569;
+  --pbl-text-subtle: #94a3b8;
+
+  /* —— 边框 —— */
+  --pbl-border: #e2e8f0;
+  --pbl-border-strong: #cbd5e1;
+  --pbl-border-soft: #eef2f7;
+
+  /* —— 身份色：教师端（靛蓝）—— */
+  --pbl-teacher: #4338ca;
+  --pbl-teacher-hover: #3730a3;
+  --pbl-teacher-soft: #eef2ff;
+  --pbl-teacher-border: #c7d2fe;
+
+  /* —— 身份色：学生端（青绿）—— */
+  --pbl-student: #0d9488;
+  --pbl-student-hover: #0f766e;
+  --pbl-student-soft: #f0fdfa;
+  --pbl-student-border: #99f6e4;
+
+  /* —— AI 辅助色（天蓝）—— */
+  --pbl-ai: #0284c7;
+  --pbl-ai-soft: #e0f2fe;
+  --pbl-ai-border: #bae6fd;
+
+  /* —— 状态色 —— */
+  --pbl-success: #059669;
+  --pbl-success-soft: #ecfdf5;
+  --pbl-warning: #d97706;
+  --pbl-warning-soft: #fffbeb;
+  --pbl-danger: #e11d48;
+  --pbl-danger-soft: #fff1f2;
+  --pbl-achievement: #b45309;
+  --pbl-achievement-soft: #fef3c7;
+
+  /* —— 中性墨色 —— */
+  --pbl-ink: #0f172a;
+  --pbl-cream: #fffdf8;
+
+  /* —— 圆角阶梯（4档统一）—— */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /* —— 阴影阶梯（语义化）—— */
+  --shadow-flat: none;
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-raised: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-floating: 0 12px 32px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.06);
+  --shadow-hero: 0 20px 48px rgba(15, 23, 42, 0.14), 0 8px 16px rgba(15, 23, 42, 0.08);
+
+  /* —— 间距阶梯（4px基准）—— */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* —— 字体阶梯 —— */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 38px;
+
+  /* —— 字重（克制使用 black）—— */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* —— 过渡 —— */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
 }
 
 @theme inline {
@@ -17,9 +124,19 @@
 }
 
 body {
+  min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
-  font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 button,
@@ -27,23 +144,192 @@ input,
 textarea,
 select {
   font: inherit;
+  color: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  touch-action: manipulation;
+}
+
+:focus-visible {
+  outline: 2px solid var(--pbl-teacher);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }
 
 ::selection {
-  background: #bfdbfe;
-  color: #0f172a;
+  background: #c7d2fe;
+  color: var(--pbl-text-strong);
 }
 
 ::-webkit-scrollbar {
-  height: 10px;
-  width: 10px;
+  height: 8px;
+  width: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 999px;
+  background: var(--pbl-border-strong);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 ::-webkit-scrollbar-track {
-  background: #eef2f7;
+  background: transparent;
+}
+
+/* ============================================================
+   表面层（替代旧 .pbl-glass / .pbl-card）
+   ============================================================ */
+
+.pbl-app-bg {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(67, 56, 202, 0.04), transparent 32rem),
+    radial-gradient(circle at 0% 100%, rgba(13, 148, 136, 0.04), transparent 32rem),
+    var(--background);
+  background-attachment: fixed;
+}
+
+.pbl-app-bg-role-teacher {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(67, 56, 202, 0.06), transparent 32rem),
+    radial-gradient(circle at 0% 100%, rgba(67, 56, 202, 0.03), transparent 28rem),
+    var(--background);
+  background-attachment: fixed;
+}
+
+.pbl-app-bg-role-student {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(13, 148, 136, 0.06), transparent 32rem),
+    radial-gradient(circle at 0% 100%, rgba(13, 148, 136, 0.03), transparent 28rem),
+    var(--background);
+  background-attachment: fixed;
+}
+
+/* 玻璃顶栏：更克制，去除过度模糊 */
+.pbl-glass {
+  border: 1px solid var(--pbl-border);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* 卡片：统一表面，去除多层渐变 */
+.pbl-card {
+  border: 1px solid var(--pbl-border);
+  background: var(--pbl-surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.pbl-card-raised {
+  border: 1px solid var(--pbl-border);
+  background: var(--pbl-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+/* 面板：浅灰底，用于次级分组 */
+.pbl-panel {
+  border: 1px solid var(--pbl-border-soft);
+  background: var(--pbl-surface-soft);
+}
+
+/* 阶段 Hero 网格纹理：保留但更克制 */
+.pbl-hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* 点阵纹理：用于空状态/装饰，替代浮夸渐变 */
+.pbl-dot-grid {
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* ============================================================
+   身份徽章：教师/学生/AI
+   ============================================================ */
+.pbl-role-teacher {
+  --role-color: var(--pbl-teacher);
+  --role-soft: var(--pbl-teacher-soft);
+  --role-border: var(--pbl-teacher-border);
+}
+
+.pbl-role-student {
+  --role-color: var(--pbl-student);
+  --role-soft: var(--pbl-student-soft);
+  --role-border: var(--pbl-student-border);
+}
+
+/* ============================================================
+   动画：克制、有目的
+   ============================================================ */
+@keyframes pbl-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pbl-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pbl-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes pbl-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in {
+  animation: pbl-fade-in var(--duration-base) var(--ease-out);
+}
+
+.animate-scale-in {
+  animation: pbl-scale-in var(--duration-base) var(--ease-out);
+}
+
+.animate-pulse-soft {
+  animation: pbl-pulse-soft 2s var(--ease-in-out) infinite;
+}
+
+/* 骨架屏 shimmer */
+.pbl-skeleton {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  animation: pbl-shimmer 1.6s infinite;
+}
+
+/* ============================================================
+   可访问性
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 高对比度聚焦 */
+@media (forced-colors: active) {
+  .pbl-card,
+  .pbl-glass,
+  .pbl-card-raised {
+    border: 1px solid CanvasText;
+  }
 }

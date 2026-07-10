@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+﻿import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextRequest } from "next/server";
 
@@ -59,14 +59,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch {
-    const demo = demoFile(safeName);
-    if (!demo) return Response.json({ error: "文件不存在" }, { status: 404 });
-    return new Response(demo.body, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`,
-      },
-    });
+    return Response.json({ error: "文件不存在" }, { status: 404 });
   }
 }
 
@@ -95,14 +88,4 @@ function contentTypeFor(fileName: string): string {
   if (ext === ".png") return "image/png";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   return "application/octet-stream";
-}
-
-function demoFile(fileName: string): { body: string } | undefined {
-  const demos: Record<string, string> = {
-    "demo-project-brief.txt": "校园低碳生活解决方案项目说明：请围绕真实校园场景开展调研、构思、制作与汇报。",
-    "demo-campus-data.txt": "月份,用电量,纸张消耗\n2024-01,5320,180\n2024-02,4980,166\n2024-03,5760,202",
-    "demo-rubric.txt": "评价量规：问题识别20%，方案创新20%，可行性25%，数据论证15%，展示表达10%，团队协作10%。",
-  };
-  const body = demos[fileName];
-  return body ? { body } : undefined;
 }

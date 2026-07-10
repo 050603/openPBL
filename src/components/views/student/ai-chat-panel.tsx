@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquare, Send, Sparkles, X } from "lucide-react";
+import { Bot, Loader2, MessageSquare, Send, X } from "lucide-react";
 import { PrimaryButton } from "@/components/ui";
 import type { Course } from "@/lib/session/types";
 import { callStudentChat } from "@/lib/teaching-ai/client-api";
@@ -104,7 +104,7 @@ export function StudentAiChatPanel({
         <div className="fixed bottom-24 right-6 z-40 flex h-[460px] w-[380px] flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-100 bg-blue-50 px-4 py-3">
             <div className="flex items-center gap-2 font-black text-blue-700">
-              <Sparkles size={16} /> AI 学习助手 · {contextLabel}
+              <Bot size={16} /> AI 学习助手 · {contextLabel}
             </div>
             <button
               className="grid h-7 w-7 place-items-center rounded-[5px] text-slate-400 hover:bg-slate-100"

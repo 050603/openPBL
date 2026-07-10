@@ -49,7 +49,12 @@ export type ProcessEvaluationResult = {
 };
 
 export type LiveEvaluationResult = {
-  dimensions: Array<{ name: string; suggestedScore: number; rationale: string }>;
+  dimensions: Array<{
+    dimensionId: string;
+    name: string;
+    suggestedScore: number;
+    rationale: string;
+  }>;
   overallComment: string;
   source: "llm" | "local";
 };
@@ -76,7 +81,8 @@ async function callSupport<T>(action: string, input: unknown): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "UNKNOWN" }));
-    throw new Error(err.error ?? `API error ${res.status}`);
+    const detail = err.detail ? `：${err.detail}` : "";
+    throw new Error(`${err.error ?? `API error ${res.status}`}${detail}`);
   }
   const data = await res.json();
   return data.result as T;
@@ -184,7 +190,8 @@ export async function callStudentChat(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "UNKNOWN" }));
-    throw new Error(err.error ?? `API error ${res.status}`);
+    const detail = err.detail ? `：${err.detail}` : "";
+    throw new Error(`${err.error ?? `API error ${res.status}`}${detail}`);
   }
   const data = await res.json();
   return data.reply as string;

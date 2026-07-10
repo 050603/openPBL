@@ -1,7 +1,5 @@
-// 适配层：在 OpenMAIC 原生 provider-config 之外，新增写入能力
-// OpenMAIC 原生 provider-config.ts 只读不写（YAML+env 双来源）
-// 教师设置 UI 需要写入 server-providers.yml，本模块提供该能力
-
+﻿// 閫傞厤灞傦細鍦?OpenMAIC 鍘熺敓 provider-config 涔嬪锛屾柊澧炲啓鍏ヨ兘鍔?// OpenMAIC 鍘熺敓 provider-config.ts 鍙涓嶅啓锛圷AML+env 鍙屾潵婧愶級
+// 鏁欏笀璁剧疆 UI 闇€瑕佸啓鍏?server-providers.yml锛屾湰妯″潡鎻愪緵璇ヨ兘鍔?
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import yaml from 'js-yaml';
@@ -16,14 +14,11 @@ export interface ProviderEntry {
   enabled?: boolean;
   priority?: number;
   /**
-   * 教师在设置页指定的该 provider 默认模型 ID（来自 models 列表中的某一项）。
-   * 当生成调用未携带 x-model 时，resolveModel 会回退到此值。
-   * 仅用于 LLM 段（providers）；其他段忽略此字段。
-   */
+   * 鏁欏笀鍦ㄨ缃〉鎸囧畾鐨勮 provider 榛樿妯″瀷 ID锛堟潵鑷?models 鍒楄〃涓殑鏌愪竴椤癸級銆?   * 褰撶敓鎴愯皟鐢ㄦ湭鎼哄甫 x-model 鏃讹紝resolveModel 浼氬洖閫€鍒版鍊笺€?   * 浠呯敤浜?LLM 娈碉紙providers锛夛紱鍏朵粬娈靛拷鐣ユ瀛楁銆?   */
   defaultModel?: string;
 }
 
-const CONFIG_PATH = path.join(process.cwd(), 'server-providers.yml');
+const CONFIG_PATH = path.join(/* turbopackIgnore: true */ process.cwd(), 'server-providers.yml');
 
 interface ServerProvidersYaml {
   providers?: Record<string, Partial<ProviderEntry>>;
@@ -48,31 +43,14 @@ async function writeYaml(data: ServerProvidersYaml): Promise<void> {
   await mkdir(path.dirname(CONFIG_PATH), { recursive: true });
   const raw = yaml.dump(data, { lineWidth: 120, noRefs: true });
   await writeFile(CONFIG_PATH, raw, 'utf8');
-  // 清除 OpenMAIC provider-config 模块缓存（让它下次 getConfig() 时重读）
+  // 娓呴櫎 OpenMAIC provider-config 妯″潡缂撳瓨锛堣瀹冧笅娆?getConfig() 鏃堕噸璇伙級
   invalidateProviderConfigCache();
 }
 
 /**
- * 清除 OpenMAIC provider-config 模块级缓存。
- * OpenMAIC 的 _configs Map 是私有变量，我们用 require cache 失效来强制重载。
- */
+ * 娓呴櫎 OpenMAIC provider-config 妯″潡绾х紦瀛樸€? * OpenMAIC 鐨?_configs Map 鏄鏈夊彉閲忥紝鎴戜滑鐢?require cache 澶辨晥鏉ュ己鍒堕噸杞姐€? */
 function invalidateProviderConfigCache(): void {
   clearServerProviderConfigCache();
-
-  try {
-    // 通过 globalThis 访问 require，兼容 ESM/Next.js 环境
-    const g = globalThis as {
-      require?: {
-        resolve: (id: string) => string;
-        cache: Record<string, unknown>;
-      };
-    };
-    if (!g.require) return;
-    const modulePath = g.require.resolve('@openmaic/lib/server/provider-config');
-    delete g.require.cache[modulePath];
-  } catch {
-    // 在 Next.js dev 模式下可能用 ESM，跳过；生产环境通常一次配置不变
-  }
 }
 
 export async function saveProviderEntry(
@@ -84,8 +62,7 @@ export async function saveProviderEntry(
   const sectionKey = section === 'web-search' ? 'web-search' : section;
   if (!data[sectionKey]) data[sectionKey] = {};
   const existing = data[sectionKey]![providerId] ?? {};
-  // 保留已有 apiKey：前端保存时若输入框为空会传 undefined/空串，
-  // 此时不应覆盖已存储的 API key（仅当传入了新非空值时才更新）
+  // 淇濈暀宸叉湁 apiKey锛氬墠绔繚瀛樻椂鑻ヨ緭鍏ユ涓虹┖浼氫紶 undefined/绌轰覆锛?  // 姝ゆ椂涓嶅簲瑕嗙洊宸插瓨鍌ㄧ殑 API key锛堜粎褰撲紶鍏ヤ簡鏂伴潪绌哄€兼椂鎵嶆洿鏂帮級
   const apiKey = entry.apiKey || existing.apiKey || '';
   data[sectionKey]![providerId] = {
     apiKey,
@@ -118,7 +95,7 @@ export async function deleteProviderEntry(
   const sectionKey = section === 'web-search' ? 'web-search' : section;
   if (!data[sectionKey]) return;
   delete data[sectionKey]![providerId];
-  // 段为空时移除段，保持 yml 简洁
+  // Remove an empty section to keep the YAML compact.
   if (Object.keys(data[sectionKey]!).length === 0) {
     delete data[sectionKey];
   }
@@ -167,12 +144,12 @@ export async function listProviders(
 }
 
 /**
- * 从 .openpbl-data/ai-settings.json 迁移到 server-providers.yml 的 providers.openai
- * 仅在首次启动时执行（如果 server-providers.yml 中 providers.openai.apiKey 为空但 .openpbl-data 中有值）
+ * 浠?.openpbl-data/ai-settings.json 杩佺Щ鍒?server-providers.yml 鐨?providers.openai
+ * 浠呭湪棣栨鍚姩鏃舵墽琛岋紙濡傛灉 server-providers.yml 涓?providers.openai.apiKey 涓虹┖浣?.openpbl-data 涓湁鍊硷級
  */
 export async function migrateLegacySettings(): Promise<void> {
   const openaiEntry = await readProviderEntryRaw('providers', 'openai');
-  if (openaiEntry?.apiKey) return; // 已有配置，不迁移
+  if (openaiEntry?.apiKey) return; // 宸叉湁閰嶇疆锛屼笉杩佺Щ
 
   try {
     const legacyPath = path.join(process.cwd(), '.openpbl-data', 'ai-settings.json');
@@ -180,7 +157,7 @@ export async function migrateLegacySettings(): Promise<void> {
     const legacy = JSON.parse(raw) as { endpoint?: string; model?: string; apiKey?: string };
     if (!legacy.apiKey) return;
 
-    // 推断 baseUrl：如果 endpoint 是 https://api.openai.com/v1 就用默认；否则用 endpoint
+    // 鎺ㄦ柇 baseUrl锛氬鏋?endpoint 鏄?https://api.openai.com/v1 灏辩敤榛樿锛涘惁鍒欑敤 endpoint
     const baseUrl =
       legacy.endpoint && legacy.endpoint !== 'https://api.openai.com/v1'
         ? legacy.endpoint
@@ -194,12 +171,12 @@ export async function migrateLegacySettings(): Promise<void> {
     });
     console.log('[openmaic-bridge] Migrated legacy .openpbl-data settings to server-providers.yml');
   } catch {
-    // 无遗留配置，无需迁移
+    // 鏃犻仐鐣欓厤缃紝鏃犻渶杩佺Щ
   }
 }
 
 /**
- * 读取 provider entry（不触发迁移，避免循环依赖）
+ * 璇诲彇 provider entry锛堜笉瑙﹀彂杩佺Щ锛岄伩鍏嶅惊鐜緷璧栵級
  */
 async function readProviderEntryRaw(
   section: ProviderSection,
@@ -226,6 +203,6 @@ async function ensureMigratedInternal(): Promise<void> {
   try {
     await migrateLegacySettings();
   } catch {
-    // 静默失败
+    // 闈欓粯澶辫触
   }
 }

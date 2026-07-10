@@ -26,6 +26,7 @@ import { useSettingsStore } from '@openmaic/lib/store/settings';
 import { migrateScene } from '@openmaic/lib/edit/slide-schema';
 import { createLogger } from '@openmaic/lib/logger';
 import type { Scene, Stage as StageType } from '@openmaic/lib/types/stage';
+import { cn } from '@/lib/utils';
 
 const log = createLogger('StudentStageHost');
 
@@ -55,6 +56,8 @@ interface StudentStageHostProps {
   studentId: string;
   studentName?: string;
   backHref: string;
+  variant?: 'fullscreen' | 'embedded';
+  className?: string;
 }
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -65,6 +68,8 @@ export function StudentStageHost({
   studentId,
   studentName,
   backHref,
+  variant = 'fullscreen',
+  className,
 }: StudentStageHostProps) {
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
@@ -251,7 +256,9 @@ export function StudentStageHost({
 
   // 初次加载
   useEffect(() => {
-    loadClassroom();
+    queueMicrotask(() => {
+      void loadClassroom();
+    });
     // 组件卸载时清空 store，避免跨课堂污染
     return () => {
       hydratedRef.current = false;
@@ -265,7 +272,16 @@ export function StudentStageHost({
       <I18nProvider>
         <ServerProvidersInit />
         <MediaStageProvider value={classroomId}>
-          <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
+          <div
+            data-back-href={backHref}
+            className={cn(
+              'relative flex flex-col overflow-hidden bg-background text-foreground',
+              variant === 'embedded'
+                ? 'h-full min-h-[640px] rounded-[8px] border border-slate-200'
+                : 'h-screen',
+              className,
+            )}
+          >
             {/* 返回入口由 Header 内置的 ArrowLeft 提供，避免 z-index 重叠 */}
 
             {state === 'loading' ? (

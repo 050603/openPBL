@@ -30,7 +30,7 @@ export function AiChatStageToggle({ course }: { course: Course }) {
   }
 
   return (
-    <div className="rounded-[8px] border border-slate-200 bg-white px-3 py-2">
+    <div className="rounded-[8px] border border-slate-200 bg-white px-3 py-2" title="勾选后，学生会在对应阶段看到右下角浮动 AI 学习助手按钮；未勾选则隐藏。">
       <button
         className="flex w-full items-center justify-between text-sm font-semibold text-slate-700"
         onClick={() => setOpen((v) => !v)}
@@ -47,33 +47,35 @@ export function AiChatStageToggle({ course }: { course: Course }) {
         {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
       </button>
       {open ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {STAGES.map((s) => {
-            const checked = enabled.includes(s.key);
-            return (
-              <label
-                className={`flex cursor-pointer items-center gap-2 rounded-[6px] border px-3 py-2 text-sm transition ${
-                  checked
-                    ? "border-blue-300 bg-blue-50 text-blue-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-                key={s.key}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggle(s.key)}
-                  className="accent-blue-600"
-                />
-                <span className="font-semibold">{s.label}</span>
-              </label>
-            );
-          })}
-        </div>
+        <>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {STAGES.map((s) => {
+              const checked = enabled.includes(s.key);
+              return (
+                <label
+                  className={`flex cursor-pointer items-center gap-2 rounded-[6px] border px-3 py-2 text-sm transition ${
+                    checked
+                      ? "border-blue-300 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                  key={s.key}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(s.key)}
+                    className="accent-blue-600"
+                  />
+                  <span className="font-semibold">{s.label}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-2 text-xs leading-5 text-slate-500">
+            勾选后，学生在对应阶段会看到右下角浮动 AI 学习助手按钮；未勾选则隐藏。
+          </div>
+        </>
       ) : null}
-      <div className="mt-2 text-xs leading-5 text-slate-500">
-        勾选后，学生在对应阶段会看到右下角浮动 AI 学习助手按钮；未勾选则隐藏。
-      </div>
     </div>
   );
 }

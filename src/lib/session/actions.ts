@@ -184,11 +184,16 @@ export function applySessionAction(
       });
     case "START_TEACHING": {
       const { id, classConfig, inviteCode } = action.payload;
+      const course = state.courses.find((item) => item.id === id);
       return updateCourse(state, id, {
         status: "teaching",
         classConfig,
         inviteCode,
         currentStageIndex: 0,
+        uiState: {
+          ...(course?.uiState ?? {}),
+          teacherResourceProjection: null,
+        },
         // Clear any stale seed/demo group data so the real class
         // starts fresh. Students will be auto-grouped on join based
         // on the selected groupMode.
@@ -199,11 +204,17 @@ export function applySessionAction(
         updatedAt: touchedAt,
       });
     }
-    case "END_TEACHING":
+    case "END_TEACHING": {
+      const course = state.courses.find((item) => item.id === action.payload.id);
       return updateCourse(state, action.payload.id, {
         status: "finished",
+        uiState: {
+          ...(course?.uiState ?? {}),
+          teacherResourceProjection: null,
+        },
         updatedAt: touchedAt,
       });
+    }
     case "ADVANCE_STAGE": {
       const { id, direction } = action.payload;
       return {
@@ -211,7 +222,15 @@ export function applySessionAction(
         courses: state.courses.map((c) => {
           if (c.id !== id) return c;
           const next = Math.max(0, Math.min(c.stages.length - 1, c.currentStageIndex + direction));
-          return normalizeCourse({ ...c, currentStageIndex: next, updatedAt: touchedAt });
+          return normalizeCourse({
+            ...c,
+            currentStageIndex: next,
+            uiState:
+              next === c.currentStageIndex
+                ? c.uiState
+                : { ...(c.uiState ?? {}), teacherResourceProjection: null },
+            updatedAt: touchedAt,
+          });
         }),
         updatedAt: touchedAt,
       };
@@ -220,15 +239,19 @@ export function applySessionAction(
       const { id, index } = action.payload;
       return {
         ...state,
-        courses: state.courses.map((c) =>
-          c.id === id
-            ? normalizeCourse({
-                ...c,
-                currentStageIndex: Math.max(0, Math.min(c.stages.length - 1, index)),
-                updatedAt: touchedAt,
-              })
-            : c,
-        ),
+        courses: state.courses.map((c) => {
+          if (c.id !== id) return c;
+          const next = Math.max(0, Math.min(c.stages.length - 1, index));
+          return normalizeCourse({
+            ...c,
+            currentStageIndex: next,
+            uiState:
+              next === c.currentStageIndex
+                ? c.uiState
+                : { ...(c.uiState ?? {}), teacherResourceProjection: null },
+            updatedAt: touchedAt,
+          });
+        }),
         updatedAt: touchedAt,
       };
     }
@@ -244,8 +267,8 @@ export function applySessionAction(
           // Auto-create a solo group for the student when the class is
           // configured as "solo" (one-person-per-group) or "none" (no
           // grouping / whole-class). This ensures every student has a
-          // group context in the ideation stage without seeing other
-          // students' seed data.
+          // group context in the ideation stage without seeing another
+          // student's group data.
           const mode = c.classConfig?.groupMode;
           const shouldAutoGroup = mode === "solo" || mode === "none";
           const alreadyInGroup = (c.groups ?? []).some((g) =>
