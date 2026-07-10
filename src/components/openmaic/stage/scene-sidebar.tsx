@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   PanelLeftClose,
@@ -61,12 +61,12 @@ export function SceneSidebar({
   };
 
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
-  const isDraggingRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      isDraggingRef.current = true;
+      setIsDragging(true);
       const startX = e.clientX;
       const startWidth = sidebarWidth;
 
@@ -77,7 +77,7 @@ export function SceneSidebar({
       };
 
       const handleMouseUp = () => {
-        isDraggingRef.current = false;
+        setIsDragging(false);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
         document.body.style.cursor = '';
@@ -108,7 +108,7 @@ export function SceneSidebar({
     <div
       style={{
         width: displayWidth,
-        transition: isDraggingRef.current ? 'none' : 'width 0.3s ease',
+        transition: isDragging ? 'none' : 'width 0.3s ease',
       }}
       className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-gray-100 dark:border-gray-800 shadow-[2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible"
     >

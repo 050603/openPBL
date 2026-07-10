@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -39,15 +39,13 @@ export function TeacherStageResources({
     () => getTeacherResourcesForStage(course, stageKey),
     [course, stageKey],
   );
-  const [selectedId, setSelectedId] = useState(resources[0]?.id ?? "");
+  const [requestedId, setRequestedId] = useState(resources[0]?.id ?? "");
   const classroomId = course.teacherClassroomId ?? course.content.teacherClassroomId;
   const projection = course.uiState?.teacherResourceProjection;
 
-  useEffect(() => {
-    if (!resources.some((resource) => resource.id === selectedId)) {
-      setSelectedId(resources[0]?.id ?? "");
-    }
-  }, [resources, selectedId]);
+  const selectedId = resources.some((resource) => resource.id === requestedId)
+    ? requestedId
+    : (resources[0]?.id ?? "");
 
   const selected = resources.find((resource) => resource.id === selectedId) ?? resources[0];
   const selectedIndex = selected
@@ -70,7 +68,7 @@ export function TeacherStageResources({
   }
 
   function selectResource(resource: TeacherResourceScene) {
-    setSelectedId(resource.id);
+    setRequestedId(resource.id);
     if (projection?.stageKey === stageKey) {
       const nextProjection = buildProjection(resource);
       if (nextProjection) {

@@ -230,11 +230,6 @@ export default function VerifyCoursePage() {
     setSceneOutlines(contentToSceneOutlines(initialContent));
   }, [course, content]);
 
-  const canGenerate = useMemo(() => {
-    if (!course) return false;
-    return Boolean(course.name);
-  }, [course]);
-
   const generateSection = useCallback(
     async (section: Section) => {
       if (!course) return;

@@ -93,6 +93,8 @@ export function ProjectCoverImage({
 
   useEffect(() => {
     if (!course.coverImageUrl && !error) {
+      // The cover request is an external synchronization keyed by course id.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void generate();
     }
     return () => abortRef.current?.abort();

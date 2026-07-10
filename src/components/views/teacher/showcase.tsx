@@ -60,6 +60,10 @@ export function ShowcaseTeacherView({
   const [message, setMessage] = useState<
     { tone: "ok" | "err"; text: string } | null
   >(null);
+  const [liveEvaluation, setLiveEvaluation] = useState<LiveEvaluation | null>(null);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [evalError, setEvalError] = useState<string | undefined>();
+  const [teacherNotes, setTeacherNotes] = useState("");
 
   // Track which group's score we've loaded so we don't reset sliders
   // when dimensions array reference changes during re-renders.
@@ -69,6 +73,7 @@ export function ShowcaseTeacherView({
   // We intentionally do NOT depend on `dimensions` or `existingScore`
   // because those references change on every re-render, which would
   // reset slider values the teacher has already adjusted.
+  /* eslint-disable react-hooks/set-state-in-effect -- Changing the presenting group loads its persisted scoring draft into the controlled form. */
   useEffect(() => {
     if (active?.id === lastLoadedGroupId.current) return;
     lastLoadedGroupId.current = active?.id ?? null;
@@ -88,6 +93,7 @@ export function ShowcaseTeacherView({
     setEvalError(undefined);
     setTeacherNotes("");
   }, [active?.id]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function flashMessage(text: string, tone: "ok" | "err") {
     setMessage({ tone, text });
@@ -95,11 +101,6 @@ export function ShowcaseTeacherView({
   }
 
   // ===== 阶段六：AI 实时汇报评价 =====
-  const [liveEvaluation, setLiveEvaluation] = useState<LiveEvaluation | null>(null);
-  const [evalLoading, setEvalLoading] = useState(false);
-  const [evalError, setEvalError] = useState<string | undefined>();
-  const [teacherNotes, setTeacherNotes] = useState("");
-
   async function runLiveEval() {
     if (!active) return;
     setEvalLoading(true);

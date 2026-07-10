@@ -106,6 +106,9 @@ export function OpenMaicResourcePlayer({
   }, [classroomId, sceneId]);
 
   useEffect(() => {
+    // Loading the external classroom snapshot initializes both Zustand stores
+    // and this component's visible loading state as one bridge operation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadResource();
     return () => {
       useStageStore.getState().clearStore();

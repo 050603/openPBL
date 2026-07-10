@@ -10,7 +10,7 @@
  * 使用 teacherClassroomId 加载独立的教师资源课堂，与学生 AI 授知课堂完全隔离。
  */
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Copy, FileText, Monitor } from "lucide-react";
 import type { TeacherResources } from "@/lib/session/types";
@@ -32,14 +32,14 @@ export function TeacherResourceViewer({
   backHref: string;
 }) {
   const [tab, setTab] = useState<Tab>("slides");
-  const scenes = teacherResources?.scenes ?? [];
-  const [selectedSceneId, setSelectedSceneId] = useState(scenes[0]?.id ?? "");
-
-  useEffect(() => {
-    if (!scenes.some((scene) => scene.id === selectedSceneId)) {
-      setSelectedSceneId(scenes[0]?.id ?? "");
-    }
-  }, [scenes, selectedSceneId]);
+  const scenes = useMemo(
+    () => teacherResources?.scenes ?? [],
+    [teacherResources?.scenes],
+  );
+  const [requestedSceneId, setRequestedSceneId] = useState(scenes[0]?.id ?? "");
+  const selectedSceneId = scenes.some((scene) => scene.id === requestedSceneId)
+    ? requestedSceneId
+    : (scenes[0]?.id ?? "");
 
   return (
     <div className="space-y-4">
@@ -101,7 +101,7 @@ export function TeacherResourceViewer({
                       : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white",
                   )}
                   key={scene.id}
-                  onClick={() => setSelectedSceneId(scene.id)}
+                  onClick={() => setRequestedSceneId(scene.id)}
                   type="button"
                 >
                   <span className="block text-xs font-bold">{index + 1}. {scene.title}</span>
