@@ -150,7 +150,7 @@ export function ShowcaseView({ course }: { course: Course }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-[34px] font-black">成果提交与演示准备</h1>
+          <h1 className="text-3xl font-black leading-tight md:text-4xl">成果提交与演示准备</h1>
           <p className="mt-3 break-words text-base text-slate-500">完成成果上传、预览演示与团队贡献记录 · {course.name}</p>
         </div>
         <div className="inline-flex shrink-0 items-center gap-2 rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600">
@@ -160,14 +160,14 @@ export function ShowcaseView({ course }: { course: Course }) {
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr_300px]">
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr_minmax(18rem,1fr)]">
         <Card className="overflow-hidden p-0">
           <h2 className="border-b border-slate-100 px-5 py-4 text-xl font-black">成果上传列表</h2>
           {uploadSlots.map((slot) => {
             const uploaded = uploads.find((item) => item.title === slot.title);
             const isUploading = uploading === slot.title;
             return (
-              <div className="grid grid-cols-[58px_1fr_1fr_116px] items-center gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0" key={slot.title}>
+              <div className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 sm:grid-cols-[58px_1fr_1fr_116px]" key={slot.title}>
                 <FileBadge type={slot.type} />
                 <div><div className="font-black">{slot.title}{slot.title.includes("报告") || slot.title.includes("PPT") ? <span className="text-red-500"> *</span> : null}</div><div className="mt-1 text-sm text-slate-500">{slot.rule}</div></div>
                 <div>
@@ -195,7 +195,7 @@ export function ShowcaseView({ course }: { course: Course }) {
               </div>
             </div>
           ) : (
-            <SlidePreview className="h-[285px]" />
+            <SlidePreview className="h-72 min-h-[18rem]" />
           )}
           <div className="mt-4 flex items-center justify-center gap-5 text-base font-semibold">
             <span>{uploads.length ? `已上传 ${uploads.length} 个文件` : "暂无预览文件"}</span>
@@ -208,7 +208,9 @@ export function ShowcaseView({ course }: { course: Course }) {
             <h2 className="mb-4 inline-flex items-center gap-2 text-xl font-black">演示计时</h2>
             <div className="rounded-[8px] border border-slate-200 p-5 text-center">
               <div className="text-sm text-slate-500">当前用时</div>
-              <div className="mt-4 text-[28px] font-black">{String(Math.floor(timer / 60)).padStart(2, "0")}:{String(timer % 60).padStart(2, "0")} <span className="text-base font-medium text-slate-500">/ 08:00</span></div>
+              <time aria-live="polite" className="mt-4 block text-3xl font-black tabular-nums" data-testid="presentation-timer">
+                {String(Math.floor(timer / 60)).padStart(2, "0")}:{String(timer % 60).padStart(2, "0")} <span className="text-base font-medium text-slate-500">/ 08:00</span>
+              </time>
               <div className="mt-5 flex gap-2">
                 <PrimaryButton className="flex-1" variant="outline" onClick={() => setTimerRunning((v) => !v)}>
                   {timerRunning ? <PauseCircle size={20} /> : <PlayCircle size={20} />}
@@ -235,7 +237,7 @@ export function ShowcaseView({ course }: { course: Course }) {
         </aside>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_1fr_300px]">
+      <div className="grid gap-5 xl:grid-cols-[1fr_1fr_minmax(18rem,1fr)]">
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-xl font-black">

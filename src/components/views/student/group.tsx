@@ -1,4 +1,4 @@
-﻿﻿﻿﻿"use client";
+﻿﻿﻿﻿﻿﻿﻿﻿"use client";
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, FileText, Image as ImageIcon, Lightbulb, Megaphone, PenLine, Plus, Save, Trash2, Video, Wand2 } from "lucide-react";
@@ -153,7 +153,7 @@ export function GroupView({ course }: { course: Course }) {
         </button>
         <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-600"><Lightbulb size={27} /></div>
         <div className="min-w-0">
-          <h1 className="truncate text-[30px] font-black">{group.name}</h1>
+          <h1 className="truncate text-3xl font-black leading-tight md:text-4xl">{group.name}</h1>
           <p className="text-sm text-slate-500">{group.members.length} 名成员 · {group.topic}</p>
         </div>
         <AvatarStack names={group.members.map((member) => member.name)} />
@@ -185,7 +185,7 @@ export function GroupView({ course }: { course: Course }) {
         </Card>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_360px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(20rem,1fr)]">
         <Card>
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-xl font-black">选题 / 方向</h2>
@@ -214,7 +214,7 @@ export function GroupView({ course }: { course: Course }) {
             {forms.map(({ label, icon: Icon, color }) => {
               const selected = group.selectedForms.includes(label);
               return (
-                <button className={`relative flex h-[132px] flex-col items-center justify-center gap-3 rounded-[8px] border text-base font-black transition ${selected ? "border-blue-600 bg-blue-50 text-slate-950" : "border-slate-200 bg-white hover:border-blue-300"}`} key={label} onClick={() => toggleForm(label)} type="button">
+                <button className={`relative flex h-32 flex-col items-center justify-center gap-3 rounded-[8px] border text-base font-black transition sm:h-[8.5rem] ${selected ? "border-blue-600 bg-blue-50 text-slate-950" : "border-slate-200 bg-white hover:border-blue-300"}`} key={label} onClick={() => toggleForm(label)} type="button">
                   <span className={`grid h-11 w-11 place-items-center rounded-[5px] text-white ${color}`}>
                     <Icon size={22} strokeWidth={2.2} />
                   </span>
@@ -288,7 +288,7 @@ export function GroupView({ course }: { course: Course }) {
             </tbody>
           </table>
         </div>
-        <div className="mt-4 grid grid-cols-[1fr_1fr_1.4fr_auto] gap-2">
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1.4fr_auto]">
           <Select value={taskDraft.role} onChange={(event) => setTaskDraft((draft) => ({ ...draft, role: event.target.value }))} aria-label="选择角色">
             <option value="">选择角色</option>
             {commonRoles.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -305,8 +305,8 @@ export function GroupView({ course }: { course: Course }) {
 
       <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-5 rounded-[10px] border border-slate-200/80 bg-white px-6 py-5">
         {status ? <Pill tone="green">{status}</Pill> : null}
-        <PrimaryButton className="w-[260px]" onClick={() => saveIdea(false)} variant="outline"><Save size={21} /> 保存构思</PrimaryButton>
-        <PrimaryButton className="w-[260px]" onClick={checkIdea}><Wand2 size={21} /> 检查方案完整性</PrimaryButton>
+        <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={() => saveIdea(false)} variant="outline"><Save size={21} /> 保存构思</PrimaryButton>
+        <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={checkIdea}><Wand2 size={21} /> 检查方案完整性</PrimaryButton>
       </div>
       <StudentAiChatPanel course={course} stageKey="group" contextLabel="小组构思" />
     </div>

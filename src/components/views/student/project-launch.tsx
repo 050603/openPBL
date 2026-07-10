@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, FileBadge, Pill, PrimaryButton, TextArea } from "@/components/ui";
-import { CampusPhoto } from "@/components/visuals";
+import { ProjectCoverImage } from "@/components/visuals";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 
@@ -63,13 +63,13 @@ export function ProjectLaunchView({ course }: { course: Course }) {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
       <div className="min-w-0 space-y-5">
         <div className="flex flex-wrap items-center gap-4">
-          <h1 className="text-[34px] font-black tracking-[0] text-slate-950">{title}</h1>
+          <h1 className="text-3xl font-black tracking-[0] leading-tight text-slate-950 md:text-4xl">{title}</h1>
           <Pill tone="green">进行中</Pill>
         </div>
-        <CampusPhoto className="h-[235px] w-full" />
+        <ProjectCoverImage course={course} className="h-56 w-full sm:h-60 md:h-64" />
 
         <InfoBlock icon={<HelpCircle size={26} />} title="驱动问题" text={drivingQ} />
         <InfoBlock

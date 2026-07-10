@@ -177,7 +177,7 @@ export function classifyScenes(scenes: Scene[]): SceneClassificationResult {
   }
 
   if (studentScenes.length === 0) {
-    throw new Error("OpenMAIC 生成结果未包含可供学生学习的核心知识点场景，请调整大纲后重新生成。");
+    throw new Error("AI 生成结果未包含可供学生学习的核心知识点场景，请调整大纲后重新生成。");
   }
 
   return { studentScenes, teacherScenes, teacherResourceMeta };

@@ -3,7 +3,7 @@ import "./globals.css";
 import { SessionProvider } from "@/lib/session/store";
 
 export const metadata: Metadata = {
-  title: "AI探知 - 项目共创平台",
+  title: "openPBL - 项目共创平台",
   description: "学生端与教师端一体化项目式学习平台界面原型",
 };
 

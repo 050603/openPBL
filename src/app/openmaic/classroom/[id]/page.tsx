@@ -29,7 +29,7 @@ export default function ClassroomDetailPage() {
   const generationStartedRef = useRef(false);
 
   useEffect(() => {
-    document.title = 'openPBL AI Classroom';
+    document.title = 'openPBL AI 课堂';
   }, []);
 
   const { generateRemaining, retrySingleOutline, stop } = useSceneGenerator({

@@ -174,21 +174,21 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
 
           {groups.length ? (
             <div className="overflow-hidden rounded-[var(--radius-sm)] border border-slate-200">
-              <div className="grid grid-cols-[minmax(150px,1.1fr)_minmax(180px,1.5fr)_80px_110px_86px] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
+              <div className="grid grid-cols-[minmax(9rem,1.1fr)_minmax(11rem,1.5fr)_5rem_7rem_5.5rem] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
                 <span>小组</span>
                 <span>选题 / 方向</span>
                 <span>人数</span>
                 <span>构思进度</span>
                 <span>状态</span>
               </div>
-              <div className="max-h-[520px] overflow-auto">
+              <div className="max-h-[32rem] overflow-auto">
                 {filteredGroups.map((group) => {
                   const progress = groupProgress(course, group);
                   const signal = signalMap.get(group.id);
                   const selected = active?.id === group.id;
                   return (
                     <button
-                      className={`grid w-full grid-cols-[minmax(150px,1.1fr)_minmax(180px,1.5fr)_80px_110px_86px] items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-left transition ${
+                      className={`grid w-full grid-cols-[minmax(9rem,1.1fr)_minmax(11rem,1.5fr)_5rem_7rem_5.5rem] items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-left transition ${
                         selected ? "bg-blue-50/70" : "bg-white hover:bg-slate-50"
                       }`}
                       key={group.id}
@@ -326,10 +326,10 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
             </button>
           </div>
           {interventionSignals.length ? (
-            <div className="max-h-[300px] overflow-auto rounded-[var(--radius-sm)] border border-slate-200">
+            <div className="max-h-[18rem] overflow-auto rounded-[var(--radius-sm)] border border-slate-200">
               {interventionSignals.map((signal) => (
                 <button
-                  className="grid w-full grid-cols-[120px_86px_minmax(0,1fr)_92px] items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-left first:border-t-0 hover:bg-slate-50"
+                  className="grid w-full grid-cols-[7.5rem_5.5rem_minmax(0,1fr)_5.75rem] items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-left first:border-t-0 hover:bg-slate-50"
                   key={signal.groupId}
                   onClick={() => setActiveId(signal.groupId)}
                   type="button"
@@ -353,7 +353,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
             <LayoutPanelLeft className="text-blue-700" size={20} /> 全班学生进度
           </h2>
           {course.students.length ? (
-            <ul className="max-h-[300px] space-y-2 overflow-auto pr-1">
+            <ul className="max-h-[18rem] space-y-2 overflow-auto pr-1">
               {course.students.map((student) => {
                 const group = groups.find((item) => item.members.some((member) => member.studentId === student.id));
                 const progress = student.stageProgress?.group ?? 0;
@@ -434,7 +434,7 @@ function GroupConstellationMap({
           <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-emerald-300" />成熟</span>
         </div>
       </div>
-      <div className="relative h-[360px] min-h-[320px] bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.25),transparent_28%),radial-gradient(circle_at_80%_30%,rgba(16,185,129,0.18),transparent_24%),linear-gradient(135deg,rgba(15,23,42,0.95),rgba(2,6,23,1))]">
+      <div className="relative h-[22rem] min-h-[20rem] bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.25),transparent_28%),radial-gradient(circle_at_80%_30%,rgba(16,185,129,0.18),transparent_24%),linear-gradient(135deg,rgba(15,23,42,0.95),rgba(2,6,23,1))]">
         <div className="pointer-events-none absolute inset-4 rounded-[var(--radius-sm)] border border-white/10" />
         <div className="pointer-events-none absolute inset-x-8 bottom-8 h-px bg-white/20" />
         <div className="pointer-events-none absolute bottom-8 left-8 top-8 w-px bg-white/20" />
