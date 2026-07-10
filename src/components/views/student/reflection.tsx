@@ -334,19 +334,19 @@ export function ReflectionView({ course }: { course?: Course }) {
 
   return (
     <div className="space-y-5">
-      <div className="mb-1 flex items-end justify-between">
-        <div>
-          <h1 className="text-[34px] font-black">个人评价与反思</h1>
+      <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-black leading-tight md:text-4xl">个人评价与反思</h1>
           <p className="mt-3 text-base text-slate-500">
             回顾项目全过程，查看评价与建议，反思成长与不足，持续提升综合素养。
           </p>
         </div>
-        <div className="text-base font-semibold text-slate-600">
+        <div className="text-sm font-semibold text-slate-600 sm:text-base">
           项目：{title}　评价时间：{evaluationDate}
         </div>
       </div>
 
-      <div className="grid grid-cols-[1.1fr_0.75fr_0.92fr] gap-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-black">
@@ -373,11 +373,11 @@ export function ReflectionView({ course }: { course?: Course }) {
                 : "小组数据正在同步中，请稍候刷新。若持续未显示，请确认已加入小组。"}
             </div>
           ) : null}
-          <div className="grid grid-cols-[1fr_190px] items-center gap-3">
+          <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_190px]">
             <EvaluationRadar data={radarData} />
             <div className="border-l border-slate-200 pl-7">
               <div className="text-base text-slate-600">综合得分</div>
-              <div className="mt-4 text-[48px] font-black text-blue-600">
+              <div className="mt-4 text-5xl font-black text-blue-600">
                 {overallScore}
                 <span className="text-lg text-slate-500"> /100</span>
               </div>
@@ -482,7 +482,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-[1.1fr_0.75fr_0.92fr] gap-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-xl font-black">自我反思</h2>
@@ -565,7 +565,7 @@ export function ReflectionView({ course }: { course?: Course }) {
               课程尚未配置阶段。
             </div>
           ) : (
-            <div className="grid grid-cols-[1fr_150px] items-center gap-4">
+            <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_150px]">
               <div className="space-y-4">
                 {milestones.map((m) => {
                   const stage = stages.find((s) => s.key === m.key);
@@ -586,7 +586,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                   );
                 })}
               </div>
-              <div className="grid h-32 w-32 place-items-center rounded-full bg-blue-50 text-[54px] text-blue-200">
+              <div className="mx-auto grid h-32 w-32 place-items-center rounded-full bg-blue-50 text-5xl text-blue-200">
                 ★
               </div>
             </div>
@@ -594,15 +594,15 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
       </div>
 
-      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-6 rounded-[10px] border border-slate-200/80 bg-white px-6 py-5">
-        <PrimaryButton className="w-[260px]" onClick={() => saveReflection()}>
+      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-4 rounded-[10px] border border-slate-200/80 bg-white px-6 py-5 sm:gap-6">
+        <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={() => saveReflection()}>
           <Save size={21} /> {isViewingExisting ? "更新反思" : "保存反思"}
         </PrimaryButton>
-        <PrimaryButton className="w-[260px]" variant="outline">
+        <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" variant="outline">
           <ClipboardPlus size={21} /> 查看成长报告
         </PrimaryButton>
         <PrimaryButton
-          className="w-[260px]"
+          className="min-w-[16rem] flex-1 sm:flex-none"
           onClick={() => saveImprovementPlan()}
           variant="outline"
         >

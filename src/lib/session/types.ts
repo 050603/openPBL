@@ -305,6 +305,8 @@ export type Course = {
   content: CourseContent;
   classConfig?: ClassConfig;
   inviteCode?: string;
+  /** AI 生成的项目封面图 URL */
+  coverImageUrl?: string;
   students: Student[];
   submissions?: ClassroomSubmission[];
   feedback?: TeacherFeedback[];

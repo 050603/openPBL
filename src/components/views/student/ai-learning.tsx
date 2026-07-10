@@ -60,8 +60,8 @@ export function AiLearningView({ course }: { course?: Course }) {
     return (
       <div className="space-y-5">
         <div>
-          <h1 className="text-[30px] font-black text-slate-950 md:text-[34px]">AI 授知</h1>
-          <p className="mt-1 text-base text-slate-600 md:text-xl">进入 OpenMAIC 课堂，完成核心概念学习。</p>
+          <h1 className="text-3xl font-black leading-tight text-slate-950 md:text-4xl">AI 授知</h1>
+          <p className="mt-1 text-base text-slate-600 md:text-xl">进入 AI 课堂，完成核心概念学习。</p>
         </div>
         <Card className="text-center">
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-50 text-amber-600">
@@ -69,7 +69,7 @@ export function AiLearningView({ course }: { course?: Course }) {
           </div>
           <h2 className="mt-4 text-2xl font-black">AI 课堂尚未生成</h2>
           <p className="mt-2 text-sm text-slate-500">
-            请等待教师生成 AI 授知内容。生成完成后，本阶段会直接显示 OpenMAIC 学习课堂。
+            请等待教师生成 AI 授知内容。生成完成后，本阶段会直接显示 AI 学习课堂。
           </p>
           <PrimaryButton className="mx-auto mt-6" variant="outline" disabled>
             等待课堂生成
@@ -146,7 +146,7 @@ export function AiLearningView({ course }: { course?: Course }) {
                 {knowledgePoints.length} 节点
               </div>
             </div>
-            <div className="h-[320px] w-full bg-white">
+            <div className="h-[20rem] min-h-[18rem] w-full bg-white sm:h-[22rem]">
               {knowledgePoints.length > 0 ? (
                 <KnowledgeGraphFlow
                   graph={graph}

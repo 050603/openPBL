@@ -421,7 +421,7 @@ export function ReflectionTeacherView({
               </div>
               {editingSummary ? (
                 <textarea
-                  className="min-h-[100px] w-full rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm leading-7 outline-none focus:border-blue-500"
+                  className="min-h-[6.25rem] w-full rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm leading-7 outline-none focus:border-blue-500"
                   onChange={(e) => setEditedSummary(e.target.value)}
                   value={editedSummary}
                 />
@@ -487,7 +487,7 @@ export function ReflectionTeacherView({
           <MessageSquare className="text-blue-700" size={20} /> 个别学生评语
         </h2>
         {students.length > 0 ? (
-          <ul className="max-h-[620px] space-y-2 overflow-auto pr-1">
+          <ul className="max-h-[38rem] space-y-2 overflow-auto pr-1">
             {students.map((s) => {
               const score = studentScores.get(s.id) ?? 0;
               const tone = score >= 90 ? "green" : score >= 75 ? "blue" : "orange";

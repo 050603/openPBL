@@ -158,7 +158,7 @@ const SECTION_LABEL: Record<Section, string> = {
 const SECTION_DESC: Record<Section, string> = {
   knowledgePoints: "学生需掌握的核心概念、关键信息与节点关系",
   teachingOutline: "教案级活动编排，明确教师、平台、AI 与学生各自任务",
-  lessonOutline: "OpenMAIC 版 AI 授知场景，聚焦核心知识点学习与测验",
+  lessonOutline: "AI 授知场景，聚焦核心知识点学习与测验",
   evaluationPlan: "项目各维度的评价指标与权重",
 };
 
@@ -166,7 +166,7 @@ const FLOW_STEPS: { key: "base" | Section; label: string; desc: string }[] = [
   { key: "base", label: "基础信息", desc: "确认课程名称、学科、年级、课时与驱动问题" },
   { key: "knowledgePoints", label: "知识图谱", desc: "确认本课知识节点和节点间关系" },
   { key: "teachingOutline", label: "课程大纲", desc: "确认整节课教学活动与人机分工" },
-  { key: "lessonOutline", label: "OpenMAIC 大纲", desc: "确认 AI 授知核心知识点场景" },
+  { key: "lessonOutline", label: "AI 授知大纲", desc: "确认 AI 授知核心知识点场景" },
   { key: "evaluationPlan", label: "评价方案", desc: "基于知识图谱与项目目标生成评价维度" },
 ];
 
@@ -388,7 +388,7 @@ export default function VerifyCoursePage() {
       JSON.stringify(content?.teachingOutline ?? course.content.teachingOutline ?? []),
       "",
       "【内容拆分规则】",
-      "OpenMAIC 生成链路可以为教师资源和学生 AI 授知生成素材，但最终学生 AI 授知课堂只保留核心知识点学习、互动和测验场景。",
+      "AI 生成链路可以为教师资源和学生 AI 授知生成素材，但最终学生 AI 授知课堂只保留核心知识点学习、互动和测验场景。",
       "整课授课大纲中每个 openMaicUse=teacher-resource 的活动至少生成 1 个教师资源场景；resourceTypes 含 ppt 时生成 slide，适合演示操作时可生成 interactive，项目布置生成 pbl。",
       "每个教师资源场景标题必须同时带用途标记与阶段标记，格式为【教师资源-用途】【阶段:stageKey】标题，例如【教师资源-课程引入】【阶段:launch】情境导入。stageKey 必须使用课程阶段括号中的真实 key。",
       `PBL 项目布置默认阶段为 ${launchStageKey}，除非整课授课大纲明确指定其他 stageKey。`,
@@ -404,7 +404,7 @@ export default function VerifyCoursePage() {
           ...commonHeader,
           "",
           "【互动模式要求】",
-          "请按 OpenMAIC 互动优先（Interactive-First）模式生成：",
+          "请按互动优先（Interactive-First）模式生成：",
           "- 约 70% 的场景为 interactive 类型（含 widgetType 和 widgetOutline）",
           "- 约 30% 的场景为 slide 类型（用于导入、概念框架、总结）",
           "- 每个 interactive 场景必须指定 widgetType（simulation/diagram/code/game/visualization3d）",
@@ -505,7 +505,7 @@ export default function VerifyCoursePage() {
         const errBody = await res.json().catch(() => ({}));
         throw new Error(
           (errBody as { error?: string }).error ||
-            `OpenMAIC outline 生成失败（HTTP ${res.status}）`,
+            `AI 授知大纲生成失败（HTTP ${res.status}）`,
         );
       }
 
@@ -559,15 +559,15 @@ export default function VerifyCoursePage() {
               setSceneOutlines([...collected]);
               syncLessonOutline(collected);
             }
-            setInfo(`AI 授知大纲已生成（共 ${collected.length} 节），由 OpenMAIC 驱动`);
+            setInfo(`AI 授知大纲已生成（共 ${collected.length} 节）`);
           } else if (evt.type === "error") {
-            throw new Error((evt.error as string) ?? "OpenMAIC outline 生成失败");
+            throw new Error((evt.error as string) ?? "AI 授知大纲生成失败");
           }
         }
       }
 
       if (collected.length === 0) {
-        setInfo("OpenMAIC 未返回大纲，请检查 LLM 配置后重试");
+        setInfo("AI 未返回大纲，请检查 LLM 配置后重试");
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") {
@@ -1195,7 +1195,7 @@ export default function VerifyCoursePage() {
           ) : (
             <div className="rounded-[8px] border border-dashed border-slate-200 px-6 py-10 text-center">
               <p className="text-sm text-slate-500">
-                暂无 AI 授知章节。点击上方「OpenMAIC 生成」按钮，使用与 OpenMAIC 一致的方式生成大纲。
+                暂无 AI 授知章节。点击上方「AI 生成」按钮，生成 AI 授知大纲。
               </p>
               <p className="mt-2 text-xs text-slate-400">
                 支持场景类型（幻灯片 / 测验 / 互动 / PBL）、关键知识点、教学目标等结构化编辑。
@@ -1532,10 +1532,10 @@ export default function VerifyCoursePage() {
                         </Pill>
                       ) : (content?.lessonOutline.length ?? 0) > 0 ? (
                         <Pill tone="green">
-                          {content!.lessonOutline.length} 节 · OpenMAIC
+                          {content!.lessonOutline.length} 节 · AI
                         </Pill>
                       ) : (
-                        <Pill tone="blue">OpenMAIC 驱动</Pill>
+                        <Pill tone="blue">AI 驱动</Pill>
                       )
                     ) : null}
                   </div>
@@ -1548,7 +1548,7 @@ export default function VerifyCoursePage() {
                   <>
                     <label
                       className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[6px] border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 hover:bg-amber-100"
-                      title="开启后生成约 70% 互动场景（simulation/diagram/code/game/3D），符合 OpenMAIC 玩中学模式"
+                      title="开启后生成约 70% 互动场景（simulation/diagram/code/game/3D），符合互动优先模式"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -1575,7 +1575,7 @@ export default function VerifyCoursePage() {
                       ) : (
                         <>
                           <Zap size={14} />
-                          OpenMAIC 生成
+                          AI 生成
                         </>
                       )}
                     </span>

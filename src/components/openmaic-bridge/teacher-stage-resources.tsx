@@ -105,7 +105,7 @@ export function TeacherStageResources({
             <Presentation className="text-indigo-600" size={18} /> 本阶段授课资源
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            OpenMAIC 生成的 PPT、互动演示与教师讲稿
+            AI 生成的 PPT、互动演示与教师讲稿
           </p>
         </div>
         {projection ? (

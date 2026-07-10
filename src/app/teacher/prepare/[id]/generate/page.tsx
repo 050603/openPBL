@@ -111,7 +111,7 @@ export default function GenerateCoursePage() {
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
 
-  // 根据课程数据构建 OpenMAIC 生成需求字符串
+  // 根据课程数据构建 AI 生成需求字符串
   function buildRequirement(): string {
     if (!course) return "";
     const stages = (course.stages ?? [])
@@ -122,7 +122,7 @@ export default function GenerateCoursePage() {
       (activity) => activity.openMaicUse === "teacher-resource",
     );
     return [
-      "请为以下 PBL 课程生成 OpenMAIC 内容。生成后系统会拆分为：学生 AI 授知课堂 + 教师授课资源。",
+      "请为以下 PBL 课程生成 AI 授知内容。生成后系统会拆分为：学生 AI 授知课堂 + 教师授课资源。",
       "",
       "【核心定位】",
       "- 学生 AI 授知课堂只保留 AI 授知阶段核心知识点内容，用于学生学习、互动和测验。",
@@ -148,7 +148,7 @@ export default function GenerateCoursePage() {
       "【已确认整课授课大纲】",
       JSON.stringify(course.content.teachingOutline ?? []),
       "",
-      "【已确认 OpenMAIC 场景大纲】",
+      "【已确认 AI 授知场景大纲】",
       JSON.stringify(buildConfirmedSceneOutlines().map((outline) => ({
         id: outline.id,
         type: outline.type,
@@ -384,7 +384,7 @@ export default function GenerateCoursePage() {
         <div>
           <h1 className="text-[28px] font-black">生成课程</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {course.name} · 正在调用 OpenMAIC 生成 AI 授知内容
+            {course.name} · 正在生成 AI 授知内容
           </p>
         </div>
       </div>
@@ -518,7 +518,7 @@ export default function GenerateCoursePage() {
                 </div>
                 <div className="mt-1 text-sm leading-7 text-slate-500">
                   {status === "loading"
-                    ? "OpenMAIC 正在根据课程信息生成完整 AI 授知内容，预计需要 1-5 分钟，请勿关闭页面。"
+                    ? "AI 正在根据课程信息生成完整授课内容，预计需要 1-5 分钟，请勿关闭页面。"
                     : status === "success" && result
                       ? `已生成 ${result.scenesCount} 个场景，阶段：${result.stage.name}`
                       : error ?? "请重试或检查 LLM 配置"}
@@ -570,10 +570,10 @@ export default function GenerateCoursePage() {
         <aside className="space-y-5">
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-black">
-              <Lightbulb className="text-blue-600" size={18} /> OpenMAIC 接入
+              <Lightbulb className="text-blue-600" size={18} /> AI 授知生成
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              本页已接入 OpenMAIC 真实生成链路。系统会根据课程名称、摘要、驱动问题和阶段定义生成完整 AI 授知内容（含场景、文案、互动等）。
+              系统会根据课程名称、摘要、驱动问题和阶段定义生成完整 AI 授知内容（含场景、文案、互动等）。
             </p>
           </Card>
 

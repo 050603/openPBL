@@ -296,12 +296,12 @@ export function WorkspaceTeacherView({
         </Card>
       )}
 
-      <div className="grid gap-3 xl:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(18rem,20rem)_minmax(0,1fr)]">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
             <Users className="text-blue-700" size={20} /> 各组制作进度
           </h2>
-          <ul className="max-h-[560px] space-y-1.5 overflow-auto pr-1">
+          <ul className="max-h-[32rem] space-y-1.5 overflow-auto pr-1">
             {groups.map((g) => {
               const m = g.members;
               const prog = m.length

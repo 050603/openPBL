@@ -202,7 +202,7 @@ export function StageGoalBar({
                 <span className="rounded-full bg-white/12 px-3 py-1 text-white/82">{statusText}</span>
               </div>
               <div className="truncate text-sm font-semibold text-white/68">{course.name}</div>
-              <h1 className="mt-1 text-[28px] font-black leading-tight md:text-[34px]">{currentStage.label}</h1>
+              <h1 className="mt-1 text-3xl font-black leading-tight md:text-4xl">{currentStage.label}</h1>
               <p className="mt-2 max-w-4xl text-sm leading-6 text-white/82">{help.goal}</p>
             </div>
           </div>
@@ -271,7 +271,7 @@ export function TeacherClassroomBanner({
                 <HelpCircle size={13} />
               </button>
             </div>
-            <h1 className="truncate text-[24px] font-black leading-tight md:text-[28px]">{currentStage.label}</h1>
+            <h1 className="truncate text-2xl font-black leading-tight md:text-3xl">{currentStage.label}</h1>
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-4">

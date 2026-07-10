@@ -80,9 +80,7 @@ describe("ShowcaseView — 演示计时器", () => {
 
   /** Helper: find the timer display element by its testid-like content pattern. */
   function getTimerText(): string {
-    // The timer is rendered as "MM:SS / 08:00" inside a text-[28px] div.
-    const el = document.querySelector(".text-\\[28px\\]");
-    return el?.textContent ?? "";
+    return screen.getByTestId("presentation-timer").textContent ?? "";
   }
 
   it("starts at 00:00", () => {

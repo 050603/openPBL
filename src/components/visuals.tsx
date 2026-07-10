@@ -1,3 +1,5 @@
+"use client";
+
 import {
   BarChart3,
   Bot,
@@ -6,12 +8,158 @@ import {
   Image as ImageIcon,
   Leaf,
   LineChart,
+  Loader2,
   Play,
   Presentation,
+  RefreshCw,
   Sprout,
 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import type { Course } from "@/lib/session/types";
+import { useSession } from "@/lib/session/store";
 
+/**
+ * ProjectCoverImage — 基于课程信息调用系统图片生成 API 生成项目封面图。
+ * - 优先使用 course.coverImageUrl（已生成的缓存）
+ * - 若无缓存则自动调用 /api/generate/image 生成
+ * - 生成失败时显示渐变占位，可点击刷新重试
+ */
+export function ProjectCoverImage({
+  course,
+  className,
+}: {
+  course: Course;
+  className?: string;
+}) {
+  const session = useSession();
+  const [imageUrl, setImageUrl] = useState<string | null>(course.coverImageUrl ?? null);
+  const [loading, setLoading] = useState(!course.coverImageUrl);
+  const [error, setError] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const buildPrompt = useCallback(() => {
+    const parts = [
+      "A professional project illustration for an educational PBL course",
+    ];
+    if (course.name) parts.push(`titled "${course.name}"`);
+    if (course.subject) parts.push(`subject: ${course.subject}`);
+    if (course.drivingQuestion) parts.push(`theme: ${course.drivingQuestion.slice(0, 80)}`);
+    parts.push("clean modern style, vibrant colors, educational atmosphere, 16:9 aspect ratio");
+    return parts.join(", ");
+  }, [course.name, course.subject, course.drivingQuestion]);
+
+  const generate = useCallback(async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    setLoading(true);
+    setError(false);
+
+    try {
+      const res = await fetch("/api/generate/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: buildPrompt(),
+          aspectRatio: "16:9",
+        }),
+        signal: ctrl.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Image generation failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const url = data?.result?.url ?? data?.result?.imageUrl ?? null;
+
+      if (url) {
+        setImageUrl(url);
+        // 缓存到 session
+        session.updateCourse(course.id, { coverImageUrl: url });
+      } else {
+        setError(true);
+      }
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      console.warn("Cover image generation failed:", e);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [buildPrompt, course.id, session]);
+
+  useEffect(() => {
+    if (!course.coverImageUrl && !error) {
+      void generate();
+    }
+    return () => abortRef.current?.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.id]);
+
+  // 已有图片
+  if (imageUrl) {
+    return (
+      <div className={cn("relative overflow-hidden rounded-[8px]", className)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt={course.name || "项目封面"}
+          className="h-full w-full object-cover"
+        />
+        <button
+          className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/40 text-white opacity-0 transition hover:bg-black/60 group-hover:opacity-100"
+          onClick={() => { setImageUrl(null); void generate(); }}
+          title="重新生成封面"
+          type="button"
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  // 加载中
+  if (loading) {
+    return (
+      <div
+        className={cn(
+          "relative flex items-center justify-center overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+          className,
+        )}
+      >
+        <div className="flex flex-col items-center gap-2 text-slate-400">
+          <Loader2 size={28} className="animate-spin" />
+          <span className="text-xs font-medium">正在生成项目封面…</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 失败：显示占位
+  return (
+    <div
+      className={cn(
+        "group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+        className,
+      )}
+      onClick={() => void generate()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter") void generate(); }}
+    >
+      <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-40" />
+      <div className="relative flex flex-col items-center gap-2 text-slate-500">
+        <RefreshCw size={24} />
+        <span className="text-xs font-medium">点击生成项目封面</span>
+      </div>
+    </div>
+  );
+}
+
+/** @deprecated 使用 ProjectCoverImage 替代 */
 export function CampusPhoto({ className }: { className?: string }) {
   return (
     <div
@@ -88,8 +236,8 @@ export function SlidePreview({ className }: { className?: string }) {
 
 export function EvidenceStrip() {
   return (
-    <div className="grid grid-cols-[1fr_1fr_1fr_96px] gap-3">
-      <CampusPhoto className="h-[126px]" />
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_1fr_1fr_6rem]">
+      <CampusPhoto className="h-32" />
       <div className="rounded-[8px] bg-[linear-gradient(135deg,#fef3c7,#fdba74)] p-4">
         <div className="grid h-full place-items-center rounded-[6px] border-2 border-dashed border-orange-200 bg-white/40">
           <ImageIcon className="text-orange-700" size={34} />
@@ -101,7 +249,7 @@ export function EvidenceStrip() {
           <BarChart3 className="text-blue-700" size={30} />
         </div>
       </div>
-      <div className="grid h-[126px] place-items-center rounded-[8px] border border-slate-200 bg-slate-50 text-2xl font-semibold text-slate-600">
+      <div className="grid h-32 place-items-center rounded-[8px] border border-slate-200 bg-slate-50 text-2xl font-semibold text-slate-600">
         +3
       </div>
     </div>
@@ -117,7 +265,7 @@ export function MindMap() {
   ];
 
   return (
-    <div className="relative h-[330px] overflow-hidden rounded-[8px] border border-slate-200 bg-[radial-gradient(#dbeafe_1px,transparent_1px)] bg-[length:18px_18px]">
+    <div className="relative h-[20rem] overflow-hidden rounded-[8px] border border-slate-200 bg-[radial-gradient(#dbeafe_1px,transparent_1px)] bg-[length:18px_18px]">
       <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[8px] border border-emerald-300 bg-emerald-50 px-7 py-3 text-xl font-black text-emerald-700 shadow-sm">
         校园低碳生活推广方案
       </div>
