@@ -11,55 +11,55 @@
    ============================================================ */
 
 :root {
-  /* —— 背景与表面 —— */
-  --background: #f4f2ed;
-  --foreground: #1f2933;
-  --pbl-bg: #f4f2ed;
-  --pbl-surface: #fcfbf8;
-  --pbl-surface-soft: #f0eee8;
-  --pbl-surface-raised: #fffefa;
+  /* —— 背景与表面（冷灰 slate 基调）—— */
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --pbl-bg: #f1f5f9;
+  --pbl-surface: #ffffff;
+  --pbl-surface-soft: #f1f5f9;
+  --pbl-surface-raised: #ffffff;
 
   /* —— 文本 —— */
-  --pbl-text: #1f2933;
-  --pbl-text-strong: #17212b;
-  --pbl-text-muted: #5f6b76;
-  --pbl-text-subtle: #87919a;
+  --pbl-text: #0f172a;
+  --pbl-text-strong: #020617;
+  --pbl-text-muted: #475569;
+  --pbl-text-subtle: #94a3b8;
 
   /* —— 边框 —— */
-  --pbl-border: #d8d6d0;
-  --pbl-border-strong: #bbb9b3;
-  --pbl-border-soft: #e7e4dd;
+  --pbl-border: #e2e8f0;
+  --pbl-border-strong: #cbd5e1;
+  --pbl-border-soft: #f1f5f9;
 
-  /* —— 身份色：教师端（靛蓝）—— */
-  --pbl-teacher: #344a6a;
-  --pbl-teacher-hover: #283d5b;
-  --pbl-teacher-soft: #e9edf2;
-  --pbl-teacher-border: #bdc8d5;
+  /* —— 身份色：教师端（靛蓝 Indigo）—— */
+  --pbl-teacher: #4f46e5;
+  --pbl-teacher-hover: #4338ca;
+  --pbl-teacher-soft: #eef2ff;
+  --pbl-teacher-border: #c7d2fe;
 
-  /* —— 身份色：学生端（青绿）—— */
-  --pbl-student: #2f6f65;
-  --pbl-student-hover: #255a52;
-  --pbl-student-soft: #e7f0ed;
-  --pbl-student-border: #b6cec8;
+  /* —— 身份色：学生端（青绿 Teal）—— */
+  --pbl-student: #0d9488;
+  --pbl-student-hover: #0f766e;
+  --pbl-student-soft: #f0fdfa;
+  --pbl-student-border: #99f6e4;
 
-  /* —— AI 辅助色（天蓝）—— */
-  --pbl-ai: #566f7f;
-  --pbl-ai-soft: #e9eef1;
-  --pbl-ai-border: #c4cfd5;
+  /* —— AI 辅助色（天蓝 Sky）—— */
+  --pbl-ai: #0ea5e9;
+  --pbl-ai-soft: #f0f9ff;
+  --pbl-ai-border: #bae6fd;
 
   /* —— 状态色 —— */
-  --pbl-success: #3f7161;
-  --pbl-success-soft: #eaf2ee;
-  --pbl-warning: #8a6422;
-  --pbl-warning-soft: #f5efe1;
-  --pbl-danger: #8a3e3e;
-  --pbl-danger-soft: #f5eaea;
-  --pbl-achievement: #7b622d;
-  --pbl-achievement-soft: #f2ecdc;
+  --pbl-success: #059669;
+  --pbl-success-soft: #ecfdf5;
+  --pbl-warning: #d97706;
+  --pbl-warning-soft: #fffbeb;
+  --pbl-danger: #dc2626;
+  --pbl-danger-soft: #fef2f2;
+  --pbl-achievement: #7c3aed;
+  --pbl-achievement-soft: #f5f3ff;
 
   /* —— 中性墨色 —— */
   --pbl-ink: #0f172a;
-  --pbl-cream: #fffdf8;
+  --pbl-cream: #f8fafc;
 
   /* —— 圆角阶梯（4档统一）—— */
   --radius-xs: 6px;
@@ -349,4 +349,53 @@ select {
   .pbl-card-raised {
     border: 1px solid CanvasText;
   }
+}
+@keyframes pixel-companion-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes pixel-companion-talk {
+  from { transform: translateX(0); }
+  to { transform: translateX(-192px); }
+}
+
+@keyframes pixel-companion-idle-frames {
+  0%, 68%, 100% { transform: translateX(0); }
+  76%, 90% { transform: translateX(-32px); }
+}
+
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(8px) scale(.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.pixelated { image-rendering: pixelated; }
+
+.pixel-companion-sprite {
+  position: relative;
+  width: 32px;
+  height: 48px;
+  overflow: hidden;
+  image-rendering: pixelated;
+}
+
+.pixel-companion-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 224px;
+  height: 192px;
+  image-rendering: pixelated;
+}
+
+.pixel-companion-idle { animation: pixel-companion-breathe 1.9s ease-in-out infinite; }
+.pixel-companion-idle .pixel-companion-sheet { animation: pixel-companion-idle-frames 3.2s steps(1, end) infinite; }
+.pixel-companion-speaking .pixel-companion-sheet { animation: pixel-companion-talk .85s steps(6, end) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-companion-idle,
+  .pixel-companion-speaking { animation: none; }
+  .pixel-companion-idle .pixel-companion-sheet,
+  .pixel-companion-speaking .pixel-companion-sheet { animation: none; }
 }

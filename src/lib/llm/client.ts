@@ -74,6 +74,85 @@ export async function callLLM(
   });
 }
 
+/**
+ * Streaming LLM call — yields text deltas as they arrive.
+ * Uses the same settings as callLLM but with stream: true.
+ */
+export async function* callLLMStream(
+  messages: ChatMessage[],
+  opts: { abortSignal?: AbortSignal } = {},
+): AsyncGenerator<string, void, void> {
+  if (isLlmCoolingDown()) {
+    throw new LlmRateLimitError(Math.max(0, llmCooldownUntil - Date.now()));
+  }
+
+  const settings = await getActiveAiSettings();
+  const endpoint = settings.endpoint || env("OPENPBL_LLM_ENDPOINT");
+  const apiKey = settings.apiKey || env("OPENPBL_LLM_API_KEY");
+  const model = settings.model || env("OPENPBL_LLM_MODEL") || "gpt-5.4-mini";
+
+  if (!endpoint || !apiKey) throw new LlmNotConfiguredError();
+
+  const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.5,
+      stream: true,
+    }),
+    signal: opts.abortSignal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (res.status === 429) throw setRateLimitCooldown(res, text);
+    throw new Error(`LLM 调用失败：${res.status} ${text}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("LLM 流式响应为空");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: { delta?: { content?: string } }[];
+          };
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) yield delta;
+        } catch {
+          // Skip malformed chunks
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function isLlmReady(): Promise<boolean> {
   try {
     return !isLlmCoolingDown() && (await isActiveLlmConfigured());

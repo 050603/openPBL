@@ -23,6 +23,7 @@ import type {
   WorkPlanItem,
 } from "./types";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
+import { DEFAULT_STAGES } from "./types";
 
 export type SessionState = {
   courses: Course[];
@@ -195,9 +196,8 @@ export function applySessionAction(
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
         },
-        // Clear any stale seed/demo group data so the real class
-        // starts fresh. Students will be auto-grouped on join based
-        // on the selected groupMode.
+        // A new class starts with no project spaces. Each student receives one
+        // private personal-project space when joining; no real student grouping occurs.
         groups: [],
         workPlan: [],
         whiteboard: [],
@@ -265,27 +265,22 @@ export function applySessionAction(
         studentName: student.name,
         courses: state.courses.map((c) => {
           if (c.id !== courseId) return c;
-          // Auto-create a solo group for the student when the class is
-          // configured as "solo" (one-person-per-group) or "none" (no
-          // grouping / whole-class). This ensures every student has a
-          // group context in the ideation stage without seeing another
-          // student's group data.
-          const mode = c.classConfig?.groupMode;
-          const shouldAutoGroup = mode === "solo" || mode === "none";
+          // Keep the legacy ProjectGroup container only as the storage key for
+          // one student's private project. It is never presented as a group.
           const alreadyInGroup = (c.groups ?? []).some((g) =>
             g.members.some((m) => m.studentId === student.id),
           );
-          const groups = shouldAutoGroup && !alreadyInGroup
+          const groups = !alreadyInGroup
             ? [
                 ...(c.groups ?? []),
                 {
                   id: `grp-${student.id}`,
-                  name: `${student.name}的个人小组`,
+                  name: `${student.name}的个人项目`,
                   topic: "待确定选题方向",
                   goal: "",
                   keywords: [],
                   selectedForms: [],
-                  members: [{ studentId: student.id, name: student.name, role: "组长" }],
+                  members: [{ studentId: student.id, name: student.name, role: "项目负责人" }],
                   createdAt: touchedAt,
                   updatedAt: touchedAt,
                 },
@@ -659,18 +654,46 @@ function activity(actor: string, action: string, detail: string | undefined, cre
 }
 
 export function normalizeCourse(course: Course): Course {
-  const stages = (course.stages ?? []).map((stage) => ({
-    ...stage,
-    label: stage.key === "review" ? "方案汇报与纠偏" : stage.key === "make" ? "项目制作与 AI 实时支架" : stage.key === "showcase" ? "最终汇报展示" : stage.key === "reflection" ? "综合评价与反思" : stage.key === "ai-learning" ? "AI 授知" : stage.label,
-    view: stage.key === "review"
-      ? "proposal-review" as const
-      : stage.key === "make"
-        ? "project-making" as const
-        : stage.view,
-  }));
+  const previousStageKey = course.stages?.[course.currentStageIndex]?.key;
+  const migratedStageKey = previousStageKey === "group" || previousStageKey === "review"
+    ? "proposal"
+    : previousStageKey;
+  const stages = DEFAULT_STAGES.map((stage) => ({ ...stage }));
+  const migratedStageIndex = Math.max(0, stages.findIndex((stage) => stage.key === migratedStageKey));
+  const legacyGroups = course.groups ?? [];
+  const personalProjects = (course.students ?? []).map((student) => {
+    const exactProject = legacyGroups.find((project) => project.id === `grp-${student.id}`)
+      ?? legacyGroups.find((project) => project.members.length === 1 && project.members[0]?.studentId === student.id);
+    const inheritedProject = exactProject
+      ?? legacyGroups.find((project) => project.members.some((member) => member.studentId === student.id));
+    const now = course.updatedAt || new Date().toISOString();
+    return {
+      ...(inheritedProject ?? {
+        id: `grp-${student.id}`,
+        topic: "待确定选题方向",
+        goal: "",
+        keywords: [],
+        selectedForms: [],
+        createdAt: now,
+        updatedAt: now,
+      }),
+      id: exactProject?.id ?? `grp-${student.id}`,
+      name: `${student.name}的个人项目`,
+      members: [{ studentId: student.id, name: student.name, role: "项目负责人" }],
+    };
+  });
+  const migrateStageKey = (stageKey: string) => stageKey === "group" || stageKey === "review"
+    ? "proposal"
+    : stageKey === "workspace"
+      ? "make"
+      : stageKey;
   return {
     ...course,
     stages,
+    currentStageIndex: migratedStageIndex,
+    classConfig: course.classConfig
+      ? { ...course.classConfig, groupMode: "solo", perGroup: 1, crossClass: false }
+      : course.classConfig,
     students: course.students ?? [],
     submissions: course.submissions ?? [],
     feedback: (course.feedback ?? []).map((item) => ({
@@ -685,7 +708,7 @@ export function normalizeCourse(course: Course): Course {
     announcements: course.announcements ?? [],
     todos: course.todos ?? [],
     resources: course.resources ?? [],
-    groups: course.groups ?? [],
+    groups: personalProjects,
     groupAnnouncements: course.groupAnnouncements ?? [],
     workPlan: course.workPlan ?? [],
     whiteboard: course.whiteboard ?? [],
@@ -696,14 +719,22 @@ export function normalizeCourse(course: Course): Course {
     teacherInterventions: course.teacherInterventions ?? [],
     stageTransitions: course.stageTransitions ?? [],
     evaluations: course.evaluations ?? [],
-    uiState: course.uiState ?? {},
+    uiState: {
+      ...(course.uiState ?? {}),
+      aiChatStagesEnabled: course.uiState?.aiChatStagesEnabled?.length
+        ? [...new Set(course.uiState.aiChatStagesEnabled.map(migrateStageKey))]
+        : course.uiState?.aiChatStagesEnabled,
+    },
     content: {
       ...course.content,
+      lessonOutline: (course.content.lessonOutline ?? []).map((section) => ({ ...section, stageKey: migrateStageKey(section.stageKey) })),
+      teachingOutline: course.content.teachingOutline?.map((section) => ({ ...section, stageKey: migrateStageKey(section.stageKey) })),
       evaluationPlan: {
         ...course.content.evaluationPlan,
-        flows: course.content.evaluationPlan.flows?.length
-          ? course.content.evaluationPlan.flows
-          : DEFAULT_EVALUATION_FLOWS.map((flow) => ({ ...flow, evidenceRequirements: [...flow.evidenceRequirements] })),
+        flows: DEFAULT_EVALUATION_FLOWS.map((flow) => ({
+          ...flow,
+          evidenceRequirements: [...flow.evidenceRequirements],
+        })),
       },
     },
   };

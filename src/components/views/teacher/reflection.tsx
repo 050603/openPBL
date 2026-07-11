@@ -34,7 +34,7 @@ import { generateProcessEvaluation, type ProcessEvaluationResult } from "@/lib/t
 type ProcessEvaluation = ProcessEvaluationResult;
 
 /**
- * 计算某学生/小组的真实综合得分。
+ * 计算某学生个人项目的真实综合得分。
  * 优先从 rubricScores 取最新一条；无评分时按 stageProgress 均值兜底。
  */
 function computeRealScore(
@@ -96,7 +96,7 @@ export function ReflectionTeacherView({
   const studentScores = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of students) {
-      // 学生可能在小组中，优先查小组评分；否则查个人
+      // 个人项目沿用旧项目容器 ID 关联评分。
       const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
       const targetId = group?.id ?? s.id;
       map.set(s.id, computeRealScore(rubricScores, targetId, s.stageProgress ?? {}, stageKeys));
@@ -130,7 +130,7 @@ export function ReflectionTeacherView({
     const weakDims = dimensions.filter((d) => (dimensionAverages[d.id] ?? 0) < 70);
     const parts: string[] = [];
     if (rubricScores.length === 0) {
-      parts.push("尚未对任何小组提交评分，请先在「展示评价」阶段完成评分后查看班级整体分析。");
+      parts.push("尚未对任何个人项目提交评分，请先在「成果汇报与评价」阶段完成评分后查看班级整体分析。");
     } else {
       if (strongDims.length > 0) {
         parts.push(`班级整体在「${strongDims.map((d) => d.name).join("」「")}」维度表现突出（85+）。`);
@@ -142,7 +142,7 @@ export function ReflectionTeacherView({
         parts.push("班级各维度表现均衡，整体处于良好水平。");
       }
       if (excellentCount > 0) {
-        parts.push(`${excellentCount} 个小组达到优秀水平，可作为示范案例。`);
+        parts.push(`${excellentCount} 个个人项目达到优秀水平，可作为示范案例。`);
       }
     }
     return parts.join("");
@@ -493,7 +493,7 @@ export function ReflectionTeacherView({
               const score = studentScores.get(s.id) ?? 0;
               const tone = score >= 90 ? "green" : score >= 75 ? "blue" : "orange";
               const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
-              // 取该学生/小组最新 feedback
+              // 取该学生个人项目的最新 feedback
               const latestFb = studentLatestFeedback.get(group?.id ?? s.id);
               return (
                 <li
@@ -510,7 +510,7 @@ export function ReflectionTeacherView({
                         {s.name}
                       </div>
                       <div className="text-xs text-slate-500">
-                        综合分 {score} · {group ? `小组：${group.name}` : "未分组"} · 已加入课堂
+                        综合分 {score} · {group ? `项目：${group.name}` : "个人项目待同步"} · 已加入课堂
                       </div>
                     </div>
                     <Pill tone={tone}>

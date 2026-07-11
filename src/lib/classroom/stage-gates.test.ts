@@ -16,10 +16,10 @@ function course(overrides: Partial<Course> = {}): Course {
 describe("evaluateStageGate", () => {
   it("blocks launch without a participant", () => expect(evaluateStageGate(course({ students: [] }), 0).blockers.map((item) => item.code)).toContain("participants"));
   it("blocks AI learning without generated content", () => expect(evaluateStageGate(course(), 1).blockers.map((item) => item.code)).toContain("ai-content"));
-  it("blocks incomplete group proposals", () => expect(evaluateStageGate(course({ classConfig: { groupMode: "free", totalStudents: 1 }, groups: [{ id: "g1", name: "一组", topic: "", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }), 2).canAdvance).toBe(false));
-  it("requires teacher approval before project making", () => expect(evaluateStageGate(course({ groups: [{ id: "g1", name: "一组", topic: "节水", goal: "方案", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }), 3).blockers[0].code).toBe("teacher-approval"));
-  it("blocks making while high-risk intervention is open", () => expect(evaluateStageGate(course({ classConfig: { groupMode: "free", totalStudents: 1 }, groups: [{ id: "g1", name: "一组", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }], uploads: [{ id: "u1", courseId: "course-1", groupId: "g1", stageKey: "make", category: "artifact", title: "初稿", fileName: "a.pdf", fileType: "PDF", size: "1MB", url: "/a", createdAt: new Date().toISOString() }], teacherInterventions: [{ id: "i1", stageKey: "make", scope: "group", targetIds: ["g1"], reason: "伦理风险", evidence: ["作品内容"], action: "guidance", instruction: "重新判断", severity: "high", status: "open", teacherName: "教师", createdAt: new Date().toISOString() }] }), 4).blockers.map((item) => item.code)).toContain("high-risk"));
-  it("treats reflection as terminal with warnings, not a forward blocker", () => expect(evaluateStageGate(course(), 6).canAdvance).toBe(true));
+  it("blocks incomplete personal proposals", () => expect(evaluateStageGate(course({ groups: [{ id: "g1", name: "小林的个人项目", topic: "", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }), 2).blockers.map((item) => item.code)).toContain("proposal-fields"));
+  it("requires teacher approval in the merged proposal stage", () => expect(evaluateStageGate(course({ groups: [{ id: "g1", name: "小林的个人项目", topic: "节水", goal: "方案", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], proposal: { projectQuestion: "如何节水", outcomeFormat: "海报", implementationPlan: "调研并设计", requiredKnowledge: ["数据"], aiUsePlan: "请 AI 质疑方案", risks: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }), 2).blockers.map((item) => item.code)).toContain("teacher-approval"));
+  it("blocks making while high-risk intervention is open", () => expect(evaluateStageGate(course({ classConfig: { groupMode: "free", totalStudents: 1 }, groups: [{ id: "g1", name: "一组", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }], uploads: [{ id: "u1", courseId: "course-1", groupId: "g1", stageKey: "make", category: "artifact", title: "初稿", fileName: "a.pdf", fileType: "PDF", size: "1MB", url: "/a", createdAt: new Date().toISOString() }], teacherInterventions: [{ id: "i1", stageKey: "make", scope: "group", targetIds: ["g1"], reason: "伦理风险", evidence: ["作品内容"], action: "guidance", instruction: "重新判断", severity: "high", status: "open", teacherName: "教师", createdAt: new Date().toISOString() }] }), 3).blockers.map((item) => item.code)).toContain("high-risk"));
+  it("treats reflection as terminal with warnings, not a forward blocker", () => expect(evaluateStageGate(course(), 5).canAdvance).toBe(true));
 });
 
 describe("detectInterventionSignals", () => {
@@ -33,15 +33,14 @@ describe("detectInterventionSignals", () => {
     expect(result[0].suggestedAction.length).toBeGreaterThan(0);
   });
 
-  it("covers all seven verifiable teacher-attention signals", () => {
+  it("covers the six personal-project teacher-attention signals", () => {
     const old = new Date(Date.now() - 40 * 60 * 1000).toISOString();
     const result = detectInterventionSignals(course({
       aiLearningProgress: {
         s1: { classroomId: "c", studentId: "s1", currentSceneIndex: 1, totalScenes: 2, completedScenes: [], lastActiveAt: old, masteryLevel: "in-progress", unmetGoals: ["变量关系"] },
         s2: { classroomId: "c", studentId: "s2", currentSceneIndex: 1, totalScenes: 2, completedScenes: [], lastActiveAt: old, masteryLevel: "in-progress", unmetGoals: ["变量关系"] },
       },
-      groups: [{ id: "g1", name: "一组", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }, { studentId: "s2", name: "小周" }], createdAt: old, updatedAt: old }],
-      teamContributions: [{ id: "c1", courseId: "course-1", groupId: "g1", studentId: "s1", studentName: "小林", percent: 90, updatedAt: old }, { id: "c2", courseId: "course-1", groupId: "g1", studentId: "s2", studentName: "小周", percent: 10, updatedAt: old }],
+      groups: [{ id: "g1", name: "小林的个人项目", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: old, updatedAt: old }],
       workPlan: [{ id: "t1", groupId: "g1", role: "成员", memberName: "小林", task: "调研", progress: 0 }],
       aiSupports: [
         { id: "a1", courseId: "course-1", stageKey: "make", targetType: "group", targetId: "g1", groupId: "g1", kind: "artifact-diagnosis", trigger: "检查目标", inputSummary: "", diagnosis: "作品偏离教学目标", suggestions: [], evidence: ["目标对照"], status: "draft", createdAt: old, updatedAt: old },
@@ -50,7 +49,7 @@ describe("detectInterventionSignals", () => {
         { id: "a4", courseId: "course-1", stageKey: "make", targetType: "group", targetId: "g1", groupId: "g1", kind: "artifact-diagnosis", trigger: "事实检查", inputSummary: "", diagnosis: "证据不足，AI 无法判断", suggestions: [], evidence: ["缺少来源"], status: "draft", createdAt: old, updatedAt: old },
       ],
     }));
-    expect(new Set(result.map((signal) => signal.kind))).toEqual(new Set(["shared-misconception", "uneven-participation", "off-target", "over-generation", "ethics", "low-confidence", "stalled"]));
+    expect(new Set(result.map((signal) => signal.kind))).toEqual(new Set(["shared-misconception", "off-target", "over-generation", "ethics", "low-confidence", "stalled"]));
     expect(result.every((signal) => signal.evidence.length && signal.targetIds.length && signal.suggestedAction.length)).toBe(true);
   });
 });

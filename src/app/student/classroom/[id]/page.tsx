@@ -120,7 +120,7 @@ export default function StudentClassroomPage() {
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total, label: currentStage.label } : undefined}
       currentTask={currentStage?.description}
-      leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "review" || currentStage?.key === "showcase" ? "教师" : "学生"}
+      leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "showcase" ? "教师" : "学生"}
       headerSlot={
         isTeaching && currentStage ? (
           <div className="hidden items-center gap-2 md:flex">

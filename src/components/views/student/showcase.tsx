@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Compass, Eye, PauseCircle, PlayCircle, RotateCcw, UploadCloud, X } from "lucide-react";
-import { Avatar } from "@/components/dashboard-shell";
 import { Card, FileBadge, PrimaryButton, toast } from "@/components/ui";
 import { EvidenceStrip, SlidePreview } from "@/components/visuals";
 import type { Course, CourseUpload } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { buildShowcaseCoach } from "@/lib/teaching-ai/client-api";
-import { StudentAiChatPanel } from "./ai-chat-panel";
+import { CompanionRoundtable } from "./companion-roundtable";
 
 type UploadSlot = {
   category: "artifact" | "evidence" | "presentation";
@@ -54,7 +53,6 @@ export function ShowcaseView({ course }: { course: Course }) {
       };
     }
   }, [timerRunning]);
-  const [contribDraft, setContribDraft] = useState<Record<string, number>>(() => Object.fromEntries((group?.members ?? []).map((m) => [m.studentId, Math.round(100 / Math.max(1, group?.members.length ?? 1))])));
   const [uploading, setUploading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -104,20 +102,8 @@ export function ShowcaseView({ course }: { course: Course }) {
     }
   }
 
-  function saveContributions() {
-    if (!group) return;
-    group.members.forEach((member) => {
-      session.upsertTeamContribution({
-        groupId: group.id,
-        studentId: member.studentId,
-        studentName: member.name,
-        percent: contribDraft[member.studentId] ?? 0,
-      });
-    });
-  }
-
   function startPresentation() {
-    session.addActivity(course.id, "开始演示", group?.name ?? "学生小组", session.studentName ?? "学生");
+    session.addActivity(course.id, "开始个人成果汇报", group?.name ?? "个人项目", session.studentName ?? "学生");
     session.updateStudentProgress("showcase", 100);
   }
 
@@ -223,17 +209,7 @@ export function ShowcaseView({ course }: { course: Course }) {
             </div>
           </Card>
 
-          <Card>
-            <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold">团队贡献</h2><button className="text-sm font-semibold text-blue-700" onClick={saveContributions} type="button">保存</button></div>
-            {(group?.members ?? []).map((member) => (
-              <div className="mb-3 flex items-center gap-3 last:mb-0" key={member.studentId}>
-                <Avatar name={member.name} size={30} />
-                <span className="flex-1 font-semibold">{member.name}</span>
-                <input className="w-20 accent-blue-600" type="range" min={0} max={100} value={contribDraft[member.studentId] ?? 0} onChange={(event) => setContribDraft((draft) => ({ ...draft, [member.studentId]: Number(event.target.value) }))} />
-                <span className="w-10 text-right text-sm text-slate-500">{contribDraft[member.studentId] ?? 0}%</span>
-              </div>
-            ))}
-          </Card>
+          <Card><h2 className="text-xl font-bold">个人项目说明</h2><p className="mt-3 text-sm leading-7 text-slate-600">汇报时请说明项目目标、方案选择、制作过程和 AI 使用情况，并清楚区分自己完成的核心工作与 AI 提供的支持。</p></Card>
         </aside>
       </div>
 
@@ -274,11 +250,11 @@ export function ShowcaseView({ course }: { course: Course }) {
       </div>
 
       <div className="grid min-h-[88px] gap-5 rounded-[10px] border border-slate-200/80 bg-white px-6 py-4 md:grid-cols-3">
-        <PrimaryButton onClick={() => saveContributions()} variant="outline">继续完善</PrimaryButton>
+        <PrimaryButton onClick={() => session.updateStudentProgress("showcase", 90)} variant="outline">继续完善</PrimaryButton>
         <PrimaryButton onClick={() => session.setPreviewUpload(course.id, uploads[0]?.id)} variant="outline"><UploadCloud size={21} /> 预览演示</PrimaryButton>
         <PrimaryButton onClick={startPresentation}>开始演示</PrimaryButton>
       </div>
-      <StudentAiChatPanel course={course} stageKey="showcase" contextLabel="成果汇报" />
+      <CompanionRoundtable course={course} stageKey="showcase" contextLabel="成果汇报" />
     </div>
   );
 }

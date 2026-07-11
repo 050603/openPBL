@@ -7,7 +7,7 @@ import {
   CheckCheck,
   Flag,
   HelpCircle,
-  Lightbulb,
+  Sparkles,
   Megaphone,
   Send,
   Target,
@@ -26,7 +26,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const totalSeats = course.classConfig?.totalStudents ?? 40;
   const joined = course.students.length;
   const rate = Math.min(100, Math.round((joined / totalSeats) * 100));
-  const grouped = course.groups?.reduce((sum, group) => sum + group.members.length, 0) ?? 0;
+  const projectSpaces = course.students.filter((student) => course.groups?.some((project) => project.members.some((member) => member.studentId === student.id))).length;
   const announcementRead = course.announcements?.length ? Math.round((joined / Math.max(1, totalSeats)) * 100) : 0;
 
   function publish() {
@@ -40,8 +40,8 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard title="到课情况" value={`${joined} / ${totalSeats}`} sub={`出勤率 ${rate}%`} icon={<Users className="text-blue-600" size={22} />} progress={rate} />
-        <StatCard title="已入组学生" value={`${grouped}`} sub={`${course.groups?.length ?? 0} 个小组`} icon={<Lightbulb className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((grouped / Math.max(1, joined)) * 100))} tone="emerald" />
-        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、选题、入组" icon={<HelpCircle className="text-amber-600" size={22} />} progress={66} tone="amber" />
+        <StatCard title="个人项目空间" value={`${projectSpaces}`} sub={`${joined} 名学生独立完成`} icon={<Sparkles className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((projectSpaces / Math.max(1, joined)) * 100))} tone="emerald" />
+        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、理解任务、确认成果" icon={<HelpCircle className="text-amber-600" size={22} />} progress={66} tone="amber" />
         <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-rose-600" size={22} />} progress={announcementRead} tone="rose" />
       </div>
 
@@ -61,7 +61,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
                 <Target size={16} /> 重点关注
               </div>
               <p className="mt-2 text-sm leading-7 text-slate-700">
-                学生需要完成：阅读项目说明、选择兴趣方向、加入小组。教师可在此发布公告并观察未入组学生。
+                学生需要理解真实情境、驱动问题、个人成果要求与评价标准。每名学生独立承担完整项目，AI 伴学小组提供认知支持。
               </p>
             </div>
           </div>
@@ -130,7 +130,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
                     <Avatar name={s.name} size={32} />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold">{s.name}</span>
                     <Pill tone={course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "green" : "orange"}>
-                      {course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "已入组" : "待入组"}
+                      {course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "项目空间就绪" : "正在初始化"}
                     </Pill>
                   </li>
                 ))}

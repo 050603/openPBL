@@ -16,7 +16,7 @@ export type StageGateResult = {
 
 export type InterventionSignal = {
   id: string;
-  kind: "shared-misconception" | "uneven-participation" | "off-target" | "over-generation" | "ethics" | "low-confidence" | "stalled";
+  kind: "shared-misconception" | "off-target" | "over-generation" | "ethics" | "low-confidence" | "stalled";
   title: string;
   whatHappened: string;
   evidence: string[];
@@ -39,10 +39,12 @@ function isProposalComplete(group: ProjectGroup): boolean {
   );
 }
 
-function activeGroupIds(course: Course): string[] {
-  if (course.classConfig?.groupMode === "none") return [course.id];
-  if (course.classConfig?.groupMode === "solo") return course.students.map((student) => student.id);
-  return (course.groups ?? []).filter((group) => group.members.length > 0).map((group) => group.id);
+function projectForStudent(course: Course, studentId: string): ProjectGroup | undefined {
+  return (course.groups ?? []).find((project) => project.members.some((member) => member.studentId === studentId));
+}
+
+function activeProjectIds(course: Course): string[] {
+  return course.students.map((student) => projectForStudent(course, student.id)?.id ?? student.id);
 }
 
 export function evaluateStageGate(course: Course, stageIndex = course.currentStageIndex): StageGateResult {
@@ -50,7 +52,7 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
   const blockers: StageGateItem[] = [];
   const warnings: StageGateItem[] = [];
   const completed: string[] = [];
-  const groupIds = activeGroupIds(course);
+  const projectIds = activeProjectIds(course);
 
   if (stage.key === "launch") {
     if (!course.summary.trim() || !course.drivingQuestion.trim()) blockers.push({ code: "project-brief", message: "项目说明和驱动问题需要完整", targetIds: [course.id] });
@@ -67,25 +69,28 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
     if (unmet.length) warnings.push({ code: "unmet-goals", message: `${unmet.length} 名学生仍有未达成目标，需要教师处理或说明覆盖`, targetIds: unmet });
   }
 
-  if (stage.key === "group") {
-    if (!groupIds.length) blockers.push({ code: "groups", message: "尚未形成可继续推进的个人或小组项目", targetIds: [] });
-    const incomplete = course.classConfig?.groupMode === "none" || course.classConfig?.groupMode === "solo"
-      ? groupIds.filter((id) => !(course.submissions ?? []).some((item) => (item.groupId === id || item.studentId === id || item.courseId === id) && ["idea", "plan"].includes(item.type)))
-      : (course.groups ?? []).filter((group) => group.members.length && !isProposalComplete(group)).map((group) => group.id);
-    if (incomplete.length) blockers.push({ code: "proposal-fields", message: `${incomplete.length} 个项目尚未完整填写核心方案与分工`, targetIds: incomplete });
-    else if (groupIds.length) completed.push("所有项目核心方案字段已完整");
-  }
-
-  if (stage.key === "review") {
-    const pending = (course.groups ?? []).filter((group) => group.members.length && group.teacherApproval?.status !== "approved").map((group) => group.id);
-    if (pending.length) blockers.push({ code: "teacher-approval", message: `${pending.length} 个小组尚未获得教师最终批准`, targetIds: pending });
-    else completed.push("所有有效小组已获得教师批准");
-    const openFeedback = (course.feedback ?? []).filter((item) => item.stageKey === "review" && item.status !== "resolved").map((item) => item.targetId);
+  if (stage.key === "proposal") {
+    const incomplete = course.students.filter((student) => {
+      const project = projectForStudent(course, student.id);
+      const hasSubmission = (course.submissions ?? []).some((item) =>
+        (item.studentId === student.id || item.groupId === project?.id) && ["idea", "plan"].includes(item.type));
+      return !hasSubmission && (!project || !isProposalComplete(project));
+    }).map((student) => student.id);
+    if (incomplete.length) blockers.push({ code: "proposal-fields", message: `${incomplete.length} 名学生尚未完整填写个人项目方案`, targetIds: incomplete });
+    else if (course.students.length) completed.push("所有学生的个人项目方案已完整");
+    const pending = course.students.filter((student) => projectForStudent(course, student.id)?.teacherApproval?.status !== "approved").map((student) => student.id);
+    if (pending.length) blockers.push({ code: "teacher-approval", message: `${pending.length} 名学生的项目方向尚未获得教师确认`, targetIds: pending });
+    else if (course.students.length) completed.push("所有个人项目方向已由教师确认");
+    const openFeedback = (course.feedback ?? []).filter((item) => ["proposal", "review"].includes(item.stageKey) && item.status !== "resolved").map((item) => item.targetId);
     if (openFeedback.length) warnings.push({ code: "open-feedback", message: "仍有反馈尚未回应", targetIds: [...new Set(openFeedback)] });
   }
 
   if (stage.key === "make") {
-    const noArtifact = groupIds.filter((id) => !(course.uploads ?? []).some((item) => item.groupId === id && item.category === "artifact") && !(course.submissions ?? []).some((item) => item.groupId === id && ["document", "evidence"].includes(item.type)));
+    const noArtifact = course.students.filter((student) => {
+      const projectId = projectForStudent(course, student.id)?.id;
+      return !(course.uploads ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && item.category === "artifact")
+        && !(course.submissions ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && ["document", "evidence"].includes(item.type));
+    }).map((student) => student.id);
     if (noArtifact.length) blockers.push({ code: "artifact", message: `${noArtifact.length} 个项目还没有作品版本或过程证据`, targetIds: noArtifact });
     const highRisk = (course.teacherInterventions ?? []).filter((item) => item.stageKey === "make" && item.severity === "high" && item.status === "open");
     if (highRisk.length) blockers.push({ code: "high-risk", message: `${highRisk.length} 个高风险问题尚未处理`, targetIds: highRisk.flatMap((item) => item.targetIds) });
@@ -93,7 +98,11 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
   }
 
   if (stage.key === "showcase") {
-    const unfinished = groupIds.filter((id) => !(course.uploads ?? []).some((item) => item.groupId === id && item.category === "presentation") && !(course.submissions ?? []).some((item) => item.groupId === id && item.type === "showcase"));
+    const unfinished = course.students.filter((student) => {
+      const projectId = projectForStudent(course, student.id)?.id;
+      return !(course.uploads ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && item.category === "presentation")
+        && !(course.submissions ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && item.type === "showcase");
+    }).map((student) => student.id);
     if (unfinished.length) blockers.push({ code: "presentation", message: `${unfinished.length} 个项目尚未完成最终汇报`, targetIds: unfinished });
     else completed.push("所有有效项目已完成汇报");
   }
@@ -118,12 +127,11 @@ export function detectInterventionSignals(course: Course, now = Date.now()): Int
     if (studentIds.length >= 2) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${id}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high" });
   });
 
-  (course.groups ?? []).forEach((group) => {
-    const contribution = (course.teamContributions ?? []).filter((item) => item.groupId === group.id).map((item) => item.percent);
-    if (contribution.length >= 2 && Math.max(...contribution) - Math.min(...contribution) >= 45) signals.push({ id: `participation:${group.id}`, kind: "uneven-participation", title: "小组分工明显不均", whatHappened: `${group.name} 的成员贡献差距达到 ${Math.max(...contribution) - Math.min(...contribution)}%`, evidence: contribution.map((value, index) => `成员 ${index + 1}：${value}%`), targetType: "group", targetIds: [group.id], suggestedAction: "检查任务分工，重新分配可验证的阶段产出", confidence: "high" });
-    const lastProgress = new Date(group.updatedAt).getTime();
-    const hasProgress = (course.workPlan ?? []).some((item) => item.groupId === group.id && item.progress > 0);
-    if (!hasProgress && now - lastProgress > 30 * 60 * 1000) signals.push({ id: `stalled:${group.id}`, kind: "stalled", title: "小组长时间无实质进展", whatHappened: `${group.name} 超过 30 分钟没有任务进度`, evidence: [`最后更新：${group.updatedAt}`, "任务进度均为 0"], targetType: "group", targetIds: [group.id], suggestedAction: "缩小下一步任务并约定一个十分钟内可提交的中间成果", confidence: "high" });
+  (course.groups ?? []).filter((project) => project.members.length === 1).forEach((project) => {
+    const lastProgress = new Date(project.updatedAt).getTime();
+    const hasProgress = (course.workPlan ?? []).some((item) => item.groupId === project.id && item.progress > 0);
+    const student = project.members[0];
+    if (!hasProgress && now - lastProgress > 30 * 60 * 1000) signals.push({ id: `stalled:${project.id}`, kind: "stalled", title: "个人项目长时间无实质进展", whatHappened: `${student.name} 的个人项目超过 30 分钟没有任务进度`, evidence: [`最后更新：${project.updatedAt}`, "尚未记录新的过程证据"], targetType: "student", targetIds: [student.studentId], suggestedAction: "帮助学生缩小下一步任务，并约定一个十分钟内可完成的中间证据", confidence: "high" });
   });
 
   const supportText = (course.aiSupports ?? []).map((item) => `${item.id}|${item.groupId ?? item.targetId}|${item.trigger}|${item.diagnosis}|${item.evidence.join(" ")}`);
@@ -133,7 +141,7 @@ export function detectInterventionSignals(course: Course, now = Date.now()): Int
       signals.push({ id: `${kind}:${id}`, kind, title, whatHappened: evidence.slice(0, 2).join("；"), evidence, targetType: targetId === course.id ? "course" : "group", targetIds: [targetId], suggestedAction: action, confidence });
     });
   };
-  addSupportSignal(/偏离|无关|教学目标不一致/, "off-target", "项目可能偏离教学目标", "与小组共同核对驱动问题，修改项目范围或成果要求");
+  addSupportSignal(/偏离|无关|教学目标不一致/, "off-target", "项目可能偏离教学目标", "与学生共同核对驱动问题，修改项目范围或成果要求");
   addSupportSignal(/完整生成|直接答案|代写|全部完成/, "over-generation", "学生连续要求 AI 完整生成", "暂停高影响生成，要求学生先提交草稿和自己的判断", "high");
   addSupportSignal(/伦理|价值|公平|隐私|现实争议/, "ethics", "项目涉及伦理或价值判断", "组织教师引导的讨论，明确事实、立场与价值判断的边界");
   addSupportSignal(/不确定|置信度低|证据不足|无法判断/, "low-confidence", "AI 对当前问题把握不足", "由教师核查证据并决定是否补充来源或调整任务");

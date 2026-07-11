@@ -142,13 +142,13 @@ export function ShowcaseTeacherView({
     try {
       session.addFeedback({
         courseId: course.id,
-        targetType: "group",
-        targetId: active.id,
+        targetType: "student",
+        targetId: active.members[0]?.studentId ?? active.id,
         stageKey: "showcase",
         kind,
         content: comment.trim(),
       });
-      flashMessage("已发送点评给小组", "ok");
+      flashMessage("已发送点评给学生", "ok");
     } catch (e) {
       flashMessage(`发送失败：${e instanceof Error ? e.message : "未知错误"}`, "err");
     } finally {
@@ -194,7 +194,7 @@ export function ShowcaseTeacherView({
   function setPresenting(group: ProjectGroup) {
     setActiveId(group.id);
     session.setPresentingGroup(course.id, group.id);
-    session.addActivity(course.id, "切换当前汇报组", group.name, "教师");
+    session.addActivity(course.id, "切换当前个人汇报", group.name, "教师");
   }
 
   const teacherScoreTotal = weightedTotal(scores, dimensions);
@@ -204,9 +204,9 @@ export function ShowcaseTeacherView({
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-4">
-        <Metric label="本场汇报组数" value={`${groups.length}`} />
+        <Metric label="本场个人汇报数" value={`${groups.length}`} />
         <Metric
-          label="当前汇报组"
+          label="当前汇报学生"
           value={groups.find((g) => g.id === course.presentingGroupId)?.name ?? "-"}
           tone="blue"
         />
@@ -238,7 +238,7 @@ export function ShowcaseTeacherView({
       <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Users className="text-blue-700" size={20} /> 小组列表
+            <Users className="text-blue-700" size={20} /> 学生项目列表
           </h2>
           <ul className="space-y-2">
             {groups.map((group) => {
@@ -315,7 +315,7 @@ export function ShowcaseTeacherView({
                     onClick={() => setPresenting(active)}
                     tone={course.presentingGroupId === active.id ? "green" : "blue"}
                   >
-                    {course.presentingGroupId === active.id ? "正在汇报" : "设为汇报组"}
+                    {course.presentingGroupId === active.id ? "正在汇报" : "设为当前汇报"}
                   </PrimaryButton>
                 </div>
               </div>
@@ -456,7 +456,7 @@ export function ShowcaseTeacherView({
               <TextArea
                 className="h-24"
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="对当前汇报小组的点评、问题或建议..."
+                placeholder="对当前学生汇报的点评、问题或建议..."
                 value={comment}
               />
               <div className="mt-3 flex justify-end gap-2">
@@ -471,7 +471,7 @@ export function ShowcaseTeacherView({
                   ) : (
                     <Lightbulb size={15} />
                   )}{" "}
-                  提问给小组
+                  提问给学生
                 </PrimaryButton>
                 <PrimaryButton
                   className="h-9 px-3 text-sm"
@@ -501,7 +501,7 @@ export function ShowcaseTeacherView({
           </div>
         ) : (
           <div className="grid place-items-center rounded-[10px] border border-dashed border-slate-300 py-20 text-sm text-slate-500">
-            暂无小组
+            暂无个人项目
           </div>
         )}
       </div>

@@ -982,8 +982,8 @@ function defaultTodos(): CourseTodo[] {
     },
     {
       id: "todo-join-group",
-      title: "加入小组",
-      description: "选择或创建小组，开启协作。",
+      title: "确认个人项目空间",
+      description: "确认系统已建立个人项目与 AI 伴学小组。",
       stageKey: "launch",
       completedBy: [],
     },
@@ -991,7 +991,7 @@ function defaultTodos(): CourseTodo[] {
       id: "todo-pick-direction",
       title: "选择兴趣方向",
       description: "确定你希望研究的问题切入点。",
-      stageKey: "group",
+      stageKey: "proposal",
       completedBy: [],
     },
   ];

@@ -112,7 +112,7 @@ export default function TeachClassroomPage() {
       )
     : 0;
 
-  // 风险小组：本阶段平均进度 < 35%
+  // 风险个人项目：本阶段进度 < 35%
   const riskGroups = currentStage
     ? (course.groups ?? [])
         .map((group) => {
@@ -198,7 +198,7 @@ export default function TeachClassroomPage() {
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total: course.stages.length, label: currentStage.label } : undefined}
       currentTask={currentStage ? `检查${currentStage.label}的阶段产出` : undefined}
-      leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "group" || currentStage?.key === "make" ? "学生" : "教师"}
+      leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "proposal" || currentStage?.key === "make" ? "学生" : "教师"}
       wide
       headerSlot={
         <div className="hidden items-center gap-1 md:flex">
@@ -385,7 +385,7 @@ export default function TeachClassroomPage() {
           <DataPanelCard
             icon={<AlertTriangle size={15} />}
             title="风险预警"
-            hint={`本阶段 · ${riskGroups.length} 个小组`}
+            hint={`本阶段 · ${riskGroups.length} 个个人项目`}
             tone={riskGroups.length > 0 ? "warning" : "ok"}
           >
             {riskGroups.length === 0 ? (
@@ -393,7 +393,7 @@ export default function TeachClassroomPage() {
                 <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-50 text-emerald-600">
                   <CheckCircle2 size={14} />
                 </span>
-                所有小组进度健康
+                所有学生项目进度健康
               </div>
             ) : (
               <ul className="space-y-1.5">
@@ -418,7 +418,7 @@ export default function TeachClassroomPage() {
                 ))}
                 {riskGroups.length > 5 ? (
                   <li className="pt-1 text-center text-[11px] text-slate-500">
-                    另有 {riskGroups.length - 5} 个小组...
+                    另有 {riskGroups.length - 5} 个个人项目...
                   </li>
                 ) : null}
               </ul>

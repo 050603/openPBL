@@ -27,8 +27,8 @@ type Tone = "blue" | "green" | "orange" | "red";
 
 const STAGE_HELP: Record<string, { goal: string; deliverable: string; ai: string; icon: ReactNode; tone: Tone }> = {
   launch: {
-    goal: "理解真实问题、明确成果要求，并完成入组准备。",
-    deliverable: "项目说明、兴趣方向、入组记录",
+    goal: "理解真实问题、明确个人成果要求与评价标准。",
+    deliverable: "项目说明、个人成果要求、问题意识",
     ai: "生成背景案例与驱动问题参考",
     icon: <Flag size={22} />,
     tone: "blue",
@@ -40,37 +40,30 @@ const STAGE_HELP: Record<string, { goal: string; deliverable: string; ai: string
     icon: <Bot size={22} />,
     tone: "blue",
   },
-  group: {
-    goal: "把真实问题转化为小组选题、成果形式和分工计划。",
-    deliverable: "选题、目标、关键词、分工表",
-    ai: "检查方向完整性，提示风险与分工建议",
-    icon: <Lightbulb size={22} />,
-    tone: "green",
-  },
-  review: {
-    goal: "先汇报方案，再完成 AI、教师、同伴三方纠偏。",
-    deliverable: "结构化方案、汇报提纲、修订记录",
-    ai: "诊断完整度、扫描风险、生成追问",
+  proposal: {
+    goal: "独立形成项目方案，并在 AI 伴学与教师指导下校准方向。",
+    deliverable: "个人方案、关键选择、校准与修订记录",
+    ai: "多角色启发、质疑、比较方案并记录选择理由",
     icon: <ClipboardCheck size={22} />,
     tone: "orange",
   },
   make: {
-    goal: "进入项目制作，持续提交过程证据并迭代作品。",
+    goal: "独立完成核心作品，持续保存过程证据并迭代。",
     deliverable: "作品草稿、上传材料、AI 采纳记录",
     ai: "检查实施步骤、证据缺口和伦理风险",
     icon: <Target size={22} />,
     tone: "blue",
   },
   showcase: {
-    goal: "完成成果提交、演示准备和公开汇报。",
-    deliverable: "汇报文件、展示评分、团队贡献记录",
+    goal: "完成个人成果提交、演示准备和公开汇报。",
+    deliverable: "核心作品、个人汇报、教师评价",
     ai: "检查汇报结构、证据表达和问答准备",
     icon: <Presentation size={22} />,
     tone: "orange",
   },
   reflection: {
-    goal: "查看综合评价，完成自评反思和下一轮改进计划。",
-    deliverable: "综合得分、自评、互评、改进计划",
+    goal: "回顾个人项目与 AI 使用，完成自我反思和迁移计划。",
+    deliverable: "过程评价、教师评价、自我反思、改进计划",
     ai: "提取过程证据并生成成长建议",
     icon: <Lightbulb size={22} />,
     tone: "green",
@@ -247,7 +240,7 @@ export function TeacherClassroomBanner({
   void timerText;
   void onlineCount;
   const help = getStageHelp(currentStage);
-  const groupCount = course.groups?.length ?? 0;
+  const projectCount = course.groups?.length ?? 0;
   return (
     <section className="relative overflow-hidden rounded-[var(--radius-lg)] bg-[var(--pbl-teacher)] text-white">
       <div className="pbl-hero-grid absolute inset-0 opacity-55" aria-hidden="true" />
@@ -278,7 +271,7 @@ export function TeacherClassroomBanner({
           <TeacherMetric icon={<Gauge size={16} />} label="完成" value={`${completion}%`} tone={completion >= 80 ? "green" : "blue"} />
           <TeacherMetric icon={<AlertTriangle size={16} />} label="介入" value={`${riskCount}`} tone={riskCount ? "orange" : "green"} />
           <TeacherMetric icon={<Users size={16} />} label="学生" value={`${course.students.length}`} tone="blue" />
-          <TeacherMetric icon={<ClipboardCheck size={16} />} label="小组" value={`${groupCount}`} tone="green" />
+          <TeacherMetric icon={<ClipboardCheck size={16} />} label="个人项目" value={`${projectCount}`} tone="green" />
         </div>
       </div>
       <div className="relative grid gap-2 border-t border-white/10 px-3 py-2 text-xs md:grid-cols-2 md:px-4">

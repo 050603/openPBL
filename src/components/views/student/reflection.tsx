@@ -16,7 +16,7 @@ import type {
 } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { buildReflectionEvidencePrompts } from "@/lib/teaching-ai/client-api";
-import { StudentAiChatPanel } from "./ai-chat-panel";
+import { CompanionRoundtable } from "./companion-roundtable";
 
 const FIVE_STAR_TOTAL = 5;
 
@@ -44,7 +44,6 @@ function pickLatest<T extends { createdAt: string }>(
 }
 
 function scoreToStars(score: number): number {
-  // 将 0-100 分数映射到 0-5 颗星，按 1=0-19, 2=20-39 ... 5=80+ 的常见分桶
   if (score >= 80) return 5;
   if (score >= 60) return 4;
   if (score >= 40) return 3;
@@ -81,7 +80,7 @@ export function ReflectionView({ course }: { course?: Course }) {
     [course?.stages],
   );
 
-  // 当前学生所属小组
+  // 当前学生的个人项目空间（沿用旧项目容器字段以兼容历史数据）
   const myGroup = useMemo(
     () =>
       course?.groups?.find((g) =>
@@ -90,7 +89,7 @@ export function ReflectionView({ course }: { course?: Course }) {
     [course?.groups, studentId],
   );
 
-  // 找到与当前学生所属小组相关的 rubric 评分
+  // 找到与当前学生个人项目相关的 rubric 评分
   const studentRubricScores = useMemo(
     () =>
       allRubricScores.filter((s) => s.groupId === myGroup?.id),
@@ -168,42 +167,6 @@ export function ReflectionView({ course }: { course?: Course }) {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0],
     [allFeedback, studentId, myGroup?.id],
   );
-
-  // ===== 同伴互评：teacher feedback 中 kind=praise 且非教师身份（actor 非教师 user.id 视为同伴） =====
-  // 由于 store 中 actor 字段含义模糊，这里采用更稳健的方案：从 Group 成员中
-  // 找到当前学生同组（除自己外）的所有其他学生，用他们的 teamContributions 备注作为"互评"
-  // 仍无可用数据时则回退到 group.members 列表
-  const peerEvaluations = useMemo(() => {
-    if (!myGroup) return [];
-    const contributions = (course?.teamContributions ?? []).filter(
-      (c) => c.groupId === myGroup.id && c.studentId !== studentId,
-    );
-    // 把贡献度归一化为星级
-    return myGroup.members
-      .filter((m) => m.studentId !== studentId)
-      .map((m, i) => {
-        const contrib = contributions.find((c) => c.studentId === m.studentId);
-        const percent = contrib?.percent ?? 0;
-        const stars = scoreToStars(percent);
-        // 文本回退：无 contrib.note 时显示中性占位（待真实互评接入）
-        const note =
-          contrib?.note ??
-          (percent >= 80
-            ? "在小组任务中表现突出，积极协作。"
-            : percent >= 50
-              ? "能按时完成所承担任务。"
-              : "参与了部分任务，期待后续更积极投入。");
-        return {
-          id: m.studentId,
-          name: m.name,
-          text: note,
-          stars,
-          date: contrib?.updatedAt ?? myGroup.updatedAt ?? myGroup.createdAt,
-          // 用 index 区分 key 防止 studentId 重复
-          key: `${m.studentId}-${i}`,
-        };
-      });
-  }, [myGroup, course?.teamContributions, studentId]);
 
   // ===== 真实成长建议：从 evaluationPlan.overallRubric 句子拆分；空时用维度描述拼接 =====
   const improvementSuggestions = useMemo(() => {
@@ -346,7 +309,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-bold">
@@ -369,8 +332,8 @@ export function ReflectionView({ course }: { course?: Course }) {
           {!latestRubric ? (
             <div className="mb-3 rounded-[8px] border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500">
               {myGroup
-                ? `你的小组「${myGroup.name}」尚未收到教师评分。教师在「展示评价」阶段提交评分后将自动同步至此。`
-                : "小组数据正在同步中，请稍候刷新。若持续未显示，请确认已加入小组。"}
+                ? `你的个人项目「${myGroup.name}」尚未收到教师评分。教师在「成果汇报与评价」阶段提交评分后将自动同步至此。`
+                : "个人项目数据正在同步中，请稍候刷新。"}
             </div>
           ) : null}
           <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_190px]">
@@ -434,52 +397,12 @@ export function ReflectionView({ course }: { course?: Course }) {
             <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
               暂未收到教师评价。
               <div className="mt-1 text-xs text-slate-400">
-                完成小组项目后，教师将在此留言。
+                完成个人项目汇报后，教师将在此留言。
               </div>
             </div>
           )}
         </Card>
 
-        <Card>
-          <h2 className="mb-5 text-xl font-bold">
-            同伴互评（{peerEvaluations.length}） <span className="text-slate-400">ⓘ</span>
-          </h2>
-          {peerEvaluations.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-              暂无同伴互评。加入小组后，同组成员将根据贡献度进行互评。
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {peerEvaluations.slice(0, 5).map((p) => (
-                <div className="border-b border-slate-100 pb-4 last:border-b-0" key={p.key}>
-                  <div className="mb-2 flex items-center gap-3">
-                    <Avatar name={p.name} size={34} />
-                    <div>
-                      <div className="font-bold">{p.name}</div>
-                      <div className="text-sm text-slate-500">{formatDate(p.date)}</div>
-                    </div>
-                    <div className="ml-auto flex text-blue-600">
-                      {Array.from({ length: FIVE_STAR_TOTAL }).map((_, index) => (
-                        <Star
-                          className={index < p.stars ? "" : "text-slate-300"}
-                          fill="currentColor"
-                          key={index}
-                          size={18}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <p className="text-sm leading-6 text-slate-600">{p.text}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {peerEvaluations.length > 5 ? (
-            <a className="mt-2 block text-right text-sm font-semibold text-blue-700" href="#">
-              查看全部评价 ›
-            </a>
-          ) : null}
-        </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
@@ -610,7 +533,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </PrimaryButton>
       </div>
       {course ? (
-        <StudentAiChatPanel course={course} stageKey="reflection" contextLabel="评价反思" />
+        <CompanionRoundtable course={course} stageKey="reflection" contextLabel="评价反思" />
       ) : null}
     </div>
   );

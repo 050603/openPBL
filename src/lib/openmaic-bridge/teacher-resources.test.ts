@@ -15,10 +15,10 @@ function resource(overrides: Partial<TeacherResourceScene> = {}): TeacherResourc
 }
 
 describe("teacher resources", () => {
-  it("uses an explicit stage key when it exists", () => {
+  it("migrates an explicit legacy stage key into the merged proposal stage", () => {
     expect(
       resolveTeacherResourceStageKey(resource({ stageKey: "group" }), DEFAULT_STAGES),
-    ).toBe("group");
+    ).toBe("proposal");
   });
 
   it("maps legacy introduction resources to the project launch stage", () => {

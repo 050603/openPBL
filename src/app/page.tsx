@@ -8,13 +8,13 @@ export default function Home() {
       <main className="mx-auto max-w-7xl px-5 py-12 md:px-8 md:py-20">
         <section className="grid gap-12 border-b border-[var(--pbl-border)] pb-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,.85fr)] lg:items-end">
           <div><p className="text-sm font-semibold text-[var(--pbl-teacher)]">AI 授知—教师导学—项目共创</p><h1 className="font-editorial mt-4 max-w-4xl text-4xl font-semibold leading-tight tracking-tight md:text-6xl">课堂不再围绕菜单和聊天框展开，而是围绕问题、阶段与协作推进。</h1><p className="mt-6 max-w-3xl text-base leading-8 text-[var(--pbl-text-muted)] md:text-lg">AI 讲解知识并提供过程支架，教师组织课堂并作出关键判断，学生在真实问题中构思、制作、展示和反思。</p></div>
-          <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]"><RoleRow index="01" title="AI 授知" text="讲解、互动、路径调整、即时反馈与过程记录" tone="ai" /><RoleRow index="02" title="教师导学" text="启动项目、组织课堂、纠偏方案、综合评价与价值引导" tone="teacher" /><RoleRow index="03" title="学生共创" text="理解问题、小组构思、项目制作、展示互评与学习反思" tone="student" /></div>
+          <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]"><RoleRow index="01" title="AI 授知与伴学" text="知识讲解、角色化支架、即时反馈、过程记录与过程评价" tone="ai" /><RoleRow index="02" title="教师线下导学" text="启动项目、组织课堂、校准方向、成果评价与迁移提升" tone="teacher" /><RoleRow index="03" title="学生个人项目" text="独立构思、关键决策、作品制作、成果汇报与学习反思" tone="student" /></div>
         </section>
         <section className="grid gap-8 py-12 md:grid-cols-2 md:py-16">
-          <Entry href="/teacher" icon={<GraduationCap size={22} />} eyebrow="教师" title="进入课程设计或正在进行的课堂" description="继续未完成的备课，处理需要教师判断的问题，或进入七阶段课堂。" tone="teacher" />
+          <Entry href="/teacher" icon={<GraduationCap size={22} />} eyebrow="教师" title="进入课程设计或正在进行的课堂" description="继续未完成的备课，处理需要教师判断的问题，或进入六阶段课堂。" tone="teacher" />
           <Entry href="/student" icon={<UsersRound size={22} />} eyebrow="学生" title="加入项目课堂，开始连续的学习与共创" description="使用教师提供的邀请码进入课堂，当前任务、阶段条件和项目作品会持续衔接。" tone="student" />
         </section>
-        <section className="grid gap-6 border-t border-[var(--pbl-border)] pt-10 md:grid-cols-[220px_1fr]"><div className="flex items-center gap-3"><BookOpenText className="text-[var(--pbl-ai)]" size={22} /><h2 className="font-editorial text-xl font-semibold">七个课堂阶段</h2></div><p className="max-w-4xl text-sm leading-7 text-[var(--pbl-text-muted)]">项目启动 · AI 授知 · 小组构思 · 方案汇报与纠偏 · 项目制作与 AI 实时支架 · 最终汇报展示 · 综合评价与反思。每一阶段都有不同的主导角色、过程证据和进入条件。</p></section>
+        <section className="grid gap-6 border-t border-[var(--pbl-border)] pt-10 md:grid-cols-[220px_1fr]"><div className="flex items-center gap-3"><BookOpenText className="text-[var(--pbl-ai)]" size={22} /><h2 className="font-editorial text-xl font-semibold">六个课堂阶段</h2></div><p className="max-w-4xl text-sm leading-7 text-[var(--pbl-text-muted)]">项目启动 · AI 授知 · 方案构思与校准 · 项目实践 · 成果汇报与评价 · 学习反思。学生独立承担一个完整项目，AI 伴学小组提供全过程认知支架。</p></section>
       </main>
     </div>
   );

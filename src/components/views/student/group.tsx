@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, FileText, Image as ImageIcon, Lightbulb, Megaphone, PenLine, Plus, Save, Trash2, Video, Wand2 } from "lucide-react";
@@ -8,7 +8,7 @@ import { useSession } from "@/lib/session/store";
 import type { Course, ProjectGroup } from "@/lib/session/types";
 import { diagnoseGroupIdea } from "@/lib/teaching-ai/client-api";
 import { GroupBoardEditor } from "./group-board-editor";
-import { StudentAiChatPanel } from "./ai-chat-panel";
+import { CompanionRoundtable } from "./companion-roundtable";
 
 const forms = [
   { label: "方案报告", icon: FileText, color: "bg-blue-600" },
@@ -343,7 +343,7 @@ export function GroupView({ course }: { course: Course }) {
         <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={() => saveIdea(false)} variant="outline"><Save size={21} /> 保存构思</PrimaryButton>
         <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={checkIdea}><Wand2 size={21} /> 检查方案完整性</PrimaryButton>
       </div>
-      <StudentAiChatPanel course={course} stageKey="group" contextLabel="小组构思" />
+      <CompanionRoundtable course={course} stageKey="group" contextLabel="小组构思" />
     </div>
   );
 }

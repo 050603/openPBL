@@ -198,7 +198,7 @@ export function DashboardShell({
                 <PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton>
                 <Link
                   className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50"
-                  href={isTeacher ? "/teacher/settings" : "/student/reflection"}
+                  href={isTeacher ? "/teacher/settings" : "/student"}
                   onClick={() => setOpenPanel(null)}
                 >
                   <UserRound size={15} /> 个人中心
@@ -275,7 +275,7 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
               : `/teacher/prepare/${item.id}/preview`
             : item.status === "teaching"
               ? `/student/classroom/${item.id}`
-              : "/student/project";
+              : "/student";
           return (
             <Link
               className={cn(

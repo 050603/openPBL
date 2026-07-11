@@ -4,8 +4,13 @@ export function resolveTeacherResourceStageKey(
   scene: TeacherResourceScene,
   stages: Stage[],
 ): string | undefined {
-  if (scene.stageKey && stages.some((stage) => stage.key === scene.stageKey)) {
-    return scene.stageKey;
+  const migratedStageKey = scene.stageKey === "group" || scene.stageKey === "review"
+    ? "proposal"
+    : scene.stageKey === "workspace"
+      ? "make"
+      : scene.stageKey;
+  if (migratedStageKey && stages.some((stage) => stage.key === migratedStageKey)) {
+    return migratedStageKey;
   }
 
   const normalizedTitle = scene.title.toLowerCase();

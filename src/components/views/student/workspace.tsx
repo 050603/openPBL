@@ -7,7 +7,7 @@ import { RichTextEditor } from "@/components/rich-text-editor";
 import type { AiSupportRecord, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { type ArtifactFocus, diagnoseProjectArtifact } from "@/lib/teaching-ai/client-api";
-import { StudentAiChatPanel } from "./ai-chat-panel";
+import { CompanionRoundtable } from "./companion-roundtable";
 
 const defaultDoc = "";
 
@@ -22,7 +22,7 @@ function plainTextLength(html: string): number {
 export function WorkspaceView({ course }: { course: Course }) {
   const session = useSession();
   const stageKey = course.stages[course.currentStageIndex]?.key ?? "make";
-  const isReviewStage = stageKey === "review";
+  const isReviewStage = stageKey === "proposal";
   const stageMode = isReviewStage
     ? {
         eyebrow: "阶段四 · 方案汇报与纠偏",
@@ -69,7 +69,7 @@ export function WorkspaceView({ course }: { course: Course }) {
       content: documentText,
       groupId: group?.id,
     });
-    session.addActivity(course.id, action, "项目设计报告已更新", group?.name ?? "学生小组");
+    session.addActivity(course.id, action, "项目设计报告已更新", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 75);
     setStatus("已保存");
   }
@@ -83,7 +83,7 @@ export function WorkspaceView({ course }: { course: Course }) {
       content: documentText,
       groupId: group?.id,
     });
-    session.addActivity(course.id, "提交项目方案", "小组已提交项目设计报告", group?.name ?? "学生小组");
+    session.addActivity(course.id, "提交项目方案", "学生已提交个人项目设计报告", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 100);
     setStatus("已提交");
   }
@@ -99,7 +99,7 @@ export function WorkspaceView({ course }: { course: Course }) {
       content: nextText,
       groupId: group?.id,
     });
-    session.addActivity(course.id, "采纳AI支架建议", "作品已根据支架建议补充修改方向", group?.name ?? "学生小组");
+    session.addActivity(course.id, "采纳AI支架建议", "作品已根据支架建议补充修改方向", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 85);
     setStatus("已采纳并保存修改");
     if (support) {
@@ -181,7 +181,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         groupId: group.id,
         files: [{ name: data.fileName, type: data.fileType, size: data.size, url: data.url }],
       });
-      session.addActivity(course.id, "上传文件", data.fileName, group.name ?? "学生小组");
+      session.addActivity(course.id, "上传文件", data.fileName, group.name ?? "个人项目");
       setStatus("文件已上传");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "上传失败");
@@ -328,7 +328,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         <PrimaryButton variant="outline" onClick={() => saveDocument()}>保存当前项目文档</PrimaryButton>
         <PrimaryButton tone="green" onClick={submitDocument}>{stageMode.submitLabel}</PrimaryButton>
       </div>
-      <StudentAiChatPanel course={course} stageKey="workspace" contextLabel="项目制作" />
+      <CompanionRoundtable course={course} stageKey="make" contextLabel="项目实践" />
     </div>
   );
 }

@@ -36,7 +36,7 @@ export function WorkspaceTeacherView({
   const [docPreviewOpen, setDocPreviewOpen] = useState(false);
 
   const stageKey = course.stages[course.currentStageIndex]?.key ?? "make";
-  const isReviewStage = stageKey === "review";
+  const isReviewStage = stageKey === "proposal";
   // AI 干预信号只在教师点击刷新时请求；失败时直接提示，不写入本地兜底结果。
   const [interventionSignals, setInterventionSignals] = useState<TeacherInterventionSignal[]>([]);
   const [signalsLoading, setSignalsLoading] = useState(false);
@@ -93,8 +93,8 @@ export function WorkspaceTeacherView({
     if (!question) return;
     addFeedback({
       courseId: course.id,
-      targetType: "group",
-      targetId: groupId,
+      targetType: "student",
+      targetId: groups.find((project) => project.id === groupId)?.members[0]?.studentId ?? groupId,
       stageKey,
       kind: "ai-support",
       content: question,
@@ -128,8 +128,8 @@ export function WorkspaceTeacherView({
     if (!active) return;
     addFeedback({
       courseId: course.id,
-      targetType: "group",
-      targetId: active.id,
+      targetType: "student",
+      targetId: active.members[0]?.studentId ?? active.id,
       stageKey,
       kind,
       content,
@@ -142,12 +142,12 @@ export function WorkspaceTeacherView({
     upsertAiSupport({
       courseId: course.id,
       stageKey,
-      targetType: "group",
-      targetId: active.id,
+      targetType: "student",
+      targetId: active.members[0]?.studentId ?? active.id,
       groupId: active.id,
       kind: "teacher-intervention",
       trigger: "教师确认制作支架",
-      inputSummary: `阶段：${stageKey}；小组：${active.name}；风险：${activeSignal.reasons.join("、")}`,
+      inputSummary: `阶段：${stageKey}；个人项目：${active.name}；风险：${activeSignal.reasons.join("、")}`,
       diagnosis: `需关注：${activeSignal.reasons.join("、")}`,
       suggestions: [activeSignal.supportCard],
       evidence: activeSignal.evidence,
@@ -159,7 +159,7 @@ export function WorkspaceTeacherView({
   if (!groups.length) {
     return (
       <Card className="grid place-items-center py-20 text-sm text-slate-500">
-        暂无小组数据，请先在“小组构思”阶段完成分组。
+        暂无个人项目数据，请等待学生加入课堂并建立项目空间。
       </Card>
     );
   }
@@ -168,7 +168,7 @@ export function WorkspaceTeacherView({
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
-          <div className="text-sm text-slate-500">小组总数</div>
+          <div className="text-sm text-slate-500">个人项目总数</div>
           <div className="mt-2 text-2xl font-bold">{groups.length}</div>
         </Card>
         <Card>
@@ -213,7 +213,7 @@ export function WorkspaceTeacherView({
                 <ClipboardCheck className="text-amber-600" size={18} /> AI 方案诊断
               </h3>
               <p className="mt-1 text-xs text-slate-500">
-                批量分析所有小组的方案文档，生成诊断摘要、风险点和可推送的追问问题（追问内容可编辑）。
+                批量分析所有学生的个人方案，生成诊断摘要、风险点和可推送的追问问题（追问内容可编辑）。
               </p>
             </div>
             <PrimaryButton
@@ -223,7 +223,7 @@ export function WorkspaceTeacherView({
               className="h-9 px-3 text-sm"
             >
               {diagnosisLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-              {diagnosisLoading ? "诊断中..." : "批量诊断所有小组方案"}
+              {diagnosisLoading ? "诊断中..." : "批量诊断所有个人方案"}
             </PrimaryButton>
           </div>
           {diagnosisError ? (
@@ -279,7 +279,7 @@ export function WorkspaceTeacherView({
                 <Lightbulb className="text-blue-600" size={18} /> AI 制作观察
               </h3>
               <p className="mt-1 text-xs text-slate-500">
-                刷新后按小组进度、材料上传、AI 支架采纳记录生成干预线索，重点识别停滞、缺证据和偏题。
+                刷新后按学生进度、材料上传、AI 支架采纳记录生成干预线索，重点识别停滞、缺证据和偏题。
               </p>
             </div>
             <PrimaryButton
@@ -408,7 +408,7 @@ export function WorkspaceTeacherView({
                   </div>
                 ) : (
                   <div className="rounded-[6px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">
-                    该小组尚未提交方案文档
+                    该学生尚未提交个人方案文档
                   </div>
                 )}
                 <div className="mt-3">
@@ -451,7 +451,7 @@ export function WorkspaceTeacherView({
                   </ul>
                 ) : (
                   <div className="rounded-[6px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">
-                    该小组暂无上传材料
+                    该个人项目暂无上传材料
                   </div>
                 )}
               </Card>
@@ -462,7 +462,7 @@ export function WorkspaceTeacherView({
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-1 text-rose-600" size={20} />
                   <div>
-                    <h3 className="font-bold text-rose-700">此小组进展停滞</h3>
+                    <h3 className="font-bold text-rose-700">此个人项目进展停滞</h3>
                     <p className="mt-1 text-sm text-slate-600">
                       当前进度仅 {groupProgressValue}%，建议发起一对一沟通或推送 AI 支架内容。
                     </p>
@@ -476,7 +476,7 @@ export function WorkspaceTeacherView({
                       </PrimaryButton>
                       <PrimaryButton
                         className="h-9 px-3 text-sm"
-                        onClick={() => sendFeedback("comment", "教师已发起一对一沟通，请组长在 5 分钟内回应当前卡点。")}
+                        onClick={() => sendFeedback("comment", "教师已发起一对一沟通，请学生在 5 分钟内回应当前卡点。")}
                         type="button"
                         variant="outline"
                       >
@@ -490,7 +490,7 @@ export function WorkspaceTeacherView({
           </div>
         ) : (
           <div className="grid place-items-center rounded-[10px] border border-dashed border-slate-300 py-20 text-sm text-slate-500">
-            暂无小组数据
+            暂无个人项目数据
           </div>
         )}
       </div>

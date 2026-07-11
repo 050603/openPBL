@@ -1,7 +1,6 @@
 import type { Course, StageViewKey } from "@/lib/session/types";
 import { ProjectLaunchTeacherView } from "./project-launch";
 import { AiLearningTeacherView } from "./ai-learning";
-import { GroupTeacherView } from "./group";
 import { WorkspaceTeacherView } from "./workspace";
 import { ShowcaseTeacherView } from "./showcase";
 import { ReflectionTeacherView } from "./reflection";
@@ -38,7 +37,7 @@ export function TeacherStageView({
         />
       );
     case "group":
-      return <GroupTeacherView course={course} onSelectGroup={onSelectGroup} />;
+      return <ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />;
     case "workspace":
       return (
         <WorkspaceTeacherView

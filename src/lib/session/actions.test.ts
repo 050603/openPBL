@@ -58,6 +58,12 @@ describe("applySessionAction — JOIN_CLASS", () => {
     expect(next.studentName).toBe("张三");
     expect(next.courses[0].students).toHaveLength(1);
     expect(next.courses[0].students[0].name).toBe("张三");
+    expect(next.courses[0].groups).toHaveLength(1);
+    expect(next.courses[0].groups?.[0]).toMatchObject({
+      id: "grp-s1",
+      name: "张三的个人项目",
+      members: [{ studentId: "s1", name: "张三", role: "项目负责人" }],
+    });
   });
 
   it("does not duplicate the student if they already joined", () => {
@@ -90,7 +96,7 @@ describe("applySessionAction — JOIN_CLASS", () => {
 });
 
 describe("applySessionAction — LEAVE_CLASS", () => {
-  it("removes the student from the course and any group memberships", () => {
+  it("removes the student and their personal project space", () => {
     const student = makeStudent("s1", "张三");
     const course = makeCourse({
       students: [student],
@@ -115,7 +121,7 @@ describe("applySessionAction — LEAVE_CLASS", () => {
     });
 
     expect(next.courses[0].students).toHaveLength(0);
-    expect(next.courses[0].groups![0].members).toHaveLength(0);
+    expect(next.courses[0].groups).toHaveLength(0);
   });
 
   it("clears joinedCourseId/studentId when the leaving student is the current user", () => {
@@ -420,16 +426,25 @@ describe("applySessionAction — SET_STAGE", () => {
 });
 
 describe("normalizeCourse — v2 migration", () => {
-  it("migrates shared workspace stages, feedback lanes and evaluation flows", () => {
+  it("migrates seven stages into the six-stage personal-project model", () => {
+    const legacyStages = [
+      ...DEFAULT_STAGES.slice(0, 2),
+      { key: "group", label: "小组构思", view: "group" as const, description: "组队" },
+      { key: "review", label: "方案汇报与纠偏", view: "workspace" as const, description: "汇报" },
+      ...DEFAULT_STAGES.slice(3),
+    ];
     const legacy = makeCourse({
-      stages: DEFAULT_STAGES.map((stage) => stage.key === "review" || stage.key === "make" ? { ...stage, view: "workspace" } : stage),
+      stages: legacyStages,
+      currentStageIndex: 3,
+      classConfig: { groupMode: "free", totalStudents: 36, perGroup: 6 },
       feedback: [{ id: "f1", courseId: "course-1", targetType: "group", targetId: "g1", stageKey: "review", kind: "comment", content: "请补充证据", createdAt: "2024-01-01T00:00:00.000Z" }],
     });
     const result = normalizeCourse(legacy);
-    expect(result.stages.find((stage) => stage.key === "review")?.view).toBe("proposal-review");
-    expect(result.stages.find((stage) => stage.key === "make")?.view).toBe("project-making");
+    expect(result.stages.map((stage) => stage.key)).toEqual(["launch", "ai-learning", "proposal", "make", "showcase", "reflection"]);
+    expect(result.stages[result.currentStageIndex].key).toBe("proposal");
+    expect(result.classConfig).toMatchObject({ groupMode: "solo", perGroup: 1, crossClass: false });
     expect(result.feedback?.[0]).toMatchObject({ sourceRole: "teacher", status: "open", evidence: [] });
-    expect(result.content.evaluationPlan.flows?.map((flow) => flow.sourceRole)).toEqual(["ai", "teacher", "peer", "self"]);
+    expect(result.content.evaluationPlan.flows?.map((flow) => flow.sourceRole)).toEqual(["ai", "teacher", "self"]);
     expect(result.content.evaluationPlan.flows?.reduce((sum, flow) => sum + flow.weight, 0)).toBe(100);
   });
 });

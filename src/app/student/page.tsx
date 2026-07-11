@@ -170,8 +170,8 @@ export default function StudentEntryPage() {
                 <TaskPreviewItem
                   icon={<Lightbulb size={15} />}
                   step="03"
-                  title="小组构思"
-                  desc="把真实问题转化为小组选题、成果形式和分工计划"
+                  title="方案构思与校准"
+                  desc="独立形成项目方案，并与角色化 AI 伙伴讨论、质疑和完善"
                   tone="teal"
                 />
                 <TaskPreviewItem
@@ -197,7 +197,7 @@ export default function StudentEntryPage() {
                   <div className="min-w-0">
                     <div className="text-[13px] font-bold text-teal-900">协作 · 探究 · 迭代</div>
                     <p className="mt-1 text-xs leading-5 text-teal-800/80">
-                      PBL 课堂强调小组协作与真实问题解决。你的每一次提交、每一份证据都会成为最终评价的一部分。
+                      你将独立承担一个完整项目，AI 伴学伙伴提供解释、启发、质疑与反馈。每一次选择、修改和作品迭代都会成为过程评价证据。
                     </p>
                   </div>
                 </div>

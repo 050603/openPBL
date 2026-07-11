@@ -11,7 +11,7 @@ import {
   MessageCircle,
   Send,
   Target,
-  Users,
+  UserRoundCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, FileBadge, Pill, PrimaryButton, TextArea } from "@/components/ui";
@@ -26,7 +26,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
   const studentId = session.studentId;
   const title = course?.name || "未命名项目";
   const drivingQ = course?.drivingQuestion || "暂无驱动问题，请联系教师补充。";
-  const group = course.groups?.find((item) => item.members.some((member) => member.studentId === studentId));
+  const project = course.groups?.find((item) => item.members.some((member) => member.studentId === studentId));
 
   // 从 course.stages 派生时间表（替代 mock-data 的 projectTimeline）
   const projectTimeline = course.stages.map((stage, index) => {
@@ -35,18 +35,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
     return [String(index + 1), stage.label, subtitle] as const;
   });
 
-  function joinOrCreateGroup() {
-    if (!course || !studentId) return;
-    const target = group ?? course.groups?.[0] ?? session.createGroup(course.id, "绿色校园行动小组");
-    session.joinGroup(course.id, target.id, group ? undefined : "成员");
-    session.completeTodo(course.id, "todo-join-group", true);
-  }
-
   function completeTodo(todoId: string) {
-    if (todoId === "todo-join-group") {
-      joinOrCreateGroup();
-      return;
-    }
     session.completeTodo(course.id, todoId, true);
   }
 
@@ -87,7 +76,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
               <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] leading-7 text-slate-700">
                 <li>按教师设定的课程阶段推进项目，完成各阶段任务。</li>
                 <li>在「方案阶段」提交完整项目方案文档。</li>
-                <li>在「最终展示」阶段完成小组汇报与材料提交。</li>
+                <li>在「成果汇报与评价」阶段完成个人汇报与材料提交。</li>
               </ul>
               <p className="mt-2 text-xs text-slate-500">具体要求以教师发布的项目公告与待办为准。</p>
             </div>
@@ -101,7 +90,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
             </div>
             <h2 className="text-xl font-bold">时间安排</h2>
           </div>
-          <div className="relative grid grid-cols-7 gap-2 overflow-x-auto pb-1">
+          <div className="relative grid gap-2 overflow-x-auto pb-1" style={{ gridTemplateColumns: `repeat(${projectTimeline.length}, minmax(96px, 1fr))` }}>
             <div className="absolute left-[6%] right-[7%] top-[18px] h-1 rounded-full bg-slate-200" />
             {projectTimeline.map(([step, label, date], index) => (
               <div className="relative z-10 min-w-[86px] text-center" key={step}>
@@ -121,15 +110,17 @@ export function ProjectLaunchView({ course }: { course: Course }) {
           <h2 className="mb-4 text-xl font-bold">学生待办</h2>
           {(course.todos ?? []).map((todo) => {
             const done = Boolean(studentId && todo.completedBy.includes(studentId));
-            const Icon = todo.id.includes("group") ? Users : todo.id.includes("direction") ? Compass : FileText;
+            const Icon = todo.id.includes("group") ? UserRoundCheck : todo.id.includes("direction") ? Compass : FileText;
+            const displayTitle = todo.id.includes("group") ? "确认个人项目空间" : todo.title;
+            const displayDescription = todo.id.includes("group") ? "系统已为你建立个人项目与 AI 伴学小组" : todo.description;
             return (
               <div className="mb-3 flex items-center gap-4 rounded-[8px] border border-slate-200 p-3 last:mb-0" key={todo.id}>
                 <div className={`grid h-10 w-10 place-items-center rounded-[6px] ${done ? "bg-emerald-50 text-emerald-600" : "bg-blue-50 text-blue-600"}`}>
                   {done ? <CheckCircle2 size={22} /> : <Icon size={23} />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold">{todo.title}</div>
-                  <div className="text-sm text-slate-500">{todo.description}</div>
+                  <div className="font-bold">{displayTitle}</div>
+                  <div className="text-sm text-slate-500">{displayDescription}</div>
                 </div>
                 <button
                   className={`h-9 rounded-[5px] border px-3 text-sm font-semibold ${done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-400 text-blue-700 hover:bg-blue-50"}`}
@@ -226,9 +217,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
           </div>
         </Card>
 
-        <PrimaryButton className="h-14 w-full text-xl" onClick={joinOrCreateGroup}>
-          <Users size={24} /> {group ? `已加入：${group.name}` : "加入小组"}
-        </PrimaryButton>
+        <div className="flex min-h-14 items-center gap-3 rounded-[8px] border border-emerald-200 bg-emerald-50 px-4 text-emerald-800"><UserRoundCheck size={24} /><span><span className="block font-bold">个人项目空间已准备</span><span className="text-sm">{project?.name ?? "进入方案阶段后即可开始独立构思"}</span></span></div>
       </aside>
     </div>
   );

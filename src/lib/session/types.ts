@@ -556,10 +556,9 @@ export type EvaluationRecord = {
 };
 
 export const DEFAULT_EVALUATION_FLOWS: EvaluationFlow[] = [
-  { id: "evaluation-ai", sourceRole: "ai", name: "AI 过程评价", weight: 25, evidenceRequirements: ["学习目标达成记录", "AI 支架与采纳记录"], enabled: true },
+  { id: "evaluation-ai", sourceRole: "ai", name: "AI 过程评价", weight: 30, evidenceRequirements: ["学习轨迹与提问记录", "方案修改与反馈采纳", "作品迭代与 AI 使用记录"], enabled: true },
   { id: "evaluation-teacher", sourceRole: "teacher", name: "教师项目与汇报评价", weight: 50, evidenceRequirements: ["项目作品版本", "汇报与答辩记录"], enabled: true },
-  { id: "evaluation-peer", sourceRole: "peer", name: "学生互评", weight: 15, evidenceRequirements: ["同伴反馈与回应"], enabled: true },
-  { id: "evaluation-self", sourceRole: "self", name: "学生自评", weight: 10, evidenceRequirements: ["个人反思与判断说明"], enabled: true },
+  { id: "evaluation-self", sourceRole: "self", name: "学生自我反思", weight: 20, evidenceRequirements: ["目标达成与个人贡献", "AI 使用判断", "困难、收获与改进计划"], enabled: true },
 ];
 
 export type EvaluationDimension = {
@@ -682,34 +681,28 @@ export const DEFAULT_STAGES: Stage[] = [
     description: "AI辅助知识学习与基础概念建构",
   },
   {
-    key: "group",
-    label: "小组构思",
-    view: "group",
-    description: "小组组建、选题与方案方向讨论",
-  },
-  {
-    key: "review",
-    label: "方案汇报与纠偏",
+    key: "proposal",
+    label: "方案构思与校准",
     view: "proposal-review",
-    description: "中期方案汇报与教师纠偏",
+    description: "独立形成项目方案，在 AI 伴学与教师指导下校准方向",
   },
   {
     key: "make",
-    label: "项目制作",
+    label: "项目实践",
     view: "project-making",
-    description: "项目方案执行与作品制作",
+    description: "独立完成核心作品，在 AI 伴学支持下持续迭代",
   },
   {
     key: "showcase",
-    label: "最终展示",
+    label: "成果汇报与评价",
     view: "showcase",
-    description: "成果展示与现场汇报",
+    description: "公开呈现个人项目成果，由教师评价作品与表达",
   },
   {
     key: "reflection",
-    label: "评价反思",
+    label: "学习反思",
     view: "reflection",
-    description: "综合评价与个人成长反思",
+    description: "回顾个人项目过程，反思 AI 使用并形成迁移计划",
   },
 ];
 
