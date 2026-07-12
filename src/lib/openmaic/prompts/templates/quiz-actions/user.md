@@ -4,6 +4,7 @@ Key Points: {{keyPoints}}
 Description: {{description}}
 {{courseContext}}
 {{agents}}
+{{pblContext}}
 
 **Language Directive**: {{languageDirective}}
 

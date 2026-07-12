@@ -10,6 +10,7 @@ import {
 } from '@openmaic/lib/server/api-response';
 import { createLogger } from '@openmaic/lib/logger';
 import { linkClassroomToCourse } from '@/lib/openmaic-bridge/course-linker';
+import { splitGeneratedClassroom } from '@/lib/openmaic-bridge/server-classroom-split';
 import type { SceneOutline } from '@openmaic/lib/types/generation';
 
 const log = createLogger('GenerateAPI');
@@ -64,6 +65,10 @@ export async function POST(request: NextRequest) {
 
   const {
     requirement,
+    pblProfile,
+    pblTeachingActivities,
+    pblActivityCatalog,
+    knowledgePoints,
     courseId,
     courseTitle,
     sceneOutlines: rawSceneOutlines,
@@ -74,6 +79,10 @@ export async function POST(request: NextRequest) {
     agentMode = 'default',
   } = body as {
     requirement?: string;
+    pblProfile?: import('@openmaic/lib/types/generation').UserRequirements['pblProfile'];
+    pblTeachingActivities?: import('@openmaic/lib/types/generation').UserRequirements['pblTeachingActivities'];
+    pblActivityCatalog?: import('@openmaic/lib/types/generation').UserRequirements['pblActivityCatalog'];
+    knowledgePoints?: Array<{ id: string; name?: string }>;
     courseId?: string;
     courseTitle?: string;
     sceneOutlines?: unknown;
@@ -124,6 +133,10 @@ export async function POST(request: NextRequest) {
         const result = await generateClassroom(
           {
             requirement,
+            pblProfile,
+            pblTeachingActivities,
+            pblActivityCatalog,
+            knowledgePoints,
             courseTitle,
             sceneOutlines,
             enableWebSearch,
@@ -148,11 +161,24 @@ export async function POST(request: NextRequest) {
           },
         );
 
-        // 关联到 openPBL 课程
+        const splitResult = await splitGeneratedClassroom({
+          stage: result.stage,
+          scenes: result.scenes,
+          courseName: courseTitle,
+          baseUrl,
+          pblMode:
+            pblProfile?.generationTemplate === 'pbl-six-stage' ||
+            Boolean(pblTeachingActivities?.length),
+        });
+
+        // 关联到 openPBL 课程。此时学生课堂已经完成服务端分流，绝不再
+        // 把含教师资源的原始全量课堂暴露给学生端。
         if (courseId) {
-          await linkClassroomToCourse(courseId, result.id, {
-            scenesCount: result.scenesCount,
+          await linkClassroomToCourse(courseId, splitResult.studentClassroomId, {
+            scenesCount: splitResult.studentSceneCount,
             stageName: result.stage.name,
+            teacherClassroomId: splitResult.teacherClassroomId,
+            teacherResourceScenes: splitResult.teacherResourceScenes,
           });
         }
 
@@ -164,7 +190,12 @@ export async function POST(request: NextRequest) {
           type: 'done',
           id: result.id,
           url: result.url,
-          scenesCount: result.scenesCount,
+          scenesCount: splitResult.studentSceneCount,
+          studentSceneCount: splitResult.studentSceneCount,
+          teacherSceneCount: splitResult.teacherSceneCount,
+          teacherClassroomId: splitResult.teacherClassroomId,
+          teacherResourceScenes: splitResult.teacherResourceScenes,
+          pblCoverage: splitResult.pblCoverage,
           stage: { id: result.stage.id, name: result.stage.name },
         });
       } catch (error) {

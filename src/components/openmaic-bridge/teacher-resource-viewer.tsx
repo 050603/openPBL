@@ -105,6 +105,9 @@ export function TeacherResourceViewer({
                   type="button"
                 >
                   <span className="block text-xs font-bold">{index + 1}. {scene.title}</span>
+                  <span className="mt-1 block text-[10px] text-slate-400">
+                    {scene.stageLabel ?? "未标注阶段"}
+                  </span>
                 </button>
               ))}
             </div>
@@ -156,7 +159,7 @@ function ScriptTab({
                     : scene.role === "pbl-topic"
                       ? "PBL 题目讲解"
                       : "课堂演示"}{" "}
-                  · {teacherResourceTypeLabel(scene.type)}
+                  · {teacherResourceTypeLabel(scene.type)} · {scene.stageLabel ?? "未标注阶段"} · {teacherResourcePurposeLabel(scene.generationPurpose)}
                 </div>
               </div>
             </div>
@@ -204,4 +207,19 @@ function ScriptTab({
       ))}
     </div>
   );
+}
+
+function teacherResourcePurposeLabel(
+  purpose: TeacherResources["scenes"][number]["generationPurpose"],
+): string {
+  switch (purpose) {
+    case "facilitation-scaffold":
+      return "教师主持支架";
+    case "companion-guidance":
+      return "伴学引导提示";
+    case "knowledge-teaching":
+      return "知识讲解";
+    default:
+      return "教师资源";
+  }
 }

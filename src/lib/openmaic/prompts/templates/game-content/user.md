@@ -18,6 +18,8 @@ Create an educational GAME widget for: {{title}}
 
 ## Language
 
+{{pblContext}}
+
 {{languageDirective}}
 
 ---

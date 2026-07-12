@@ -78,7 +78,7 @@ export default function StudentClassroomPage() {
   if (!hydrated) {
     return (
       <DashboardShell role="student" userName={displayName} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中...</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中...</div>
       </DashboardShell>
     );
   }
@@ -87,11 +87,11 @@ export default function StudentClassroomPage() {
     return (
       <DashboardShell role="student" userName={displayName} variant="bare">
         <div className="mx-auto mt-20 max-w-md text-center">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-rose-50 text-rose-600">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]">
             <LogIn size={26} />
           </div>
           <h1 className="mt-4 text-2xl font-bold">未找到课堂</h1>
-          <p className="mt-2 text-sm text-slate-500">该课堂不存在，或已被教师移除。</p>
+          <p className="mt-2 text-sm text-stone-500">该课堂不存在，或已被教师移除。</p>
           <PrimaryButton className="mt-6 h-11 px-6" onClick={() => router.replace("/student")}>
             返回学生端
           </PrimaryButton>
@@ -127,18 +127,18 @@ export default function StudentClassroomPage() {
       headerSlot={
         isTeaching && currentStage ? (
           <div className="hidden items-center gap-2 md:flex">
-            <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-teal-50 px-2.5 text-[12px] font-bold text-teal-700 ring-1 ring-teal-200">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+            <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[var(--pbl-student-soft)] px-2.5 text-[12px] font-bold text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-student)]" />
               阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
             </span>
             <div className="flex items-center gap-1.5">
-              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200">
-                <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${progress}%` }} />
+              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-stone-200">
+                <div className="h-full rounded-full bg-[var(--pbl-student)] transition-all" style={{ width: `${progress}%` }} />
               </div>
-              <span className="text-[12px] font-bold text-teal-700">{progress}%</span>
+              <span className="text-[12px] font-bold text-[var(--pbl-student)]">{progress}%</span>
             </div>
-            <span className="text-[12px] font-semibold text-slate-400">在线 {onlineCount}</span>
-            <StudentLeaveButton className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-rose-200 bg-white/80 px-2.5 text-[12px] font-semibold text-rose-600 transition hover:bg-rose-50" />
+            <span className="text-[12px] font-semibold text-stone-400">在线 {onlineCount}</span>
+            <StudentLeaveButton className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-orange-200 bg-white/80 px-2.5 text-[12px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]" />
           </div>
         ) : (
           <Pill tone={isTeaching ? "green" : "orange"} className="hidden md:inline-flex">
@@ -151,16 +151,16 @@ export default function StudentClassroomPage() {
       {/* 小屏幕精简课程信息条 */}
       {isTeaching && currentStage ? (
         <div className="mb-3 flex items-center gap-2 md:hidden">
-          <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-teal-50 px-2.5 text-[12px] font-bold text-teal-700 ring-1 ring-teal-200">
+          <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[var(--pbl-student-soft)] px-2.5 text-[12px] font-bold text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
             阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
           </span>
           <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-12 overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${progress}%` }} />
+            <div className="h-1.5 w-12 overflow-hidden rounded-full bg-stone-200">
+              <div className="h-full rounded-full bg-[var(--pbl-student)] transition-all" style={{ width: `${progress}%` }} />
             </div>
-            <span className="text-[12px] font-bold text-teal-700">{progress}%</span>
+            <span className="text-[12px] font-bold text-[var(--pbl-student)]">{progress}%</span>
           </div>
-          <StudentLeaveButton className="ml-auto inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-rose-200 bg-white px-2.5 text-[12px] font-semibold text-rose-600" />
+          <StudentLeaveButton className="ml-auto inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-orange-200 bg-white px-2.5 text-[12px] font-semibold text-[var(--pbl-danger)]" />
         </div>
       ) : null}
 
@@ -173,12 +173,12 @@ export default function StudentClassroomPage() {
       ) : currentStage ? (
         <>
           {optionalProjection ? (
-            <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-indigo-200 bg-indigo-50/80">
+            <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-white text-indigo-700"><MonitorUp size={18} /></span><div><p className="font-bold text-indigo-950">教师正在投屏：{optionalProjection.title}</p><p className="text-xs text-indigo-700">你可以继续当前任务，也可以打开只读实时演示。</p></div></div>
+                <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--pbl-teacher)]"><MonitorUp size={18} /></span><div><p className="font-bold text-stone-900">教师正在投屏：{optionalProjection.title}</p><p className="text-xs text-[var(--pbl-teacher)]">你可以继续当前任务，也可以打开只读实时演示。</p></div></div>
                 <PrimaryButton onClick={() => setOptionalProjectionOpen((value) => !value)} type="button" variant="outline">{optionalProjectionOpen ? <><X size={15} />收起投屏</> : <><MonitorUp size={15} />查看投屏</>}</PrimaryButton>
               </div>
-              {optionalProjectionOpen ? <div className="border-t border-indigo-200 bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
+              {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
             </div>
           ) : null}
           {!optionalProjectionOpen ? <section
@@ -204,11 +204,11 @@ function WaitingState({ status }: { status: string }) {
   const message = status === "ready" ? "教师尚未开始授课，请稍候。" : "课堂尚未开放，请稍候。";
   return (
     <Card className="text-center">
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-50 text-amber-600">
+      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]">
         <Hourglass size={32} />
       </div>
       <h2 className="mt-4 text-2xl font-bold">课堂暂未开始</h2>
-      <p className="mt-2 text-sm text-slate-500">{message}</p>
+      <p className="mt-2 text-sm text-stone-500">{message}</p>
     </Card>
   );
 }
@@ -216,11 +216,11 @@ function WaitingState({ status }: { status: string }) {
 function FinishedState({ course }: { course: { name: string } }) {
   return (
     <Card className="text-center">
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-slate-100 text-slate-500">
+      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-stone-100 text-stone-500">
         <Clock3 size={32} />
       </div>
       <h2 className="mt-4 text-2xl font-bold">课堂已结束</h2>
-      <p className="mt-2 text-sm text-slate-500">《{course.name}》已结束授课。你可以留在这里回看作品、评价证据和反思记录。</p>
+      <p className="mt-2 text-sm text-stone-500">《{course.name}》已结束授课。你可以留在这里回看作品、评价证据和反思记录。</p>
     </Card>
   );
 }

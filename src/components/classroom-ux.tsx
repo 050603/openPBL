@@ -244,7 +244,7 @@ export function TeacherClassroomBanner({
   return (
     <section className="relative overflow-hidden rounded-[var(--radius-lg)] bg-[var(--pbl-teacher)] text-white">
       <div className="pbl-hero-grid absolute inset-0 opacity-55" aria-hidden="true" />
-      <div className="absolute -right-16 -top-28 h-64 w-64 rounded-full bg-blue-500/28 blur-3xl" aria-hidden="true" />
+      <div className="absolute -right-16 -top-28 h-64 w-64 rounded-full bg-blue-400/28 blur-3xl" aria-hidden="true" />
       <div className="relative grid gap-3 p-3 md:p-4 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white/12 text-white ring-1 ring-white/18">
@@ -328,7 +328,7 @@ function TeacherMetric({
 }) {
   return (
     <div className="rounded-[12px] bg-white/10 px-3 py-2 ring-1 ring-white/12 backdrop-blur">
-      <div className={cn("flex items-center gap-1.5 text-[11px] font-semibold", tone === "green" ? "text-emerald-200" : tone === "orange" ? "text-amber-200" : "text-sky-200")}>
+      <div className={cn("flex items-center gap-1.5 text-[11px] font-semibold", tone === "green" ? "text-green-200" : tone === "orange" ? "text-orange-200" : "text-blue-200")}>
         {icon}
         {label}
       </div>

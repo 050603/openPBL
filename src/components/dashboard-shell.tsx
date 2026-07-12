@@ -101,7 +101,7 @@ export function DashboardShell({
   }
 
   return (
-    <div className={cn("min-h-screen text-slate-900", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
+    <div className={cn("min-h-screen text-[var(--pbl-text)]", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
       <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
         <div className="mx-auto flex min-h-16 max-w-[1760px] items-center px-3 py-2 md:px-6">
           <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
@@ -139,7 +139,7 @@ export function DashboardShell({
             </div>
             {isTeacher ? (
               <Link
-                className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-[13px] font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 md:inline-flex"
+                className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white/80 px-3 text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)] md:inline-flex"
                 href="/teacher/settings"
               >
                 <Settings size={14} /> AI 设置
@@ -153,7 +153,7 @@ export function DashboardShell({
             >
               <Bell size={18} strokeWidth={1.8} />
               {unreadCount ? (
-                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
                   {unreadCount}
                 </span>
               ) : null}
@@ -231,11 +231,11 @@ function StatusPill({ status }: { status: CourseStatus }) {
     <span
       className={cn(
         "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-semibold ring-1",
-        status === "ready" && "bg-emerald-50 text-emerald-700 ring-emerald-200",
-        status === "teaching" && "bg-indigo-50 text-indigo-700 ring-indigo-200",
-        status === "preparing" && "bg-amber-50 text-amber-700 ring-amber-200",
-        status === "draft" && "bg-slate-100 text-slate-600 ring-slate-200",
-        status === "finished" && "bg-slate-100 text-slate-500 ring-slate-200",
+        status === "ready" && "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-green-200",
+        status === "teaching" && "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
+        status === "preparing" && "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-orange-200",
+        status === "draft" && "bg-stone-100 text-stone-600 ring-stone-200",
+        status === "finished" && "bg-stone-100 text-stone-500 ring-stone-200",
       )}
     >
       {COURSE_STATUS_LABEL[status]}
@@ -279,8 +279,8 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
           return (
             <Link
               className={cn(
-                "block rounded-[var(--radius-sm)] border px-3 py-2.5 transition hover:border-indigo-300 hover:bg-indigo-50/40",
-                item.id === currentId ? "border-indigo-300 bg-indigo-50/60" : "border-slate-200 bg-white/80",
+                "block rounded-[var(--radius-sm)] border px-3 py-2.5 transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]",
+                item.id === currentId ? "border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]" : "border-[var(--pbl-border)] bg-white/80",
               )}
               href={href}
               key={item.id}
@@ -333,8 +333,8 @@ export function LogoMark({ role = "teacher" }: { role?: Role }) {
   const isTeacher = role === "teacher";
   return (
     <div className="relative h-9 w-9 shrink-0">
-      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-700" : "bg-teal-600")} />
-      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-400" : "bg-teal-400")} />
+      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-hover)]" : "bg-[var(--pbl-student-hover)]")} />
+      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]")} />
       <div className="absolute bottom-0 left-[12px] h-3 w-3 rotate-45 bg-white" />
     </div>
   );
@@ -344,7 +344,7 @@ export function Avatar({ name, size = 34 }: { name: string; size?: number }) {
   const initials = name.slice(0, 1);
   return (
     <div
-      className="grid shrink-0 place-items-center rounded-full bg-slate-800 text-sm font-bold text-white"
+      className="grid shrink-0 place-items-center rounded-full bg-stone-800 text-sm font-bold text-white"
       style={{ height: size, width: size }}
       title={name}
     >

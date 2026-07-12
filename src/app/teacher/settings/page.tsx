@@ -24,7 +24,9 @@ import {
   Search,
   Server,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
+  Users,
   Video,
   Volume2,
   X,
@@ -46,6 +48,9 @@ import { qualifyModelForProvider, splitModelIds } from "@/lib/openmaic-bridge/mo
 
 import { PROVIDERS } from "@openmaic/lib/ai/providers";
 import { ASR_PROVIDERS, DEFAULT_TTS_VOICES, TTS_PROVIDERS } from "@openmaic/lib/audio/constants";
+import { getEnabledProvidersWithVoices } from "@openmaic/lib/audio/voice-resolver";
+import { useSettingsStore } from "@openmaic/lib/store/settings";
+import { AI_COMPANIONS } from "@/lib/ai-companions";
 import { IMAGE_PROVIDERS } from "@openmaic/lib/media/image-providers";
 import { VIDEO_PROVIDERS } from "@openmaic/lib/media/video-providers";
 import { PDF_PROVIDERS } from "@openmaic/lib/pdf/constants";
@@ -54,7 +59,7 @@ import { ServerProvidersInit } from "@openmaic/components/server-providers-init"
 import { I18nProvider } from "@openmaic/lib/hooks/use-i18n";
 import { ThemeProvider } from "@openmaic/lib/hooks/use-theme";
 
-type TabKey = "llm" | "tts" | "asr" | "image" | "video" | "web-search" | "pdf";
+type TabKey = "llm" | "tts" | "asr" | "image" | "video" | "web-search" | "pdf" | "agent-voice";
 
 type ProviderMeta = {
   id: string;
@@ -89,50 +94,56 @@ const TABS: Array<{
   section: ProviderSection;
   icon: ComponentType<{ size?: number; className?: string }>;
 }> = [
-  { key: "llm", label: "LLM 大模型", shortLabel: "LLM", section: "providers", icon: Bot },
-  { key: "tts", label: "TTS 语音合成", shortLabel: "TTS", section: "tts", icon: Volume2 },
-  { key: "asr", label: "ASR 语音识别", shortLabel: "ASR", section: "asr", icon: Mic },
+  { key: "llm", label: "AI 大模型", shortLabel: "AI 模型", section: "providers", icon: Bot },
+  { key: "tts", label: "语音朗读", shortLabel: "语音朗读", section: "tts", icon: Volume2 },
+  { key: "asr", label: "语音识别", shortLabel: "语音识别", section: "asr", icon: Mic },
   { key: "image", label: "图像生成", shortLabel: "图像", section: "image", icon: ImageIcon },
   { key: "video", label: "视频生成", shortLabel: "视频", section: "video", icon: Video },
-  { key: "web-search", label: "Web 搜索", shortLabel: "搜索", section: "web-search", icon: Search },
+  { key: "web-search", label: "联网搜索", shortLabel: "搜索", section: "web-search", icon: Search },
   { key: "pdf", label: "PDF 解析", shortLabel: "PDF", section: "pdf", icon: FileText },
+  { key: "agent-voice", label: "智能体音色", shortLabel: "音色", section: "tts", icon: Users },
 ];
 
 const TAB_COPY: Record<TabKey, { title: string; description: string; tips: string[] }> = {
   llm: {
-    title: "LLM 连接配置",
-    description: "配置课堂生成、PBL 对话和评价反馈使用的大语言模型。",
-    tips: ["选择 Provider", "填写 API Key 与 Base URL", "确认模型列表并选择默认模型", "保存后执行连接测试"],
+    title: "AI 大模型配置",
+    description: "配置课堂内容生成、对话辅导和评价反馈使用的 AI 大模型。",
+    tips: ["选择服务商", "填写密钥与服务地址", "确认模型列表并选择默认模型", "保存后测试连接"],
   },
   tts: {
-    title: "语音合成配置",
-    description: "配置课堂旁白、角色朗读和讲解音频使用的 TTS 服务。",
-    tips: ["选择服务商", "按需填写 Key 与网关地址", "保存后在生成语音时生效"],
+    title: "语音朗读配置",
+    description: "配置课堂旁白、角色朗读和讲解音频使用的语音合成服务。",
+    tips: ["选择服务商", "按需填写密钥与地址", "保存后在生成语音时生效"],
   },
   asr: {
     title: "语音识别配置",
-    description: "配置学生语音输入转写服务。",
-    tips: ["选择识别服务", "填写凭据", "课堂语音输入会读取这里的服务端配置"],
+    description: "配置学生语音输入转文字服务。",
+    tips: ["选择识别服务", "填写凭据", "课堂语音输入会读取这里的配置"],
   },
   image: {
     title: "图像生成配置",
     description: "配置课堂素材和场景插图生成服务。",
-    tips: ["选择图像模型服务", "填写凭据", "后续生成图片时使用服务端配置"],
+    tips: ["选择图像服务", "填写凭据", "后续生成图片时使用此配置"],
   },
   video: {
     title: "视频生成配置",
     description: "配置视频素材生成服务。",
-    tips: ["选择视频服务", "填写凭据", "保存配置后进入生成流程"],
+    tips: ["选择视频服务", "填写凭据", "保存后进入生成流程"],
   },
   "web-search": {
     title: "联网搜索配置",
     description: "配置 AI 实时检索网络资料时使用的搜索服务。",
-    tips: ["选择搜索引擎", "填写 API Key", "保存后用于资料检索与事实补充"],
+    tips: ["选择搜索引擎", "填写密钥", "保存后用于资料检索与事实补充"],
   },
   pdf: {
     title: "PDF 解析配置",
     description: "配置读取和解析 PDF 教材资料的服务。",
-    tips: ["选择解析服务", "云服务填写 Key", "本地解析服务按需填写 Base URL"],
+    tips: ["选择解析服务", "云服务填写密钥", "本地服务按需填写地址"],
+  },
+  "agent-voice": {
+    title: "智能体音色配置",
+    description: "为每个 AI 伙伴选择符合性格的朗读音色，让课堂对话更生动。",
+    tips: ["确认语音服务商已配置", "为每个智能体选择音色", "可一键应用推荐配置", "点击试听效果"],
   },
 };
 
@@ -205,6 +216,8 @@ function getProvidersForTab(tab: TabKey): ProviderMeta[] {
         models: [],
         description: (provider as { features?: string[] }).features?.join("、"),
       }));
+    case "agent-voice":
+      return [];
   }
 }
 
@@ -228,6 +241,246 @@ function getReadableError(data: unknown, fallback: string) {
   if (typeof record.message === "string") return record.message;
   if (typeof record.details === "string") return record.details;
   return fallback;
+}
+
+/**
+ * 推荐的 Qwen TTS 音色配置（按智能体性格匹配）。
+ * 仅在当前 TTS 服务商为 qwen-tts 时作为一键推荐。
+ */
+const RECOMMENDED_QWEN_VOICES: Record<string, { voiceId: string; reason: string }> = {
+  knowledge: { voiceId: "Ethan", reason: "沉稳男声，适合知识讲解的权威感" },
+  ideation: { voiceId: "Maia", reason: "活泼女声，适合创意启发的灵动" },
+  critic: { voiceId: "Aiden", reason: "锐利男声，适合质疑检验的穿透力" },
+  planner: { voiceId: "Kai", reason: "干练男声，适合方案规划的条理" },
+  reviewer: { voiceId: "Serena", reason: "温和女声，适合评审反馈的亲切" },
+  recorder: { voiceId: "Chelsie", reason: "平稳女声，适合过程记录的沉静" },
+};
+
+function AgentVoiceConfig() {
+  const { ttsProvidersConfig, ttsProviderId, agentVoiceOverrides, setAgentVoiceOverride } =
+    useSettingsStore();
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<ResultState>(null);
+
+  const enabledProviders = useMemo(
+    () => getEnabledProvidersWithVoices(ttsProvidersConfig),
+    [ttsProvidersConfig],
+  );
+
+  const currentProvider = enabledProviders.find((p) => p.providerId === ttsProviderId);
+  const availableVoices = currentProvider?.voices ?? [];
+  const availableModelGroups = currentProvider?.modelGroups ?? [];
+
+  const isQwenProvider = ttsProviderId === "qwen-tts";
+  const hasVoices = availableVoices.length > 0;
+
+  function handleApplyRecommended() {
+    if (!isQwenProvider) return;
+    for (const companion of AI_COMPANIONS) {
+      const rec = RECOMMENDED_QWEN_VOICES[companion.id];
+      if (rec) {
+        setAgentVoiceOverride(companion.id, {
+          providerId: ttsProviderId,
+          voiceId: rec.voiceId,
+        });
+      }
+    }
+  }
+
+  function handleClearAll() {
+    for (const companion of AI_COMPANIONS) {
+      setAgentVoiceOverride(companion.id, undefined);
+    }
+  }
+
+  async function handleTestVoice(companionId: string, voiceId: string) {
+    setTestingId(companionId);
+    setTestResult(null);
+    try {
+      const providerConfig = ttsProvidersConfig[ttsProviderId];
+      const modelId = providerConfig?.modelId || undefined;
+      const companion = AI_COMPANIONS.find((c) => c.id === companionId);
+      const response = await fetch("/api/openmaic/generate/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: `大家好，我是${companion?.name ?? "智能体"}，很高兴和大家一起学习。`,
+          audioId: `agent_voice_test_${companionId}`,
+          ttsProviderId,
+          ttsModelId: modelId,
+          ttsVoice: voiceId,
+          ttsSpeed: 1,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      const audioBase64 = data?.base64 ?? data?.data?.base64;
+      if (!response.ok || data?.success === false || !audioBase64) {
+        throw new Error(getReadableError(data, "试听失败，请检查语音服务配置。"));
+      }
+      const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
+      await audio.play();
+      setTestResult({ ok: true, message: `正在试听：${companion?.name}` });
+    } catch (error) {
+      setTestResult({
+        ok: false,
+        message: error instanceof Error ? error.message : "试听失败，请稍后重试。",
+      });
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  if (enabledProviders.length === 0) {
+    return (
+      <EmptyPanel text="请先在「语音朗读」中配置 TTS 服务商，再回到此处设置智能体音色。" />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 操作栏 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-stone-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm text-stone-600">
+          <Volume2 size={16} className="text-[var(--pbl-teacher)]" />
+          <span>
+            当前语音服务商：<span className="font-bold text-stone-900">{currentProvider?.providerName ?? ttsProviderId}</span>
+          </span>
+          <span className="text-stone-400">·</span>
+          <span>共 {availableVoices.length} 个可用音色</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {isQwenProvider ? (
+            <PrimaryButton
+              variant="outline"
+              onClick={handleApplyRecommended}
+              className="h-8 px-3 text-xs"
+            >
+              <Sparkles size={13} />
+              应用推荐配置
+            </PrimaryButton>
+          ) : null}
+          <PrimaryButton
+            variant="outline"
+            onClick={handleClearAll}
+            className="h-8 px-3 text-xs"
+          >
+            <Trash2 size={13} />
+            清空全部
+          </PrimaryButton>
+        </div>
+      </div>
+
+      {/* 智能体列表 */}
+      <div className="space-y-3">
+        {AI_COMPANIONS.map((companion) => {
+          const override = agentVoiceOverrides[companion.id];
+          const selectedVoiceId = override?.voiceId ?? "";
+          const rec = RECOMMENDED_QWEN_VOICES[companion.id];
+          const isRecommended = isQwenProvider && rec && selectedVoiceId === rec.voiceId;
+
+          return (
+            <Card key={companion.id} compact>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                {/* 智能体信息 */}
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-lg"
+                    style={{ backgroundColor: companion.color + "20", color: companion.color }}
+                  >
+                    {companion.emoji}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-stone-950">{companion.name}</span>
+                      <Pill tone="blue" className="h-5 px-1.5 text-[10px]">
+                        {companion.role}
+                      </Pill>
+                      {isRecommended ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--pbl-warning)]">
+                          <Sparkles size={10} />
+                          推荐
+                        </span>
+                      ) : null}
+                    </div>
+                    {rec && isQwenProvider ? (
+                      <p className="mt-0.5 truncate text-xs text-stone-400">{rec.reason}</p>
+                    ) : (
+                      <p className="mt-0.5 truncate text-xs text-stone-400">{companion.description}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 音色选择 + 试听 */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedVoiceId}
+                    onChange={(e) => {
+                      const voiceId = e.target.value;
+                      if (voiceId) {
+                        setAgentVoiceOverride(companion.id, {
+                          providerId: ttsProviderId,
+                          voiceId,
+                        });
+                      } else {
+                        setAgentVoiceOverride(companion.id, undefined);
+                      }
+                    }}
+                    className="h-9 min-w-[200px] rounded-[6px] border border-stone-300 bg-white px-3 text-sm font-medium text-stone-800 transition focus:border-[var(--pbl-teacher)] focus:outline-none focus:ring-2 focus:ring-[var(--pbl-teacher)]/20"
+                  >
+                    <option value="">跟随默认音色</option>
+                    {availableModelGroups.length > 1
+                      ? availableModelGroups.map((group) => (
+                          <optgroup key={group.modelId} label={group.modelName}>
+                            {group.voices.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))
+                      : availableVoices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name}
+                          </option>
+                        ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleTestVoice(companion.id, selectedVoiceId || availableVoices[0]?.id || "")}
+                    disabled={!hasVoices || testingId === companion.id}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-[6px] border border-stone-300 bg-white text-stone-500 transition hover:border-[var(--pbl-teacher)] hover:text-[var(--pbl-teacher)] disabled:opacity-40"
+                    title="试听"
+                  >
+                    {testingId === companion.id ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Volume2 size={15} />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* 试听结果 */}
+      {testResult ? <ResultNotice result={testResult} /> : null}
+
+      {/* 说明 */}
+      <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-4">
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-stone-400">
+          <Sparkles size={13} />
+          推荐说明
+        </div>
+        <p className="mt-2 text-sm leading-6 text-stone-600">
+          {isQwenProvider
+            ? "已为 Qwen TTS 用户准备了符合各智能体性格的推荐音色配置。点击「应用推荐配置」可一键设置全部音色。未选择的智能体将使用「语音朗读」中设置的默认音色。"
+            : "为每个智能体选择不同的音色可以让课堂对话更生动。当前服务商的可用音色会显示在下拉列表中。未选择的智能体将使用默认音色。"}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function TeacherSettingsPage() {
@@ -360,12 +613,12 @@ export default function TeacherSettingsPage() {
     const modelIds = splitModelIds(editModels);
 
     if (provider.requiresApiKey && !saved?.hasApiKey && !editApiKey.trim()) {
-      setSaveResult({ ok: false, message: "请先填写 API Key。" });
+      setSaveResult({ ok: false, message: "请先填写密钥。" });
       return;
     }
 
     if (activeTab === "llm" && modelIds.length === 0) {
-      setSaveResult({ ok: false, message: "请至少保留一个模型 ID。" });
+      setSaveResult({ ok: false, message: "请至少保留一个模型。" });
       return;
     }
 
@@ -428,9 +681,9 @@ export default function TeacherSettingsPage() {
         ok: true,
         message:
           activeTab === "tts" && makeDefault
-            ? "TTS 配置已保存，并设为课程生成默认模型。"
+            ? "语音朗读配置已保存，并设为默认服务。"
             : makeDefault
-              ? "配置已保存，并设为当前模态默认。"
+              ? "配置已保存，并设为当前默认。"
             : "配置已保存。",
       });
       setEditApiKey("");
@@ -454,7 +707,7 @@ export default function TeacherSettingsPage() {
       return;
     }
     if (provider.requiresApiKey && !saved?.hasApiKey && !editApiKey.trim()) {
-      setTestResult({ ok: false, message: "请先填写 API Key，或保存已有配置后再测试。" });
+      setTestResult({ ok: false, message: "请先填写密钥，或保存已有配置后再测试。" });
       return;
     }
 
@@ -462,7 +715,7 @@ export default function TeacherSettingsPage() {
       if (provider.id === "browser-native-tts") {
         setTestResult({
           ok: false,
-          message: "浏览器本地 TTS 不能用于课程生成音频，请选择云端 TTS 服务。",
+          message: "浏览器本地语音不能用于课程生成，请选择云端语音服务。",
         });
         return;
       }
@@ -490,19 +743,19 @@ export default function TeacherSettingsPage() {
         const audioBase64 = data?.base64 ?? data?.data?.base64;
 
         if (!response.ok || data?.success === false || !audioBase64) {
-          throw new Error(getReadableError(data, "TTS 测试失败，请检查 Key、Base URL、模型和音色。"));
+          throw new Error(getReadableError(data, "语音测试失败，请检查密钥、服务地址、模型和音色。"));
         }
 
         setTestResult({
           ok: true,
-          message: "TTS 测试成功，已生成可用音频。",
-          detail: `测试模型：${modelId || "provider default"}；音色：${voice}`,
+          message: "语音测试成功，已生成可用音频。",
+          detail: `测试模型：${modelId || "默认"}；音色：${voice}`,
         });
       } catch (error) {
         setTestResult({
           ok: false,
-          message: error instanceof Error ? error.message : "TTS 测试失败，请稍后重试。",
-          detail: `测试模型：${modelId || "provider default"}；音色：${voice}`,
+          message: error instanceof Error ? error.message : "语音测试失败，请稍后重试。",
+          detail: `测试模型：${modelId || "默认"}；音色：${voice}`,
         });
       } finally {
         setTestingProviderId(null);
@@ -528,7 +781,7 @@ export default function TeacherSettingsPage() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok || data?.success === false) {
-        throw new Error(getReadableError(data, "连接失败，请检查 Key、Base URL 和模型 ID。"));
+        throw new Error(getReadableError(data, "连接失败，请检查密钥、服务地址和模型。"));
       }
 
       setTestResult({
@@ -595,9 +848,9 @@ export default function TeacherSettingsPage() {
   return (
     <DashboardShell role="teacher">
       <PageHeader
-        eyebrow="AI service console"
+        eyebrow="AI 服务"
         title="AI 服务设置"
-        description="集中管理 LLM、语音、图像、视频、搜索和 PDF 解析服务。配置保存在服务端，课堂生成与授课流程会直接读取这里的连接信息。"
+        description="集中管理 AI 大模型、语音、图像、视频、搜索和 PDF 解析服务。配置保存在服务端，课堂生成与授课流程会直接读取这里的连接信息。"
       />
 
       <ThemeProvider>
@@ -613,9 +866,9 @@ export default function TeacherSettingsPage() {
             />
             <StatusTile
               icon={KeyRound}
-              label="已配置 Provider"
+              label="已配置服务商"
               value={`${configuredCount} / ${providers.length}`}
-              helper="以服务端已保存 API Key 为准"
+              helper="以已保存的密钥为准"
             />
             <StatusTile
               icon={Server}
@@ -678,7 +931,7 @@ export default function TeacherSettingsPage() {
                   <TextInput
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索 Provider 名称或 ID"
+                    placeholder="搜索服务商名称"
                     className="pl-9"
                   />
                 </div>
@@ -691,7 +944,9 @@ export default function TeacherSettingsPage() {
                 </div>
               ) : null}
 
-              {activeTab === "llm" ? (
+              {activeTab === "agent-voice" ? (
+                <AgentVoiceConfig />
+              ) : activeTab === "llm" ? (
                 <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
                   <ProviderList
                     providers={filteredProviders}
@@ -706,14 +961,14 @@ export default function TeacherSettingsPage() {
                     <Card>
                       <SectionTitle
                         title={selectedLlmProvider.name}
-                        hint={`Provider ID: ${selectedLlmProvider.id}`}
+                        hint={`服务标识：${selectedLlmProvider.id}`}
                         action={
                           <span className="flex items-center gap-2">
                             {getSavedConfig("providers", selectedLlmProvider.id)?.hasApiKey ? (
-                              <Pill tone="green">已保存 Key</Pill>
+                              <Pill tone="green">已配置</Pill>
                             ) : (
                               <Pill tone={selectedLlmProvider.requiresApiKey ? "amber" : "blue"}>
-                                {selectedLlmProvider.requiresApiKey ? "待配置" : "免 Key"}
+                                {selectedLlmProvider.requiresApiKey ? "待配置" : "无需密钥"}
                               </Pill>
                             )}
                             {getSavedConfig("providers", selectedLlmProvider.id)?.hasApiKey ? (
@@ -751,7 +1006,7 @@ export default function TeacherSettingsPage() {
                       />
                     </Card>
                   ) : (
-                    <EmptyPanel text="选择一个 Provider 后编辑连接信息。" />
+                    <EmptyPanel text="选择一个服务商后编辑连接信息。" />
                   )}
                 </div>
               ) : (
@@ -773,7 +1028,7 @@ export default function TeacherSettingsPage() {
                               <ProviderStateBadge provider={provider} saved={saved} />
                             </span>
                             <span className="mt-1 block truncate text-xs text-slate-500">
-                              {provider.defaultBaseUrl || provider.description || `Provider ID: ${provider.id}`}
+                              {provider.defaultBaseUrl || provider.description || provider.id}
                             </span>
                           </span>
                           <ChevronRight
@@ -810,7 +1065,7 @@ export default function TeacherSettingsPage() {
                       </Card>
                     );
                   })}
-                  {filteredProviders.length === 0 ? <EmptyPanel text="没有匹配的 Provider。" /> : null}
+                  {filteredProviders.length === 0 ? <EmptyPanel text="没有匹配的服务商。" /> : null}
                 </div>
               )}
             </main>
@@ -836,9 +1091,9 @@ export default function TeacherSettingsPage() {
                     连接测试说明
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    LLM 测试会向服务端发送完整模型标识，例如
+                    AI 模型测试会向服务端发送完整模型标识，例如
                     <span className="font-semibold text-slate-900"> deepseek:deepseek-v4-flash</span>，
-                    避免被错误解析为 OpenAI 模型。
+                    确保模型能被正确识别和调用。
                   </p>
                 </div>
               </Card>
@@ -853,8 +1108,8 @@ export default function TeacherSettingsPage() {
           <div className="mx-4 max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
             <h3 className="text-lg font-bold text-slate-950">确认删除配置</h3>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              即将删除 <span className="font-bold text-slate-900">{deletingProvider.name}</span> 的 API Key、
-              Base URL、模型列表等全部配置。删除后需重新填写才能使用该服务。
+              即将删除 <span className="font-bold text-slate-900">{deletingProvider.name}</span> 的密钥、
+              服务地址、模型列表等全部配置。删除后需重新填写才能使用该服务。
             </p>
             <div className="mt-5 flex items-center justify-end gap-3">
               <button
@@ -898,7 +1153,7 @@ function ProviderList({
   onDelete: (provider: ProviderMeta) => void;
 }) {
   if (providers.length === 0) {
-    return <EmptyPanel text="没有匹配的 Provider。" />;
+    return <EmptyPanel text="没有匹配的服务商。" />;
   }
 
   return (
@@ -999,17 +1254,17 @@ function LlmConfigForm({
   return (
     <div className="space-y-5">
       <SecretField
-        label="API Key"
+        label="密钥"
         value={editApiKey}
         show={showApiKey}
         required={provider.requiresApiKey}
         saved={saved?.hasApiKey}
-        placeholder={saved?.hasApiKey ? "留空则继续使用已保存的 Key" : "输入 API Key"}
+        placeholder={saved?.hasApiKey ? "留空则继续使用已保存的密钥" : "输入密钥"}
         onChange={onApiKeyChange}
         onToggleShow={() => onShowApiKeyChange(!showApiKey)}
       />
 
-      <Field label="Base URL" icon={Server}>
+      <Field label="服务地址" icon={Server}>
         <TextInput
           value={editBaseUrl}
           onChange={(event) => onBaseUrlChange(event.target.value)}
@@ -1135,20 +1390,20 @@ function ModalityConfigForm({
       <div className="space-y-4">
         {provider.requiresApiKey ? (
           <SecretField
-            label="API Key"
+            label="密钥"
             value={editApiKey}
             show={showApiKey}
             required
             saved={saved?.hasApiKey}
-            placeholder={saved?.hasApiKey ? "留空则继续使用已保存的 Key" : "输入 API Key"}
+            placeholder={saved?.hasApiKey ? "留空则继续使用已保存的密钥" : "输入密钥"}
             onChange={onApiKeyChange}
             onToggleShow={() => onShowApiKeyChange(!showApiKey)}
           />
         ) : (
-          <ResultNotice result={{ ok: true, message: "该 Provider 不需要 API Key。" }} />
+          <ResultNotice result={{ ok: true, message: "该服务不需要密钥。" }} />
         )}
 
-        <Field label="Base URL" icon={Server}>
+        <Field label="服务地址" icon={Server}>
           <TextInput
             value={editBaseUrl}
             onChange={(event) => onBaseUrlChange(event.target.value)}
@@ -1216,7 +1471,7 @@ function ModalityConfigForm({
               系统会优先使用此服务商和选中的默认模型完成对应模态任务。
             </div>
           </div>
-          <div className="font-bold text-slate-700">Provider ID</div>
+          <div className="font-bold text-slate-700">服务标识</div>
           <div className="mt-1 break-all">{provider.id}</div>
         </div>
         <div className="mt-4 space-y-2">
@@ -1336,10 +1591,10 @@ function SecretField({
       label={label}
       helper={
         saved
-          ? "已保存的 Key 不会回显；留空保存会继续保留原 Key。"
+          ? "已保存的密钥不会回显；留空保存会继续保留原密钥。"
           : required
-            ? "该 Provider 需要有效 API Key。"
-            : "该 Provider 可以不填写 API Key。"
+            ? "该服务需要有效密钥。"
+            : "该服务可以不填写密钥。"
       }
       icon={KeyRound}
     >
@@ -1353,7 +1608,7 @@ function SecretField({
         />
         <button
           type="button"
-          aria-label={show ? "隐藏 API Key" : "显示 API Key"}
+          aria-label={show ? "隐藏密钥" : "显示密钥"}
           onClick={onToggleShow}
           className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-[6px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
         >
@@ -1442,7 +1697,7 @@ function ProviderStateBadge({ provider, saved }: { provider: ProviderMeta; saved
   if (!provider.requiresApiKey) {
     return (
       <span className="flex items-center gap-1.5">
-        <Pill tone="blue" className="h-6 px-2 text-xs">免 Key</Pill>
+        <Pill tone="blue" className="h-6 px-2 text-xs">无需密钥</Pill>
         {defaultBadge}
       </span>
     );

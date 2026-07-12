@@ -7,6 +7,7 @@ Widget Type: {{widgetType}}
 Widget Config JSON: {{widgetConfig}}
 {{courseContext}}
 {{agents}}
+{{pblContext}}
 
 **Language Directive**: {{languageDirective}}
 

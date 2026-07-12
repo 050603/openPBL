@@ -4,6 +4,7 @@ import { createStageAPI } from '@openmaic/lib/api/stage-api';
 import type { StageStore } from '@openmaic/lib/api/stage-api-types';
 import {
   applyOutlineFallbacks,
+  enforcePblOutlineContract,
   generateSceneOutlinesFromRequirements,
 } from '@openmaic/lib/generation/outline-generator';
 import {
@@ -32,13 +33,19 @@ import {
 import { withGenerationRetry } from '@openmaic/lib/generation/generation-retry';
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
+import { validatePblKnowledgeAlignment } from '@/lib/pbl-outline-validation';
 import type { Scene, Stage } from '@openmaic/lib/types/stage';
 import { AGENT_COLOR_PALETTE, AGENT_DEFAULT_AVATARS } from '@openmaic/lib/constants/agent-defaults';
+import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('Classroom');
 
 export interface GenerateClassroomInput {
   requirement: string;
+  pblProfile?: UserRequirements['pblProfile'];
+  pblTeachingActivities?: UserRequirements['pblTeachingActivities'];
+  pblActivityCatalog?: UserRequirements['pblActivityCatalog'];
+  knowledgePoints?: Array<{ id: string; name?: string }>;
   courseTitle?: string;
   languageDirective?: string;
   sceneOutlines?: SceneOutline[];
@@ -137,9 +144,91 @@ export function normalizeSceneOutlinesForGeneration(outlines?: SceneOutline[]): 
         : [],
       estimatedDuration:
         typeof raw.estimatedDuration === 'number' ? raw.estimatedDuration : 300,
+      parentActivityId:
+        typeof raw.parentActivityId === 'string' && raw.parentActivityId.trim()
+          ? raw.parentActivityId.trim()
+          : typeof raw.activityId === 'string' && raw.activityId.trim()
+            ? raw.activityId.trim()
+            : undefined,
+      detailKind:
+        typeof raw.detailKind === 'string'
+          ? (raw.detailKind as SceneOutline['detailKind'])
+          : undefined,
+      knowledgePointIds: Array.isArray(raw.knowledgePointIds)
+        ? raw.knowledgePointIds.filter(
+            (x): x is string => typeof x === 'string' && Boolean(x.trim()),
+          )
+        : [],
+      targetDurationSec:
+        typeof raw.targetDurationSec === 'number' && Number.isFinite(raw.targetDurationSec)
+          ? Math.max(0, Math.round(raw.targetDurationSec))
+          : undefined,
+      ttsPolicy:
+        raw.ttsPolicy === 'none' || raw.ttsPolicy === 'target-duration'
+          ? raw.ttsPolicy
+          : undefined,
       order: index,
     };
   });
+}
+
+function validateConfirmedPblDetails(
+  outlines: SceneOutline[],
+  input: GenerateClassroomInput,
+): void {
+  if (input.pblProfile?.generationTemplate !== 'pbl-six-stage') return;
+  const catalog = input.pblActivityCatalog ?? [];
+  if (catalog.length === 0) return;
+
+  const catalogIds = new Set(catalog.map((activity) => activity.activityId));
+  const orphanDetails = outlines.filter(
+    (outline) => !outline.parentActivityId || !catalogIds.has(outline.parentActivityId),
+  );
+  if (orphanDetails.length > 0) {
+    throw new Error(
+      `二级资源层级校验失败：${orphanDetails
+        .slice(0, 3)
+        .map((outline) => outline.title)
+        .join('、')} 未关联有效的一级活动。`,
+    );
+  }
+
+  if (input.knowledgePoints?.length) {
+    const studentDetails = outlines
+      .filter((outline) => outline.audience === 'student' && outline.stageKey === 'ai-learning')
+      .map((outline) => ({
+        id: outline.id,
+        title: outline.title,
+        stageKey: outline.stageKey,
+        knowledgePointIds: outline.knowledgePointIds,
+      }));
+    const validation = validatePblKnowledgeAlignment(
+      studentDetails,
+      input.knowledgePoints,
+      { requireReferences: true },
+    );
+    if (validation.issues.length > 0) {
+      throw new Error(
+        `二级资源知识点校验失败：${validation.issues
+          .slice(0, 3)
+          .map((issue) => issue.message)
+        .join('；')}`,
+      );
+    }
+    const parentKnowledgeViolations = studentDetails.flatMap((detail) => {
+      const parent = catalog.find((activity) => activity.activityId === outlines.find((outline) => outline.id === detail.id)?.parentActivityId);
+      const allowedIds = new Set(parent?.knowledgePointIds ?? []);
+      if (allowedIds.size === 0) return [];
+      const invalidIds = (detail.knowledgePointIds ?? []).filter((id) => !allowedIds.has(id));
+      return invalidIds.length > 0 ? [{ detail, invalidIds }] : [];
+    });
+    if (parentKnowledgeViolations.length > 0) {
+      const violation = parentKnowledgeViolations[0];
+      throw new Error(
+        `二级资源知识点与父级活动不一致：${violation.detail.title ?? violation.detail.id} 使用了 ${violation.invalidIds.join('、')}。`,
+      );
+    }
+  }
 }
 
 async function generateAgentProfiles(
@@ -284,6 +373,9 @@ export async function generateClassroom(
 
   const requirements: UserRequirements = {
     requirement,
+    pblProfile: input.pblProfile,
+    pblTeachingActivities: input.pblTeachingActivities,
+    pblActivityCatalog: input.pblActivityCatalog,
   };
   const vocationalActive = resolveVocationalActive(requirements);
   const pdfText = pdfContent?.text || undefined;
@@ -354,7 +446,19 @@ export async function generateClassroom(
     scenesGenerated: 0,
   });
 
-  const outlinesResult = await generateSceneOutlinesFromRequirements(
+  const confirmedOutlines = normalizeSceneOutlinesForGeneration(input.sceneOutlines);
+  const isStructuredPbl =
+    input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
+    Boolean(input.pblActivityCatalog?.length);
+  if (isStructuredPbl && confirmedOutlines.length === 0) {
+    throw new Error('课程生成必须使用已确认的二级资源细化大纲，当前未收到有效细化内容。');
+  }
+
+  let generatedLanguageDirective = '';
+  let generatedCourseTitle: string | undefined;
+  let generatedOutlines: SceneOutline[] = [];
+  if (confirmedOutlines.length === 0) {
+    const outlinesResult = await generateSceneOutlinesFromRequirements(
     requirements,
     pdfText,
     undefined,
@@ -373,15 +477,17 @@ export async function generateClassroom(
     throw new Error(outlinesResult.error || 'Failed to generate scene outlines');
   }
 
-  const {
-    languageDirective: generatedLanguageDirective,
-    courseTitle: generatedCourseTitle,
-    outlines: generatedOutlines,
-  } = outlinesResult.data;
-  const confirmedOutlines = normalizeSceneOutlinesForGeneration(input.sceneOutlines);
+    generatedLanguageDirective = outlinesResult.data.languageDirective;
+    generatedCourseTitle = outlinesResult.data.courseTitle;
+    generatedOutlines = outlinesResult.data.outlines;
+  }
   const languageDirective = input.languageDirective || generatedLanguageDirective;
   const courseTitle = input.courseTitle || generatedCourseTitle;
-  const outlines = confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines;
+  const outlines = enforcePblOutlineContract(
+    confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
+    requirements,
+  );
+  validateConfirmedPblDetails(outlines, input);
   log.info(
     confirmedOutlines.length > 0
       ? `Using ${outlines.length} confirmed scene outlines (courseTitle: ${courseTitle ?? 'n/a'})`
@@ -451,6 +557,7 @@ export async function generateClassroom(
   for (const [index, outline] of outlines.entries()) {
     const safeOutline = applyOutlineFallbacks(outline, true, {
       allowProceduralSkill: vocationalActive,
+      personalProject: requirements.pblProfile?.projectMode === 'personal',
     });
     const progressStart = 30 + Math.floor((index / Math.max(outlines.length, 1)) * 60);
 
@@ -483,6 +590,8 @@ export async function generateClassroom(
         generateSceneContent(safeOutline, sceneAiCall, {
           agents,
           languageDirective,
+          userRequirements: requirements,
+          pblProfile: requirements.pblProfile,
           allowProceduralSkill: vocationalActive,
         }),
       {
@@ -501,6 +610,7 @@ export async function generateClassroom(
         generateSceneActions(safeOutline, content, sceneAiCall, {
           agents,
           languageDirective,
+          pblProfile: requirements.pblProfile,
         }),
       {
         label: `scene ${index + 1}/${outlines.length} actions`,
@@ -554,17 +664,29 @@ export async function generateClassroom(
 
   // Phase: TTS generation
   if (input.enableTTS) {
+    const isPblCourse =
+      input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
+      Boolean(input.pblTeachingActivities?.length);
+    const ttsScenes = isPblCourse
+      ? scenes.filter(isStudentAiLearningScene)
+      : scenes;
+    const skippedScenes = scenes.length - ttsScenes.length;
+
     await options.onProgress?.({
       step: 'generating_tts',
       progress: 94,
-      message: 'Generating TTS audio',
-      scenesGenerated: scenes.length,
+      message: isPblCourse
+        ? `Generating TTS audio for ${ttsScenes.length} student AI-learning scenes`
+        : 'Generating TTS audio',
+      scenesGenerated: ttsScenes.length,
       totalScenes: outlines.length,
     });
 
     try {
-      await generateTTSForClassroom(scenes, stageId, options.baseUrl);
-      log.info('TTS generation complete');
+      await generateTTSForClassroom(ttsScenes, stageId, options.baseUrl);
+      log.info(
+        `TTS generation complete [studentScenes=${ttsScenes.length}, skippedTeacherScenes=${skippedScenes}]`,
+      );
     } catch (err) {
       log.warn('TTS generation phase failed, continuing:', err);
     }

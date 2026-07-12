@@ -57,7 +57,7 @@ export function WorkspaceView({ course }: { course: Course }) {
     });
     session.addActivity(course.id, action, "项目设计报告已更新", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 75);
-    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "项目设计报告" });
+    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "项目设计报告", content: documentText });
     setStatus("已保存");
   }
 
@@ -72,7 +72,7 @@ export function WorkspaceView({ course }: { course: Course }) {
     });
     session.addActivity(course.id, "提交项目方案", "学生已提交个人项目设计报告", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 100);
-    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "已提交项目设计报告" });
+    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "已提交项目设计报告", content: documentText });
     setStatus("已提交");
   }
 

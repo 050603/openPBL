@@ -37,6 +37,11 @@ import { apiError } from '@openmaic/lib/server/api-response';
 import { createLogger } from '@openmaic/lib/logger';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
 import { resolveVocationalActive } from '@openmaic/lib/config/feature-flags';
+import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
+import {
+  formatPblStageDefinitionsForPrompt,
+  PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS,
+} from '@/lib/openmaic/pbl/course-template';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
@@ -361,7 +366,9 @@ export async function POST(req: NextRequest) {
     // Check if Interactive Mode or server-enabled Task Engine mode is enabled.
     const interactiveMode = requirements.interactiveMode ?? false;
     const taskEngineMode = resolveVocationalActive(requirements);
-    const promptId = taskEngineMode
+    const promptId = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+      ? PROMPT_IDS.PBL_COURSE
+      : taskEngineMode
       ? PROMPT_IDS.TASK_ENGINE_OUTLINES
       : interactiveMode
         ? PROMPT_IDS.INTERACTIVE_OUTLINES
@@ -378,6 +385,17 @@ export async function POST(req: NextRequest) {
       mediaEnabled: mediaGenerationEnabled,
       teacherContext,
       userProfile: userProfileText,
+      pblProfile: requirements.pblProfile
+        ? formatPblCourseConfigForPrompt(requirements.pblProfile)
+        : '',
+      pblStages:
+        requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+          ? formatPblStageDefinitionsForPrompt()
+          : '',
+      requiredTeacherResourceStages:
+        requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+          ? PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS.join(', ')
+          : '',
     });
 
     if (!prompts) {

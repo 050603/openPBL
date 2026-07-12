@@ -59,7 +59,7 @@ export function SectionTitle({
   );
 }
 
-type PillTone = "blue" | "green" | "orange" | "amber" | "gray" | "red" | "teal" | "indigo";
+type PillTone = "blue" | "green" | "orange" | "amber" | "gray" | "red" | "teal" | "violet";
 
 export function Pill({
   children,
@@ -73,14 +73,14 @@ export function Pill({
   size?: "sm" | "md";
 }) {
   const tones: Record<PillTone, string> = {
-    blue: "bg-blue-50 text-blue-700 ring-blue-200",
-    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-200",
-    green: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    teal: "bg-teal-50 text-teal-700 ring-teal-200",
-    orange: "bg-orange-50 text-orange-700 ring-orange-200",
-    amber: "bg-amber-50 text-amber-700 ring-amber-200",
-    gray: "bg-slate-100 text-slate-600 ring-slate-200",
-    red: "bg-rose-50 text-rose-700 ring-rose-200",
+    blue: "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] ring-[var(--pbl-teacher-border)]",
+    violet: "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
+    green: "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-green-200",
+    teal: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-[var(--pbl-student-border)]",
+    orange: "bg-[var(--pbl-accent-soft)] text-[var(--pbl-accent)] ring-[var(--pbl-accent-border)]",
+    amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-orange-200",
+    gray: "bg-stone-100 text-stone-600 ring-stone-200",
+    red: "bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)] ring-rose-200",
   };
   const sizes = {
     sm: "h-6 px-2.5 text-xs",
@@ -113,7 +113,7 @@ export function StatusPill({
     draft: "gray",
     preparing: "amber",
     ready: "green",
-    teaching: "indigo",
+    teaching: "violet",
     finished: "gray",
   };
   return (
@@ -123,7 +123,7 @@ export function StatusPill({
   );
 }
 
-type ButtonTone = "blue" | "green" | "orange" | "red" | "indigo" | "teal" | "slate";
+type ButtonTone = "blue" | "green" | "orange" | "red" | "violet" | "teal" | "slate";
 
 export function PrimaryButton({
   children,
@@ -145,22 +145,22 @@ export function PrimaryButton({
   size?: "sm" | "md" | "lg";
 }) {
   const solid: Record<ButtonTone, string> = {
-    blue: "bg-blue-600 text-white hover:bg-blue-700",
-    indigo: "bg-indigo-700 text-white hover:bg-indigo-800",
-    teal: "bg-teal-600 text-white hover:bg-teal-700",
-    green: "bg-emerald-600 text-white hover:bg-emerald-700",
-    orange: "bg-orange-500 text-white hover:bg-orange-600",
-    red: "bg-rose-600 text-white hover:bg-rose-700",
-    slate: "bg-slate-800 text-white hover:bg-slate-900",
+    blue: "bg-[var(--pbl-teacher)] text-white hover:bg-[var(--pbl-teacher-hover)]",
+    violet: "bg-[var(--pbl-ai)] text-white hover:bg-violet-700",
+    teal: "bg-[var(--pbl-student)] text-white hover:bg-[var(--pbl-student-hover)]",
+    green: "bg-[var(--pbl-success)] text-white hover:bg-green-700",
+    orange: "bg-[var(--pbl-accent)] text-white hover:bg-[var(--pbl-accent-hover)]",
+    red: "bg-[var(--pbl-danger)] text-white hover:bg-red-700",
+    slate: "bg-stone-800 text-white hover:bg-stone-900",
   };
   const outline: Record<ButtonTone, string> = {
-    blue: "border-blue-500 text-blue-700 hover:bg-blue-50",
-    indigo: "border-indigo-500 text-indigo-700 hover:bg-indigo-50",
-    teal: "border-teal-500 text-teal-700 hover:bg-teal-50",
-    green: "border-emerald-500 text-emerald-700 hover:bg-emerald-50",
-    orange: "border-orange-400 text-orange-700 hover:bg-orange-50",
-    red: "border-rose-500 text-rose-700 hover:bg-rose-50",
-    slate: "border-slate-400 text-slate-700 hover:bg-slate-50",
+    blue: "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]",
+    violet: "border-[var(--pbl-ai)] text-[var(--pbl-ai)] hover:bg-[var(--pbl-ai-soft)]",
+    teal: "border-[var(--pbl-student)] text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]",
+    green: "border-[var(--pbl-success)] text-[var(--pbl-success)] hover:bg-[var(--pbl-success-soft)]",
+    orange: "border-[var(--pbl-accent)] text-[var(--pbl-accent)] hover:bg-[var(--pbl-accent-soft)]",
+    red: "border-[var(--pbl-danger)] text-[var(--pbl-danger)] hover:bg-[var(--pbl-danger-soft)]",
+    slate: "border-stone-400 text-stone-700 hover:bg-stone-100",
   };
   const sizes = {
     sm: "h-9 px-3.5 text-[13px]",
@@ -194,7 +194,7 @@ export function TextInput({
   return (
     <input
       className={cn(
-        "h-11 w-full rounded-[var(--radius-sm)] border border-slate-300 bg-white px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100",
+        "h-11 w-full rounded-[var(--radius-sm)] border border-stone-300 bg-white px-3 text-sm outline-none transition placeholder:text-stone-400 focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
         className,
       )}
       {...props}
@@ -209,7 +209,7 @@ export function TextArea({
   return (
     <textarea
       className={cn(
-        "w-full resize-none rounded-[var(--radius-sm)] border border-slate-300 bg-white p-3 text-sm leading-7 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100",
+        "w-full resize-none rounded-[var(--radius-sm)] border border-stone-300 bg-white p-3 text-sm leading-7 outline-none transition placeholder:text-stone-400 focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
         className,
       )}
       {...props}
@@ -224,7 +224,7 @@ export function Select({
   return (
     <select
       className={cn(
-        "h-11 w-full rounded-[var(--radius-sm)] border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100",
+        "h-11 w-full rounded-[var(--radius-sm)] border border-stone-300 bg-white px-3 text-sm outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
         className,
       )}
       {...props}
@@ -247,15 +247,15 @@ export function PageHeader({
     <div className="mb-6 flex items-end justify-between gap-5">
       <div className="min-w-0">
         {eyebrow ? (
-          <div className="mb-2 text-[13px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <div className="mb-2 text-[13px] font-semibold uppercase tracking-[0.14em] text-stone-500">
             {eyebrow}
           </div>
         ) : null}
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-slate-900">
+        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-stone-900">
           {title}
         </h1>
         {description ? (
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
             {description}
           </p>
         ) : null}
@@ -284,7 +284,7 @@ export function StageTimeline({
                 <div
                   className={cn(
                     "absolute left-0 right-1/2 top-[17px] h-1 -translate-x-1/2 rounded-full",
-                    done || active ? "bg-indigo-600" : "bg-slate-200",
+                    done || active ? "bg-[var(--pbl-teacher)]" : "bg-stone-200",
                   )}
                 />
               ) : null}
@@ -292,23 +292,23 @@ export function StageTimeline({
                 <div
                   className={cn(
                     "absolute left-1/2 right-0 top-[17px] h-1 translate-x-1/2 rounded-full",
-                    done ? "bg-indigo-600" : "bg-slate-200",
+                    done ? "bg-[var(--pbl-teacher)]" : "bg-stone-200",
                   )}
                 />
               ) : null}
               <div
                 className={cn(
                   "relative z-10 mx-auto grid h-9 w-9 place-items-center rounded-full text-sm font-bold",
-                  done && "bg-indigo-600 text-white",
-                  active && "bg-indigo-600 text-white ring-4 ring-indigo-100",
-                  !done && !active && "bg-slate-300 text-white",
+                  done && "bg-[var(--pbl-teacher)] text-white",
+                  active && "bg-[var(--pbl-teacher)] text-white ring-4 ring-[var(--pbl-teacher-soft)]",
+                  !done && !active && "bg-stone-300 text-white",
                 )}
               >
                 {done ? <CheckCircle2 size={18} /> : index + 1}
               </div>
-              <div className="mt-3 text-sm font-bold text-slate-900">{item.label}</div>
+              <div className="mt-3 text-sm font-bold text-stone-900">{item.label}</div>
               {item.description ? (
-                <div className="mt-1 text-xs text-slate-500">{item.description}</div>
+                <div className="mt-1 text-xs text-stone-500">{item.description}</div>
               ) : null}
             </div>
           );
@@ -319,7 +319,7 @@ export function StageTimeline({
 }
 
 export function AIAdvicePanel({
-  title = "AI建议",
+  title = "AI 建议",
   items,
   action,
 }: {
@@ -331,17 +331,17 @@ export function AIAdvicePanel({
     <Card>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="inline-flex items-center gap-2 text-lg font-bold">
-          <Bot className="text-sky-600" size={18} /> {title}
+          <Bot className="text-[var(--pbl-ai)]" size={18} /> {title}
         </h2>
         {action}
       </div>
       <div className="space-y-3">
         {items.map((item, index) => (
           <div className="flex gap-3 text-sm leading-6" key={item}>
-            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sky-50 text-[11px] font-bold text-sky-700 ring-1 ring-sky-200">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--pbl-ai-soft)] text-[11px] font-bold text-[var(--pbl-ai)] ring-1 ring-[var(--pbl-ai-border)]">
               {index + 1}
             </span>
-            <p className="text-slate-700">{item}</p>
+            <p className="text-stone-700">{item}</p>
           </div>
         ))}
       </div>
@@ -363,16 +363,16 @@ export function UploadRow({
   status?: string;
 }) {
   return (
-    <div className="grid grid-cols-[52px_1fr_1fr_96px] items-center gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0">
+    <div className="grid grid-cols-[52px_1fr_1fr_96px] items-center gap-3 border-b border-stone-100 px-5 py-4 last:border-b-0">
       <FileBadge type={type} />
       <div>
-        <div className="font-bold text-slate-900">{title}</div>
-        <div className="mt-1 text-[13px] text-slate-500">{rule}</div>
+        <div className="font-bold text-stone-900">{title}</div>
+        <div className="mt-1 text-[13px] text-stone-500">{rule}</div>
       </div>
-      <div className="truncate text-[13px] font-medium text-slate-700">
+      <div className="truncate text-[13px] font-medium text-stone-700">
         {file ?? "点击上传或拖拽文件"}
       </div>
-      <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-emerald-600">
+      <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-[var(--pbl-success)]">
         <CheckCircle2 size={14} /> {status}
       </span>
     </div>
@@ -391,18 +391,18 @@ export function ActivityFeed({
           <span
             className={cn(
               "mt-1.5 h-2.5 w-2.5 rounded-full",
-              index === 0 ? "bg-emerald-500" : "bg-slate-300",
+              index === 0 ? "bg-[var(--pbl-success)]" : "bg-stone-300",
             )}
           />
           {index < items.length - 1 ? (
-            <div className="absolute left-[4px] top-6 h-8 w-px bg-slate-200" />
+            <div className="absolute left-[4px] top-6 h-8 w-px bg-stone-200" />
           ) : null}
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-slate-900">
+            <div className="text-[13px] font-semibold text-stone-900">
               {item.time ? `${item.time}　` : null}
               {item.actor} {item.action}
             </div>
-            {item.detail ? <div className="mt-1 text-[13px] text-slate-500">{item.detail}</div> : null}
+            {item.detail ? <div className="mt-1 text-[13px] text-stone-500">{item.detail}</div> : null}
           </div>
         </div>
       ))}
@@ -419,16 +419,16 @@ export function ResourceList({
     <div className="space-y-2">
       {resources.map((resource) => (
         <button
-          className="flex w-full items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40"
+          className="flex w-full items-center gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-3 py-2.5 text-left transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]"
           key={resource.title}
           type="button"
         >
           <FileBadge type={resource.type} />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-slate-900">
+            <span className="block truncate text-sm font-semibold text-stone-900">
               {resource.title}
             </span>
-            <span className="mt-0.5 block text-xs text-slate-500">{resource.meta}</span>
+            <span className="mt-0.5 block text-xs text-stone-500">{resource.meta}</span>
           </span>
         </button>
       ))}
@@ -438,8 +438,8 @@ export function ResourceList({
 
 export function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="pbl-dot-grid grid place-items-center rounded-[var(--radius-sm)] border border-dashed border-slate-300 bg-slate-50/40 py-10 text-center text-sm text-slate-500">
-      <Bot className="mb-2 text-slate-400" size={22} />
+    <div className="pbl-dot-grid grid place-items-center rounded-[var(--radius-sm)] border border-dashed border-stone-300 bg-stone-50/40 py-10 text-center text-sm text-stone-500">
+      <Bot className="mb-2 text-stone-400" size={22} />
       {text}
     </div>
   );
@@ -452,7 +452,7 @@ export function RubricScoreTable({
 }) {
   return (
     <table className="w-full border-collapse text-left text-sm">
-      <thead className="bg-slate-50 text-slate-500">
+      <thead className="bg-stone-50 text-stone-500">
         <tr>
           <th className="p-3 font-semibold">评分维度</th>
           <th className="p-3 font-semibold">权重</th>
@@ -461,10 +461,10 @@ export function RubricScoreTable({
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr className="border-b border-slate-100 last:border-b-0" key={row.name}>
-            <td className="p-3 font-semibold text-slate-800">{row.name}</td>
-            <td className="p-3 text-slate-500">{row.weight}%</td>
-            <td className="p-3 font-bold text-indigo-700">{row.score}</td>
+          <tr className="border-b border-stone-100 last:border-b-0" key={row.name}>
+            <td className="p-3 font-semibold text-stone-800">{row.name}</td>
+            <td className="p-3 text-stone-500">{row.weight}%</td>
+            <td className="p-3 font-bold text-[var(--pbl-teacher)]">{row.score}</td>
           </tr>
         ))}
       </tbody>
@@ -472,11 +472,11 @@ export function RubricScoreTable({
   );
 }
 
-type ProgressTone = "blue" | "green" | "orange" | "red" | "slate" | "indigo" | "teal";
+type ProgressTone = "blue" | "green" | "orange" | "red" | "slate" | "violet" | "teal";
 
 export function ProgressBar({
   value,
-  tone = "indigo",
+  tone = "blue",
   className,
 }: {
   value: number;
@@ -484,17 +484,17 @@ export function ProgressBar({
   className?: string;
 }) {
   const colors: Record<ProgressTone, string> = {
-    blue: "bg-blue-600",
-    indigo: "bg-indigo-600",
-    teal: "bg-teal-600",
-    green: "bg-emerald-500",
-    orange: "bg-amber-400",
-    red: "bg-rose-500",
-    slate: "bg-slate-400",
+    blue: "bg-[var(--pbl-teacher)]",
+    violet: "bg-[var(--pbl-ai)]",
+    teal: "bg-[var(--pbl-student)]",
+    green: "bg-[var(--pbl-success)]",
+    orange: "bg-[var(--pbl-accent)]",
+    red: "bg-[var(--pbl-danger)]",
+    slate: "bg-stone-400",
   };
 
   return (
-    <div className={cn("h-2 rounded-full bg-slate-200", className)}>
+    <div className={cn("h-2 rounded-full bg-stone-200", className)}>
       <div
         className={cn("h-full rounded-full transition-all", colors[tone])}
         style={{ width: `${Math.max(0, Math.min(value, 100))}%` }}
@@ -507,7 +507,7 @@ export function CircularProgress({
   value,
   label,
   size = 128,
-  tone = "#4338ca",
+  tone = "#2563eb",
 }: {
   value: number;
   label?: string;
@@ -523,16 +523,16 @@ export function CircularProgress({
 
   return (
     <div
-      className="grid place-items-center rounded-full bg-[conic-gradient(var(--tone)_var(--progress),#e8ecf3_0)] p-1.5"
+      className="grid place-items-center rounded-full bg-[conic-gradient(var(--tone)_var(--progress),#e7e5e4_0)] p-1.5"
       style={style}
     >
       <div className="grid h-full w-full place-items-center rounded-full bg-white text-center">
         <div>
-          <div className="text-[28px] font-bold leading-none text-slate-900">
+          <div className="text-[28px] font-bold leading-none text-stone-900">
             {value}%
           </div>
           {label ? (
-            <div className="mt-1.5 text-[13px] font-medium text-slate-500">
+            <div className="mt-1.5 text-[13px] font-medium text-stone-500">
               {label}
             </div>
           ) : null}
@@ -548,20 +548,20 @@ export function Metric({
   label,
   value,
   helper,
-  tone = "indigo",
+  tone = "blue",
 }: {
   icon?: ReactNode;
   label: string;
   value: ReactNode;
   helper?: string;
-  tone?: "indigo" | "teal" | "amber" | "rose" | "slate";
+  tone?: "blue" | "teal" | "amber" | "rose" | "slate";
 }) {
   const toneMap = {
-    indigo: "bg-indigo-50 text-indigo-700",
-    teal: "bg-teal-50 text-teal-700",
-    amber: "bg-amber-50 text-amber-700",
-    rose: "bg-rose-50 text-rose-700",
-    slate: "bg-slate-100 text-slate-700",
+    blue: "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]",
+    teal: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]",
+    amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]",
+    rose: "bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]",
+    slate: "bg-stone-100 text-stone-700",
   };
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -571,9 +571,9 @@ export function Metric({
         </div>
       ) : null}
       <div className="min-w-0">
-        <div className="text-[13px] text-slate-500">{label}</div>
-        <div className="mt-0.5 text-xl font-bold text-slate-900">{value}</div>
-        {helper ? <div className="text-xs text-slate-400">{helper}</div> : null}
+        <div className="text-[13px] text-stone-500">{label}</div>
+        <div className="mt-0.5 text-xl font-bold text-stone-900">{value}</div>
+        {helper ? <div className="text-xs text-stone-400">{helper}</div> : null}
       </div>
     </div>
   );
@@ -582,14 +582,14 @@ export function Metric({
 export function FileBadge({ type }: { type: string }) {
   const tone =
     type === "PDF"
-      ? "bg-rose-500"
+      ? "bg-[var(--pbl-danger)]"
       : type === "XLSX"
-        ? "bg-emerald-600"
+        ? "bg-[var(--pbl-success)]"
         : type === "PPTX"
-          ? "bg-orange-500"
+          ? "bg-[var(--pbl-accent)]"
           : type === "MP4"
-            ? "bg-violet-600"
-            : "bg-indigo-600";
+            ? "bg-[var(--pbl-ai)]"
+            : "bg-[var(--pbl-teacher)]";
 
   return (
     <span

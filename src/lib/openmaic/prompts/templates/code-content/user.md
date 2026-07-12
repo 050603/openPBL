@@ -28,6 +28,8 @@ Create a code playground widget for: {{title}}
 
 ## Course Language
 
+{{pblContext}}
+
 {{languageDirective}}
 
 ---

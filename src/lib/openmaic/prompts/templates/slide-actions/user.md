@@ -5,6 +5,7 @@ Description: {{description}}
 {{courseContext}}
 {{agents}}
 {{userProfile}}
+{{pblContext}}
 
 **Language Directive**: {{languageDirective}}
 

@@ -17,6 +17,7 @@ import { Button, Card, FlowActionBar, Pill, SaveStatus, toast } from "@/componen
 import { ProjectCoverImage } from "@/components/visuals";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { hasBothScoredRoles, resolveDimensionRole } from "@/lib/evaluation/responsibility";
+import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -58,13 +59,16 @@ export default function PreviewCoursePage() {
 
   const isPublished = course.status === "ready" || course.status === "teaching" || course.status === "finished";
   const evaluationWeight = course.content.evaluationPlan.flows?.filter((item) => item.enabled && item.scored !== false).reduce((sum, item) => sum + item.weight, 0) ?? 0;
-  const requiredTeacherResources = (course.content.teachingOutline ?? []).filter((item) => item.openMaicUse === "teacher-resource");
+  const requiredOrdinaryActivities = (course.content.teachingOutline ?? []).filter((item) => item.openMaicUse !== "student-ai-learning");
   const generatedTeacherResources = course.content.teacherResources?.scenes ?? [];
-  const missingTeacherResources = requiredTeacherResources.flatMap((activity) => {
+  const savedSceneOutlines = course.content._openmaicSceneOutlines ?? [];
+  const pblCoverage = savedSceneOutlines.length
+    ? checkPblStageCoverage(savedSceneOutlines)
+    : null;
+  const missingTeacherResources = requiredOrdinaryActivities.flatMap((activity) => {
     const candidates = generatedTeacherResources.filter((resource) => !resource.stageKey || resource.stageKey === activity.stageKey);
-    return (activity.resourceTypes ?? []).flatMap((type) => {
+    return (["ppt", "script"] as const).flatMap((type) => {
       if (type === "ppt" && !candidates.some((resource) => resource.type === "slide" || resource.type === "pbl")) return [`${activity.title}：PPT`];
-      if (type === "interactive-demo" && !candidates.some((resource) => resource.type === "interactive")) return [`${activity.title}：互动演示`];
       if (type === "script" && !candidates.some((resource) => Boolean(resource.script?.trim()))) return [`${activity.title}：讲稿`];
       return [];
     });
@@ -75,7 +79,19 @@ export default function PreviewCoursePage() {
     { label: "AI 授知内容可用", done: Boolean(course.aiLearningClassroomId || course.content._openmaicClassroomId || course.content.lessonOutline.length) },
     { label: `AI/教师计分权重合计 ${evaluationWeight}%`, done: evaluationWeight === 100 },
     { label: "AI 与教师评价维度均已确认", done: hasBothScoredRoles(course.content.evaluationPlan.dimensions) },
-    { label: missingTeacherResources.length ? `教师资源缺失：${missingTeacherResources.join("、")}` : "所选教师 PPT/互动资源/讲稿完整", done: missingTeacherResources.length === 0 },
+    { label: missingTeacherResources.length ? `普通课堂活动资源缺失：${missingTeacherResources.join("、")}` : "普通课堂活动 PPT/讲稿完整", done: missingTeacherResources.length === 0 },
+    {
+      label: pblCoverage
+        ? pblCoverage.ok
+          ? "PBL 六阶段覆盖与分流已确认"
+          : `PBL 阶段支撑不足：${[
+              ...pblCoverage.missingStageKeys,
+              ...pblCoverage.missingStudentLearningStageKeys,
+              ...pblCoverage.missingTeacherResourceStageKeys,
+            ].join("、")}`
+        : "PBL 阶段覆盖将在生成大纲后检查",
+      done: !pblCoverage || pblCoverage.ok,
+    },
     { label: "没有未确认高风险", done: !(course.teacherInterventions ?? []).some((item) => item.severity === "high" && item.status === "open") },
   ];
   const readyToPublish = publishChecks.every((item) => item.done);
@@ -157,8 +173,8 @@ export default function PreviewCoursePage() {
 
           <Card>
             <div className="mb-4 flex items-center gap-2">
-              <h2 className="text-xl font-bold">课程授课大纲</h2>
-              <Pill tone="blue">教案级</Pill>
+              <h2 className="text-xl font-bold">一级课程活动大纲</h2>
+              <Pill tone="blue">宏观时间轴</Pill>
             </div>
             {course.content.teachingOutline?.length ? (
               <ol className="space-y-3">
@@ -179,9 +195,7 @@ export default function PreviewCoursePage() {
                         <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
                           {item.openMaicUse === "student-ai-learning"
                             ? "学生 AI 授知"
-                            : item.openMaicUse === "teacher-resource"
-                              ? "教师资源"
-                              : "普通活动"}
+                            : "普通课堂活动"}
                         </span>
                       ) : null}
                     </div>
@@ -207,7 +221,7 @@ export default function PreviewCoursePage() {
                 ))}
               </ol>
             ) : (
-              <p className="text-sm text-slate-500">暂无课程授课大纲。</p>
+              <p className="text-sm text-slate-500">暂无一级课程活动大纲。</p>
             )}
           </Card>
 
@@ -253,10 +267,10 @@ export default function PreviewCoursePage() {
 
           <Card>
             <h2 className="mb-4 text-xl font-bold">
-              AI 授知章节（{course.content.lessonOutline.length}）
+              二级资源细化大纲（{course.content.lessonOutline.length}）
             </h2>
             {course.content.lessonOutline.length === 0 ? (
-              <p className="text-sm text-slate-500">暂无 AI 授知章节。</p>
+              <p className="text-sm text-slate-500">暂无二级资源细化。</p>
             ) : (
               <ol className="space-y-3">
                 {course.content.lessonOutline.map((lo, i) => (
@@ -273,6 +287,9 @@ export default function PreviewCoursePage() {
                         {lo.durationMin} 分钟
                       </span>
                     </div>
+                    {lo.parentActivityId ? (
+                      <p className="mb-2 text-xs text-slate-500">父级活动：{course.content.teachingOutline?.find((item) => item.id === lo.parentActivityId)?.title ?? lo.parentActivityId}</p>
+                    ) : null}
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
                         <div className="mb-1 text-xs font-semibold text-slate-500">教学目标</div>
@@ -369,7 +386,7 @@ export default function PreviewCoursePage() {
               <h2 className="text-lg font-bold">课程封面图</h2>
             </div>
             <p className="mb-3 text-xs leading-5 text-slate-500">
-              AI 根据课程名称、学科与驱动问题生成封面图。发布后将显示在"我的课程"和学生项目启动页。
+              AI 根据课程名称、学科与驱动问题生成封面图。发布后将显示在&quot;我的课程&quot;和学生项目启动页。
             </p>
             <ProjectCoverImage
               course={course}

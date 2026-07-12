@@ -12,6 +12,10 @@
 import type { Scene } from "@openmaic/lib/types/stage";
 import type { TeacherResourceScene } from "@/lib/session/types";
 import { classifyTeacherResourceGeneration } from "@/lib/teacher-resources/facilitation-scaffolds";
+import {
+  hasPblRoutingMetadata,
+  isStudentAiLearningScene,
+} from "@openmaic/lib/pbl/scene-routing";
 
 // 引入场景标题关键词（中英文）
 const INTRO_KEYWORDS = [
@@ -82,6 +86,9 @@ function isExplicitTeacherResource(scene: Scene): boolean {
 }
 
 function extractStageKey(scene: Scene): string | undefined {
+  if (typeof scene.stageKey === "string" && scene.stageKey.trim()) {
+    return scene.stageKey.trim();
+  }
   const title = scene.title ?? "";
   const match = title.match(/(?:阶段|stage)\s*[:：]\s*([a-z0-9_-]+)/i);
   return match?.[1];
@@ -144,18 +151,72 @@ function extractOutline(scene: Scene): { description: string; keyPoints: string[
 /**
  * 分类场景：拆分为学生场景和教师资源场景
  */
-export function classifyScenes(scenes: Scene[]): SceneClassificationResult {
+export function classifyScenes(
+  scenes: Scene[],
+  options: { pblMode?: boolean } = {},
+): SceneClassificationResult {
   const studentScenes: Scene[] = [];
   const teacherScenes: Scene[] = [];
   const teacherResourceMeta: TeacherResourceScene[] = [];
+
+  // New PBL courses must fail closed: only a scene with the complete explicit
+  // student route can enter the AI classroom. The fallback classifier remains
+  // available for non-PBL/legacy OpenMAIC classrooms.
+  const pblMode = options.pblMode ?? scenes.some(hasPblRoutingMetadata);
 
   // 跟踪 slide 序号（仅用于判断引入）
   let slideIndex = 0;
 
   for (const scene of scenes) {
-    const isPbl = scene.type === "pbl" || isPblResourceScene(scene);
-    const isIntro = isIntroductionScene(scene, slideIndex);
-    const isTeacherResource = isExplicitTeacherResource(scene);
+    if (pblMode) {
+      if (isStudentAiLearningScene(scene)) {
+        studentScenes.push(scene);
+      } else {
+        teacherScenes.push(scene);
+        const outline = extractOutline(scene);
+        const generation = classifyTeacherResourceGeneration(scene.title ?? "");
+        teacherResourceMeta.push({
+          id: scene.id,
+          role: scene.stageKey === "launch"
+            ? "introduction"
+            : scene.stageKey === "showcase"
+              ? "pbl-topic"
+              : "teaching-aid",
+          stageKey: extractStageKey(scene),
+          stageLabel: scene.stageLabel,
+          activityId: scene.activityId,
+          resourceTypes: scene.resourceTypes,
+          title: scene.title ?? `场景 ${scene.order + 1}`,
+          type: scene.type,
+          description: outline.description,
+          keyPoints: outline.keyPoints,
+          script: extractScript(scene),
+          audience: scene.audience,
+          generationPurpose: scene.generationPurpose,
+          companionIds: scene.companionIds,
+          companionPrompt: scene.companionPrompt,
+          parentActivityId: scene.parentActivityId,
+          detailKind: scene.detailKind,
+          targetDurationSec: scene.targetDurationSec,
+          ttsPolicy: scene.ttsPolicy,
+          generationMode:
+            scene.generationPurpose === "facilitation-scaffold" ||
+            scene.generationPurpose === "companion-guidance"
+              ? "dynamic-scaffold"
+              : generation.mode,
+          ...(generation.mode === "dynamic-scaffold" ? { scaffoldKind: generation.kind } : {}),
+        });
+      }
+
+      if (scene.type === "slide") slideIndex++;
+      continue;
+    }
+
+    const explicitlyStudent = scene.audience === "student";
+    const explicitlyTeacher = scene.audience === "teacher";
+    const isPbl = !explicitlyStudent && (scene.type === "pbl" || isPblResourceScene(scene));
+    const isIntro = !explicitlyStudent && isIntroductionScene(scene, slideIndex);
+    const isTeacherResource = explicitlyTeacher || (!explicitlyStudent && isExplicitTeacherResource(scene));
 
     if (isPbl || isIntro || isTeacherResource) {
       teacherScenes.push(scene);
@@ -163,14 +224,33 @@ export function classifyScenes(scenes: Scene[]): SceneClassificationResult {
       const generation = classifyTeacherResourceGeneration(scene.title ?? "");
       teacherResourceMeta.push({
         id: scene.id,
-        role: isIntro ? "introduction" : isPbl ? "pbl-topic" : "teaching-aid",
+        role: isIntro
+          ? "introduction"
+          : isPbl
+            ? "pbl-topic"
+            : "teaching-aid",
         stageKey: extractStageKey(scene),
+        stageLabel: scene.stageLabel,
+        activityId: scene.activityId,
+        resourceTypes: scene.resourceTypes,
         title: scene.title ?? `Scene ${scene.order + 1}`,
         type: scene.type,
         description: outline.description,
         keyPoints: outline.keyPoints,
         script: extractScript(scene),
-        generationMode: generation.mode,
+        audience: scene.audience,
+        generationPurpose: scene.generationPurpose,
+        companionIds: scene.companionIds,
+        companionPrompt: scene.companionPrompt,
+        parentActivityId: scene.parentActivityId,
+        detailKind: scene.detailKind,
+        targetDurationSec: scene.targetDurationSec,
+        ttsPolicy: scene.ttsPolicy,
+        generationMode:
+          scene.generationPurpose === "facilitation-scaffold" ||
+          scene.generationPurpose === "companion-guidance"
+            ? "dynamic-scaffold"
+            : generation.mode,
         ...(generation.mode === "dynamic-scaffold" ? { scaffoldKind: generation.kind } : {}),
       });
     } else {

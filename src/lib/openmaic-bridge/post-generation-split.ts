@@ -14,6 +14,7 @@
 import type { Scene, Stage } from "@openmaic/lib/types/stage";
 import type { TeacherResourceScene } from "@/lib/session/types";
 import { classifyScenes } from "./scene-classifier";
+import { checkPblStageCoverage, type PblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 
 interface ClassroomResponse {
   success: boolean;
@@ -38,6 +39,8 @@ export interface SplitResult {
   studentSceneCount: number;
   /** 教师场景数 */
   teacherSceneCount: number;
+  /** 生成后基于显式阶段/受众元数据的覆盖检查结果。 */
+  pblCoverage: PblStageCoverage;
 }
 
 /**
@@ -69,6 +72,15 @@ export async function splitClassroomScenes(
 
   // 2. 分类场景
   const { studentScenes, teacherScenes, teacherResourceMeta } = classifyScenes(scenes);
+  const pblCoverage = checkPblStageCoverage(
+    scenes.map((scene) => ({
+      title: scene.title ?? "未命名场景",
+      type: scene.type,
+      stageKey: scene.stageKey,
+      audience: scene.audience,
+      generationPurpose: scene.generationPurpose,
+    })),
+  );
 
   // 如果没有教师资源场景，无需拆分
   if (teacherScenes.length === 0) {
@@ -77,6 +89,7 @@ export async function splitClassroomScenes(
       teacherResourceScenes: [],
       studentSceneCount: studentScenes.length,
       teacherSceneCount: 0,
+      pblCoverage,
     };
   }
 
@@ -128,5 +141,6 @@ export async function splitClassroomScenes(
     teacherResourceScenes: teacherResourceMeta,
     studentSceneCount: studentScenes.length,
     teacherSceneCount: teacherScenes.length,
+    pblCoverage,
   };
 }

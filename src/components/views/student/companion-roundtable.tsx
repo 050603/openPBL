@@ -91,6 +91,7 @@ function useCompanionTTS(options?: { onQueueDrained?: () => void }) {
   const ttsVoice = useSettingsStore((s) => s.ttsVoice);
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
   const ttsProvidersConfig = useSettingsStore((s) => s.ttsProvidersConfig);
+  const agentVoiceOverrides = useSettingsStore((s) => s.agentVoiceOverrides);
 
   const [enabled, setEnabled] = useState(true);
   const [speaking, setSpeaking] = useState(false);
@@ -151,18 +152,27 @@ function useCompanionTTS(options?: { onQueueDrained?: () => void }) {
     async (item: TTSQueueItem, providerId: string, speed: number, onDone: () => void) => {
       try {
         const providerConfig = ttsProvidersConfig?.[providerId as keyof typeof ttsProvidersConfig];
+        // 按智能体查找独立音色配置，未配置则回退到全局默认
+        const override = agentVoiceOverrides?.[item.companionId];
+        const effectiveVoice = override?.voiceId || ttsVoice || "default";
+        const effectiveProviderId = override?.providerId || providerId;
+        const effectiveProviderConfig =
+          override?.providerId && override.providerId !== providerId
+            ? ttsProvidersConfig?.[override.providerId as keyof typeof ttsProvidersConfig]
+            : providerConfig;
+        const effectiveModelId = override?.modelId || providerConfig?.modelId;
         const res = await fetch("/api/openmaic/generate/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: item.text,
             audioId: `companion-${item.companionId}-${item.seq}`,
-            ttsProviderId: providerId,
-            ttsModelId: providerConfig?.modelId,
-            ttsVoice: ttsVoice || "default",
+            ttsProviderId: effectiveProviderId,
+            ttsModelId: effectiveModelId,
+            ttsVoice: effectiveVoice,
             ttsSpeed: speed,
-            ttsApiKey: providerConfig?.apiKey,
-            ttsBaseUrl: providerConfig?.baseUrl || providerConfig?.customDefaultBaseUrl,
+            ttsApiKey: effectiveProviderConfig?.apiKey,
+            ttsBaseUrl: effectiveProviderConfig?.baseUrl || effectiveProviderConfig?.customDefaultBaseUrl,
           }),
         });
 
@@ -195,7 +205,7 @@ function useCompanionTTS(options?: { onQueueDrained?: () => void }) {
         speakBrowserOne(item, speed, onDone);
       }
     },
-    [ttsProvidersConfig, ttsVoice, speakBrowserOne],
+    [ttsProvidersConfig, ttsVoice, agentVoiceOverrides, speakBrowserOne],
   );
 
   // 取出队首并播放，播放结束后递归处理下一项
@@ -247,10 +257,10 @@ function useCompanionTTS(options?: { onQueueDrained?: () => void }) {
 
   // 入队（不立即播放，由 playNext 调度）
   const enqueue = useCallback(
-    (text: string, companionId: AiCompanionId) => {
-      if (!enabledRef.current) return;
+    (text: string, companionId: AiCompanionId): boolean => {
+      if (!enabledRef.current) return false;
       const clean = text.replace(/<[^>]+>/g, "").trim();
-      if (!clean) return;
+      if (!clean) return false;
       seqRef.current += 1;
       queueRef.current.push({ text: clean, companionId, seq: seqRef.current });
       syncQueueLength();
@@ -258,6 +268,7 @@ function useCompanionTTS(options?: { onQueueDrained?: () => void }) {
       if (!isPlayingRef.current) {
         playNext();
       }
+      return true;
     },
     [playNext, syncQueueLength],
   );
@@ -387,7 +398,13 @@ export function CompanionRoundtable({
       ? configuredStages.includes(stageKey)
       : DEFAULT_ENABLED_STAGES.includes(stageKey);
 
-  const available = useMemo(() => recommendedCompanions(stageKey), [stageKey]);
+  const available = useMemo(() => {
+    const configuredIds = course.pblConfig?.companionIds;
+    const candidates = configuredIds?.length
+      ? configuredIds.map((id) => getCompanion(id as AiCompanionId))
+      : recommendedCompanions(stageKey);
+    return candidates.filter((companion) => companion.stages.includes(stageKey));
+  }, [course.pblConfig?.companionIds, stageKey]);
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -399,6 +416,7 @@ export function CompanionRoundtable({
   const [unreadCount, setUnreadCount] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [visibleBubble, setVisibleBubble] = useState<AiCompanionId | null>(null);
+  const [visibleBubbleText, setVisibleBubbleText] = useState("");
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [bubblePlacement, setBubblePlacement] = useState<FloatingPlacement | null>(null);
   const [composerPlacement, setComposerPlacement] = useState<FloatingPlacement | null>(null);
@@ -408,7 +426,9 @@ export function CompanionRoundtable({
   const dragRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const streamingTextRef = useRef(""); // 防 React StrictMode 双调用导致的重复
+  const streamingSpeakerRef = useRef<AiCompanionId | null>(null);
   const openingRequestedRef = useRef(false);
+  const openingStageRef = useRef<string | null>(null);
   const studentHasSpokenRef = useRef(false);
   const phaseRef = useRef<StreamPhase>("idle");
   const directiveTriggeredRef = useRef<Set<string>>(new Set());
@@ -416,17 +436,26 @@ export function CompanionRoundtable({
   const lastActivityAtRef = useRef(Date.now());
   const noProgressTriggeredRef = useRef(false);
 
+  // 始终指向最新的 course，避免事件回调中读到旧的 submissions
+  const courseRef = useRef(course);
+  useEffect(() => { courseRef.current = course; }, [course]);
+
   // ===== 显示队列：控制智能体消息的串行显示 =====
   // 生成不阻塞（SSE 流式接收），但显示和朗读串行：
   // 第一个智能体说完话（显示+朗读完）后，第二个才显示并朗读
   type DisplayQueueItem = { companionId: AiCompanionId; fullText: string };
   const displayQueueRef = useRef<DisplayQueueItem[]>([]);
   const isDisplayingRef = useRef(false);
+  const displayFinishTimerRef = useRef<number | null>(null);
   const playNextDisplayRef = useRef<() => void>(() => undefined);
 
   const tts = useCompanionTTS({
     onQueueDrained: () => {
       // TTS 队列空了，当前消息显示+朗读完毕，显示下一条
+      if (displayFinishTimerRef.current !== null) {
+        window.clearTimeout(displayFinishTimerRef.current);
+        displayFinishTimerRef.current = null;
+      }
       isDisplayingRef.current = false;
       playNextDisplayRef.current();
     },
@@ -449,8 +478,29 @@ export function CompanionRoundtable({
       },
     ]);
     setVisibleBubble(item.companionId);
-    tts.enqueue(item.fullText, item.companionId);
+    setVisibleBubbleText(item.fullText);
+    const queued = tts.enqueue(item.fullText, item.companionId);
+    if (!queued) {
+      // With TTS switched off there is no onended callback. Keep the bubble
+      // visible briefly, then advance the same serialized display queue.
+      displayFinishTimerRef.current = window.setTimeout(() => {
+        displayFinishTimerRef.current = null;
+        isDisplayingRef.current = false;
+        playNextDisplayRef.current();
+      }, 4000);
+    }
   };
+
+  function resetDisplayQueue() {
+    displayQueueRef.current = [];
+    isDisplayingRef.current = false;
+    if (displayFinishTimerRef.current !== null) {
+      window.clearTimeout(displayFinishTimerRef.current);
+      displayFinishTimerRef.current = null;
+    }
+    setVisibleBubble(null);
+    setVisibleBubbleText("");
+  }
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -474,8 +524,11 @@ export function CompanionRoundtable({
   }, [messages, streamingText]);
 
   useEffect(() => {
-    if (!visibleBubble || currentSpeaker || tts.speaking) return;
-    const timer = window.setTimeout(() => setVisibleBubble(null), 4000);
+    if (!visibleBubble || currentSpeaker || tts.speaking || isDisplayingRef.current) return;
+    const timer = window.setTimeout(() => {
+      setVisibleBubble(null);
+      setVisibleBubbleText("");
+    }, 4000);
     return () => window.clearTimeout(timer);
   }, [currentSpeaker, tts.speaking, visibleBubble]);
 
@@ -524,8 +577,11 @@ export function CompanionRoundtable({
 
   useEffect(() => {
     if (!stageEnabled || !session.studentId) return;
+    if (openingStageRef.current !== stageKey) {
+      openingStageRef.current = stageKey;
+      openingRequestedRef.current = false;
+    }
     let cancelled = false;
-    let openingTimer: number | undefined;
     const loadThread = async () => {
       try {
         const response = await fetch(`/api/companion/threads?courseId=${encodeURIComponent(course.id)}&studentId=${encodeURIComponent(session.studentId!)}&stageKey=${encodeURIComponent(stageKey)}`, { cache: "no-store" });
@@ -546,17 +602,17 @@ export function CompanionRoundtable({
         setMessages(restored);
         studentHasSpokenRef.current = restored.some((message) => message.role === "user");
         if (!payload.thread?.openingSentAt && !openingRequestedRef.current) {
-          // Do not interrupt the student's first minute. If there is still no
-          // student speech after 60 seconds, 灵灵 gives a low-pressure opening
-          // prompt (only on stages where the role is configured).
-          openingTimer = window.setTimeout(() => {
+          // Entering a new stage starts the companion guidance immediately;
+          // the guards below still avoid interrupting a student who already spoke.
+          queueMicrotask(() => {
             if (openingRequestedRef.current || studentHasSpokenRef.current || phaseRef.current !== "idle") return;
             openingRequestedRef.current = true;
+            setIsOpen(true);
             void runRound(
               `请根据“${contextLabel}”阶段目标和学生当前产物，主动用创意启发的方式说明下一步，并给出一个现在就能完成的小动作。`,
-              { kind: "stage-opening", reason: `进入${contextLabel}阶段后 60 秒未发言`, preferredCompanionId: available.some((companion) => companion.id === "ideation") ? "ideation" : undefined },
+              { kind: "stage-opening", reason: `进入${contextLabel}阶段时主动引导`, preferredCompanionId: available.some((companion) => companion.id === "ideation") ? "ideation" : undefined },
             );
-          }, 60_000);
+          });
         } else {
           const nextDirective = payload.directives?.find((directive) => !directiveTriggeredRef.current.has(directive.id));
           if (nextDirective) {
@@ -569,7 +625,7 @@ export function CompanionRoundtable({
       }
     };
     void loadThread();
-    return () => { cancelled = true; if (openingTimer) window.clearTimeout(openingTimer); };
+    return () => { cancelled = true; };
     // runRound uses the latest render state; this effect is intentionally keyed to the thread identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course.id, contextLabel, session.studentId, stageEnabled, stageKey]);
@@ -609,11 +665,13 @@ export function CompanionRoundtable({
       const preferredCompanionId: AiCompanionId = isDocument ? "critic" : "reviewer";
       if (!available.some((companion) => companion.id === preferredCompanionId)) return;
       window.setTimeout(() => {
+        // 如果事件携带了文档内容，直接嵌入消息中，避免 React 状态更新时序问题
+        const docContent = detail.content?.trim();
         void runRound(
           isDocument
-            ? "学生刚刚保存了项目文档。请从证据、逻辑和可验证性出发提出检验性问题，帮助学生发现一个需要核对的地方。"
+            ? `学生刚刚保存了项目文档。${docContent ? `文档内容如下：\n${docContent.slice(0, 2000)}` : "请基于学生最近的平台提交记录，给出反馈和下一步建议。"}\n请基于文档中记录的内容，给出具体的反馈和下一步建议。如果学生描述了已完成的步骤，认可进展并引导进入下一步。`
             : `学生刚刚上传了${detail.summary || "一个项目文件"}。请从真实使用者视角给出具体反馈，指出一个最值得改进的地方。`,
-          { kind: detail.kind, reason: isDocument ? "保存文档后主动检验" : "上传文件后主动用户视角反馈", preferredCompanionId },
+          { kind: detail.kind, reason: isDocument ? "保存文档后主动反馈" : "上传文件后主动用户视角反馈", preferredCompanionId },
         );
       }, 0);
     }
@@ -636,14 +694,6 @@ export function CompanionRoundtable({
     void runRound("连续三轮讨论还没有形成新的产物变化。请先由记记收束当前讨论，再给出一个最小可执行动作。", { kind: "no-progress", reason: "连续 3 轮对话无产物进展" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course.submissions, messages, phase, session.studentId]);
-
-  const latestReplies = useMemo(() => {
-    const latest = new Map<AiCompanionId, ChatMsg>();
-    for (const message of messages) {
-      if (message.role === "assistant" && message.companionId) latest.set(message.companionId, message);
-    }
-    return latest;
-  }, [messages]);
 
   if (!stageEnabled || !available.length) return null;
 
@@ -691,9 +741,11 @@ export function CompanionRoundtable({
     setPhase("director");
     setStreamingText("");
     streamingTextRef.current = "";
+    streamingSpeakerRef.current = null;
     setCurrentSpeaker(null);
     setDirectorSpeakers([]);
     // 开始新一轮对话前清空 TTS 队列，避免上一轮残留语音串扰
+    resetDisplayQueue();
     tts.stop();
 
     // 防替代检测
@@ -707,14 +759,11 @@ export function CompanionRoundtable({
     if (!trigger && asksForCompleteWork && !hasOwnWork) {
       const reply =
         "先给我你的想法、草稿或一个具体卡点吧。我可以提问、比较选项或检查漏洞，但项目的核心构思和作品需要由你完成。";
-      setMessages((cur) => [
-        ...cur,
-        { role: "assistant", companionId: "knowledge", content: reply, ts: new Date().toISOString() },
-      ]);
+      displayQueueRef.current.push({ companionId: "knowledge", fullText: reply });
+      if (!isDisplayingRef.current) playNextDisplayRef.current();
       phaseRef.current = "idle";
       setPhase("idle");
       // 防替代提示也入队 TTS
-      tts.enqueue(reply, "knowledge");
       if (!isOpen) setUnreadCount((c) => c + 1);
       return;
     }
@@ -730,11 +779,11 @@ export function CompanionRoundtable({
       if (!trigger) studentHasSpokenRef.current = true;
       const profile = session.studentId ? deriveStudentLearningProfile({ course, studentId: session.studentId, stageKey }) : null;
       const teacherContext =
-        (course.teacherInterventions ?? [])
+        (courseRef.current.teacherInterventions ?? [])
           .filter((item) => item.stageKey === stageKey && item.status === "open")
           .map((item) => `${item.action}：${item.instruction}`)
           .join("；") || "暂无额外教师介入";
-      const studentWork = (course.submissions ?? [])
+      const studentWork = (courseRef.current.submissions ?? [])
         .filter((item) => item.studentId === session.studentId)
         .slice(-3)
         .map((item) => item.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
@@ -798,15 +847,33 @@ export function CompanionRoundtable({
                 phaseRef.current = "speaking";
                 setPhase("speaking");
                 break;
-              case "agent_start":
-                setCurrentSpeaker(event.companionId);
-                setVisibleBubble(event.companionId);
+              case "agent_start": {
+                streamingSpeakerRef.current = event.companionId;
+                const canPreviewSpeaker =
+                  !isDisplayingRef.current && displayQueueRef.current.length === 0;
+                if (canPreviewSpeaker) {
+                  setCurrentSpeaker(event.companionId);
+                  setVisibleBubble(event.companionId);
+                  setVisibleBubbleText("");
+                } else {
+                  // The SSE stream may already be preparing the next speaker
+                  // while the current speaker is being read. Keep the current
+                  // bubble untouched until the display queue advances.
+                  setCurrentSpeaker(null);
+                }
                 setStreamingText("");
                 streamingTextRef.current = "";
                 break;
+              }
               case "text_delta":
                 streamingTextRef.current += event.delta;
-                setStreamingText(streamingTextRef.current);
+                if (
+                  !isDisplayingRef.current &&
+                  displayQueueRef.current.length === 0 &&
+                  streamingSpeakerRef.current === event.companionId
+                ) {
+                  setStreamingText(streamingTextRef.current);
+                }
                 allReplies += event.delta;
                 lastCompanionId = event.companionId;
                 break;
@@ -824,6 +891,7 @@ export function CompanionRoundtable({
                   }
                 }
                 streamingTextRef.current = "";
+                streamingSpeakerRef.current = null;
                 setStreamingText("");
                 setCurrentSpeaker(null);
                 if (!isOpen) setUnreadCount((c) => c + 1);
@@ -896,21 +964,21 @@ export function CompanionRoundtable({
 
   function stopStream() {
     abortRef.current?.abort();
+    const partialCompanionId = streamingSpeakerRef.current ?? currentSpeaker ?? "knowledge";
+    const partialText = streamingTextRef.current;
+    resetDisplayQueue();
     tts.stop();
     phaseRef.current = "idle";
     setPhase("idle");
     setCurrentSpeaker(null);
+    streamingSpeakerRef.current = null;
     // 将未完成的流式文本保存到消息列表
-    if (streamingTextRef.current) {
-      setMessages((cur) => [
-        ...cur,
-        {
-          role: "assistant",
-          companionId: currentSpeaker ?? "knowledge",
-          content: streamingTextRef.current,
-          ts: new Date().toISOString(),
-        },
-      ]);
+    if (partialText) {
+      displayQueueRef.current.push({
+        companionId: partialCompanionId,
+        fullText: partialText,
+      });
+      playNextDisplayRef.current();
       streamingTextRef.current = "";
       setStreamingText("");
     }
@@ -922,7 +990,7 @@ export function CompanionRoundtable({
   const tableCapacity = available.length;
   const bubbleCompanion = visibleBubble ? getCompanion(visibleBubble) : null;
   const bubbleText = visibleBubble
-    ? (currentSpeaker === visibleBubble ? streamingText : "") || latestReplies.get(visibleBubble)?.content || ""
+    ? (currentSpeaker === visibleBubble ? streamingText : "") || visibleBubbleText
     : "";
 
   return (

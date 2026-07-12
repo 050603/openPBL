@@ -20,6 +20,12 @@ import type {
   TeachingOutlineSection,
 } from "../session/types";
 import { getActiveAiSettings } from "./settings";
+import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
+import { normalizePblTeachingOutline } from "@/lib/pbl-outline-normalization";
+import {
+  normalizePblStageKey,
+  rescalePblDetailDurations,
+} from "@/lib/pbl-time-model";
 
 function env(name: string): string | undefined {
   if (typeof process !== "undefined" && process.env) return process.env[name];
@@ -260,7 +266,14 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
   }
   return raw.map((item, index) => {
     const point = item && typeof item === "object"
-      ? item as { id?: string; name?: string; description?: string; keyInfo?: string; relatedIds?: unknown }
+      ? item as {
+          id?: string;
+          name?: string;
+          description?: string;
+          keyInfo?: string;
+          relatedIds?: unknown;
+          level?: unknown;
+        }
       : {};
     return {
       id: typeof point.id === "string" && point.id.trim() ? point.id.trim() : `kp-${index + 1}`,
@@ -270,6 +283,13 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
       relatedIds: Array.isArray(point.relatedIds)
         ? point.relatedIds.filter((id): id is string => typeof id === "string")
         : undefined,
+      level:
+        point.level === "foundation" ||
+        point.level === "core" ||
+        point.level === "application" ||
+        point.level === "extension"
+          ? point.level
+          : undefined,
     };
   });
 }
@@ -325,17 +345,36 @@ function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["k
   return { nodes, edges };
 }
 
-function validateLessonOutline(raw: unknown, input: GenerateInput): LessonOutlineSection[] {
+function applyGraphLevels(
+  knowledgePoints: CourseContent["knowledgePoints"],
+  graph: KnowledgeGraph,
+): CourseContent["knowledgePoints"] {
+  const levels = new Map(graph.nodes.map((node) => [node.id, node.level]));
+  return knowledgePoints.map((point) => ({
+    ...point,
+    level: point.level ?? levels.get(point.id),
+  }));
+}
+
+function validateLessonOutline(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "teachingOutline">,
+): LessonOutlineSection[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error("AI 授知大纲生成失败：AI 未返回章节大纲。");
   }
-  return raw.map((item, index) => {
+  const details = raw.map((item, index) => {
     const section = item && typeof item === "object" ? item as Partial<LessonOutlineSection> : {};
+    const requestedStageKey = typeof section.stageKey === "string" ? section.stageKey.trim() : "";
+    const stageKey = input.pblConfig?.generationTemplate === "pbl-six-stage"
+      ? normalizePblStageKey(requestedStageKey) ?? "ai-learning"
+      : (requestedStageKey || input.stages[0]?.key) ?? "ai-learning";
+    const parent = context?.teachingOutline?.find((activity) => activity.id === section.parentActivityId);
+    const isStudentKnowledge = stageKey === "ai-learning";
     return {
       id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `lo-${index + 1}`,
-      stageKey: typeof section.stageKey === "string" && section.stageKey.trim()
-        ? section.stageKey.trim()
-        : input.stages[0]?.key ?? "ai-learning",
+      stageKey,
       title: requireText(section.title, "AI 授知大纲"),
       objectives: Array.isArray(section.objectives)
         ? section.objectives.map((objective) => String(objective)).filter(Boolean)
@@ -343,27 +382,96 @@ function validateLessonOutline(raw: unknown, input: GenerateInput): LessonOutlin
       activities: Array.isArray(section.activities)
         ? section.activities.map((activity) => String(activity)).filter(Boolean)
         : [],
-      durationMin: Number.isFinite(Number(section.durationMin)) ? Number(section.durationMin) : 45,
+      durationMin: Number.isFinite(Number(section.durationMin)) ? Math.max(1, Number(section.durationMin)) : 1,
+      parentActivityId:
+        typeof section.parentActivityId === "string" && section.parentActivityId.trim()
+          ? section.parentActivityId.trim()
+          : undefined,
+      detailKind:
+        typeof section.detailKind === "string" && DETAIL_KIND_VALUES.has(section.detailKind)
+          ? section.detailKind
+          : undefined,
+      knowledgePointIds: Array.isArray(section.knowledgePointIds)
+        ? section.knowledgePointIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+        : [],
+      resourceTypes: isStudentKnowledge
+        ? Array.isArray(section.resourceTypes)
+          ? section.resourceTypes.filter(
+              (type): type is NonNullable<LessonOutlineSection["resourceTypes"]>[number] =>
+                typeof type === "string" && RESOURCE_TYPE_VALUES.has(type),
+            )
+          : ["ppt"]
+        : ["ppt", "script"],
+      targetDurationSec: Number.isFinite(Number(section.targetDurationSec))
+        ? Math.max(60, Number(section.targetDurationSec))
+        : Math.max(60, (parent?.durationMin ?? Number(section.durationMin) ?? 1) * 60),
+      ttsPolicy: isStudentKnowledge ? "target-duration" : "none",
     };
   });
+
+  if (input.pblConfig?.generationTemplate !== "pbl-six-stage" || !context?.knowledgePoints?.length) {
+    return details;
+  }
+
+  const aiDetails = details.filter((detail) => detail.stageKey === "ai-learning");
+  const covered = new Set(aiDetails.flatMap((detail) => detail.knowledgePointIds ?? []));
+  const missingPoints = context.knowledgePoints.filter((point) => !covered.has(point.id));
+  if (missingPoints.length === 0 || aiDetails.length === 0) return details;
+
+  const parentId = aiDetails[0].parentActivityId ?? context.teachingOutline?.find((activity) => activity.stageKey === "ai-learning")?.id;
+  const scaffoldDetails: LessonOutlineSection[] = missingPoints.map((point, index) => ({
+    id: `lo-knowledge-coverage-${point.id}`,
+    stageKey: "ai-learning",
+    title: `知识点补充：${point.name}`,
+    objectives: [point.description || point.name],
+    activities: [`通过一个短案例或检查题验证“${point.name}”与项目驱动问题的关系。`],
+    durationMin: 1,
+    parentActivityId: parentId,
+    detailKind: "knowledge-explanation",
+    knowledgePointIds: [point.id],
+    resourceTypes: ["ppt"],
+    targetDurationSec: 60,
+    ttsPolicy: "target-duration",
+  }));
+  const parentActivities = context.teachingOutline ?? [];
+  return rescalePblDetailDurations(
+    [...details, ...scaffoldDetails],
+    parentActivities,
+  );
 }
 
-const OPEN_MAIC_USE_VALUES = new Set(["none", "student-ai-learning", "teacher-resource"]);
+const OPEN_MAIC_USE_VALUES = new Set(["none", "student-ai-learning"]);
 const RESOURCE_TYPE_VALUES = new Set([
   "ppt",
   "interactive-demo",
+  "code-interactive",
   "script",
   "worksheet",
   "rubric",
   "project-brief",
 ]);
+const DETAIL_KIND_VALUES = new Set([
+  "teacher-introduction",
+  "knowledge-explanation",
+  "interactive-practice",
+  "project-scaffold",
+  "project-practice",
+  "showcase-coaching",
+  "reflection-transfer",
+  "other",
+]);
+const TTS_POLICY_VALUES = new Set(["none", "target-duration"]);
 
-function validateTeachingOutline(raw: unknown, input: GenerateInput): TeachingOutlineSection[] {
+function validateTeachingOutline(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">,
+): TeachingOutlineSection[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error("授课大纲生成失败：AI 未返回教案级授课大纲。");
   }
   const stageKeys = new Set(input.stages.map((stage) => stage.key));
-  return raw.map((item, index) => {
+  const parsed = raw.map((item, index) => {
     const section =
       item && typeof item === "object" ? item as Partial<TeachingOutlineSection> : {};
     const openMaicUse =
@@ -374,16 +482,24 @@ function validateTeachingOutline(raw: unknown, input: GenerateInput): TeachingOu
       id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `to-${index + 1}`,
       stageKey: (() => {
         const requested = typeof section.stageKey === "string" ? section.stageKey.trim() : "";
+        if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
+          return normalizePblStageKey(requested) ?? input.stages[Math.min(index, input.stages.length - 1)]?.key ?? "launch";
+        }
         if (requested && stageKeys.has(requested)) return requested;
         return input.stages[Math.min(index, input.stages.length - 1)]?.key ?? "launch";
       })(),
       title: requireText(section.title, "授课大纲"),
-      durationMin: Number.isFinite(Number(section.durationMin)) ? Number(section.durationMin) : 10,
+      durationMin: Number.isFinite(Number(section.durationMin)) ? Math.max(1, Number(section.durationMin)) : 1,
       teachingGoal: requireText(section.teachingGoal, "授课大纲"),
       teacherRole: requireText(section.teacherRole, "授课大纲"),
       platformRole: requireText(section.platformRole, "授课大纲"),
       aiRole: requireText(section.aiRole, "授课大纲"),
       studentActivity: requireText(section.studentActivity, "授课大纲"),
+      activityKind:
+        typeof section.activityKind === "string" &&
+        ["launch", "knowledge", "proposal", "practice", "showcase", "reflection", "other"].includes(section.activityKind)
+          ? section.activityKind
+          : undefined,
       knowledgePointIds: Array.isArray(section.knowledgePointIds)
         ? section.knowledgePointIds.filter((id): id is string => typeof id === "string")
         : [],
@@ -397,6 +513,18 @@ function validateTeachingOutline(raw: unknown, input: GenerateInput): TeachingOu
       notes: typeof section.notes === "string" ? section.notes.trim() : "",
     };
   });
+
+  if (input.pblConfig?.generationTemplate !== "pbl-six-stage") return parsed;
+  return normalizePblTeachingOutline(parsed, {
+    totalMinutes: Math.max(0, Math.round(input.hours * 60)),
+    topic: input.name,
+    subject: input.subject,
+    summary: input.summary,
+    grade: input.grade,
+    difficulty: input.pblConfig.difficultyLevel,
+    knowledgePoints: context?.knowledgePoints,
+    knowledgeGraph: context?.knowledgeGraph,
+  });
 }
 
 function validateEvaluationPlan(raw: unknown): EvaluationPlan {
@@ -405,12 +533,22 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
     throw new Error("评价方案生成失败：AI 未返回评价维度。");
   }
   return {
-    dimensions: (plan.dimensions as { id?: string; name?: string; weight?: number; description?: string }[])
+    dimensions: (plan.dimensions as {
+      id?: string;
+      name?: string;
+      weight?: number;
+      description?: string;
+      responsibleRole?: unknown;
+    }[])
       .map((dimension, index) => ({
         id: typeof dimension.id === "string" && dimension.id.trim() ? dimension.id.trim() : `ev-${index + 1}`,
         name: requireText(dimension.name, "评价方案"),
         weight: Number(dimension.weight ?? 0),
         description: typeof dimension.description === "string" ? dimension.description.trim() : "",
+        responsibleRole:
+          dimension.responsibleRole === "ai" || dimension.responsibleRole === "teacher"
+            ? dimension.responsibleRole
+            : undefined,
       })),
     overallRubric: typeof plan.overallRubric === "string" ? plan.overallRubric.trim() : "",
   };
@@ -418,15 +556,43 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
 
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {
   const data = json && typeof json === "object" ? json as Partial<CourseContent> : {};
-  const knowledgePoints = validateKnowledgePoints(data.knowledgePoints);
+  const parsedKnowledgePoints = validateKnowledgePoints(data.knowledgePoints);
+  const knowledgeGraph = normalizeKnowledgeGraph(data.knowledgeGraph, parsedKnowledgePoints);
+  const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
+  const teachingOutline = data.teachingOutline
+    ? validateTeachingOutline(data.teachingOutline, input, { knowledgePoints, knowledgeGraph })
+    : [];
+  const lessonOutline = validateLessonOutline(data.lessonOutline, input, {
+    knowledgePoints,
+    knowledgeGraph,
+    teachingOutline,
+  });
+  if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
+    const activityIds = new Set(teachingOutline.map((activity) => activity.id));
+    const orphanDetails = lessonOutline.filter(
+      (detail) => !detail.parentActivityId || !activityIds.has(detail.parentActivityId),
+    );
+    if (orphanDetails.length > 0) {
+      throw new Error("二级资源细化生成失败：存在未关联一级活动的资源。");
+    }
+    const studentDetails = lessonOutline.filter((detail) => detail.stageKey === "ai-learning");
+    const knowledgeValidation = validatePblKnowledgeAlignment(
+      studentDetails,
+      knowledgePoints,
+      { requireReferences: true },
+    );
+    if (knowledgeValidation.issues.length > 0) {
+      throw new Error(
+        `二级资源细化知识点校验失败：${knowledgeValidation.issues[0]?.message ?? "请检查知识点关联。"}`,
+      );
+    }
+  }
   return {
     pblOutline: requireText(data.pblOutline, "PBL 大纲"),
     knowledgePoints,
-    knowledgeGraph: normalizeKnowledgeGraph(data.knowledgeGraph, knowledgePoints),
-    teachingOutline: data.teachingOutline
-      ? validateTeachingOutline(data.teachingOutline, input)
-      : [],
-    lessonOutline: validateLessonOutline(data.lessonOutline, input),
+    knowledgeGraph,
+    teachingOutline,
+    lessonOutline,
     evaluationPlan: validateEvaluationPlan(data.evaluationPlan),
   };
 }
@@ -498,7 +664,14 @@ export async function generateCourseContent(
   }
   if (action === "lessonOutline") {
     return {
-      content: { ...emptyCourseContent(), lessonOutline: validateLessonOutline((json as { lessonOutline?: unknown }).lessonOutline, input) },
+      content: {
+        ...emptyCourseContent(),
+        lessonOutline: validateLessonOutline(
+          (json as { lessonOutline?: unknown }).lessonOutline,
+          input,
+          request.context,
+        ),
+      },
       source: "llm",
     };
   }
@@ -513,18 +686,21 @@ export async function generateCourseContent(
         teachingOutline: validateTeachingOutline(
           (json as { teachingOutline?: unknown }).teachingOutline,
           input,
+          request.context,
         ),
       },
       source: "llm",
     };
   }
   if (action === "knowledgeGraph") {
-    const knowledgePoints = validateKnowledgePoints((json as { knowledgePoints?: unknown }).knowledgePoints);
+    const parsedKnowledgePoints = validateKnowledgePoints((json as { knowledgePoints?: unknown }).knowledgePoints);
+    const knowledgeGraph = normalizeKnowledgeGraph((json as { knowledgeGraph?: unknown }).knowledgeGraph, parsedKnowledgePoints);
+    const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
     return {
       content: {
         ...emptyCourseContent(),
         knowledgePoints,
-        knowledgeGraph: normalizeKnowledgeGraph((json as { knowledgeGraph?: unknown }).knowledgeGraph, knowledgePoints),
+        knowledgeGraph,
       },
       source: "llm",
     };

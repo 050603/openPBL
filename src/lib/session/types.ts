@@ -1,5 +1,13 @@
 // Domain types for the openPBL classroom demo.
 
+import type { PblCourseConfig } from "@/lib/pbl-course-config";
+import type {
+  PblDetailKind,
+  PblTtsPolicy,
+  SceneResourceType,
+} from "@openmaic/lib/types/generation";
+import type { PblProjectMainline } from "@/lib/pbl-time-model";
+
 export type CourseStatus =
   | "draft"
   | "preparing"
@@ -467,6 +475,23 @@ export type OpenMaicSceneOutlineSnapshot = {
   id: string;
   type?: string;
   title: string;
+  stageKey?: string;
+  stageLabel?: string;
+  audience?: "student" | "teacher";
+  generationPurpose?:
+    | "knowledge-teaching"
+    | "teacher-resource"
+    | "facilitation-scaffold"
+    | "companion-guidance";
+  companionIds?: string[];
+  companionPrompt?: string;
+  activityId?: string;
+  parentActivityId?: string;
+  detailKind?: PblDetailKind;
+  knowledgePointIds?: string[];
+  targetDurationSec?: number;
+  ttsPolicy?: PblTtsPolicy;
+  resourceTypes?: SceneResourceType[];
   description?: string;
   keyPoints?: string[];
   teachingObjective?: string;
@@ -553,6 +578,8 @@ export type Course = {
   stages: Stage[];
   currentStageIndex: number;
   content: CourseContent;
+  /** Structured configuration for the personal-project AI-companion mode. */
+  pblConfig?: PblCourseConfig;
   classConfig?: ClassConfig;
   inviteCode?: string;
   /** AI 生成的项目封面图 URL */
@@ -610,6 +637,8 @@ export type CourseContent = {
   pblOutline: string;
   knowledgePoints: KnowledgePoint[];
   knowledgeGraph?: KnowledgeGraph;
+  /** Deterministic six-module timeline regenerated from the final teacher allocation. */
+  projectMainline?: PblProjectMainline;
   /**
    * 教师备课阶段确认的整节课程授课大纲。
    * 粒度接近教案：说明教师、平台与 AI 在每个教学活动中的分工。
@@ -681,6 +710,20 @@ export type TeacherResourceScene = {
   script?: string;
   generationMode?: "predictable" | "dynamic-scaffold";
   scaffoldKind?: DynamicFacilitationScaffold["kind"];
+  /** Explicit routing metadata from the PBL course template. */
+  audience?: "teacher" | "student";
+  generationPurpose?: "knowledge-teaching" | "teacher-resource" | "facilitation-scaffold" | "companion-guidance";
+  stageLabel?: string;
+  companionIds?: string[];
+  companionPrompt?: string;
+  activityId?: string;
+  parentActivityId?: string;
+  detailKind?: PblDetailKind;
+  targetDurationSec?: number;
+  ttsPolicy?: PblTtsPolicy;
+  resourceTypes?: Array<
+    "ppt" | "interactive-demo" | "code-interactive" | "script" | "worksheet" | "rubric" | "project-brief"
+  >;
 };
 
 export type KnowledgePoint = {
@@ -689,6 +732,7 @@ export type KnowledgePoint = {
   description: string;
   keyInfo?: string;
   relatedIds?: string[];
+  level?: "foundation" | "core" | "application" | "extension";
 };
 
 export type KnowledgeGraph = {
@@ -723,10 +767,13 @@ export type TeachingOutlineSection = {
   platformRole: string;
   aiRole: string;
   studentActivity: string;
+  /** Optional category override for the standard PBL time model. */
+  activityKind?: "launch" | "knowledge" | "proposal" | "practice" | "showcase" | "reflection" | "other";
   knowledgePointIds?: string[];
-  openMaicUse?: "none" | "student-ai-learning" | "teacher-resource";
+  /** `none` is the ordinary classroom activity route; it includes teacher support resources. */
+  openMaicUse?: "none" | "student-ai-learning";
   resourceTypes?: Array<
-    "ppt" | "interactive-demo" | "script" | "worksheet" | "rubric" | "project-brief"
+    "ppt" | "interactive-demo" | "code-interactive" | "script" | "worksheet" | "rubric" | "project-brief"
   >;
   notes?: string;
 };
@@ -738,6 +785,13 @@ export type LessonOutlineSection = {
   objectives: string[];
   activities: string[];
   durationMin: number;
+  /** Second-level detail ownership; multiple sections may share one parent. */
+  parentActivityId?: string;
+  detailKind?: PblDetailKind;
+  knowledgePointIds?: string[];
+  resourceTypes?: SceneResourceType[];
+  targetDurationSec?: number;
+  ttsPolicy?: PblTtsPolicy;
 };
 
 export type EvaluationPlan = {

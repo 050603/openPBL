@@ -17,10 +17,16 @@ import { WizardStepper } from "@/components/wizard-stepper";
 import { Button, Card, FlowActionBar, PrimaryButton, SaveStatus, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
-import type { LessonOutlineSection } from "@/lib/session/types";
+import type { LessonOutlineSection, TeacherResourceScene } from "@/lib/session/types";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
-import { splitClassroomScenes } from "@/lib/openmaic-bridge/post-generation-split";
 import { buildFacilitationScaffold } from "@/lib/teacher-resources/facilitation-scaffolds";
+import {
+  buildPblCourseRequirement,
+  buildPblActivityCatalog,
+  buildTeacherActivityRequirements,
+} from "@/lib/openmaic/pbl/course-request";
+import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
+import { requestCourseCoverImage } from "@/lib/course-cover";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -35,6 +41,11 @@ type GenResult = {
   id: string;
   url: string;
   scenesCount: number;
+  studentSceneCount?: number;
+  teacherSceneCount?: number;
+  teacherClassroomId?: string;
+  teacherResourceScenes?: TeacherResourceScene[];
+  pblCoverage?: ReturnType<typeof checkPblStageCoverage>;
   stage: { id: string; name: string };
 };
 
@@ -47,7 +58,18 @@ type ProgressStep = {
 
 type SseEvent =
   | { type: "progress"; step: string; progress: number; message: string }
-  | { type: "done"; id: string; url: string; scenesCount: number; stage: { id: string; name: string } }
+  | {
+      type: "done";
+      id: string;
+      url: string;
+      scenesCount: number;
+      studentSceneCount?: number;
+      teacherSceneCount?: number;
+      teacherClassroomId?: string;
+      teacherResourceScenes?: TeacherResourceScene[];
+      pblCoverage?: ReturnType<typeof checkPblStageCoverage>;
+      stage: { id: string; name: string };
+    }
   | { type: "error"; error?: string; details?: string };
 
 const SCENE_OUTLINE_TYPES = new Set(["slide", "quiz", "interactive", "pbl"]);
@@ -81,8 +103,72 @@ function normalizeSceneOutline(outline: unknown, index: number): SceneOutline {
       : [],
     estimatedDuration:
       typeof raw.estimatedDuration === "number" ? raw.estimatedDuration : 300,
+    parentActivityId:
+      typeof raw.parentActivityId === "string" && raw.parentActivityId.trim()
+        ? raw.parentActivityId.trim()
+        : undefined,
+    detailKind:
+      typeof raw.detailKind === "string"
+        ? (raw.detailKind as SceneOutline["detailKind"])
+        : undefined,
+    knowledgePointIds: Array.isArray(raw.knowledgePointIds)
+      ? raw.knowledgePointIds.filter(
+          (x): x is string => typeof x === "string" && Boolean(x.trim()),
+        )
+      : [],
+    resourceTypes: Array.isArray(raw.resourceTypes)
+      ? raw.resourceTypes.filter(
+          (x): x is NonNullable<SceneOutline["resourceTypes"]>[number] =>
+            typeof x === "string" &&
+            [
+              "ppt",
+              "interactive-demo",
+              "code-interactive",
+              "script",
+              "worksheet",
+              "rubric",
+              "project-brief",
+            ].includes(x),
+        )
+      : undefined,
+    targetDurationSec:
+      typeof raw.targetDurationSec === "number" && Number.isFinite(raw.targetDurationSec)
+        ? Math.max(0, Math.round(raw.targetDurationSec))
+        : undefined,
+    ttsPolicy:
+      raw.ttsPolicy === "none" || raw.ttsPolicy === "target-duration"
+        ? raw.ttsPolicy
+        : undefined,
     order: index,
   } as SceneOutline;
+}
+
+function GenerationCoverage({
+  coverage,
+}: {
+  coverage: ReturnType<typeof checkPblStageCoverage>;
+}) {
+  const labels: Record<string, string> = {
+    launch: "项目启动",
+    "ai-learning": "AI 授知",
+    proposal: "方案构思",
+    make: "项目实践",
+    showcase: "成果汇报",
+    reflection: "学习反思",
+  };
+  return (
+    <section className="mb-6 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--pbl-ai)]">生成前覆盖检查</p><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">检查六阶段是否都有支撑，不要求每阶段都生成固定课堂资源。</p></div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${coverage.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{coverage.ok ? "可直接生成" : "生成后请复核"}</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {Object.values(coverage.entries).map((entry) => <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}><span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span><span className={entry.total ? "text-[var(--pbl-ai)]" : "text-rose-500"}>{entry.total ? `${entry.total} 场` : "缺少"}</span></div>)}
+      </div>
+      {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-amber-800">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " AI 授知需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
+      {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-slate-500">元数据提醒：{coverage.metadataWarnings.join("；")}。</p> : null}
+    </section>
+  );
 }
 
 function lessonSectionToSceneOutline(
@@ -96,6 +182,13 @@ function lessonSectionToSceneOutline(
     description: section.activities.join("; ") || section.title,
     keyPoints: section.objectives,
     estimatedDuration: section.durationMin * 60,
+    stageKey: section.stageKey,
+    parentActivityId: section.parentActivityId,
+    detailKind: section.detailKind,
+    knowledgePointIds: section.knowledgePointIds,
+    resourceTypes: section.resourceTypes,
+    targetDurationSec: section.targetDurationSec ?? section.durationMin * 60,
+    ttsPolicy: section.ttsPolicy,
     order: index,
   };
 }
@@ -119,58 +212,13 @@ export default function GenerateCoursePage() {
   const [enableTTS, setEnableTTS] = useState(true);
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
+  const coverGenerationCourseRef = useRef<string | null>(null);
+  const pblCoverage = checkPblStageCoverage(course ? buildConfirmedSceneOutlines() : []);
 
-  // 根据课程数据构建 AI 生成需求字符串
   function buildRequirement(): string {
-    if (!course) return "";
-    const stages = (course.stages ?? [])
-      .map((s) => `${s.label}(${s.key})`)
-      .filter(Boolean)
-      .join("、");
-    const teacherResourceActivities = (course.content.teachingOutline ?? []).filter(
-      (activity) => activity.openMaicUse === "teacher-resource",
-    );
-    return [
-      "请为以下 PBL 课程生成 AI 授知内容。生成后系统会拆分为：学生 AI 授知课堂 + 教师授课资源。",
-      "",
-      "【核心定位】",
-      "- 学生 AI 授知课堂只保留 AI 授知阶段核心知识点内容，用于学生学习、互动和测验。",
-      "- 课程引入、PBL 项目布置、项目介绍材料、教师讲稿和 PPT 等内容必须标记为教师资源，生成后只在教师授课资源区展示，不进入学生 AI 授知阶段。",
-      "- 整课授课大纲中每个 openMaicUse=teacher-resource 的活动都必须生成可直接授课的资源场景；根据 resourceTypes 生成 slide/PPT、interactive 演示或 pbl 项目布置。",
-      "- 只为可提前确定的内容生成具体结论：项目导入、任务流程、评价规则、确定知识、案例、操作说明、课后延伸、价值升华和迁移问题。",
-      "- 方案点评、作品点评、班级共性问题和汇报总结不可预设学生结果；仅生成不含结论的主持支架，标题应明确包含方案点评/作品点评/共性问题/汇报总结，课堂获得真实证据后再填充。",
-      "- 教师资源标题必须同时包含用途和阶段，格式为【教师资源-用途】【阶段:stageKey】标题；stageKey 必须使用课程阶段括号中的真实 key。",
-      teacherResourceActivities.length
-        ? `- 必须覆盖这些教师资源活动：${JSON.stringify(teacherResourceActivities)}`
-        : "- 如生成课程引入或 PBL 项目布置，仍需按教师资源格式标记。",
-      "",
-      "【课程信息】",
-      `课程名称：${course.name}`,
-      `课程摘要：${course.summary ?? ""}`,
-      `驱动问题：${course.drivingQuestion ?? ""}`,
-      stages ? `课程阶段：${stages}` : "",
-      "",
-      "【已确认知识图谱】",
-      JSON.stringify({
-        knowledgePoints: course.content.knowledgePoints ?? [],
-        knowledgeGraph: course.content.knowledgeGraph ?? null,
-      }),
-      "",
-      "【已确认整课授课大纲】",
-      JSON.stringify(course.content.teachingOutline ?? []),
-      "",
-      "【已确认 AI 授知场景大纲】",
-      JSON.stringify(buildConfirmedSceneOutlines().map((outline) => ({
-        id: outline.id,
-        type: outline.type,
-        title: outline.title,
-        description: outline.description,
-        keyPoints: outline.keyPoints,
-        order: outline.order,
-      }))),
-    ]
-      .filter(Boolean)
-      .join("\n");
+    return course
+      ? buildPblCourseRequirement(course, course.content, buildConfirmedSceneOutlines())
+      : "";
   }
 
   function buildConfirmedSceneOutlines(): SceneOutline[] {
@@ -190,6 +238,21 @@ export default function GenerateCoursePage() {
     setStatus("loading");
     setError(null);
     setSteps([]);
+
+    // Cover generation is part of the course-generation workflow. It runs in
+    // parallel with scene generation and is best-effort, so a provider outage
+    // never prevents the classroom itself from being created.
+    if (!course.coverImageUrl && coverGenerationCourseRef.current !== course.id) {
+      coverGenerationCourseRef.current = course.id;
+      void requestCourseCoverImage(course)
+        .then((coverImageUrl) => {
+          if (coverImageUrl) updateCourse(course.id, { coverImageUrl });
+        })
+        .catch((coverError) => {
+          console.warn("Automatic course cover generation failed:", coverError);
+        });
+    }
+
     try {
       const sceneOutlines = buildConfirmedSceneOutlines();
       const res = await fetch("/api/openmaic/generate", {
@@ -197,6 +260,10 @@ export default function GenerateCoursePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requirement: buildRequirement(),
+          pblProfile: course.pblConfig,
+          pblTeachingActivities: buildTeacherActivityRequirements(course.content),
+          pblActivityCatalog: buildPblActivityCatalog(course.content),
+          knowledgePoints: course.content.knowledgePoints,
           courseId: course.id,
           courseTitle: course.name,
           sceneOutlines,
@@ -268,6 +335,11 @@ export default function GenerateCoursePage() {
               id: evt.id,
               url: evt.url,
               scenesCount: evt.scenesCount,
+              studentSceneCount: evt.studentSceneCount,
+              teacherSceneCount: evt.teacherSceneCount,
+              teacherClassroomId: evt.teacherClassroomId,
+              teacherResourceScenes: evt.teacherResourceScenes,
+              pblCoverage: evt.pblCoverage,
               stage: evt.stage,
             };
           } else if (evt.type === "error") {
@@ -283,7 +355,6 @@ export default function GenerateCoursePage() {
       setStatus("success");
 
       // 生成后分流：将引入+PBL场景拆分为教师授课资源，学生课堂仅保留知识点教学场景
-      const classroomId = doneEvent.id;
       try {
         setSteps((prev) => [
           ...prev,
@@ -294,9 +365,16 @@ export default function GenerateCoursePage() {
             ts: Date.now(),
           },
         ]);
-        const splitResult = await splitClassroomScenes(classroomId, course?.name ?? "课程");
-        if (splitResult.teacherClassroomId && course) {
-          updateCourse(course.id, {
+        const splitResult = {
+          teacherClassroomId: doneEvent.teacherClassroomId ?? "",
+          teacherResourceScenes: doneEvent.teacherResourceScenes ?? [],
+          studentSceneCount: doneEvent.studentSceneCount ?? doneEvent.scenesCount,
+          teacherSceneCount: doneEvent.teacherSceneCount ?? 0,
+          pblCoverage: doneEvent.pblCoverage ?? checkPblStageCoverage(sceneOutlines),
+        };
+        if (course) {
+            updateCourse(course.id, {
+            aiLearningClassroomId: doneEvent.id,
             teacherClassroomId: splitResult.teacherClassroomId,
             dynamicFacilitationScaffolds: splitResult.teacherResourceScenes
               .filter((resource) => resource.generationMode === "dynamic-scaffold" && resource.scaffoldKind)
@@ -308,20 +386,34 @@ export default function GenerateCoursePage() {
               })),
             content: {
               ...course.content,
+              _openmaicClassroomId: doneEvent.id,
+              _openmaicScenesCount: splitResult.studentSceneCount,
               teacherClassroomId: splitResult.teacherClassroomId,
               teacherResources: {
                 generatedAt: new Date().toISOString(),
                 scenes: splitResult.teacherResourceScenes,
               },
-              _openmaicScenesCount: splitResult.studentSceneCount,
             },
-          });
+            });
           setSteps((prev) => [
             ...prev,
             {
               step: "内容分流完成",
               progress: 100,
-              message: `学生 ${splitResult.studentSceneCount} 场 · 教师资源 ${splitResult.teacherSceneCount} 场`,
+              message: `学生 ${splitResult.studentSceneCount} 场 · 普通课堂活动 ${splitResult.teacherSceneCount} 场`,
+              ts: Date.now(),
+            },
+            {
+              step: "PBL 阶段覆盖检查",
+              progress: 100,
+              message: splitResult.pblCoverage.ok
+                ? "六阶段覆盖与学生/教师分流符合课程契约"
+                : `需要教师复核：${[
+                    ...splitResult.pblCoverage.missingStageKeys,
+                    ...splitResult.pblCoverage.missingStudentLearningStageKeys,
+                    ...splitResult.pblCoverage.missingTeacherResourceStageKeys,
+                    ...splitResult.pblCoverage.routingViolations,
+                  ].join("、")}`,
               ts: Date.now(),
             },
           ]);
@@ -399,7 +491,7 @@ export default function GenerateCoursePage() {
         <div>
           <h1 className="text-[28px] font-bold">生成课程</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {course.name} · 正在生成 AI 授知内容
+            {course.name} · 正在依据二级资源细化生成课程内容
           </p>
         </div>
       </div>
@@ -411,13 +503,15 @@ export default function GenerateCoursePage() {
               <h2 className="font-editorial text-2xl font-semibold">将生成的课程内容</h2>
             </div>
             <p className="mb-4 text-sm leading-7 text-slate-500">
-              系统将按已确认的课程结构生成学习内容，并在完成后分别整理教师资源、学生内容与评价材料。
+              系统将按已确认的课程结构生成学习内容，并在完成后分别整理普通课堂活动资源、学生内容与评价材料。
             </p>
 
+            <GenerationCoverage coverage={pblCoverage} />
+
             <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
-              ["学习场景", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
+              ["二级细化场景", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
               ["互动活动", "按教学活动配置"], ["知识检查", "覆盖学习目标"],
-              ["教师资源", `${course.content.teachingOutline?.filter((item) => item.openMaicUse === "teacher-resource").length ?? 0} 组`],
+              ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.openMaicUse !== "student-ai-learning").length ?? 0} 组`],
               ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
             ].map(([label, value]) => <div className="border-t border-[var(--pbl-border)] pt-3" key={label}><dt className="text-xs text-[var(--pbl-text-muted)]">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
 
@@ -477,9 +571,9 @@ export default function GenerateCoursePage() {
                   className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-800">TTS 语音合成</div>
+                  <div className="text-sm font-bold text-slate-800">学生 AI 授知 TTS</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    为课件文案生成语音讲解（需配置 TTS Provider，如 ElevenLabs）
+                    仅为学生 AI 授知场景生成语音；普通课堂活动的 PPT 与讲稿不生成 TTS
                   </div>
                 </div>
               </label>
@@ -536,7 +630,7 @@ export default function GenerateCoursePage() {
                   )}
                 >
                   {status === "loading"
-                    ? "正在生成 AI 授知课程..."
+                    ? "正在生成课程内容..."
                     : status === "success"
                       ? "生成完成，等待教师确认"
                       : "生成失败"}
@@ -607,19 +701,19 @@ export default function GenerateCoursePage() {
         <aside className="space-y-5">
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-bold">
-              <Lightbulb className="text-blue-600" size={18} /> AI 授知生成
+              <Lightbulb className="text-blue-600" size={18} /> 二级资源细化生成
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              系统会根据课程名称、摘要、驱动问题和阶段定义生成完整 AI 授知内容（含场景、文案、互动等）。
+              系统会以一级活动时间轴为父级，生成二级 PPT、讲稿、互动和课堂支架，并按资源归属分流到学生或教师侧。
             </p>
           </Card>
 
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-bold">
-              <CircleAlert className="text-amber-500" size={18} /> 提示
+              <CircleAlert className="text-[var(--pbl-warning)]" size={18} /> 提示
             </h2>
-            <p className="mt-3 text-sm leading-7 text-slate-600">
-              生成过程通过 SSE 实时推送进度步骤，最长可运行 5 分钟。如需切换模型或调整 baseUrl，请前往「设置」页配置。
+            <p className="mt-3 text-sm leading-7 text-[var(--pbl-text-muted)]">
+              生成过程会实时显示进度，最长约需 5 分钟。如需切换 AI 模型，请前往「设置」页面配置。
             </p>
           </Card>
         </aside>

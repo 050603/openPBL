@@ -228,7 +228,7 @@ export function TeacherStageResources({
                   <span className="min-w-0">
                     <span className="line-clamp-2 block text-xs font-bold leading-5">{resource.title}</span>
                     <span className="mt-0.5 block text-[10px] text-slate-400">
-                      {index + 1} · {teacherResourceTypeLabel(resource.type)}
+                      {index + 1} · {resource.stageLabel ?? stageKey} · {teacherResourceTypeLabel(resource.type)}
                     </span>
                   </span>
                 </button>
@@ -242,6 +242,7 @@ export function TeacherStageResources({
                 <div className="truncate text-sm font-bold text-slate-900">{selected?.title}</div>
                 <div className="text-xs text-slate-500">
                   {selected ? teacherResourceTypeLabel(selected.type) : ""}
+                  {selected ? ` · ${selected.stageLabel ?? stageKey}` : ""}
                   {selectedIndex >= 0 ? ` · ${selectedIndex + 1}/${resources.length}` : ""}
                 </div>
               </div>
@@ -303,6 +304,7 @@ export function TeacherStageResources({
             <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
               <FileText className="text-amber-600" size={17} /> 教师讲稿
             </h3>
+            {selected ? <p className="mt-1 text-xs text-indigo-600">{selected.stageLabel ?? stageKey} · {selected.generationPurpose === "facilitation-scaffold" ? "教师主持支架" : selected.generationPurpose === "companion-guidance" ? "伴学引导提示" : "教师资源脚本"}</p> : null}
             {selected?.description ? (
               <p className="mt-3 text-xs leading-6 text-slate-500">{selected.description}</p>
             ) : null}

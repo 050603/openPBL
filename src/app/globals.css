@@ -1,67 +1,71 @@
 @import "tailwindcss";
 
 /* ============================================================
-   OpenPBL Design System v2
-   设计原则：克制、专业、有身份感
-   - 教师端：靛蓝（Indigo）- 主控、权威
-   - 学生端：青绿（Teal）- 探索、成长
-   - AI：天蓝（Sky）- 智能、辅助
-   - 警示：琥珀 - 提醒、风险
-   - 危险：玫瑰 - 错误、删除
+   OpenPBL Design System v3 — 教育温暖风
+   设计原则：温暖、亲和、有教育感
+   - 教师端：深蓝（Blue）+ 暖橙强调 — 主控、权威、温度
+   - 学生端：森林绿（Green）— 成长、探索、自然
+   - AI：暖紫（Violet）— 智能、辅助、想象
+   - 警示：琥珀 — 提醒、风险
+   - 危险：玫瑰 — 错误、删除
    ============================================================ */
 
 :root {
-  /* —— 背景与表面（冷灰 slate 基调）—— */
-  --background: #f1f5f9;
-  --foreground: #0f172a;
-  --pbl-bg: #f1f5f9;
+  /* —— 背景与表面（暖白基调）—— */
+  --background: #faf9f7;
+  --foreground: #1c1917;
+  --pbl-bg: #faf9f7;
   --pbl-surface: #ffffff;
-  --pbl-surface-soft: #f1f5f9;
+  --pbl-surface-soft: #f5f4f1;
   --pbl-surface-raised: #ffffff;
 
   /* —— 文本 —— */
-  --pbl-text: #0f172a;
-  --pbl-text-strong: #020617;
-  --pbl-text-muted: #475569;
-  --pbl-text-subtle: #94a3b8;
+  --pbl-text: #292524;
+  --pbl-text-strong: #1c1917;
+  --pbl-text-muted: #57534e;
+  --pbl-text-subtle: #a8a29e;
 
-  /* —— 边框 —— */
-  --pbl-border: #e2e8f0;
-  --pbl-border-strong: #cbd5e1;
-  --pbl-border-soft: #f1f5f9;
+  /* —— 边框（暖灰）—— */
+  --pbl-border: #e7e5e4;
+  --pbl-border-strong: #d6d3d1;
+  --pbl-border-soft: #f5f4f1;
 
-  /* —— 身份色：教师端（靛蓝 Indigo）—— */
-  --pbl-teacher: #4f46e5;
-  --pbl-teacher-hover: #4338ca;
-  --pbl-teacher-soft: #eef2ff;
-  --pbl-teacher-border: #c7d2fe;
+  /* —— 身份色：教师端（深蓝 Blue + 暖橙强调）—— */
+  --pbl-teacher: #2563eb;
+  --pbl-teacher-hover: #1d4ed8;
+  --pbl-teacher-soft: #eff6ff;
+  --pbl-teacher-border: #bfdbfe;
+  --pbl-accent: #ea580c;
+  --pbl-accent-hover: #c2410c;
+  --pbl-accent-soft: #fff7ed;
+  --pbl-accent-border: #fed7aa;
 
-  /* —— 身份色：学生端（青绿 Teal）—— */
-  --pbl-student: #0d9488;
-  --pbl-student-hover: #0f766e;
-  --pbl-student-soft: #f0fdfa;
-  --pbl-student-border: #99f6e4;
+  /* —— 身份色：学生端（森林绿 Green）—— */
+  --pbl-student: #15803d;
+  --pbl-student-hover: #166534;
+  --pbl-student-soft: #f0fdf4;
+  --pbl-student-border: #bbf7d0;
 
-  /* —— AI 辅助色（天蓝 Sky）—— */
-  --pbl-ai: #0ea5e9;
-  --pbl-ai-soft: #f0f9ff;
-  --pbl-ai-border: #bae6fd;
+  /* —— AI 辅助色（暖紫 Violet）—— */
+  --pbl-ai: #7c3aed;
+  --pbl-ai-soft: #f5f3ff;
+  --pbl-ai-border: #ddd6fe;
 
   /* —— 状态色 —— */
-  --pbl-success: #059669;
-  --pbl-success-soft: #ecfdf5;
-  --pbl-warning: #d97706;
-  --pbl-warning-soft: #fffbeb;
+  --pbl-success: #15803d;
+  --pbl-success-soft: #f0fdf4;
+  --pbl-warning: #c2410c;
+  --pbl-warning-soft: #fff7ed;
   --pbl-danger: #dc2626;
   --pbl-danger-soft: #fef2f2;
-  --pbl-achievement: #7c3aed;
-  --pbl-achievement-soft: #f5f3ff;
+  --pbl-achievement: #9333ea;
+  --pbl-achievement-soft: #faf5ff;
 
   /* —— 中性墨色 —— */
-  --pbl-ink: #0f172a;
-  --pbl-cream: #f8fafc;
+  --pbl-ink: #1c1917;
+  --pbl-cream: #faf9f7;
 
-  /* —— 圆角阶梯（4档统一）—— */
+  /* —— 圆角阶梯（小圆角）—— */
   --radius-xs: 6px;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -69,11 +73,11 @@
   --radius-xl: 14px;
   --radius-pill: 999px;
 
-  /* —— 阴影阶梯（语义化）—— */
+  /* —— 阴影阶梯（轻微阴影）—— */
   --shadow-flat: none;
-  --shadow-soft: none;
-  --shadow-raised: none;
-  --shadow-floating: 0 16px 42px rgba(31, 41, 51, 0.14), 0 2px 8px rgba(31, 41, 51, 0.08);
+  --shadow-soft: 0 1px 3px rgba(120, 113, 108, 0.06);
+  --shadow-raised: 0 2px 8px rgba(120, 113, 108, 0.08);
+  --shadow-floating: 0 12px 32px rgba(120, 113, 108, 0.12), 0 2px 6px rgba(120, 113, 108, 0.06);
   --shadow-hero: var(--shadow-floating);
 
   /* —— 间距阶梯（4px基准）—— */
@@ -179,7 +183,7 @@ select {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #a8a29e;
 }
 
 ::-webkit-scrollbar-track {
@@ -209,17 +213,17 @@ select {
   box-shadow: 0 3px 12px rgba(31, 41, 51, 0.06);
 }
 
-/* 卡片：统一表面，去除多层渐变 */
+/* 卡片：统一表面 + 轻微阴影 */
 .pbl-card {
   border: 1px solid var(--pbl-border);
   background: var(--pbl-surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
 }
 
 .pbl-card-raised {
   border: 1px solid var(--pbl-border);
   background: var(--pbl-surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-raised);
 }
 
 .font-editorial {
@@ -265,9 +269,9 @@ select {
   background-size: 24px 24px;
 }
 
-/* 点阵纹理：用于空状态/装饰，替代浮夸渐变 */
+/* 点阵纹理：用于空状态/装饰，暖色调 */
 .pbl-dot-grid {
-  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(120, 113, 108, 0.08) 1px, transparent 1px);
   background-size: 16px 16px;
 }
 
@@ -321,9 +325,9 @@ select {
   animation: pbl-pulse-soft 2s var(--ease-in-out) infinite;
 }
 
-/* 骨架屏 shimmer */
+/* 骨架屏 shimmer（暖灰） */
 .pbl-skeleton {
-  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background: linear-gradient(90deg, #f5f4f1 0%, #e7e5e4 50%, #f5f4f1 100%);
   background-size: 200% 100%;
   animation: pbl-shimmer 1.6s infinite;
 }

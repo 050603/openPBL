@@ -2,23 +2,18 @@
 
 import {
   BarChart3,
-  Bot,
-  Check,
-  FileText,
   Image as ImageIcon,
   Leaf,
-  LineChart,
   Loader2,
-  Play,
   Presentation,
   RefreshCw,
   Sparkles,
-  Sprout,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
+import { requestCourseCoverImage } from "@/lib/course-cover";
 
 /**
  * ProjectCoverImage — 课程封面图显示与生成。
@@ -45,17 +40,6 @@ export function ProjectCoverImage({
   const [error, setError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  const buildPrompt = useCallback(() => {
-    const parts: string[] = [
-      "A professional project illustration for an educational PBL course",
-    ];
-    if (course.name) parts.push(`titled "${course.name}"`);
-    if (course.subject) parts.push(`subject: ${course.subject}`);
-    if (course.drivingQuestion) parts.push(`theme: ${course.drivingQuestion.slice(0, 80)}`);
-    parts.push("clean modern style, vibrant colors, educational atmosphere, 16:9 aspect ratio");
-    return parts.join(", ");
-  }, [course.name, course.subject, course.drivingQuestion]);
-
   const generate = useCallback(async () => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -65,26 +49,7 @@ export function ProjectCoverImage({
     setError(false);
 
     try {
-      const res = await fetch("/api/openmaic/generate/image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: buildPrompt(),
-          aspectRatio: "16:9",
-        }),
-        signal: ctrl.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Image generation failed: ${res.status}`);
-      }
-
-      const data = await res.json();
-      const result = data?.result;
-      const url: string | null = result?.url ?? null;
-      const base64: string | null = result?.base64 ?? null;
-      const format: string = result?.format ?? "png";
-      const finalUrl = url ?? (base64 ? `data:image/${format};base64,${base64}` : null);
+      const finalUrl = await requestCourseCoverImage(course, ctrl.signal);
 
       if (finalUrl) {
         setImageUrl(finalUrl);
@@ -99,15 +64,16 @@ export function ProjectCoverImage({
     } finally {
       setLoading(false);
     }
-  }, [buildPrompt, course.id, session]);
+  }, [course, session]);
 
   // 已有图片：直接显示
-  if (imageUrl) {
+  const displayImageUrl = course.coverImageUrl ?? imageUrl;
+  if (displayImageUrl) {
     return (
       <div className={cn("group relative overflow-hidden rounded-[8px]", className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={imageUrl}
+          src={displayImageUrl}
           alt={course.name || "项目封面"}
           className="h-full w-full object-cover"
         />

@@ -21,6 +21,8 @@ import type {
 } from '@openmaic/lib/types/generation';
 import type { WidgetType, WidgetConfig } from '@openmaic/lib/types/widgets';
 import type { PromptId } from '@openmaic/lib/prompts/types';
+import type { PblCourseConfig } from '@/lib/pbl-course-config';
+import { formatPblSceneContext } from '@/lib/openmaic/pbl/course-template';
 import type { LanguageModel } from 'ai';
 import type { StageStore } from '@openmaic/lib/api/stage-api';
 import { createStageAPI } from '@openmaic/lib/api/stage-api';
@@ -78,6 +80,7 @@ export interface SceneContentOptions {
   targetLanguage?: string;
   /** Original course request/profile, used by PBL v2 for explicit learner-level signals. */
   userRequirements?: UserRequirements;
+  pblProfile?: PblCourseConfig;
   allowProceduralSkill?: boolean;
   /**
    * Natural-language edit instruction for whole-slide regeneration (MAIC Editor
@@ -98,6 +101,8 @@ export interface SceneActionsOptions {
   agents?: AgentInfo[];
   userProfile?: string;
   languageDirective?: string;
+  pblProfile?: PblCourseConfig;
+  pblContext?: string;
 }
 
 // ==================== Stage 2: Full Scenes (Two-Step) ====================
@@ -315,10 +320,12 @@ export async function generateSceneContent(
     thinkingConfig,
     targetLanguage,
     userRequirements,
+    pblProfile,
     allowProceduralSkill = false,
     editDirective,
     baselineContent,
   } = options;
+  const pblContext = formatPblSceneContext(outline, pblProfile ?? userRequirements?.pblProfile);
 
   // Unified path for interactive scenes (both normal and ultra mode)
   if (outline.type === 'interactive') {
@@ -341,7 +348,10 @@ export async function generateSceneContent(
     }
 
     // Route to widget generation (handles all 5 types)
-    return generateWidgetContent(outline, aiCall, languageDirective, { allowProceduralSkill });
+    return generateWidgetContent(outline, aiCall, languageDirective, {
+      allowProceduralSkill,
+      pblContext,
+    });
   }
 
   switch (outline.type) {
@@ -355,11 +365,12 @@ export async function generateSceneContent(
         generatedMediaMapping,
         agents,
         languageDirective,
+        pblContext,
         editDirective,
         baselineContent,
       );
     case 'quiz':
-      return generateQuizContent(outline, aiCall, languageDirective);
+      return generateQuizContent(outline, aiCall, languageDirective, pblContext);
     case 'pbl':
       return generatePBLSceneContent(
         outline,
@@ -700,6 +711,7 @@ async function generateSlideContent(
   generatedMediaMapping?: ImageMapping,
   agents?: AgentInfo[],
   languageDirective?: string,
+  pblContext?: string,
   editDirective?: string,
   baselineContent?: GeneratedSlideContent,
 ): Promise<GeneratedSlideContent | null> {
@@ -785,6 +797,7 @@ async function generateSlideContent(
     canvas_height: canvasHeight,
     teacherContext,
     languageDirective: languageDirective || '',
+    pblContext: pblContext || '',
     imageElementEnabled,
     generatedImageEnabled,
     generatedVideoEnabled,
@@ -919,6 +932,7 @@ async function generateQuizContent(
   outline: SceneOutline,
   aiCall: AICallFn,
   languageDirective?: string,
+  pblContext?: string,
 ): Promise<GeneratedQuizContent | null> {
   const quizConfig = outline.quizConfig || {
     questionCount: 3,
@@ -934,6 +948,7 @@ async function generateQuizContent(
     difficulty: quizConfig.difficulty,
     questionTypes: quizConfig.questionTypes.join(', '),
     languageDirective: languageDirective || '',
+    pblContext: pblContext || '',
   });
 
   if (!prompts) {
@@ -1190,10 +1205,11 @@ export async function generateWidgetContent(
   outline: SceneOutline,
   aiCall: AICallFn,
   languageDirective?: string,
-  options: { allowProceduralSkill?: boolean } = {},
+  options: { allowProceduralSkill?: boolean; pblContext?: string } = {},
 ): Promise<GeneratedInteractiveContent | null> {
   const widgetType = outline.widgetType;
   const widgetOutline = outline.widgetOutline;
+  const pblContext = options.pblContext ?? formatPblSceneContext(outline);
 
   if (!widgetType || !widgetOutline) {
     log.warn(`Interactive outline missing widget config, falling back to standard interactive`);
@@ -1292,6 +1308,7 @@ export async function generateWidgetContent(
       return null;
   }
 
+  variables.pblContext = pblContext;
   const prompts = buildPrompt(promptId, variables);
   if (!prompts) {
     log.error(`Failed to build ${widgetType} prompt for: ${outline.title}`);
@@ -1347,6 +1364,7 @@ export async function generateSceneActions(
   options: SceneActionsOptions = {},
 ): Promise<Action[]> {
   const { ctx, agents, userProfile, languageDirective } = options;
+  const pblContext = options.pblContext ?? formatPblSceneContext(outline, options.pblProfile);
   const agentsText = formatAgentsForPrompt(agents);
 
   // Debug: Log content type for interactive scenes
@@ -1370,6 +1388,7 @@ export async function generateSceneActions(
       agents: agentsText,
       userProfile: userProfile || '',
       languageDirective: languageDirective || '',
+      pblContext,
     });
 
     if (!prompts) {
@@ -1399,6 +1418,7 @@ export async function generateSceneActions(
       courseContext: buildCourseContext(ctx),
       agents: agentsText,
       languageDirective: languageDirective || '',
+      pblContext,
     });
 
     if (!prompts) {
@@ -1429,6 +1449,7 @@ export async function generateSceneActions(
       courseContext: buildCourseContext(ctx),
       agents: agentsText,
       languageDirective: languageDirective || '',
+      pblContext,
     });
 
     if (!prompts) {
@@ -1461,6 +1482,7 @@ export async function generateSceneActions(
       courseContext: buildCourseContext(ctx),
       agents: agentsText,
       languageDirective: languageDirective || '',
+      pblContext,
     });
 
     if (!prompts) {
@@ -1658,6 +1680,24 @@ export function createSceneWithActions(
   actions: Action[],
   api: ReturnType<typeof createStageAPI>,
 ): string | null {
+  const pblMetadata = {
+    ...(outline.stageKey ? { stageKey: outline.stageKey } : {}),
+    ...(outline.stageLabel ? { stageLabel: outline.stageLabel } : {}),
+    ...(outline.audience ? { audience: outline.audience } : {}),
+    ...(outline.generationPurpose ? { generationPurpose: outline.generationPurpose } : {}),
+    ...(outline.companionIds?.length ? { companionIds: [...outline.companionIds] } : {}),
+    ...(outline.companionPrompt ? { companionPrompt: outline.companionPrompt } : {}),
+    ...(outline.activityId ? { activityId: outline.activityId } : {}),
+    ...(outline.parentActivityId ? { parentActivityId: outline.parentActivityId } : {}),
+    ...(outline.detailKind ? { detailKind: outline.detailKind } : {}),
+    ...(outline.knowledgePointIds?.length
+      ? { knowledgePointIds: [...outline.knowledgePointIds] }
+      : {}),
+    ...(outline.targetDurationSec ? { targetDurationSec: outline.targetDurationSec } : {}),
+    ...(outline.ttsPolicy ? { ttsPolicy: outline.ttsPolicy } : {}),
+    ...(outline.resourceTypes?.length ? { resourceTypes: [...outline.resourceTypes] } : {}),
+  };
+
   if (outline.type === 'slide' && 'elements' in content) {
     // Build complete Slide object
     const defaultTheme: SlideTheme = {
@@ -1679,6 +1719,7 @@ export function createSceneWithActions(
     };
 
     const sceneResult = api.scene.create({
+      ...pblMetadata,
       type: 'slide',
       title: outline.title,
       order: outline.order,
@@ -1695,6 +1736,7 @@ export function createSceneWithActions(
 
   if (outline.type === 'quiz' && 'questions' in content) {
     const sceneResult = api.scene.create({
+      ...pblMetadata,
       type: 'quiz',
       title: outline.title,
       order: outline.order,
@@ -1711,6 +1753,7 @@ export function createSceneWithActions(
 
   if (outline.type === 'interactive' && 'html' in content) {
     const sceneResult = api.scene.create({
+      ...pblMetadata,
       type: 'interactive',
       title: outline.title,
       order: outline.order,
@@ -1731,6 +1774,7 @@ export function createSceneWithActions(
 
   if (outline.type === 'pbl' && 'projectConfig' in content) {
     const sceneResult = api.scene.create({
+      ...pblMetadata,
       type: 'pbl',
       title: outline.title,
       order: outline.order,

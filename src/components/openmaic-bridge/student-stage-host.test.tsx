@@ -58,7 +58,11 @@ vi.mock("@openmaic/lib/store", () => ({
 vi.mock("@openmaic/lib/store/settings", () => ({ useSettingsStore: { setState: vi.fn() } }));
 vi.mock("@/lib/learning-analytics/telemetry", () => telemetryMock);
 
-import { StudentStageHost, shouldTrackStudentLearning } from "./student-stage-host";
+import {
+  selectStudentLearningScenes,
+  StudentStageHost,
+  shouldTrackStudentLearning,
+} from "./student-stage-host";
 
 function classroomResponse() {
   return {
@@ -125,5 +129,15 @@ describe("StudentStageHost reporting modes", () => {
     expect(telemetryMock.postLearningEvents).not.toHaveBeenCalled();
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => String(url).includes("/api/openmaic/progress"))).toBe(false);
     expect(shouldTrackStudentLearning("teacher-preview")).toBe(false);
+  });
+
+  it("filters every explicit teacher-only PBL scene before playback", () => {
+    const scenes = [
+      { id: "launch", type: "slide", stageKey: "launch", audience: "teacher" },
+      { id: "knowledge", type: "interactive", stageKey: "ai-learning", audience: "student", generationPurpose: "knowledge-teaching" },
+      { id: "proposal", type: "slide", stageKey: "proposal", audience: "teacher", generationPurpose: "facilitation-scaffold" },
+    ] as unknown as import("@openmaic/lib/types/stage").Scene[];
+
+    expect(selectStudentLearningScenes(scenes).map((scene) => scene.id)).toEqual(["knowledge"]);
   });
 });

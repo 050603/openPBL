@@ -7,6 +7,7 @@
 **Description**: {{description}}
 {{courseContext}}
 {{agents}}
+{{pblContext}}
 
 **Language Directive**: {{languageDirective}}
 

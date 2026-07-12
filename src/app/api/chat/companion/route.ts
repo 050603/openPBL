@@ -82,7 +82,8 @@ ${companionList}
 5. 必须返回 JSON 格式：{"speakers": ["角色id1", "角色id2"], "cueUser": true/false}
 6. cueUser 为 true 表示需要学生继续输入，false 表示本轮讨论结束
 7. 功能矩阵约束：只有"问问"(critic)可以提问，其他角色只提供陈述性内容和解决方案
-8. 如果学生需要知识解释，优先派"知知"(knowledge)；如果需要方案，优先派"策策"(planner)`;
+8. 如果学生需要知识解释，优先派"知知"(knowledge)；如果需要方案，优先派"策策"(planner)
+9. 这些角色是课堂上的伴学伙伴，说话风格应像同学之间的交流，自然、口语化`;
 
   const user = `学生最新消息：${input.message}
 ${recentHistory ? `最近对话：\n${recentHistory}` : ""}
@@ -110,12 +111,22 @@ export async function POST(req: NextRequest) {
 
   let authoritativeHistory = body.history ?? [];
   let teacherContext = body.teacherContext;
+  let effectiveCompanionIds = body.companionIds;
   const canPersist = Boolean(body.courseId && body.studentId && body.stageKey);
   if (canPersist) {
     const course = await getCourse(body.courseId!);
     if (!course) return Response.json({ error: "COURSE_NOT_FOUND" }, { status: 404 });
     if (!course.students.some((student) => student.id === body.studentId)) {
       return Response.json({ error: "STUDENT_NOT_IN_COURSE" }, { status: 403 });
+    }
+    const configuredIds = course.pblConfig?.companionIds;
+    if (configuredIds?.length) {
+      effectiveCompanionIds = body.companionIds.filter(
+        (id) => configuredIds.includes(id) && getCompanion(id).stages.includes(body.stageKey),
+      );
+    }
+    if (!effectiveCompanionIds.length) {
+      return Response.json({ error: "NO_CONFIGURED_COMPANIONS_FOR_STAGE" }, { status: 400 });
     }
     const thread = await getCompanionThread(body.courseId!, body.studentId!, body.stageKey);
     authoritativeHistory = (thread?.messages ?? [])
@@ -211,7 +222,7 @@ export async function POST(req: NextRequest) {
     try {
       startHeartbeat();
 
-      const companions = body.companionIds.map((id) => getCompanion(id));
+      const companions = effectiveCompanionIds.map((id) => getCompanion(id));
       const availableCompanions = companions.map((c) => ({
         id: c.id,
         name: c.name,
@@ -241,15 +252,15 @@ export async function POST(req: NextRequest) {
         );
         const parsed = parseLLMJson<DirectorResult>(directorReply);
         const speakers = Array.isArray(parsed.speakers)
-          ? parsed.speakers.filter((id) => body.companionIds.includes(id))
+          ? parsed.speakers.filter((id) => effectiveCompanionIds.includes(id))
           : [];
-        const selectedSpeakers = speakers.length ? speakers : [body.companionIds[0]];
-        if (body.trigger?.preferredCompanionId && body.companionIds.includes(body.trigger.preferredCompanionId)) {
+        const selectedSpeakers = speakers.length ? speakers : [effectiveCompanionIds[0]];
+        if (body.trigger?.preferredCompanionId && effectiveCompanionIds.includes(body.trigger.preferredCompanionId)) {
           selectedSpeakers.unshift(body.trigger.preferredCompanionId);
         }
         if (
           shouldUseReviewer(body.trigger?.kind) &&
-          body.companionIds.includes("reviewer") &&
+          effectiveCompanionIds.includes("reviewer") &&
           !selectedSpeakers.includes("reviewer")
         ) {
           selectedSpeakers.push("reviewer");
@@ -260,7 +271,7 @@ export async function POST(req: NextRequest) {
         };
       } catch {
         // Director 失败时降级：用第一个可用角色
-        directorResult = { speakers: [body.companionIds[0]], cueUser: false };
+        directorResult = { speakers: [effectiveCompanionIds[0]], cueUser: false };
       }
 
       await write({ type: "director_result", speakers: directorResult.speakers });

@@ -155,6 +155,23 @@ function buildCompleteSceneInner(
   stageId: string,
 ): Scene | null {
   const sceneId = nanoid();
+  const pblMetadata = {
+    ...(outline.stageKey ? { stageKey: outline.stageKey } : {}),
+    ...(outline.stageLabel ? { stageLabel: outline.stageLabel } : {}),
+    ...(outline.audience ? { audience: outline.audience } : {}),
+    ...(outline.generationPurpose ? { generationPurpose: outline.generationPurpose } : {}),
+    ...(outline.companionIds?.length ? { companionIds: [...outline.companionIds] } : {}),
+    ...(outline.companionPrompt ? { companionPrompt: outline.companionPrompt } : {}),
+    ...(outline.activityId ? { activityId: outline.activityId } : {}),
+    ...(outline.parentActivityId ? { parentActivityId: outline.parentActivityId } : {}),
+    ...(outline.detailKind ? { detailKind: outline.detailKind } : {}),
+    ...(outline.knowledgePointIds?.length
+      ? { knowledgePointIds: [...outline.knowledgePointIds] }
+      : {}),
+    ...(outline.targetDurationSec ? { targetDurationSec: outline.targetDurationSec } : {}),
+    ...(outline.ttsPolicy ? { ttsPolicy: outline.ttsPolicy } : {}),
+    ...(outline.resourceTypes?.length ? { resourceTypes: [...outline.resourceTypes] } : {}),
+  };
 
   if (outline.type === 'slide' && 'elements' in content) {
     // Build Slide object
@@ -179,6 +196,7 @@ function buildCompleteSceneInner(
     return {
       id: sceneId,
       stageId,
+      ...pblMetadata,
       type: 'slide',
       title: outline.title,
       order: outline.order,
@@ -196,6 +214,7 @@ function buildCompleteSceneInner(
     return {
       id: sceneId,
       stageId,
+      ...pblMetadata,
       type: 'quiz',
       title: outline.title,
       order: outline.order,
@@ -213,6 +232,7 @@ function buildCompleteSceneInner(
     return {
       id: sceneId,
       stageId,
+      ...pblMetadata,
       type: 'interactive',
       title: outline.title,
       order: outline.order,
@@ -234,6 +254,7 @@ function buildCompleteSceneInner(
     return {
       id: sceneId,
       stageId,
+      ...pblMetadata,
       type: 'pbl',
       title: outline.title,
       order: outline.order,

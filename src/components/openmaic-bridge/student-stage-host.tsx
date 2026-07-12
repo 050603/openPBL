@@ -29,6 +29,7 @@ import type { Scene, Stage as StageType } from '@openmaic/lib/types/stage';
 import { createLearningEvent, postLearningEvents } from '@/lib/learning-analytics/telemetry';
 import type { LearningEvent, LearningEventType } from '@/lib/session/types';
 import { cn } from '@/lib/utils';
+import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('StudentStageHost');
 
@@ -70,6 +71,24 @@ export function shouldTrackStudentLearning(mode: StudentStageHostMode): boolean 
   return mode === 'student';
 }
 
+/**
+ * The student player is a hard audience boundary. A split classroom normally
+ * already contains only student scenes, but filtering here protects the
+ * playback UI when a classroom is opened before the split finishes or when a
+ * malformed scene is returned by storage.
+ */
+export function selectStudentLearningScenes(scenes: Scene[]): Scene[] {
+  const hasPblRoutingMetadata = scenes.some(
+    (scene) =>
+      Boolean(scene.stageKey) ||
+      Boolean(scene.audience) ||
+      Boolean(scene.generationPurpose),
+  );
+  if (!hasPblRoutingMetadata) return scenes;
+
+  return scenes.filter(isStudentAiLearningScene);
+}
+
 function expectedDurationSec(scene?: Scene): number | undefined {
   if (!scene) return undefined;
   const value = (scene as Scene & { estimatedDuration?: number }).estimatedDuration;
@@ -109,8 +128,8 @@ export function StudentStageHost({
   const hydratedRef = useRef<boolean>(false);
   const telemetryQueueRef = useRef<LearningEvent[]>([]);
   const telemetryFlushingRef = useRef(false);
-  const sceneEnteredAtRef = useRef(Date.now());
-  const lastHeartbeatAtRef = useRef(Date.now());
+  const sceneEnteredAtRef = useRef<number | null>(null);
+  const lastHeartbeatAtRef = useRef<number | null>(null);
   const seenSceneIdsRef = useRef<Set<string>>(new Set());
   const trackingEnabled = shouldTrackStudentLearning(mode) && Boolean(courseId && studentId);
 
@@ -176,6 +195,13 @@ export function StudentStageHost({
         return;
       }
 
+      const studentScenes = selectStudentLearningScenes(scenes);
+      if (studentScenes.length === 0) {
+        setErrorMsg('AI 课堂中没有可供学生学习的场景');
+        setState('error');
+        return;
+      }
+
       // 2. 拉取已有进度（用于恢复 currentSceneIndex）
       let restoredIndex = 0;
       let restoredCompleted: string[] = [];
@@ -191,7 +217,7 @@ export function StudentStageHost({
             if (entry) {
               restoredIndex = Math.min(
                 entry.currentSceneIndex ?? 0,
-                Math.max(0, scenes.length - 1),
+                Math.max(0, studentScenes.length - 1),
               );
               restoredCompleted = entry.completedScenes ?? [];
             }
@@ -201,12 +227,12 @@ export function StudentStageHost({
         }
       }
       completedRef.current = new Set(restoredCompleted);
-      lastReportedSceneRef.current = scenes[restoredIndex]?.id ?? null;
+      lastReportedSceneRef.current = studentScenes[restoredIndex]?.id ?? null;
       // 已上报过完成：恢复进度中已完成场景数 >= 总场景数
-      completionReportedRef.current = restoredCompleted.length >= scenes.length;
+      completionReportedRef.current = restoredCompleted.length >= studentScenes.length;
 
       // 3. hydrate useStageStore（与 OpenMAIC classroom page 一致）
-      const migrated = scenes.map(migrateScene);
+      const migrated = studentScenes.map(migrateScene);
       useStageStore.getState().setStage(stage);
       useStageStore.setState({
         scenes: migrated,
@@ -312,7 +338,7 @@ export function StudentStageHost({
       ) {
         completedRef.current.add(previous.currentSceneId);
         queueTelemetry('scene-leave', previous.currentSceneId, {
-          durationMs: Math.max(0, Date.now() - sceneEnteredAtRef.current),
+          durationMs: Math.max(0, Date.now() - (sceneEnteredAtRef.current ?? Date.now())),
           visible: typeof document === 'undefined' ? true : document.visibilityState === 'visible',
         });
       }
@@ -344,7 +370,7 @@ export function StudentStageHost({
       const now = Date.now();
       const currentSceneId = useStageStore.getState().currentSceneId;
       queueTelemetry('heartbeat', currentSceneId, {
-        durationMs: Math.max(0, now - lastHeartbeatAtRef.current),
+        durationMs: Math.max(0, now - (lastHeartbeatAtRef.current ?? now)),
         visible: true,
       });
       lastHeartbeatAtRef.current = now;
@@ -370,7 +396,7 @@ export function StudentStageHost({
     return () => {
       const currentSceneId = useStageStore.getState().currentSceneId;
       queueTelemetry('scene-leave', currentSceneId, {
-        durationMs: Math.max(0, Date.now() - sceneEnteredAtRef.current),
+        durationMs: Math.max(0, Date.now() - (sceneEnteredAtRef.current ?? Date.now())),
         visible: typeof document === 'undefined' ? true : document.visibilityState === 'visible',
       });
       void flushTelemetry();

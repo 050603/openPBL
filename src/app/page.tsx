@@ -27,9 +27,9 @@ const STAGES = [
 const CAPABILITIES = [
   {
     icon: Bot,
-    title: "AI 多角色授知",
+    title: "AI 多角色授课",
     desc: "六个 AI 伴学角色分别承担知识讲解、启发提问、质疑挑战、方案建议、评审反馈和过程记录，按场景编组出场。",
-    points: ["场景化 PPT 与旁白", "互动仿真与代码演示", "过程性数据自动记录"],
+    points: ["场景化课件与讲解", "互动演示与代码实操", "过程性数据自动记录"],
   },
   {
     icon: GraduationCap,
@@ -48,18 +48,21 @@ const CAPABILITIES = [
 export default function Home() {
   return (
     <div className="min-h-screen bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
-      <header className="border-b border-[var(--pbl-border)]">
+      <header className="border-b border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
         <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between px-5 md:px-8">
           <div className="flex items-center gap-3">
+            <span className="grid h-8 w-8 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-teacher)] text-white">
+              <GraduationCap size={18} />
+            </span>
             <strong className="text-base tracking-tight">openPBL</strong>
             <span className="hidden text-sm text-[var(--pbl-text-muted)] sm:inline">项目式课堂协作系统</span>
           </div>
           <nav className="flex items-center gap-2">
             <Link className="inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius-xs)] border border-[var(--pbl-teacher)] px-4 text-sm font-semibold text-[var(--pbl-teacher)] transition hover:bg-[var(--pbl-teacher-soft)]" href="/teacher">
-              <GraduationCap size={16} /> 教师端
+              <GraduationCap size={16} /> 教师入口
             </Link>
             <Link className="inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius-xs)] border border-[var(--pbl-student)] px-4 text-sm font-semibold text-[var(--pbl-student)] transition hover:bg-[var(--pbl-student-soft)]" href="/student">
-              <UsersRound size={16} /> 学生端
+              <UsersRound size={16} /> 学生入口
             </Link>
           </nav>
         </div>
@@ -68,9 +71,9 @@ export default function Home() {
       <main className="mx-auto max-w-7xl px-5 py-10 md:px-8 md:py-14">
         {/* 系统定位 */}
         <section className="border-b border-[var(--pbl-border)] pb-12">
-          <p className="text-sm font-semibold text-[var(--pbl-teacher)]">六阶段项目式课堂 · AI 伴学 · 教师主导</p>
+          <p className="text-sm font-semibold text-[var(--pbl-accent)]">六阶段项目式课堂 · AI 伴学 · 教师主导</p>
           <h1 className="font-editorial mt-3 max-w-4xl text-3xl font-semibold leading-tight tracking-tight md:text-5xl">
-            围绕问题阶段与协作推进的课堂系统
+            让每个学生经历完整的项目学习
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--pbl-text-muted)]">
             AI 讲解知识并提供全过程认知支架，教师组织课堂并作出关键判断，学生在真实问题中独立构思、制作、展示和反思。六个阶段衔接完整学习闭环。
@@ -87,7 +90,7 @@ export default function Home() {
             {STAGES.map((stage, index) => {
               const Icon = stage.icon;
               return (
-                <div key={stage.key} className="flex gap-4 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-5">
+                <div key={stage.key} className="flex gap-4 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-5 transition hover:border-[var(--pbl-teacher-border)] hover:shadow-[var(--shadow-soft)]">
                   <div className="flex flex-col items-center">
                     <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--pbl-ai-soft)] text-sm font-bold text-[var(--pbl-ai)]">
                       {index + 1}
@@ -117,14 +120,14 @@ export default function Home() {
             {CAPABILITIES.map((cap) => {
               const Icon = cap.icon;
               return (
-                <div key={cap.title} className="flex flex-col rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-6">
+                <div key={cap.title} className="flex flex-col rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-6 transition hover:shadow-[var(--shadow-soft)]">
                   <Icon size={24} className="text-[var(--pbl-teacher)]" />
-                  <h3 className="mt-4 font-editorial text-lg font-semibold">{cap.title}</h3>
+                  <h3 className="font-editorial mt-4 text-lg font-semibold">{cap.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">{cap.desc}</p>
                   <ul className="mt-4 space-y-2">
                     {cap.points.map((point) => (
                       <li key={point} className="flex items-start gap-2 text-sm text-[var(--pbl-text)]">
-                        <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-600" />
+                        <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-[var(--pbl-success)]" />
                         {point}
                       </li>
                     ))}
@@ -183,7 +186,7 @@ function Entry({
   const teacher = tone === "teacher";
   return (
     <Link
-      className="group border-t-2 bg-[var(--pbl-surface)] p-6 transition-colors hover:bg-[var(--pbl-surface-raised)] md:p-8"
+      className="group border-t-2 bg-[var(--pbl-surface)] p-6 transition-colors hover:bg-[var(--pbl-surface-soft)] hover:shadow-[var(--shadow-soft)] md:p-8"
       href={href}
       style={{ borderColor: teacher ? "var(--pbl-teacher)" : "var(--pbl-student)" }}
     >

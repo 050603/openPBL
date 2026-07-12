@@ -34,6 +34,8 @@ Create a procedural skill widget for: {{title}}
 
 ## Language
 
+{{pblContext}}
+
 {{languageDirective}}
 
 ---

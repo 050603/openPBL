@@ -21,6 +21,20 @@ const DEFAULT_MODEL = 'qwen-image-max';
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com';
 
 /**
+ * Detect and fix base URLs intended for LLM compatible-mode endpoints
+ * (e.g. /compatible-mode/v1) which are not valid for DashScope multimodal API.
+ * Returns the correct DashScope base URL when a LLM-compatible URL is detected.
+ */
+function resolveBaseUrl(baseUrl: string | undefined): string {
+  if (!baseUrl) return DEFAULT_BASE_URL;
+  // LLM compatible-mode URLs contain /compatible-mode or /v1 but NOT /api/v1
+  if (baseUrl.includes('/compatible-mode') || baseUrl.includes('maas.aliyuncs')) {
+    return DEFAULT_BASE_URL;
+  }
+  return baseUrl;
+}
+
+/**
  * Map our width x height to DashScope size format "WxH".
  * Common sizes: 1024*1024, 1280*720, 1664*928, 1120*1440, etc.
  */
@@ -37,7 +51,7 @@ function resolveDashScopeSize(options: ImageGenerationOptions): string {
 export async function testQwenImageConnectivity(
   config: ImageGenerationConfig,
 ): Promise<{ success: boolean; message: string }> {
-  const baseUrl = config.baseUrl || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl(config.baseUrl);
   try {
     const response = await fetch(
       `${baseUrl}/api/v1/services/aigc/multimodal-generation/generation`,
@@ -71,7 +85,7 @@ export async function generateWithQwenImage(
   config: ImageGenerationConfig,
   options: ImageGenerationOptions,
 ): Promise<ImageGenerationResult> {
-  const baseUrl = config.baseUrl || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl(config.baseUrl);
 
   const response = await fetch(`${baseUrl}/api/v1/services/aigc/multimodal-generation/generation`, {
     method: 'POST',

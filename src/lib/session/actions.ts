@@ -26,6 +26,7 @@ import type {
 } from "./types";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
 import { DEFAULT_STAGES } from "./types";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 
 export type SessionState = {
   courses: Course[];
@@ -725,6 +726,7 @@ export function normalizeCourse(course: Course): Course {
       : stageKey;
   return {
     ...course,
+    pblConfig: normalizePblCourseConfig(course.pblConfig),
     stages,
     currentStageIndex: migratedStageIndex,
     classConfig: course.classConfig
@@ -773,7 +775,14 @@ export function normalizeCourse(course: Course): Course {
     content: {
       ...course.content,
       lessonOutline: (course.content.lessonOutline ?? []).map((section) => ({ ...section, stageKey: migrateStageKey(section.stageKey) })),
-      teachingOutline: course.content.teachingOutline?.map((section) => ({ ...section, stageKey: migrateStageKey(section.stageKey) })),
+      teachingOutline: course.content.teachingOutline?.map((section) => ({
+        ...section,
+        stageKey: migrateStageKey(section.stageKey),
+        // Collapse the removed legacy tag into ordinary classroom activity.
+        openMaicUse: section.openMaicUse === "student-ai-learning"
+          ? "student-ai-learning"
+          : "none",
+      })),
       evaluationPlan: {
         ...course.content.evaluationPlan,
         flows: DEFAULT_EVALUATION_FLOWS.map((flow) => ({

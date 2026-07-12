@@ -43,7 +43,8 @@ import type {
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
-import { DEFAULT_STAGES } from "./types";
+import { DEFAULT_EVALUATION_FLOWS, DEFAULT_STAGES } from "./types";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import { loadJSON, saveJSON } from "./storage";
 import { generateInviteCode, normalizeInviteCode } from "./invite-code";
 import { toast } from "sonner";
@@ -397,6 +398,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           hours: input.hours ?? 8,
           summary: input.summary ?? "",
           drivingQuestion: input.drivingQuestion ?? "",
+          pblConfig: normalizePblCourseConfig(input.pblConfig),
           status: "draft",
           stages: input.stages ?? DEFAULT_STAGES,
           currentStageIndex: 0,
@@ -405,7 +407,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             knowledgePoints: [],
             teachingOutline: [],
             lessonOutline: [],
-            evaluationPlan: { dimensions: [], overallRubric: "" },
+            evaluationPlan: {
+              dimensions: [],
+              overallRubric: "",
+              flows: DEFAULT_EVALUATION_FLOWS.map((flow) => ({
+                ...flow,
+                evidenceRequirements: [...flow.evidenceRequirements],
+              })),
+            },
           },
           classConfig: undefined,
           inviteCode: undefined,

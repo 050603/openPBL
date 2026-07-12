@@ -36,6 +36,10 @@ import type { VideoProviderId } from '@openmaic/lib/media/types';
 import type { TTSProviderId } from '@openmaic/lib/audio/types';
 import { splitLongSpeechActions } from '@openmaic/lib/audio/tts-utils';
 import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@openmaic/lib/audio/voxcpm';
+import {
+  hasPblRoutingMetadata,
+  isStudentAiLearningScene,
+} from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('ClassroomMedia');
 
@@ -260,6 +264,16 @@ export async function generateTTSForClassroom(
   classroomId: string,
   baseUrl: string,
 ): Promise<void> {
+  // Defensive second gate: if the caller passes a routed PBL scene set, only
+  // the explicit student AI-learning route may receive audio. This keeps
+  // future callers from accidentally reintroducing TTS on teacher resources.
+  const hasRoutedScenes = scenes.some(hasPblRoutingMetadata);
+  const eligibleScenes = hasRoutedScenes
+    ? scenes.filter(
+        (scene) => isStudentAiLearningScene(scene) && scene.ttsPolicy !== 'none',
+      )
+    : scenes;
+
   const audioDir = path.join(CLASSROOMS_DIR, classroomId, 'audio');
   await ensureDir(audioDir);
 
@@ -280,12 +294,19 @@ export async function generateTTSForClassroom(
   }
   const splitProviderId = runtimes[0].providerId;
 
-  for (const scene of scenes) {
+  for (const scene of eligibleScenes) {
     if (!scene.actions) continue;
 
     // Split long speech actions into multiple shorter ones before TTS generation,
     // mirroring the client-side approach. Each sub-action gets its own audio file.
     scene.actions = splitLongSpeechActions(scene.actions, splitProviderId);
+    const speechActions = scene.actions.filter(
+      (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text),
+    );
+    const totalSpeechCharacters = speechActions.reduce(
+      (sum, action) => sum + Math.max(1, action.text.length),
+      0,
+    );
 
     // Use scene order to make audio IDs unique across scenes
     const sceneOrder = scene.order;
@@ -293,6 +314,18 @@ export async function generateTTSForClassroom(
     for (const action of scene.actions) {
       if (action.type !== 'speech' || !(action as SpeechAction).text) continue;
       const speechAction = action as SpeechAction;
+      const targetDurationSec =
+        typeof scene.targetDurationSec === 'number' && scene.targetDurationSec > 0
+          ? Math.max(
+              1,
+              (scene.targetDurationSec * Math.max(1, speechAction.text.length)) /
+                Math.max(1, totalSpeechCharacters),
+            )
+          : undefined;
+      if (targetDurationSec) {
+        (speechAction as SpeechAction & { targetDurationSec?: number }).targetDurationSec =
+          targetDurationSec;
+      }
       // Include scene order in audioId to prevent collision across scenes
       const audioId = `tts_s${sceneOrder}_${action.id}`;
 

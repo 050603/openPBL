@@ -74,7 +74,7 @@ export default function TeacherHomePage() {
     [sorted, filter, query],
   );
 
-  // 代办事项数据
+  // 待办事项数据
   const active = sorted.filter((course) => course.status === "teaching");
   const unfinished = sorted.filter(isPreparing);
   const attention = active
@@ -119,7 +119,7 @@ export default function TeacherHomePage() {
               />
             </label>
             <Link
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
               href="/teacher/prepare/new"
             >
               <Plus size={17} />创建项目
@@ -133,9 +133,9 @@ export default function TeacherHomePage() {
             我的课程
           </TabButton>
           <TabButton active={tab === "todo"} onClick={() => setTab("todo")}>
-            代办
+            待办
             {todoCount > 0 ? (
-              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-100 px-1.5 text-xs font-bold text-rose-700">
+              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--pbl-danger-soft)] px-1.5 text-xs font-bold text-[var(--pbl-danger)]">
                 {todoCount}
               </span>
             ) : null}
@@ -155,10 +155,10 @@ export default function TeacherHomePage() {
               {FILTERS.map((item) => (
                 <button
                   aria-current={filter === item.key ? "page" : undefined}
-                  className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm font-semibold ${
+                  className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm font-semibold transition ${
                     filter === item.key
                       ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]"
-                      : "border-transparent text-[var(--pbl-text-muted)]"
+                      : "border-transparent text-[var(--pbl-text-muted)] hover:text-[var(--pbl-text)]"
                   }`}
                   key={item.key}
                   onClick={() => setFilter(item.key)}
@@ -180,7 +180,7 @@ export default function TeacherHomePage() {
               <PageState
                 action={
                   <Link
-                    className="inline-flex min-h-11 items-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white"
+                    className="inline-flex min-h-11 items-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
                     href="/teacher/prepare/new"
                   >
                     创建第一个项目
@@ -193,7 +193,7 @@ export default function TeacherHomePage() {
           </div>
         ) : null}
 
-        {/* 代办标签页 */}
+        {/* 待办标签页 */}
         {tab === "todo" ? (
           <div className="space-y-8 pt-6">
             {/* 正在进行的课堂 */}
@@ -220,7 +220,7 @@ export default function TeacherHomePage() {
                   description="从上次确认的位置继续，不需要重新开始。"
                   count={unfinished.length}
                 />
-                <div className="divide-y divide-[var(--pbl-border)] rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+                <div className="divide-y divide-[var(--pbl-border)] rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] shadow-[var(--shadow-soft)]">
                   {unfinished.map((course) => (
                     <WorkRow course={course} key={course.id} />
                   ))}
@@ -236,7 +236,7 @@ export default function TeacherHomePage() {
                   description="出现需要教师决策或价值判断的问题时，AI 建议会在这里突出。"
                   count={attention.length}
                 />
-                <div className="divide-y divide-[var(--pbl-border)] rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+                <div className="divide-y divide-[var(--pbl-border)] rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] shadow-[var(--shadow-soft)]">
                   {attention.map(({ course, signal }) => (
                     <Link
                       className="block p-4 transition hover:bg-[var(--pbl-surface-soft)]"
@@ -271,7 +271,7 @@ export default function TeacherHomePage() {
             {!active.length && !unfinished.length && !attention.length ? (
               <PageState
                 description="当前没有待处理的课堂、备课或介入任务。"
-                title="代办清单已清空"
+                title="待办清单已清空"
               />
             ) : null}
           </div>
@@ -373,7 +373,7 @@ function CurrentClass({ course }: { course: Course }) {
   const stage = course.stages[course.currentStageIndex];
   return (
     <Link
-      className="group flex min-h-36 flex-col justify-between border-l-2 border-[var(--pbl-teacher)] bg-[var(--pbl-surface)] p-5 transition hover:bg-[var(--pbl-surface-soft)]"
+      className="group flex min-h-36 flex-col justify-between border-l-2 border-[var(--pbl-teacher)] bg-[var(--pbl-surface)] p-5 shadow-[var(--shadow-soft)] transition hover:bg-[var(--pbl-surface-soft)] hover:shadow-[var(--shadow-raised)]"
       href={`/teacher/teach/${course.id}/classroom`}
     >
       <div>

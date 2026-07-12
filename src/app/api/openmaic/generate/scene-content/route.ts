@@ -139,6 +139,7 @@ export async function POST(req: NextRequest) {
     const vocationalActive = resolveVocationalActive(requirements);
     const effectiveOutline = applyOutlineFallbacks(outline, !!languageModel, {
       allowProceduralSkill: vocationalActive,
+      personalProject: requirements?.pblProfile?.projectMode === 'personal',
     });
 
     // ── Filter images assigned to this outline ──
@@ -176,6 +177,7 @@ export async function POST(req: NextRequest) {
       thinkingConfig,
       targetLanguage: userLocale || undefined,
       userRequirements: requirements,
+      pblProfile: requirements?.pblProfile,
       allowProceduralSkill: vocationalActive,
     });
 

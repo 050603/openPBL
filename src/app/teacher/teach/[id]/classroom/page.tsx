@@ -83,7 +83,7 @@ export default function TeachClassroomPage() {
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中...</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中...</div>
       </DashboardShell>
     );
   }
@@ -91,7 +91,7 @@ export default function TeachClassroomPage() {
   if (!course) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">
+        <div className="grid place-items-center py-20 text-stone-500">
           未找到课程。
           <Link className="mt-4 text-blue-700 hover:underline" href="/teacher">返回课程列表</Link>
         </div>
@@ -204,16 +204,16 @@ export default function TeachClassroomPage() {
         <div className="hidden items-center gap-1 md:flex">
           {/* 计时器 */}
           <button
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 px-2.5 text-[12px] font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 px-2.5 text-[12px] font-semibold text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
             onClick={() => setToolPanel("timer")}
             type="button"
           >
             <Clock3 size={14} />
-            <span className="font-mono font-bold text-indigo-700">{timerText}</span>
+            <span className="font-mono font-bold text-[var(--pbl-teacher)]">{timerText}</span>
           </button>
           {/* 邀请码 */}
           <button
-            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700"
+            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
             onClick={() => setToolPanel("invite")}
             type="button"
             aria-label="学生邀请码"
@@ -222,21 +222,21 @@ export default function TeachClassroomPage() {
           </button>
           {/* 在线学生 */}
           <button
-            className="inline-flex h-8 items-center gap-1 rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 px-2.5 text-[12px] font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700"
+            className="inline-flex h-8 items-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 px-2.5 text-[12px] font-semibold text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
             onClick={() => setToolPanel("students")}
             type="button"
             aria-label="在线学生"
           >
             <UserRoundCheck size={14} />
             <span>{onlineCount}/{course.students.length}</span>
-            {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
+            {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success-soft)]0" /> : null}
           </button>
-          <div className="mx-0.5 h-5 w-px bg-slate-200" />
-          <button aria-label={focusMode ? "退出专注授课" : "进入专注授课"} className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600" onClick={() => setFocusMode((value) => !value)} type="button"><PanelRightClose size={14} /></button>
-          {currentStage?.key === "showcase" ? <button aria-label="进入投影展示模式" className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600" onClick={() => setPresentationMode(true)} type="button"><Maximize2 size={14} /></button> : null}
+          <div className="mx-0.5 h-5 w-px bg-stone-200" />
+          <button aria-label={focusMode ? "退出专注授课" : "进入专注授课"} className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setFocusMode((value) => !value)} type="button"><PanelRightClose size={14} /></button>
+          {currentStage?.key === "showcase" ? <button aria-label="进入投影展示模式" className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setPresentationMode(true)} type="button"><Maximize2 size={14} /></button> : null}
           {/* 查看课程 */}
           <Link
-            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-slate-200 bg-white/80 text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700"
+            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
             href={`/teacher/prepare/${course.id}/preview`}
             aria-label="查看课程"
           >
@@ -244,7 +244,7 @@ export default function TeachClassroomPage() {
           </Link>
           {/* 结束授课 */}
           <button
-            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-rose-200 bg-white/80 text-rose-600 transition hover:bg-rose-50"
+            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-orange-200 bg-white/80 text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
             onClick={() => setEndDialogOpen(true)}
             type="button"
             aria-label="结束授课"
@@ -257,15 +257,15 @@ export default function TeachClassroomPage() {
       {/* 移动端工具栏：小屏幕上显示精简版 */}
       <div className="mb-3 flex items-center gap-2 md:hidden">
         <button
-          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-600"
+          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-3 text-[13px] font-semibold text-stone-600"
           onClick={() => setToolPanel("timer")}
           type="button"
         >
           <Clock3 size={15} />
-          <span className="font-mono font-bold text-indigo-700">{timerText}</span>
+          <span className="font-mono font-bold text-[var(--pbl-teacher)]">{timerText}</span>
         </button>
         <button
-          className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-slate-200 bg-white text-slate-600"
+          className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600"
           onClick={() => setToolPanel("invite")}
           type="button"
           aria-label="邀请码"
@@ -273,7 +273,7 @@ export default function TeachClassroomPage() {
           <QrCode size={15} />
         </button>
         <button
-          className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-600"
+          className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-3 text-[13px] font-semibold text-stone-600"
           onClick={() => setToolPanel("students")}
           type="button"
           aria-label="在线学生"
@@ -282,14 +282,14 @@ export default function TeachClassroomPage() {
         </button>
         <div className="ml-auto flex items-center gap-2">
           <Link
-            className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-slate-200 bg-white text-slate-600"
+            className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600"
             href={`/teacher/prepare/${course.id}/preview`}
             aria-label="查看课程"
           >
             <Eye size={15} />
           </Link>
           <button
-            className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-rose-200 bg-white text-rose-600"
+            className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-orange-200 bg-white text-[var(--pbl-danger)]"
             onClick={() => setEndDialogOpen(true)}
             type="button"
             aria-label="结束授课"
@@ -304,9 +304,9 @@ export default function TeachClassroomPage() {
         {/* 中间：阶段控制 + 横幅 + 阶段视图 */}
         <div className="min-w-0 space-y-3">
           {course.uiState?.aiAnalysisPending ? (
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-100">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              学生有新更新，请刷新 AI 分析
+            <div className="inline-flex items-center gap-2 rounded-full bg-[var(--pbl-warning-soft)] px-3 py-1 text-xs font-semibold text-[var(--pbl-warning)] ring-1 ring-orange-100">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--pbl-warning)]" />
+              学生有新更新，请刷新 AI 建议
             </div>
           ) : null}
 
@@ -353,30 +353,30 @@ export default function TeachClassroomPage() {
                   const widthPct = (b.count / max) * 100;
                   return (
                     <div key={b.range} className="flex items-center gap-2">
-                      <span className="w-14 shrink-0 text-[11px] font-semibold text-slate-500">
+                      <span className="w-14 shrink-0 text-[11px] font-semibold text-stone-500">
                         {b.range}
                       </span>
-                      <div className="relative h-6 flex-1 overflow-hidden rounded-[var(--radius-xs)] bg-slate-100">
+                      <div className="relative h-6 flex-1 overflow-hidden rounded-[var(--radius-xs)] bg-stone-100">
                         <div
                           className={cn(
                             "h-full rounded-[var(--radius-xs)] transition-all",
-                            b.tone === "rose" && "bg-rose-500",
-                            b.tone === "amber" && "bg-amber-500",
-                            b.tone === "sky" && "bg-sky-500",
-                            b.tone === "emerald" && "bg-emerald-500",
+                            b.tone === "rose" && "bg-[var(--pbl-danger)]",
+                            b.tone === "amber" && "bg-[var(--pbl-warning)]",
+                            b.tone === "sky" && "bg-[var(--pbl-ai)]",
+                            b.tone === "emerald" && "bg-[var(--pbl-success)]",
                           )}
                           style={{ width: `${Math.max(widthPct, b.count > 0 ? 8 : 0)}%` }}
                         />
-                        <span className="absolute inset-y-0 right-2 flex items-center text-[11px] font-bold text-slate-700">
+                        <span className="absolute inset-y-0 right-2 flex items-center text-[11px] font-bold text-stone-700">
                           {b.count}
                         </span>
                       </div>
                     </div>
                   );
                 })}
-                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[11px] text-slate-500">
+                <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-2.5 text-[11px] text-stone-500">
                   <span>班级平均</span>
-                  <span className="font-bold text-indigo-700">{stageCompletion}%</span>
+                  <span className="font-bold text-[var(--pbl-teacher)]">{stageCompletion}%</span>
                 </div>
               </div>
             )}
@@ -384,13 +384,13 @@ export default function TeachClassroomPage() {
 
           <DataPanelCard
             icon={<AlertTriangle size={15} />}
-            title="风险预警"
+            title="需要关注"
             hint={`本阶段 · ${riskGroups.length} 个个人项目`}
             tone={riskGroups.length > 0 ? "warning" : "ok"}
           >
             {riskGroups.length === 0 ? (
-              <div className="flex items-center gap-2 py-3 text-[13px] text-emerald-700">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+              <div className="flex items-center gap-2 py-3 text-[13px] text-[var(--pbl-success)]">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]">
                   <CheckCircle2 size={14} />
                 </span>
                 所有学生项目进度健康
@@ -399,25 +399,25 @@ export default function TeachClassroomPage() {
               <ul className="space-y-1.5">
                 {riskGroups.slice(0, 5).map(({ group, avg }) => (
                   <li
-                    className="rounded-[var(--radius-xs)] border border-rose-200 bg-rose-50/60 px-2.5 py-2"
+                    className="rounded-[var(--radius-xs)] border border-orange-200 bg-[var(--pbl-danger-soft)]/60 px-2.5 py-2"
                     key={group.id}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-bold text-slate-900">
+                      <span className="truncate text-[13px] font-bold text-stone-900">
                         {group.name}
                       </span>
-                      <span className="shrink-0 text-[11px] font-bold text-rose-600">
+                      <span className="shrink-0 text-[11px] font-bold text-[var(--pbl-danger)]">
                         均 {Math.round(avg)}%
                       </span>
                     </div>
-                    <div className="mt-1 truncate text-[11px] text-slate-500">
+                    <div className="mt-1 truncate text-[11px] text-stone-500">
                       选题：{group.topic || "未设定"}
                     </div>
                     <ProgressBar className="mt-1.5 h-1" value={avg} tone="red" />
                   </li>
                 ))}
                 {riskGroups.length > 5 ? (
-                  <li className="pt-1 text-center text-[11px] text-slate-500">
+                  <li className="pt-1 text-center text-[11px] text-stone-500">
                     另有 {riskGroups.length - 5} 个个人项目...
                   </li>
                 ) : null}
@@ -432,15 +432,15 @@ export default function TeachClassroomPage() {
             tone={course.uiState?.aiAnalysisPending ? "warning" : "default"}
           >
             {course.uiState?.aiAnalysisPending ? (
-              <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-xs)] border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
+              <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-xs)] border border-orange-200 bg-[var(--pbl-warning-soft)] px-2.5 py-2 text-[12px] text-[var(--pbl-warning)]">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                <span>学生有新更新，建议刷新 AI 分析。</span>
+                <span>学生有新更新，建议刷新 AI 建议。</span>
               </div>
             ) : null}
 
             {stageAiSupports.length === 0 ? (
-              <div className="flex items-center gap-2 py-3 text-[13px] text-slate-500">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-sky-50 text-sky-600">
+              <div className="flex items-center gap-2 py-3 text-[13px] text-stone-500">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]">
                   <Lightbulb size={14} />
                 </span>
                 本阶段暂无 AI 建议记录
@@ -449,19 +449,19 @@ export default function TeachClassroomPage() {
               <ul className="space-y-2">
                 {stageAiSupports.map((rec) => (
                   <li
-                    className="rounded-[var(--radius-xs)] border border-slate-200 bg-white/70 px-2.5 py-2"
+                    className="rounded-[var(--radius-xs)] border border-stone-200 bg-white/70 px-2.5 py-2"
                     key={rec.id}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--pbl-ai)]">
                         <Lightbulb size={11} />
                         {rec.trigger}
                       </span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[10px] text-stone-400">
                         {new Date(rec.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
-                    <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-slate-600">
+                    <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-stone-600">
                       {rec.diagnosis}
                     </p>
                   </li>
@@ -503,7 +503,7 @@ export default function TeachClassroomPage() {
           <div className="fixed inset-0 z-[35]" onClick={() => setToolPanel(null)} />
           <div className="pbl-glass fixed right-4 top-[84px] z-40 w-[min(360px,calc(100vw-32px))] rounded-[var(--radius-md)] p-4 md:right-8">
             <button
-              className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-slate-400 transition hover:bg-white hover:text-slate-700"
+              className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-stone-400 transition hover:bg-white hover:text-stone-700"
               onClick={() => setToolPanel(null)}
               type="button"
               aria-label="关闭"
@@ -567,16 +567,16 @@ function TimerPanel({
   return (
     <div>
       <div className="mb-2.5 pr-8">
-        <div className="text-base font-bold text-slate-900">课堂计时</div>
-        <p className="mt-0.5 text-[13px] text-slate-500">记录本次授课时长</p>
+        <div className="text-base font-bold text-stone-900">课堂计时</div>
+        <p className="mt-0.5 text-[13px] text-stone-500">记录本次授课时长</p>
       </div>
       <div className="text-center">
-        <div className="font-mono text-[38px] font-bold leading-none text-indigo-700">{timerText}</div>
-        <div className="mt-2 text-[12px] text-slate-500">{paused ? "已暂停" : "进行中"}</div>
+        <div className="font-mono text-[38px] font-bold leading-none text-[var(--pbl-teacher)]">{timerText}</div>
+        <div className="mt-2 text-[12px] text-stone-500">{paused ? "已暂停" : "进行中"}</div>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-1.5">
         <button
-          className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white text-xs font-semibold text-stone-600 transition hover:bg-stone-50"
           onClick={onTogglePause}
           type="button"
         >
@@ -584,14 +584,14 @@ function TimerPanel({
           {paused ? "继续" : "暂停"}
         </button>
         <button
-          className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white text-xs font-semibold text-stone-600 transition hover:bg-stone-50"
           onClick={onReset}
           type="button"
         >
           <RotateCcw size={13} /> 重置
         </button>
         <button
-          className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] bg-indigo-700 text-xs font-semibold text-white transition hover:bg-indigo-800"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] text-xs font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
           onClick={onAddTwoMin}
           type="button"
         >
@@ -614,26 +614,26 @@ function InvitePanel({
   return (
     <div>
       <div className="mb-2.5 pr-8">
-        <div className="text-base font-bold text-slate-900">学生邀请码</div>
-        <p className="mt-0.5 text-[13px] text-slate-500">学生输入此码加入课堂</p>
+        <div className="text-base font-bold text-stone-900">学生邀请码</div>
+        <p className="mt-0.5 text-[13px] text-stone-500">学生输入此码加入课堂</p>
       </div>
       {code ? (
         <>
           <div className="text-center">
-            <div className="font-mono text-[30px] font-bold tracking-[0.18em] text-slate-900">
+            <div className="font-mono text-[30px] font-bold tracking-[0.18em] text-stone-900">
               {code.slice(0, 3)} {code.slice(3, 6)}
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-1.5">
             <button
-              className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] bg-indigo-700 text-xs font-semibold text-white transition hover:bg-indigo-800"
+              className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] text-xs font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
               onClick={onCopy}
               type="button"
             >
               <Copy size={13} /> 复制
             </button>
             <button
-              className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+              className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white text-xs font-semibold text-stone-600 transition hover:bg-stone-50"
               onClick={onRefresh}
               type="button"
             >
@@ -642,7 +642,7 @@ function InvitePanel({
           </div>
         </>
       ) : (
-        <div className="py-6 text-center text-sm text-slate-500">暂未生成邀请码</div>
+        <div className="py-6 text-center text-sm text-stone-500">暂未生成邀请码</div>
       )}
     </div>
   );
@@ -661,17 +661,17 @@ function StudentsPanel({
     <div>
       <div className="mb-2.5 flex items-center justify-between gap-2 pr-8">
         <div>
-          <div className="text-base font-bold text-slate-900">在线学生</div>
-          <p className="mt-0.5 text-[13px] text-slate-500">{online} 在线 / {total} 总数</p>
+          <div className="text-base font-bold text-stone-900">在线学生</div>
+          <p className="mt-0.5 text-[13px] text-stone-500">{online} 在线 / {total} 总数</p>
         </div>
-        <span className="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-50 px-2 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        <span className="inline-flex h-6 items-center gap-1 rounded-full bg-[var(--pbl-success-soft)] px-2 text-[11px] font-bold text-[var(--pbl-success)] ring-1 ring-green-200">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success-soft)]0" />
           {online} / {total}
         </span>
       </div>
       {total === 0 ? (
-        <div className="py-6 text-center text-sm text-slate-500">
-          <Users className="mx-auto mb-1 text-slate-300" size={20} />
+        <div className="py-6 text-center text-sm text-stone-500">
+          <Users className="mx-auto mb-1 text-stone-300" size={20} />
           暂无学生加入
         </div>
       ) : (
@@ -688,21 +688,21 @@ function StudentsPanel({
               const sOnline = isStudentOnline(s);
               return (
                 <li
-                  className="flex items-center gap-2 rounded-[var(--radius-xs)] border border-slate-200 bg-white/70 px-2.5 py-2"
+                  className="flex items-center gap-2 rounded-[var(--radius-xs)] border border-stone-200 bg-white/70 px-2.5 py-2"
                   key={s.id}
                 >
                   <Avatar name={s.name} size={28} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-800">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-stone-800">
                     {s.name}
                   </span>
                   <span
                     className={cn(
                       "h-1.5 w-1.5 shrink-0 rounded-full",
-                      sOnline ? "bg-emerald-500" : "bg-slate-300",
+                      sOnline ? "bg-[var(--pbl-success-soft)]0" : "bg-stone-300",
                     )}
                     title={sOnline ? "在线" : "离线"}
                   />
-                  <span className="w-9 shrink-0 text-right text-[11px] font-bold text-slate-600">
+                  <span className="w-9 shrink-0 text-right text-[11px] font-bold text-stone-600">
                     {progress}%
                   </span>
                 </li>
@@ -732,24 +732,24 @@ function DataPanelCard({
   children: ReactNode;
 }) {
   return (
-    <section className="pbl-card rounded-[var(--radius-md)] p-3.5">
+    <section className="pbl-card rounded-[var(--radius-md)] p-3.5 transition hover:shadow-[var(--shadow-raised)]">
       <header className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
             className={cn(
               "grid h-6 w-6 shrink-0 place-items-center rounded-[var(--radius-xs)]",
               tone === "warning"
-                ? "bg-amber-50 text-amber-700"
+                ? "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]"
                 : tone === "ok"
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-slate-100 text-slate-700",
+                  ? "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]"
+                  : "bg-stone-100 text-stone-700",
             )}
           >
             {icon}
           </span>
-          <h3 className="truncate text-[13px] font-bold text-slate-900">{title}</h3>
+          <h3 className="truncate text-[13px] font-bold text-stone-900">{title}</h3>
         </div>
-        {hint ? <span className="shrink-0 text-[11px] text-slate-400">{hint}</span> : null}
+        {hint ? <span className="shrink-0 text-[11px] text-stone-400">{hint}</span> : null}
       </header>
       {children}
     </section>
@@ -758,8 +758,8 @@ function DataPanelCard({
 
 function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="grid place-items-center py-4 text-center text-xs text-slate-400">
-      <Bot className="mb-1 text-slate-300" size={18} />
+    <div className="grid place-items-center py-4 text-center text-xs text-stone-400">
+      <Bot className="mb-1 text-stone-300" size={18} />
       {text}
     </div>
   );

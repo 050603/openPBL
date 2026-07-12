@@ -214,10 +214,12 @@ export class ActionEngine {
 
   private async executeSpeech(action: SpeechAction): Promise<void> {
     if (!this.audioPlayer) return;
+    const targetDurationSec = (action as SpeechAction & { targetDurationSec?: number })
+      .targetDurationSec;
 
     return new Promise<void>((resolve) => {
       this.audioPlayer!.onEnded(() => resolve());
-      this.audioPlayer!.play(action.audioId || '', action.audioUrl)
+      this.audioPlayer!.play(action.audioId || '', action.audioUrl, targetDurationSec)
         .then((audioStarted) => {
           if (!audioStarted) resolve();
         })
