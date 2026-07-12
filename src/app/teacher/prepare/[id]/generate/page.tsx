@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { LessonOutlineSection } from "@/lib/session/types";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
 import { splitClassroomScenes } from "@/lib/openmaic-bridge/post-generation-split";
+import { buildFacilitationScaffold } from "@/lib/teacher-resources/facilitation-scaffolds";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -136,6 +137,8 @@ export default function GenerateCoursePage() {
       "- 学生 AI 授知课堂只保留 AI 授知阶段核心知识点内容，用于学生学习、互动和测验。",
       "- 课程引入、PBL 项目布置、项目介绍材料、教师讲稿和 PPT 等内容必须标记为教师资源，生成后只在教师授课资源区展示，不进入学生 AI 授知阶段。",
       "- 整课授课大纲中每个 openMaicUse=teacher-resource 的活动都必须生成可直接授课的资源场景；根据 resourceTypes 生成 slide/PPT、interactive 演示或 pbl 项目布置。",
+      "- 只为可提前确定的内容生成具体结论：项目导入、任务流程、评价规则、确定知识、案例、操作说明、课后延伸、价值升华和迁移问题。",
+      "- 方案点评、作品点评、班级共性问题和汇报总结不可预设学生结果；仅生成不含结论的主持支架，标题应明确包含方案点评/作品点评/共性问题/汇报总结，课堂获得真实证据后再填充。",
       "- 教师资源标题必须同时包含用途和阶段，格式为【教师资源-用途】【阶段:stageKey】标题；stageKey 必须使用课程阶段括号中的真实 key。",
       teacherResourceActivities.length
         ? `- 必须覆盖这些教师资源活动：${JSON.stringify(teacherResourceActivities)}`
@@ -295,6 +298,14 @@ export default function GenerateCoursePage() {
         if (splitResult.teacherClassroomId && course) {
           updateCourse(course.id, {
             teacherClassroomId: splitResult.teacherClassroomId,
+            dynamicFacilitationScaffolds: splitResult.teacherResourceScenes
+              .filter((resource) => resource.generationMode === "dynamic-scaffold" && resource.scaffoldKind)
+              .map((resource) => buildFacilitationScaffold({
+                courseId: course.id,
+                stageKey: resource.stageKey ?? "showcase",
+                title: resource.title,
+                kind: resource.scaffoldKind!,
+              })),
             content: {
               ...course.content,
               teacherClassroomId: splitResult.teacherClassroomId,

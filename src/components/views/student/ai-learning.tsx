@@ -95,11 +95,6 @@ export function AiLearningView({ course }: { course?: Course }) {
 
   return (
     <div className="space-y-3">
-      <section className="grid gap-5 border-y border-[var(--pbl-border)] bg-[var(--pbl-surface)] py-5 lg:grid-cols-[1.2fr_1fr_1fr]">
-        <div><p className="text-xs font-semibold text-[var(--pbl-ai)]">当前学习目标</p><ul className="mt-2 space-y-2 text-sm leading-6">{goals.length ? goals.map((goal) => <li key={goal}>· {goal}</li>) : <li className="text-[var(--pbl-text-muted)]">教师尚未补充可观察目标</li>}</ul></div>
-        <div><p className="text-xs font-semibold text-[var(--pbl-student)]">为什么与项目有关</p><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">这些知识将帮助你判断并回答：{course?.drivingQuestion || "当前项目问题"}</p><p className="mt-3 text-xs font-semibold text-[var(--pbl-text-muted)]">进入下一阶段：{aiProgress?.nextStageCondition ?? "完成核心内容与知识检查，等待教师确认"}</p></div>
-        <div><p className="text-xs font-semibold text-[var(--pbl-ai)]">AI 为什么调整路径</p><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">{aiProgress?.pathAdjustmentReason ?? "当前按课程既定路径讲解；完成知识检查后，AI 会依据未达成目标调整案例与练习。"}</p>{aiProgress?.currentTeachingAction ? <p className="mt-3 text-sm font-semibold">正在进行：{aiProgress.currentTeachingAction}</p> : null}</div>
-      </section>
       <section className="overflow-hidden rounded-[var(--radius-lg)] border border-slate-200 bg-white shadow-sm">
         {/* 集成工具条 */}
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-3 py-2">

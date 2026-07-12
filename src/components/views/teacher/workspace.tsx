@@ -308,6 +308,7 @@ export function WorkspaceTeacherView({
                 ? Math.round(m.reduce((s, mem) => s + (course.students.find((st) => st.id === mem.studentId)?.stageProgress?.[stageKey] ?? 0), 0) / m.length)
                 : 0;
               const tone = prog >= 70 ? "green" : prog >= 30 ? "blue" : "red";
+              const groupSignal = interventionSignals.find((signal) => signal.groupId === g.id);
               return (
                 <li
                   className={`cursor-pointer rounded-[6px] border px-3 py-2 transition ${
@@ -317,7 +318,10 @@ export function WorkspaceTeacherView({
                   onClick={() => setActiveId(g.id)}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-semibold">{g.name}</span>
+                    <span className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                      {groupSignal ? <AlertCircle aria-label="有干预信号" className="shrink-0 fill-white text-rose-600" size={15} /> : null}
+                      {g.name}
+                    </span>
                     <Pill tone={tone}>{prog}%</Pill>
                   </div>
                   <div className="mt-1 truncate text-xs text-slate-500">{g.topic || "待确定选题"}</div>

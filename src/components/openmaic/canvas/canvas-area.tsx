@@ -21,6 +21,9 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly isCourseComplete?: boolean;
   readonly isGenerationFailed?: boolean;
   readonly onRetryGeneration?: () => void;
+  readonly readOnly?: boolean;
+  readonly showCourseComplete?: boolean;
+  readonly minimalToolbar?: boolean;
 }
 
 export function CanvasArea({
@@ -48,9 +51,12 @@ export function CanvasArea({
   isCourseComplete,
   isGenerationFailed,
   onRetryGeneration,
+  readOnly = false,
+  showCourseComplete = true,
+  minimalToolbar = false,
 }: CanvasAreaProps) {
   const { t } = useI18n();
-  const showControls = mode === 'playback' && !whiteboardOpen;
+  const showControls = mode === 'playback' && !whiteboardOpen && !readOnly && !minimalToolbar;
   const showPlayHint =
     showControls &&
     engineState !== 'playing' &&
@@ -97,6 +103,7 @@ export function CanvasArea({
           className={cn(
             'aspect-[16/9] h-full max-h-full max-w-full bg-white dark:bg-gray-800 shadow-2xl rounded-lg overflow-hidden relative transition-all duration-700',
             showControls && !isLiveSession && currentScene?.type === 'slide' && 'cursor-pointer',
+            readOnly && 'pointer-events-none select-none',
             currentScene?.type === 'interactive'
               ? 'shadow-blue-200/50 dark:shadow-blue-900/50 ring-1 ring-blue-900/5 dark:ring-blue-500/10'
               : 'shadow-gray-200/50 dark:shadow-gray-800/50 ring-1 ring-gray-950/5 dark:ring-white/5',
@@ -121,7 +128,7 @@ export function CanvasArea({
 
           {/* Pending Scene Loading / Completion Overlay */}
           <AnimatePresence>
-            {isPendingScene && !currentScene && isCourseComplete && (
+            {showCourseComplete && isPendingScene && !currentScene && isCourseComplete && (
               <motion.div
                 key="course-complete"
                 initial={{ opacity: 0 }}
@@ -243,7 +250,7 @@ export function CanvasArea({
       </div>
 
       {/* ── Canvas Toolbar — in document flow, only when not merged into roundtable ── */}
-      {!hideToolbar && (
+      {!hideToolbar && !minimalToolbar && (
         <CanvasToolbar
           className={cn(
             'shrink-0 h-9 px-2',
@@ -267,6 +274,7 @@ export function CanvasArea({
           onTogglePresentation={onTogglePresentation}
           showStopDiscussion={showStopDiscussion}
           onStopDiscussion={onStopDiscussion}
+          minimal={minimalToolbar}
         />
       )}
     </div>

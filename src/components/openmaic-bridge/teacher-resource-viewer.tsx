@@ -4,7 +4,7 @@
  * TeacherResourceViewer — 教师授课资源查看器
  *
  * 展示从 OpenMAIC 生成结果中拆分出的教师资源（课程引入 + PBL 题目讲解）：
- * - PPT 预览：在平台内直接播放教师资源课堂（OpenMAIC Stage）
+ * - PPT 预览：使用轻量场景渲染器展示教师资源课堂
  * - 讲稿文本：按场景列出讲稿内容，教师可复制/打印
  *
  * 使用 teacherClassroomId 加载独立的教师资源课堂，与学生 AI 授知课堂完全隔离。
@@ -71,7 +71,7 @@ export function TeacherResourceViewer({
               : "text-slate-500 hover:text-slate-700",
           )}
         >
-          <Monitor size={16} /> PPT 预览播放
+          <Monitor size={16} /> PPT 预览
         </button>
         <button
           type="button"

@@ -15,6 +15,7 @@ import { MultiTabEditConflictPrompt } from '@openmaic/components/edit/MultiTabEd
 import { InteractiveIframeHost } from '@openmaic/components/scene-renderers/InteractiveIframeHost';
 import { CHROME_EASE } from '@openmaic/lib/edit/transitions';
 import { preloadEditor } from '@openmaic/lib/edit/preload-editor';
+import type { PlaybackSyncState, StageExperience } from '@openmaic/components/stage-experience';
 
 /**
  * Stage — top-level classroom container. Dispatches between the two
@@ -32,8 +33,22 @@ import { preloadEditor } from '@openmaic/lib/edit/preload-editor';
  */
 export function Stage({
   onRetryOutline,
+  experience = 'student-course',
+  playbackState,
+  onPlaybackStateChange,
+  interactionState,
 }: {
   onRetryOutline?: (outlineId: string) => Promise<void>;
+  experience?: StageExperience;
+  playbackState?: PlaybackSyncState;
+  onPlaybackStateChange?: (state: Omit<PlaybackSyncState, 'version'>) => void;
+  /**
+   * Teacher-side interaction state to apply to the student's interactive
+   * iframe (projected-readonly experience only). PlaybackChromeRoot watches
+   * this and sends `apply-state` postMessages into the iframe so students
+   * see the teacher's manipulations replayed on their device.
+   */
+  interactionState?: Record<string, unknown> | null;
 }) {
   const { mode, setMode, scenes, currentSceneId, generatingOutlines, stage } = useStageStore();
   const currentScene = useStageStore((s) => s.getCurrentScene());
@@ -150,6 +165,10 @@ export function Stage({
               onRetryOutline={onRetryOutline}
               canEnterProMode={isEditable}
               onEnterProMode={toggleHandler}
+              experience={experience}
+              playbackState={playbackState}
+              onPlaybackStateChange={onPlaybackStateChange}
+              interactionState={interactionState}
             />
           </motion.div>
         )}

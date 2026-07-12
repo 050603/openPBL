@@ -30,6 +30,7 @@ import type {
   TeachingOutlineSection,
 } from "@/lib/session/types";
 import { DEFAULT_EVALUATION_FLOWS } from "@/lib/session/types";
+import { resolveDimensionRole } from "@/lib/evaluation/responsibility";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
 import type { AgentInfo } from "@/lib/openmaic/generation/generation-pipeline";
 import { I18nProvider } from "@/lib/openmaic/hooks/use-i18n";
@@ -1173,9 +1174,9 @@ export default function VerifyCoursePage() {
       node: (
         <div className="space-y-3">
           <section className="border-y border-[var(--pbl-border)] py-4">
-            <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-semibold">四类评价来源</h3><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">每类评价都必须关联可查看的过程证据，AI 分数不能直接成为最终成绩。</p></div><span className={cn("text-sm font-semibold", (content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((item) => item.enabled).reduce((sum, item) => sum + item.weight, 0) === 100 ? "text-[var(--pbl-success)]" : "text-[var(--pbl-danger)]")}>权重合计 {(content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((item) => item.enabled).reduce((sum, item) => sum + item.weight, 0)}%</span></div>
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-semibold">两类计分评价 + 学生非计分反思</h3><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">AI 负责过程与专业性，教师负责现场汇报与通用表现；两部分独立评分后按权重合成。</p></div><span className={cn("text-sm font-semibold", (content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((item) => item.enabled && item.scored !== false).reduce((sum, item) => sum + item.weight, 0) === 100 ? "text-[var(--pbl-success)]" : "text-[var(--pbl-danger)]")}>计分权重合计 {(content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((item) => item.enabled && item.scored !== false).reduce((sum, item) => sum + item.weight, 0)}%</span></div>
             <div className="mt-4 divide-y divide-[var(--pbl-border-soft)]">
-              {(content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).map((flow) => <div className="grid gap-3 py-4 md:grid-cols-[180px_100px_1fr] md:items-start" key={flow.id}><div><p className="font-semibold">{flow.name}</p><p className="mt-1 text-xs text-[var(--pbl-text-muted)]">{flow.sourceRole === "ai" ? "基于过程记录，教师最终确认" : flow.sourceRole === "teacher" ? "项目、汇报与价值判断" : flow.sourceRole === "peer" ? "同伴观察与反馈回应" : "个人判断与学习反思"}</p></div><label className="text-xs text-[var(--pbl-text-muted)]">权重<input className="mt-1 min-h-10 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-2 text-sm" max={100} min={0} onChange={(event) => setContent((current) => current ? { ...current, evaluationPlan: { ...current.evaluationPlan, flows: (current.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).map((item) => item.id === flow.id ? { ...item, weight: Number(event.target.value) || 0 } : item) } } : current)} type="number" value={flow.weight} /></label><div><p className="text-xs font-semibold text-[var(--pbl-text-muted)]">过程证据</p><div className="mt-2 flex flex-wrap gap-2">{flow.evidenceRequirements.map((evidence) => <span className="rounded-[var(--radius-xs)] border border-[var(--pbl-border)] px-2 py-1 text-xs" key={evidence}>{evidence}</span>)}</div></div></div>)}
+              {(content?.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).filter((flow) => flow.sourceRole !== "peer").map((flow) => <div className="grid gap-3 py-4 md:grid-cols-[180px_100px_1fr] md:items-start" key={flow.id}><div><p className="font-semibold">{flow.name}</p><p className="mt-1 text-xs text-[var(--pbl-text-muted)]">{flow.sourceRole === "ai" ? "过程推进、AI 协作健康度与方案专业性" : flow.sourceRole === "teacher" ? "现场汇报、答辩、呈现与通用能力" : "课程反思与成长总结（不计分）"}</p></div><label className="text-xs text-[var(--pbl-text-muted)]">{flow.scored === false ? "计分状态" : "权重"}{flow.scored === false ? <div className="mt-1 grid min-h-10 place-items-center rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] text-sm font-semibold">不计分</div> : <input className="mt-1 min-h-10 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-2 text-sm" max={100} min={0} onChange={(event) => setContent((current) => current ? { ...current, evaluationPlan: { ...current.evaluationPlan, flows: (current.evaluationPlan.flows ?? DEFAULT_EVALUATION_FLOWS).map((item) => item.id === flow.id ? { ...item, weight: Number(event.target.value) || 0 } : item) } } : current)} type="number" value={flow.weight} />}</label><div><p className="text-xs font-semibold text-[var(--pbl-text-muted)]">评价证据</p><div className="mt-2 flex flex-wrap gap-2">{flow.evidenceRequirements.map((evidence) => <span className="rounded-[var(--radius-xs)] border border-[var(--pbl-border)] px-2 py-1 text-xs" key={evidence}>{evidence}</span>)}</div></div></div>)}
             </div>
           </section>
           <h3 className="pt-3 font-semibold">评价维度</h3>
@@ -1184,6 +1185,7 @@ export default function VerifyCoursePage() {
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="p-3">维度</th>
+                  <th className="p-3 w-28">负责角色</th>
                   <th className="p-3 w-24">权重</th>
                   <th className="p-3">描述</th>
                   <th className="p-3 w-16" />
@@ -1216,6 +1218,33 @@ export default function VerifyCoursePage() {
                           }
                           value={d.name}
                         />
+                      </td>
+                      <td className="p-3">
+                        <select
+                          aria-label={`${d.name}负责角色`}
+                          className="h-9 w-full rounded-[6px] border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-500"
+                          onChange={(e) =>
+                            setContent((c) =>
+                              c
+                                ? {
+                                    ...c,
+                                    evaluationPlan: {
+                                      ...c.evaluationPlan,
+                                      dimensions: c.evaluationPlan.dimensions.map((x) =>
+                                        x.id === d.id
+                                          ? { ...x, responsibleRole: e.target.value as "ai" | "teacher" }
+                                          : x,
+                                      ),
+                                    },
+                                  }
+                                : c,
+                            )
+                          }
+                          value={resolveDimensionRole(d)}
+                        >
+                          <option value="ai">AI</option>
+                          <option value="teacher">教师</option>
+                        </select>
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-1">
@@ -1336,6 +1365,7 @@ export default function VerifyCoursePage() {
                               name: "新维度",
                               weight: 10,
                               description: "",
+                              responsibleRole: "ai",
                             },
                           ],
                         },

@@ -437,6 +437,19 @@ describe("normalizeCourse — v2 migration", () => {
       stages: legacyStages,
       currentStageIndex: 3,
       classConfig: { groupMode: "free", totalStudents: 36, perGroup: 6 },
+      content: {
+        ...makeCourse().content,
+        evaluationPlan: {
+          dimensions: [],
+          overallRubric: "旧评价方案",
+          flows: [
+            { id: "legacy-ai", sourceRole: "ai", name: "AI", weight: 30, evidenceRequirements: [], enabled: true },
+            { id: "legacy-teacher", sourceRole: "teacher", name: "教师", weight: 50, evidenceRequirements: [], enabled: true },
+            { id: "legacy-peer", sourceRole: "peer", name: "同伴", weight: 10, evidenceRequirements: [], enabled: true },
+            { id: "legacy-self", sourceRole: "self", name: "自评", weight: 10, evidenceRequirements: [], enabled: true },
+          ],
+        },
+      },
       feedback: [{ id: "f1", courseId: "course-1", targetType: "group", targetId: "g1", stageKey: "review", kind: "comment", content: "请补充证据", createdAt: "2024-01-01T00:00:00.000Z" }],
     });
     const result = normalizeCourse(legacy);
@@ -444,7 +457,18 @@ describe("normalizeCourse — v2 migration", () => {
     expect(result.stages[result.currentStageIndex].key).toBe("proposal");
     expect(result.classConfig).toMatchObject({ groupMode: "solo", perGroup: 1, crossClass: false });
     expect(result.feedback?.[0]).toMatchObject({ sourceRole: "teacher", status: "open", evidence: [] });
-    expect(result.content.evaluationPlan.flows?.map((flow) => flow.sourceRole)).toEqual(["ai", "teacher", "self"]);
-    expect(result.content.evaluationPlan.flows?.reduce((sum, flow) => sum + flow.weight, 0)).toBe(100);
+    expect(result.content.evaluationPlan.flows).toEqual([
+      expect.objectContaining({ sourceRole: "ai", weight: 40, scored: true }),
+      expect.objectContaining({ sourceRole: "teacher", weight: 60, scored: true }),
+      expect.objectContaining({ sourceRole: "self", weight: 0, scored: false }),
+    ]);
+    expect(result.content.evaluationPlan.flows?.some((flow) => flow.sourceRole === "peer")).toBe(false);
+    expect(result.learningEvents).toEqual([]);
+    expect(result.companionThreads).toEqual([]);
+    expect(result.learningSignals).toEqual([]);
+    expect(result.classCommonIssues).toEqual([]);
+    expect(result.teacherAgentDirectives).toEqual([]);
+    expect(result.offlineInterventions).toEqual([]);
+    expect(result.dynamicFacilitationScaffolds).toEqual([]);
   });
 });

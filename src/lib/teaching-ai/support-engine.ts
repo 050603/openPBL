@@ -608,6 +608,12 @@ export async function generateProcessEvaluation(input: {
   const submissions = (course.submissions ?? []).filter(
     (s) => !groupId || s.groupId === groupId,
   );
+  const threads = (course.companionThreads ?? []).filter(
+    (thread) => !groupId || targetStudents.some((student) => student.studentId === thread.studentId),
+  );
+  const learningEvents = (course.learningEvents ?? []).filter(
+    (event) => !groupId || studentIds.has(event.studentId),
+  );
 
   const llmResult = await callLLMForJson<{
     summary: string;
@@ -623,9 +629,9 @@ export async function generateProcessEvaluation(input: {
 学生数：${studentIds.size}
 
 过程数据：
-- AI 支架记录：${supports.length} 条
-  - 已采纳：${supports.filter((s) => s.status === "student-applied").length} 条
-  - 未采纳：${supports.filter((s) => s.status !== "student-applied" && s.status !== "dismissed").length} 条
+- 伴学对话：${threads.reduce((sum, thread) => sum + thread.messages.length, 0)} 条消息（次数只作背景，不能因使用多或少直接加减分）
+- 学习行为事件：${learningEvents.length} 条
+- AI 支架记录：${supports.length} 条（旧记录仅作辅助证据，不推断学生是否采纳或拒绝）
 - 活动记录：${activities.length} 条
 - 上传材料：${uploads.length} 个（证据类 ${uploads.filter((u) => u.category === "evidence").length}）
 - 提交记录：${submissions.length} 条
@@ -637,14 +643,17 @@ ${targetGroups.map((g) => {
   return `- ${g.name}：阶段进度 ${progress}%，AI 支架 ${groupSupports.length} 条`;
 }).join("\n")}
 
-最近的 AI 支架记录（用于评估学生 AI 使用判断力）：
-${supports.slice(-5).map((s) => `- [${s.kind}] ${s.trigger}：${s.diagnosis}（${s.status}）`).join("\n") || "（无）"}
+最近伴学对话与产物证据：
+${threads.flatMap((thread) => thread.messages.filter((message) => message.visibility === "student-and-teacher").slice(-6).map((message) => `- [${message.id}] ${message.authorName ?? message.role}：${message.content}`)).slice(-20).join("\n") || "（无对话证据）"}
+${submissions.slice(-6).map((submission) => `- [${submission.id}] ${submission.title}：${submission.content.replace(/<[^>]+>/g, " ").slice(0, 500)}`).join("\n") || "（无产物证据）"}
 
 要求：
 1. summary：1 段 100-200 字的过程性评价总结
-2. dimensions：4 个评价维度（学习轨迹/任务完成/修改次数/AI 使用判断/过程参与度中选 4 个），每维度给 0-100 分和证据
+2. dimensions：覆盖过程推进、AI 协作健康度、证据与迭代质量、专业知识准确性、方案逻辑与可行性，每维度给 0-100 分并引用证据 ID
 3. highlights：2-3 条过程亮点
 4. improvements：2-3 条改进建议
+5. AI 协作健康度不能按使用频率评分：高频但有核验、修改和产出可为健康；低频但直接照搬或要求代做仍可能不健康
+6. 若某维度证据不足，明确写“证据不足，暂无法评价”，不得强行给低分；不得评价教师负责的现场表达、答辩和课堂通用表现
 
 仅返回 JSON：{ "summary": "string", "dimensions": [{ "name": "string", "score": 80, "evidence": ["string"] }], "highlights": ["string"], "improvements": ["string"] }`,
   );

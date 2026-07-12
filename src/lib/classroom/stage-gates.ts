@@ -24,6 +24,7 @@ export type InterventionSignal = {
   targetIds: string[];
   suggestedAction: string;
   confidence: "medium" | "high";
+  stageKey?: string;
 };
 
 function isProposalComplete(group: ProjectGroup): boolean {
@@ -120,30 +121,121 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
 
 export function detectInterventionSignals(course: Course, now = Date.now()): InterventionSignal[] {
   const signals: InterventionSignal[] = [];
+  const resolvedIds = new Set(course.resolvedInterventionSignalIds ?? []);
   const progress = Object.entries(course.aiLearningProgress ?? {});
   const misconception = new Map<string, string[]>();
   progress.forEach(([studentId, item]) => item.unmetGoals?.forEach((goal) => misconception.set(goal, [...(misconception.get(goal) ?? []), studentId])));
   misconception.forEach((studentIds, goal) => {
-    if (studentIds.length >= 2) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${id}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high" });
+    if (studentIds.length >= 2) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${id}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high", stageKey: "ai-learning" });
   });
+
+  // ===== 阶段三（方案构思）风险信号 =====
+  // 检测学生在方案构思阶段的风险：未开始、无 AI 互动、方案过简、长期未确认
+  const proposalStage = course.stages.find((s) => s.key === "proposal");
+  if (proposalStage) {
+    const proposalThreads = (course.companionThreads ?? []).filter((t) => t.stageKey === "proposal");
+    (course.groups ?? []).forEach((project) => {
+      const student = project.members[0];
+      if (!student) return;
+      const proposal = project.proposal;
+      const thread = proposalThreads.find((t) => t.studentId === student.studentId);
+      const studentMessages = thread?.messages.filter((m) => m.role === "student") ?? [];
+      const hasSubmission = (course.submissions ?? []).some((item) =>
+        (item.studentId === student.studentId || item.groupId === project.id) &&
+        ["idea", "plan"].includes(item.type));
+      const lastUpdate = new Date(project.updatedAt).getTime();
+      const staleMs = now - lastUpdate;
+
+      // 1. 长时间无方案提交
+      if (!hasSubmission && !proposal && staleMs > 20 * 60 * 1000) {
+        signals.push({
+          id: `proposal-stalled:${project.id}`,
+          kind: "stalled",
+          title: "方案构思长时间未开始",
+          whatHappened: `${student.name} 进入方案构思阶段超过 20 分钟，尚未提交任何方案内容`,
+          evidence: [`最后更新：${project.updatedAt}`, "无方案提交记录"],
+          targetType: "student",
+          targetIds: [student.studentId],
+          suggestedAction: "与学生确认是否卡在选题方向，建议先用一句话写下想解决的问题",
+          confidence: "high",
+          stageKey: "proposal",
+        });
+      }
+
+      // 2. 无 AI 伴学互动
+      if (studentMessages.length === 0 && staleMs > 15 * 60 * 1000) {
+        signals.push({
+          id: `proposal-no-ai:${project.id}`,
+          kind: "low-confidence",
+          title: "方案构思阶段未与 AI 伴学小组交流",
+          whatHappened: `${student.name} 在方案构思阶段尚未与 AI 伴学小组对话`,
+          evidence: ["伴学对话记录为空", `最后更新：${project.updatedAt}`],
+          targetType: "student",
+          targetIds: [student.studentId],
+          suggestedAction: "提醒学生可以点击“让 AI 伴学小组帮我完善”获取多角色反馈",
+          confidence: "medium",
+          stageKey: "proposal",
+        });
+      }
+
+      // 3. 方案过简（核心字段过短）
+      if (proposal) {
+        const questionLen = proposal.projectQuestion.trim().length;
+        const planLen = proposal.implementationPlan.trim().length;
+        if (questionLen > 0 && (questionLen < 8 || planLen < 15)) {
+          signals.push({
+            id: `proposal-thin:${project.id}`,
+            kind: "off-target",
+            title: "方案内容过于简略",
+            whatHappened: `${student.name} 的方案核心字段内容过短（问题 ${questionLen} 字、计划 ${planLen} 字）`,
+            evidence: [`项目问题：${proposal.projectQuestion || "（空）"}`, `实施计划：${proposal.implementationPlan || "（空）"}`],
+            targetType: "student",
+            targetIds: [student.studentId],
+            suggestedAction: "请学生补充“为什么这样做”和具体步骤，或与 AI 伴学小组讨论完善",
+            confidence: "medium",
+            stageKey: "proposal",
+          });
+        }
+      }
+
+      // 4. 长期等待教师确认
+      if (proposal && project.teacherApproval?.status === "pending") {
+        const pendingSince = new Date(project.teacherApproval.updatedAt).getTime();
+        if (now - pendingSince > 30 * 60 * 1000) {
+          signals.push({
+            id: `proposal-pending-approval:${project.id}`,
+            kind: "stalled",
+            title: "方案长期等待教师确认",
+            whatHappened: `${student.name} 的方案已提交超过 30 分钟，仍在等待教师校准`,
+            evidence: [`提交时间：${project.teacherApproval.updatedAt}`, "状态：pending"],
+            targetType: "student",
+            targetIds: [student.studentId],
+            suggestedAction: "尽快查看该学生的方案并给出确认或修订意见，避免阻塞后续阶段",
+            confidence: "high",
+            stageKey: "proposal",
+          });
+        }
+      }
+    });
+  }
 
   (course.groups ?? []).filter((project) => project.members.length === 1).forEach((project) => {
     const lastProgress = new Date(project.updatedAt).getTime();
     const hasProgress = (course.workPlan ?? []).some((item) => item.groupId === project.id && item.progress > 0);
     const student = project.members[0];
-    if (!hasProgress && now - lastProgress > 30 * 60 * 1000) signals.push({ id: `stalled:${project.id}`, kind: "stalled", title: "个人项目长时间无实质进展", whatHappened: `${student.name} 的个人项目超过 30 分钟没有任务进度`, evidence: [`最后更新：${project.updatedAt}`, "尚未记录新的过程证据"], targetType: "student", targetIds: [student.studentId], suggestedAction: "帮助学生缩小下一步任务，并约定一个十分钟内可完成的中间证据", confidence: "high" });
+    if (!hasProgress && now - lastProgress > 30 * 60 * 1000) signals.push({ id: `stalled:${project.id}`, kind: "stalled", title: "个人项目长时间无实质进展", whatHappened: `${student.name} 的个人项目超过 30 分钟没有任务进度`, evidence: [`最后更新：${project.updatedAt}`, "尚未记录新的过程证据"], targetType: "student", targetIds: [student.studentId], suggestedAction: "帮助学生缩小下一步任务，并约定一个十分钟内可完成的中间证据", confidence: "high", stageKey: "make" });
   });
 
   const supportText = (course.aiSupports ?? []).map((item) => `${item.id}|${item.groupId ?? item.targetId}|${item.trigger}|${item.diagnosis}|${item.evidence.join(" ")}`);
   const addSupportSignal = (pattern: RegExp, kind: InterventionSignal["kind"], title: string, action: string, confidence: InterventionSignal["confidence"] = "medium") => {
     supportText.filter((text) => pattern.test(text)).forEach((text) => {
       const [id, targetId, ...evidence] = text.split("|");
-      signals.push({ id: `${kind}:${id}`, kind, title, whatHappened: evidence.slice(0, 2).join("；"), evidence, targetType: targetId === course.id ? "course" : "group", targetIds: [targetId], suggestedAction: action, confidence });
+      signals.push({ id: `${kind}:${id}`, kind, title, whatHappened: evidence.slice(0, 2).join("；"), evidence, targetType: targetId === course.id ? "course" : "group", targetIds: [targetId], suggestedAction: action, confidence, stageKey: "make" });
     });
   };
   addSupportSignal(/偏离|无关|教学目标不一致/, "off-target", "项目可能偏离教学目标", "与学生共同核对驱动问题，修改项目范围或成果要求");
   addSupportSignal(/完整生成|直接答案|代写|全部完成/, "over-generation", "学生连续要求 AI 完整生成", "暂停高影响生成，要求学生先提交草稿和自己的判断", "high");
   addSupportSignal(/伦理|价值|公平|隐私|现实争议/, "ethics", "项目涉及伦理或价值判断", "组织教师引导的讨论，明确事实、立场与价值判断的边界");
   addSupportSignal(/不确定|置信度低|证据不足|无法判断/, "low-confidence", "AI 对当前问题把握不足", "由教师核查证据并决定是否补充来源或调整任务");
-  return signals.filter((signal, index, all) => all.findIndex((item) => item.id === signal.id) === index);
+  return signals.filter((signal, index, all) => !resolvedIds.has(signal.id) && all.findIndex((item) => item.id === signal.id) === index);
 }

@@ -31,6 +31,7 @@ import type {
   GroupAnnouncement,
   GroupBoard,
   GroupBoardMode,
+  OfflineInterventionRecord,
   ProjectGroup,
   ReflectionRecord,
   RubricScore,
@@ -38,6 +39,7 @@ import type {
   Student,
   TeacherFeedback,
   TeamContribution,
+  TeacherAgentDirective,
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
@@ -122,6 +124,9 @@ type SessionApi = SessionState & {
   setPreviewUpload: (courseId: string, uploadId?: string) => void;
   upsertTeamContribution: (contribution: Omit<TeamContribution, "id" | "courseId" | "updatedAt"> & { id?: string; courseId?: string }) => TeamContribution | undefined;
   upsertAiSupport: (support: Omit<AiSupportRecord, "id" | "courseId" | "createdAt" | "updatedAt"> & { id?: string; courseId?: string }) => AiSupportRecord | undefined;
+  addOfflineIntervention: (input: Omit<OfflineInterventionRecord, "id" | "teacherName" | "createdAt"> & { id?: string; teacherName?: string }) => OfflineInterventionRecord;
+  resolveInterventionSignals: (courseId: string, signalIds: string[]) => void;
+  upsertTeacherAgentDirective: (input: Omit<TeacherAgentDirective, "id" | "teacherName" | "createdAt" | "updatedAt"> & { id?: string; teacherName?: string; createdAt?: string }) => TeacherAgentDirective;
   setUiState: (courseId: string, patch: Partial<CourseUiState>) => void;
   addActivity: (courseId: string, action: string, detail?: string, actor?: string) => void;
   setPresentingGroup: (courseId: string, groupId: string) => void;
@@ -908,6 +913,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         };
         commit({ type: "UPSERT_AI_SUPPORT", payload: { courseId, support } });
         return support;
+      },
+      addOfflineIntervention(input) {
+        const intervention: OfflineInterventionRecord = {
+          ...input,
+          id: input.id ?? makeRecordId("offline-intervention"),
+          teacherName: input.teacherName ?? state.user.name,
+          createdAt: new Date().toISOString(),
+        };
+        commit({ type: "ADD_OFFLINE_INTERVENTION", payload: { courseId: input.courseId, intervention } });
+        return intervention;
+      },
+      resolveInterventionSignals(courseId, signalIds) {
+        if (!signalIds.length) return;
+        commit({ type: "RESOLVE_INTERVENTION_SIGNALS", payload: { courseId, signalIds } });
+      },
+      upsertTeacherAgentDirective(input) {
+        const existing = state.courses
+          .find((course) => course.id === input.courseId)
+          ?.teacherAgentDirectives?.find((directive) => directive.id === input.id);
+        const now = new Date().toISOString();
+        const directive: TeacherAgentDirective = {
+          ...input,
+          id: input.id ?? makeRecordId("teacher-directive"),
+          teacherName: input.teacherName ?? state.user.name,
+          createdAt: input.createdAt ?? existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+        commit({ type: "UPSERT_TEACHER_AGENT_DIRECTIVE", payload: { courseId: input.courseId, directive } });
+        return directive;
       },
       setUiState(courseId, patch) {
         commit({ type: "SET_UI_STATE", payload: { courseId, patch } });

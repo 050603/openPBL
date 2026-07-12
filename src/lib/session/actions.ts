@@ -12,6 +12,7 @@ import type {
   CourseUpload,
   GroupAnnouncement,
   GroupBoard,
+  OfflineInterventionRecord,
   ProjectGroup,
   ReflectionRecord,
   RubricScore,
@@ -19,6 +20,7 @@ import type {
   Student,
   TeacherFeedback,
   TeamContribution,
+  TeacherAgentDirective,
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
@@ -103,6 +105,9 @@ export type SessionAction =
   | { type: "SET_PREVIEW_UPLOAD"; payload: { courseId: string; uploadId?: string } }
   | { type: "UPSERT_TEAM_CONTRIBUTION"; payload: { courseId: string; contribution: TeamContribution } }
   | { type: "UPSERT_AI_SUPPORT"; payload: { courseId: string; support: AiSupportRecord } }
+  | { type: "ADD_OFFLINE_INTERVENTION"; payload: { courseId: string; intervention: OfflineInterventionRecord } }
+  | { type: "RESOLVE_INTERVENTION_SIGNALS"; payload: { courseId: string; signalIds: string[] } }
+  | { type: "UPSERT_TEACHER_AGENT_DIRECTIVE"; payload: { courseId: string; directive: TeacherAgentDirective } }
   | { type: "SET_UI_STATE"; payload: { courseId: string; patch: Partial<CourseUiState> } };
 
 export function initialSessionState(): SessionState {
@@ -555,6 +560,37 @@ export function applySessionAction(
         ),
       }));
     }
+    case "ADD_OFFLINE_INTERVENTION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        offlineInterventions: [action.payload.intervention, ...(c.offlineInterventions ?? [])],
+      }));
+    case "RESOLVE_INTERVENTION_SIGNALS": {
+      const resolvedIds = new Set(action.payload.signalIds);
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        resolvedInterventionSignalIds: [
+          ...new Set([...(c.resolvedInterventionSignalIds ?? []), ...action.payload.signalIds]),
+        ],
+        learningSignals: (c.learningSignals ?? []).map((signal) =>
+          resolvedIds.has(signal.id)
+            ? { ...signal, status: "resolved", resolvedAt: touchedAt, handledAt: signal.handledAt ?? touchedAt }
+            : signal,
+        ),
+        classCommonIssues: (c.classCommonIssues ?? []).map((issue) =>
+          issue.signalIds.length > 0 && issue.signalIds.every((id) => resolvedIds.has(id))
+            ? { ...issue, status: "resolved", resolvedAt: touchedAt, lastDetectedAt: touchedAt }
+            : issue,
+        ),
+        teacherInterventions: (c.teacherInterventions ?? []).map((intervention) =>
+          intervention.signalId && resolvedIds.has(intervention.signalId)
+            ? { ...intervention, status: "resolved", resolvedAt: touchedAt }
+            : intervention,
+        ),
+      }));
+    }
+    case "UPSERT_TEACHER_AGENT_DIRECTIVE":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        teacherAgentDirectives: upsertById(c.teacherAgentDirectives ?? [], action.payload.directive),
+      }));
     case "SET_UI_STATE":
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         uiState: { ...(c.uiState ?? {}), ...action.payload.patch },
@@ -717,10 +753,19 @@ export function normalizeCourse(course: Course): Course {
     teamContributions: course.teamContributions ?? [],
     aiSupports: course.aiSupports ?? [],
     teacherInterventions: course.teacherInterventions ?? [],
+    resolvedInterventionSignalIds: course.resolvedInterventionSignalIds ?? [],
     stageTransitions: course.stageTransitions ?? [],
     evaluations: course.evaluations ?? [],
+    learningEvents: course.learningEvents ?? [],
+    companionThreads: course.companionThreads ?? [],
+    learningSignals: course.learningSignals ?? [],
+    classCommonIssues: course.classCommonIssues ?? [],
+    teacherAgentDirectives: course.teacherAgentDirectives ?? [],
+    offlineInterventions: course.offlineInterventions ?? [],
+    dynamicFacilitationScaffolds: course.dynamicFacilitationScaffolds ?? [],
     uiState: {
       ...(course.uiState ?? {}),
+      teacherResourceProjection: course.uiState?.teacherResourceProjection ?? null,
       aiChatStagesEnabled: course.uiState?.aiChatStagesEnabled?.length
         ? [...new Set(course.uiState.aiChatStagesEnabled.map(migrateStageKey))]
         : course.uiState?.aiChatStagesEnabled,

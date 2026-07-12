@@ -277,6 +277,16 @@ export type CourseUiState = {
   teacherResourceProjection?: TeacherResourceProjection | null;
 };
 
+export type ProjectionMode = "forced" | "optional";
+export type ProjectedEngineMode = "idle" | "playing" | "paused" | "live";
+
+export type ProjectionPlaybackSnapshot = {
+  sceneIndex: number;
+  actionIndex: number;
+  consumedDiscussions: string[];
+  sceneId?: string;
+};
+
 export type TeacherResourceProjection = {
   classroomId: string;
   sceneId: string;
@@ -284,6 +294,173 @@ export type TeacherResourceProjection = {
   title: string;
   sceneType: TeacherResourceScene["type"];
   startedAt: string;
+  mode?: ProjectionMode;
+  version?: number;
+  updatedAt?: string;
+  engineMode?: ProjectedEngineMode;
+  playback?: ProjectionPlaybackSnapshot;
+  /**
+   * 互动场景状态快照（仅 interactive 类型场景使用）。
+   * 教师端在 iframe 内操作时由桥接脚本广播出 state-broadcast 消息，
+   * 经 InteractiveIframeHost 捕获后写入此字段；
+   * 学生端读取此字段并通过 postMessage apply-state 应用到对应 iframe。
+   * null/undefined 表示尚无互动状态需要同步。
+   */
+  interactionState?: Record<string, unknown> | null;
+};
+
+export type LearningEventType =
+  | "scene-enter"
+  | "scene-leave"
+  | "heartbeat"
+  | "scene-replay"
+  | "interaction-result"
+  | "artifact-change"
+  | "stage-enter"
+  | "stage-goal-complete";
+
+export type LearningEvent = {
+  id: string;
+  idempotencyKey: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  sceneId?: string;
+  type: LearningEventType;
+  occurredAt: string;
+  durationMs?: number;
+  expectedDurationSec?: number;
+  visible?: boolean;
+  progressMarker?: string;
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
+export type CompanionMessageVisibility = "student-and-teacher" | "teacher-only";
+export type CompanionMessageRole = "student" | "agent" | "teacher-guidance" | "system-trigger";
+export type CompanionTriggerKind =
+  | "stage-opening"
+  | "idle"
+  | "no-progress"
+  | "artifact-stalled"
+  | "document-saved"
+  | "file-uploaded"
+  | "teacher-goal"
+  | "milestone";
+
+export type CompanionMessage = {
+  id: string;
+  role: CompanionMessageRole;
+  content: string;
+  createdAt: string;
+  visibility: CompanionMessageVisibility;
+  companionId?: string;
+  authorId?: string;
+  authorName?: string;
+  triggerKind?: CompanionTriggerKind;
+};
+
+export type CompanionThread = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  messages: CompanionMessage[];
+  openingSentAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LearningSignalKind =
+  | "dwell-overrun"
+  | "repeated-playback"
+  | "idle"
+  | "conversation-no-progress"
+  | "goal-stalled";
+export type InterventionStatus = "open" | "handled" | "resolved" | "dismissed";
+
+export type LearningSignal = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  sceneId?: string;
+  kind: LearningSignalKind;
+  severity: "notice" | "warning" | "high";
+  status: InterventionStatus;
+  title: string;
+  summary: string;
+  normalizedIssueKey: string;
+  evidenceEventIds: string[];
+  aiInterventionAttempts: number;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  handledAt?: string;
+  resolvedAt?: string;
+};
+
+export type ClassCommonIssue = {
+  id: string;
+  courseId: string;
+  stageKey: string;
+  normalizedIssueKey: string;
+  title: string;
+  summary: string;
+  severity: "warning" | "high";
+  studentIds: string[];
+  signalIds: string[];
+  status: InterventionStatus;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  handledAt?: string;
+  resolvedAt?: string;
+};
+
+export type TeacherDirectiveStatus = "active" | "goal-completed" | "revoked";
+
+export type TeacherAgentDirective = {
+  id: string;
+  courseId: string;
+  stageKey: string;
+  targetStudentIds: string[];
+  targetScope: "student" | "multiple" | "course";
+  goal: string;
+  instruction: string;
+  successCriteria: string[];
+  status: TeacherDirectiveStatus;
+  teacherName: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  revokedAt?: string;
+};
+
+export type OfflineInterventionKind = "patrol" | "individual-guidance" | "whole-class-teaching";
+
+export type OfflineInterventionRecord = {
+  id: string;
+  courseId: string;
+  stageKey: string;
+  kind: OfflineInterventionKind;
+  targetStudentIds: string[];
+  signalIds: string[];
+  note?: string;
+  teacherName: string;
+  createdAt: string;
+};
+
+export type DynamicFacilitationScaffold = {
+  id: string;
+  courseId: string;
+  stageKey: string;
+  kind: "proposal-critique" | "artifact-critique" | "common-issue" | "presentation-summary";
+  title: string;
+  sections: Array<{ id: string; title: string; prompt: string; evidenceSlots: string[] }>;
+  status: "template" | "draft" | "teacher-confirmed";
+  filledContent?: string;
+  evidenceIds: string[];
+  generatedAt: string;
+  updatedAt: string;
+  confirmedAt?: string;
 };
 
 export type OpenMaicSceneOutlineSnapshot = {
@@ -344,6 +521,7 @@ export type TeacherIntervention = {
   instruction: string;
   severity: "notice" | "warning" | "high";
   status: "open" | "resolved";
+  signalId?: string;
   teacherName: string;
   createdAt: string;
   resolvedAt?: string;
@@ -399,6 +577,8 @@ export type Course = {
   teamContributions?: TeamContribution[];
   aiSupports?: AiSupportRecord[];
   teacherInterventions?: TeacherIntervention[];
+  /** 已由教师处理的规则型介入信号 ID，避免刷新后重新出现。 */
+  resolvedInterventionSignalIds?: string[];
   stageTransitions?: StageTransitionRecord[];
   evaluations?: EvaluationRecord[];
   uiState?: CourseUiState;
@@ -408,6 +588,20 @@ export type Course = {
   teacherClassroomId?: string;
   /** 学生在 AI 课堂中的学习进度，key 为 studentId */
   aiLearningProgress?: Record<string, StudentAiProgress>;
+  /** 学生学习行为的结构化、幂等事件流。 */
+  learningEvents?: LearningEvent[];
+  /** 学生与伴学圆桌的后端持久化会话。 */
+  companionThreads?: CompanionThread[];
+  /** 由确定性规则从学习事件和会话中派生的个体信号。 */
+  learningSignals?: LearningSignal[];
+  /** 达到班级阈值的共性问题。 */
+  classCommonIssues?: ClassCommonIssue[];
+  /** 教师对单人、多人与全班 Agent 下发的目标指令。 */
+  teacherAgentDirectives?: TeacherAgentDirective[];
+  /** AI 授知阶段的线下巡视、个别辅导与全班讲解记录。 */
+  offlineInterventions?: OfflineInterventionRecord[];
+  /** 课堂前生成框架、课堂中基于真实证据填充的主持支架。 */
+  dynamicFacilitationScaffolds?: DynamicFacilitationScaffold[];
   createdAt: string;
   updatedAt: string;
 };
@@ -434,6 +628,8 @@ export type CourseContent = {
    * 这些内容不会出现在学生 AI 授知课堂中，仅供教师在授课时使用。
    */
   teacherResources?: TeacherResources;
+  /** 阶段六教师课程总结演示（只填充已获得的班级证据）。 */
+  courseSummaryPresentation?: CourseSummaryPresentation;
   /** 教师授课资源对应的 OpenMAIC classroom ID（用于 PPT 预览播放） */
   teacherClassroomId?: string;
 };
@@ -446,6 +642,25 @@ export type TeacherResources = {
   generatedAt: string;
   /** 教师资源场景列表 */
   scenes: TeacherResourceScene[];
+};
+
+export type CourseSummarySlide = {
+  id: string;
+  title: string;
+  bullets: string[];
+  speakerNotes: string;
+  evidenceIds: string[];
+};
+
+export type CourseSummaryPresentation = {
+  id: string;
+  title: string;
+  generatedAt: string;
+  updatedAt: string;
+  status: "draft" | "teacher-confirmed";
+  slides: CourseSummarySlide[];
+  script: string;
+  evidenceIds: string[];
 };
 
 export type TeacherResourceScene = {
@@ -464,6 +679,8 @@ export type TeacherResourceScene = {
   keyPoints: string[];
   /** 讲稿文本（从 speech action 汇总） */
   script?: string;
+  generationMode?: "predictable" | "dynamic-scaffold";
+  scaffoldKind?: DynamicFacilitationScaffold["kind"];
 };
 
 export type KnowledgePoint = {
@@ -538,6 +755,8 @@ export type EvaluationFlow = {
   weight: number;
   evidenceRequirements: string[];
   enabled: boolean;
+  /** 是否计入最终成绩；学生反思保留为非计分流程。 */
+  scored?: boolean;
 };
 
 export type EvaluationRecord = {
@@ -556,9 +775,9 @@ export type EvaluationRecord = {
 };
 
 export const DEFAULT_EVALUATION_FLOWS: EvaluationFlow[] = [
-  { id: "evaluation-ai", sourceRole: "ai", name: "AI 过程评价", weight: 30, evidenceRequirements: ["学习轨迹与提问记录", "方案修改与反馈采纳", "作品迭代与 AI 使用记录"], enabled: true },
-  { id: "evaluation-teacher", sourceRole: "teacher", name: "教师项目与汇报评价", weight: 50, evidenceRequirements: ["项目作品版本", "汇报与答辩记录"], enabled: true },
-  { id: "evaluation-self", sourceRole: "self", name: "学生自我反思", weight: 20, evidenceRequirements: ["目标达成与个人贡献", "AI 使用判断", "困难、收获与改进计划"], enabled: true },
+  { id: "evaluation-ai", sourceRole: "ai", name: "AI 过程与专业评价", weight: 40, evidenceRequirements: ["学习过程与产物推进", "AI 协作健康度", "方案迭代与证据", "专业准确性、逻辑与可行性"], enabled: true, scored: true },
+  { id: "evaluation-teacher", sourceRole: "teacher", name: "教师现场汇报评价", weight: 60, evidenceRequirements: ["现场汇报与答辩", "成果呈现", "课堂规范与通用能力", "项目价值理解"], enabled: true, scored: true },
+  { id: "evaluation-self", sourceRole: "self", name: "学生课程反思", weight: 0, evidenceRequirements: ["课程收获与困难", "成长总结", "后续改进与迁移计划"], enabled: true, scored: false },
 ];
 
 export type EvaluationDimension = {
@@ -566,6 +785,7 @@ export type EvaluationDimension = {
   name: string;
   weight: number;
   description: string;
+  responsibleRole?: "ai" | "teacher";
 };
 
 export type Student = {

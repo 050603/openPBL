@@ -50,6 +50,7 @@ export interface CanvasToolbarProps {
   readonly onToggleAutoPlay?: () => void;
   readonly playbackSpeed?: number;
   readonly onCycleSpeed?: () => void;
+  readonly minimal?: boolean;
 }
 
 /* Compact control button */
@@ -108,6 +109,7 @@ export function CanvasToolbar({
   onToggleAutoPlay,
   playbackSpeed = 1,
   onCycleSpeed,
+  minimal = false,
 }: CanvasToolbarProps) {
   const { t } = useI18n();
   const canGoPrev = currentSceneIndex > 0;
@@ -143,7 +145,7 @@ export function CanvasToolbar({
     <div className={cn('flex items-center gap-2', className)}>
       {/* ── Left: sidebar toggle + page indicator ── */}
       <div className="flex items-center gap-1 shrink-0 pl-1">
-        {onToggleSidebar && (
+        {onToggleSidebar && !minimal && (
           <button
             onClick={onToggleSidebar}
             className={cn(
@@ -374,7 +376,7 @@ export function CanvasToolbar({
           )}
 
           {/* Whiteboard */}
-          <button
+          {!minimal && <button
             onClick={(e) => {
               e.stopPropagation();
               onWhiteboardClose();
@@ -392,7 +394,7 @@ export function CanvasToolbar({
             {!whiteboardOpen && whiteboardElementCount > 0 && (
               <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-violet-500 dark:bg-violet-400 rounded-full" />
             )}
-          </button>
+          </button>}
         </div>
       </div>
 

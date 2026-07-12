@@ -58,6 +58,14 @@ interface InteractiveIframePoolState {
   activeSceneId: string | null;
   /** Monotonic counter; each mount/touch takes the next value. */
   tick: number;
+  /**
+   * When true, iframes use a high z-index so they render above Radix dialogs.
+   * Set when an interactive scene is previewed inside a Dialog (e.g. teacher
+   * preview of student AI course); otherwise iframes stay at z-index 1 so
+   * dialogs (scene-switch confirm etc.) render above them.
+   */
+  elevatedZIndex: boolean;
+  setElevatedZIndex: (value: boolean) => void;
   mount: (sceneId: string, input: MountInput) => void;
   setRect: (sceneId: string, rect: IframeRect) => void;
   /** A placeholder claims visibility for its scene, recording its owner id. */
@@ -97,6 +105,8 @@ export const useInteractiveIframePool = create<InteractiveIframePoolState>((set)
   entries: {},
   activeSceneId: null,
   tick: 0,
+  elevatedZIndex: false,
+  setElevatedZIndex: (value) => set({ elevatedZIndex: value }),
 
   mount: (sceneId, input) =>
     set((state) => {

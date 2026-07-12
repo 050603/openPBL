@@ -323,7 +323,7 @@ export default function TeachClassroomPage() {
             />
           ) : null}
 
-          {currentStage && hasTeacherResources ? (
+          {currentStage && hasTeacherResources && currentStage.key !== "ai-learning" ? (
             <TeacherStageResources course={course} stageKey={currentStage.key} />
           ) : null}
 

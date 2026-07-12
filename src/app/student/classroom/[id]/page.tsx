@@ -1,8 +1,8 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
-import { Clock3, Hourglass, LogIn } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Clock3, Hourglass, LogIn, MonitorUp, X } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StudentStageView } from "@/components/views/student/stage-dispatcher";
 import { StudentLeaveButton } from "@/components/student-leave-button";
@@ -19,6 +19,7 @@ export default function StudentClassroomPage() {
   const hydrated = useHydrated();
   const { user, studentName, studentId, joinedCourseId } = useSession();
   const presenceRef = useRef<{ courseId?: string; studentId?: string }>({});
+  const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -110,6 +111,8 @@ export default function StudentClassroomPage() {
     course.uiState?.teacherResourceProjection?.stageKey === currentStage?.key
       ? course.uiState.teacherResourceProjection
       : null;
+  const forcedProjection = projectedResource && projectedResource.mode !== "optional" ? projectedResource : null;
+  const optionalProjection = projectedResource?.mode === "optional" ? projectedResource : null;
 
   return (
     <DashboardShell
@@ -165,15 +168,26 @@ export default function StudentClassroomPage() {
         <FinishedState course={course} />
       ) : !isTeaching ? (
         <WaitingState status={course.status} />
-      ) : projectedResource ? (
-        <StudentProjectedTeacherResource projection={projectedResource} />
+      ) : forcedProjection ? (
+        <StudentProjectedTeacherResource projection={forcedProjection} />
       ) : currentStage ? (
-        <section
-          className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
-          key={currentStage.key}
-        >
-          <StudentStageView course={course} view={currentStage.view} />
-        </section>
+        <>
+          {optionalProjection ? (
+            <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-indigo-200 bg-indigo-50/80">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-white text-indigo-700"><MonitorUp size={18} /></span><div><p className="font-bold text-indigo-950">教师正在投屏：{optionalProjection.title}</p><p className="text-xs text-indigo-700">你可以继续当前任务，也可以打开只读实时演示。</p></div></div>
+                <PrimaryButton onClick={() => setOptionalProjectionOpen((value) => !value)} type="button" variant="outline">{optionalProjectionOpen ? <><X size={15} />收起投屏</> : <><MonitorUp size={15} />查看投屏</>}</PrimaryButton>
+              </div>
+              {optionalProjectionOpen ? <div className="border-t border-indigo-200 bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
+            </div>
+          ) : null}
+          {!optionalProjectionOpen ? <section
+            className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
+            key={currentStage.key}
+          >
+            <StudentStageView course={course} view={currentStage.view} />
+          </section> : null}
+        </>
       ) : null}
 
       <style jsx>{`

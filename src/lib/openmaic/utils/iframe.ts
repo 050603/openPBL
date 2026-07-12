@@ -99,13 +99,116 @@ const ERROR_CAPTURE_SHIM = `<script data-iframe-error-shim>
 </script>`;
 
 /**
+ * Interaction sync bridge — lets the parent (teacher's InteractiveIframeHost)
+ * capture user manipulations inside the iframe and replay them on another
+ * iframe (student's projected-readonly copy).
+ *
+ * Broadcast side (runs in the teacher's iframe): listens for `input`, `change`
+ * and `click` events on elements that carry a `[data-sync]` attribute (or form
+ * controls inside `[data-sync-region]`), collects their state into a plain
+ * object keyed by `data-sync` (falling back to `id` or `name`), and posts it
+ * to the parent as `{ __maicInteractive: true, kind: 'state-broadcast', state }`.
+ * The `data-sync` convention keeps the payload small and lets LLM-generated
+ * scenes opt in by annotating the elements worth syncing; unannotated content
+ * (decorative buttons, help toggles, …) is ignored.
+ *
+ * Apply side (runs in the student's iframe): listens for
+ * `{ __maicInteractive: true, kind: 'apply-state', state }` and restores each
+ * element's value/checked/active-classes accordingly, then dispatches a
+ * `sync-apply` CustomEvent so scene scripts that drive rendering from state
+ * can react. Messages are deduped by a JSON stamp to avoid loops.
+ *
+ * The script is sandbox-safe: only touches `window.*` and `document.*`, never
+ * the parent DOM.
+ */
+const INTERACTION_SYNC_SHIM = `<script data-iframe-interaction-sync>
+(function () {
+  var lastApplied = '';
+  function collectState() {
+    var state = {};
+    var nodes = document.querySelectorAll('[data-sync], [data-sync-region] [name], [data-sync-region] input, [data-sync-region] select, [data-sync-region] textarea');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var key = el.getAttribute('data-sync') || el.id || el.name;
+      if (!key) continue;
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        state[key] = { checked: el.checked, value: el.value };
+      } else if (el.tagName === 'SELECT') {
+        state[key] = { value: el.value };
+      } else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        state[key] = { value: el.value };
+      } else {
+        // Generic element: record active class state for toggle-style controls
+        var cls = el.getAttribute('data-sync-class');
+        if (cls) state[key] = { active: el.classList.contains(cls), class: cls };
+      }
+    }
+    return state;
+  }
+  function broadcast() {
+    try {
+      var state = collectState();
+      window.parent.postMessage({ __maicInteractive: true, kind: 'state-broadcast', state: state }, '*');
+    } catch (e) {}
+  }
+  // Throttle broadcasts to one per animation frame
+  var pending = false;
+  function scheduleBroadcast() {
+    if (pending) return;
+    pending = true;
+    window.requestAnimationFrame(function () { pending = false; broadcast(); });
+  }
+  document.addEventListener('input', scheduleBroadcast, true);
+  document.addEventListener('change', scheduleBroadcast, true);
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t && t.closest && t.closest('[data-sync],[data-sync-region]')) scheduleBroadcast();
+  }, true);
+  // Initial broadcast once the DOM is ready so late-loading viewers get current state
+  if (document.readyState === 'complete') broadcast();
+  else window.addEventListener('load', function () { setTimeout(broadcast, 100); });
+
+  // Apply side: receive state from parent and restore element values
+  window.addEventListener('message', function (e) {
+    var d = e && e.data;
+    if (!d || d.__maicInteractive !== true || d.kind !== 'apply-state') return;
+    var state = d.state;
+    if (!state || typeof state !== 'object') return;
+    var stamp = JSON.stringify(state);
+    if (stamp === lastApplied) return;
+    lastApplied = stamp;
+    Object.keys(state).forEach(function (key) {
+      var el = document.querySelector('[data-sync="' + key + '"]') ||
+               (document.getElementById(key)) ||
+               document.querySelector('[name="' + key + '"]');
+      if (!el) return;
+      var s = state[key];
+      if (!s || typeof s !== 'object') return;
+      if ('checked' in s && (el.type === 'checkbox' || el.type === 'radio')) {
+        el.checked = !!s.checked;
+      } else if ('value' in s && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA')) {
+        el.value = s.value;
+      } else if ('active' in s && s.class) {
+        if (s.active) el.classList.add(s.class); else el.classList.remove(s.class);
+      }
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    window.dispatchEvent(new CustomEvent('sync-apply', { detail: state }));
+  });
+})();
+</script>`;
+
+/**
  * Patch embedded HTML to display correctly inside an iframe.
  *
  * Injects a runtime-error capture shim + a storage shim (so sandboxed pages that
  * use localStorage don't crash) plus CSS that ensures proper sizing and scrolling
  * behavior when HTML content is rendered via srcDoc in an iframe. The shims are
  * placed first so they run before the page's own scripts (error capture first, so
- * it also observes the storage shim).
+ * it also observes the storage shim). An interaction sync shim is also injected
+ * so teacher manipulations inside projected interactive scenes can be replayed
+ * on student devices.
  */
 export function patchHtmlForIframe(html: string): string {
   const iframeCss = `<style data-iframe-patch>
@@ -122,7 +225,7 @@ export function patchHtmlForIframe(html: string): string {
   body { min-height: 100vh; }
 </style>`;
 
-  const injection = '\n' + ERROR_CAPTURE_SHIM + '\n' + STORAGE_SHIM + '\n' + iframeCss;
+  const injection = '\n' + ERROR_CAPTURE_SHIM + '\n' + STORAGE_SHIM + '\n' + INTERACTION_SYNC_SHIM + '\n' + iframeCss;
 
   // Insert right after <head> or at the start of the document
   const headIdx = html.indexOf('<head>');

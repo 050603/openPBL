@@ -30,6 +30,7 @@ import type {
 } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { generateProcessEvaluation, type ProcessEvaluationResult } from "@/lib/teaching-ai/client-api";
+import { buildCourseSummaryPresentation } from "@/lib/evaluation/course-summary";
 
 type ProcessEvaluation = ProcessEvaluationResult;
 
@@ -80,7 +81,7 @@ export function ReflectionTeacherView({
   course: Course;
   onSelectStudent?: (id: string) => void;
 }) {
-  const { addFeedback, upsertRubricScore, addActivity } = useSession();
+  const { addFeedback, upsertRubricScore, addActivity, updateCourse } = useSession();
   const [comments, setComments] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -174,6 +175,7 @@ export function ReflectionTeacherView({
   const [editingSummary, setEditingSummary] = useState(false);
   const [editedSummary, setEditedSummary] = useState("");
   const [sendingToStudents, setSendingToStudents] = useState(false);
+  const [summaryDeck, setSummaryDeck] = useState(course.content.courseSummaryPresentation ?? null);
 
   async function runProcessEval() {
     setEvalLoading(true);
@@ -196,6 +198,26 @@ export function ReflectionTeacherView({
     setProcessEval({ ...processEval, summary: editedSummary });
     setEditingSummary(false);
     flashMessage("已保存编辑后的总结", "ok");
+  }
+
+  function generateSummaryDeck() {
+    const nextDeck = buildCourseSummaryPresentation(course, processEval);
+    setSummaryDeck(nextDeck);
+    updateCourse(course.id, {
+      content: { ...course.content, courseSummaryPresentation: nextDeck },
+    });
+    flashMessage("课程总结 PPT 与讲稿已生成，等待教师确认", "ok");
+  }
+
+  function confirmSummaryDeck() {
+    if (!summaryDeck) return;
+    const confirmed = { ...summaryDeck, status: "teacher-confirmed" as const, updatedAt: new Date().toISOString() };
+    setSummaryDeck(confirmed);
+    updateCourse(course.id, {
+      content: { ...course.content, courseSummaryPresentation: confirmed },
+    });
+    addActivity(course.id, "确认课程总结演示", confirmed.title, "教师");
+    flashMessage("课程总结演示已确认，可用于课堂收束", "ok");
   }
 
   async function sendProcessEvalToStudents() {
@@ -481,6 +503,27 @@ export function ReflectionTeacherView({
             </div>
           </div>
         ) : null}
+      </Card>
+
+      <Card>
+        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold"><Wand2 className="text-indigo-700" size={20} />课程总结演示</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-500">生成不预设学生结论的总结 PPT 与教师讲稿；生成后可根据真实班级证据编辑并确认。</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {summaryDeck ? <Pill tone={summaryDeck.status === "teacher-confirmed" ? "green" : "orange"}>{summaryDeck.status === "teacher-confirmed" ? "教师已确认" : "待确认"}</Pill> : null}
+            <PrimaryButton className="h-9 px-3 text-sm" onClick={generateSummaryDeck} type="button"><Wand2 size={15} />{summaryDeck ? "重新生成总结" : "生成总结 PPT + 讲稿"}</PrimaryButton>
+          </div>
+        </div>
+        {summaryDeck ? (
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,.75fr)]">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {summaryDeck.slides.map((slide, index) => <article className="aspect-[16/10] rounded-lg border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-4 shadow-sm" key={slide.id}><div className="flex items-center justify-between text-[11px] font-bold text-indigo-500"><span>SLIDE {String(index + 1).padStart(2, "0")}</span><span>{slide.evidenceIds.length ? `${slide.evidenceIds.length} 条证据` : "课程框架"}</span></div><h3 className="mt-5 text-base font-black text-slate-900">{slide.title}</h3><ul className="mt-3 space-y-1.5 text-sm leading-5 text-slate-700">{slide.bullets.map((bullet) => <li className="flex gap-2" key={bullet}><span className="text-indigo-500">•</span><span>{bullet}</span></li>)}</ul></article>)}
+            </div>
+            <aside className="rounded-lg border border-amber-100 bg-amber-50/60 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-amber-900">教师讲稿</h3><span className="text-xs text-amber-700">{summaryDeck.script.length} 字</span></div><div className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-slate-700">{summaryDeck.script}</div>{summaryDeck.status !== "teacher-confirmed" ? <PrimaryButton className="mt-4 w-full" onClick={confirmSummaryDeck} type="button"><CheckCircle2 size={16} />确认总结演示</PrimaryButton> : <p className="mt-4 rounded-md bg-white/70 px-3 py-2 text-xs font-semibold text-emerald-700">已确认，可在课程总结环节使用。</p>}</aside>
+          </div>
+        ) : <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">尚未生成课程总结演示。点击右上角生成一个可编辑的 PPT 结构和讲稿。</div>}
       </Card>
 
       <Card>

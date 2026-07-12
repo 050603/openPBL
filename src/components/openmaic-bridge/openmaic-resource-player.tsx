@@ -10,8 +10,8 @@ import { I18nProvider } from "@openmaic/lib/hooks/use-i18n";
 import { ThemeProvider } from "@openmaic/lib/hooks/use-theme";
 import { createLogger } from "@openmaic/lib/logger";
 import { useStageStore } from "@openmaic/lib/store";
-import { useSettingsStore } from "@openmaic/lib/store/settings";
 import type { Scene, Stage as StageType } from "@openmaic/lib/types/stage";
+import type { PlaybackSyncState, StageExperience } from "@openmaic/components/stage-experience";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui";
 
@@ -28,10 +28,24 @@ export function OpenMaicResourcePlayer({
   classroomId,
   sceneId,
   className,
+  experience = "teacher-resource",
+  playbackState,
+  onPlaybackStateChange,
+  interactionState,
 }: {
   classroomId: string;
   sceneId?: string;
   className?: string;
+  experience?: StageExperience;
+  playbackState?: PlaybackSyncState;
+  onPlaybackStateChange?: (state: Omit<PlaybackSyncState, "version">) => void;
+  /**
+   * 互动场景状态快照（由教师端 projection 同步过来）。
+   * 仅在 experience="projected-readonly" 时有意义：学生端 PlaybackChromeRoot
+   * 监听此属性变化，通过 postMessage apply-state 将状态应用到互动 iframe，
+   * 使学生看到教师的操作结果。
+   */
+  interactionState?: Record<string, unknown> | null;
 }) {
   const [state, setState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -84,17 +98,6 @@ export function OpenMaicResourcePlayer({
         generationComplete: true,
         generationStatus: "completed",
       });
-      useSettingsStore.setState((settings) => ({
-        ttsEnabled: true,
-        ttsProviderId: settings.ttsProviderId || "browser-native-tts",
-        ttsProvidersConfig: {
-          ...settings.ttsProvidersConfig,
-          "browser-native-tts": {
-            ...settings.ttsProvidersConfig?.["browser-native-tts"],
-            enabled: true,
-          },
-        },
-      }));
       setState("ready");
     } catch (error) {
       const message = error instanceof Error ? error.message : "授课资源加载失败";
@@ -148,7 +151,12 @@ export function OpenMaicResourcePlayer({
                 </div>
               </div>
             ) : (
-              <Stage />
+              <Stage
+                experience={experience}
+                onPlaybackStateChange={onPlaybackStateChange}
+                playbackState={playbackState}
+                interactionState={interactionState}
+              />
             )}
           </div>
         </MediaStageProvider>

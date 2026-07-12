@@ -7,12 +7,11 @@ import {
   Download,
   Eye,
   FileText,
-  Gauge,
   Lightbulb,
   Loader2,
   MessageCircle,
-  Star,
   Users,
+  Sparkles,
   Wand2,
 } from "lucide-react";
 import { Avatar, AvatarStack } from "@/components/dashboard-shell";
@@ -24,9 +23,9 @@ import type {
   RubricScore,
 } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { generateLiveEvaluation, type LiveEvaluationResult } from "@/lib/teaching-ai/client-api";
-
-type LiveEvaluation = LiveEvaluationResult;
+import { generateProcessEvaluation, type ProcessEvaluationResult } from "@/lib/teaching-ai/client-api";
+import { computeFinalScore } from "@/lib/evaluation/scoring";
+import { getTeacherEvaluationDimensions } from "@/lib/evaluation/responsibility";
 
 type StatusTone = "slate" | "blue" | "green" | "orange";
 
@@ -43,7 +42,9 @@ export function ShowcaseTeacherView({
     course.presentingGroupId ?? groups[0]?.id ?? "",
   );
   const active = groups.find((g) => g.id === activeId) ?? groups[0];
-  const dimensions = course.content.evaluationPlan.dimensions;
+  const dimensions = getTeacherEvaluationDimensions(
+    course.content.evaluationPlan.dimensions,
+  );
   const activeUploads = (course.uploads ?? []).filter(
     (item) => item.groupId === active?.id,
   );
@@ -60,10 +61,10 @@ export function ShowcaseTeacherView({
   const [message, setMessage] = useState<
     { tone: "ok" | "err"; text: string } | null
   >(null);
-  const [liveEvaluation, setLiveEvaluation] = useState<LiveEvaluation | null>(null);
+  const [processEvaluation, setProcessEvaluation] = useState<ProcessEvaluationResult | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalError, setEvalError] = useState<string | undefined>();
-  const [teacherNotes, setTeacherNotes] = useState("");
+  const [aiProcessScore, setAiProcessScore] = useState<number | null>(existingScore?.aiTotal ?? null);
 
   // Track which group's score we've loaded so we don't reset sliders
   // when dimensions array reference changes during re-renders.
@@ -89,9 +90,12 @@ export function ShowcaseTeacherView({
       setComment("");
     }
     setMessage(null);
-    setLiveEvaluation(null);
+    setProcessEvaluation(null);
     setEvalError(undefined);
-    setTeacherNotes("");
+    setAiProcessScore(existingScore?.aiTotal ?? null);
+    // Group changes are the only reset boundary; including derived rubric objects
+    // would overwrite slider edits whenever the session store re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -100,36 +104,39 @@ export function ShowcaseTeacherView({
     window.setTimeout(() => setMessage(null), 3500);
   }
 
-  // ===== 阶段六：AI 实时汇报评价 =====
+  // AI 仅评价过程与方案专业性，不读取教师现场评分，也不提供教师参考分。
   async function runLiveEval() {
     if (!active) return;
     setEvalLoading(true);
     setEvalError(undefined);
     try {
-      const result = await generateLiveEvaluation({
-        course,
-        group: active,
-        teacherNotes: teacherNotes.trim(),
+      const result = await generateProcessEvaluation({ course, groupId: active.id });
+      const total = result.dimensions.length
+        ? Math.round(result.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / result.dimensions.length)
+        : null;
+      setProcessEvaluation(result);
+      setAiProcessScore(total);
+      session.upsertRubricScore({
+        id: existingScore?.id,
+        courseId: course.id,
+        groupId: active.id,
+        stageKey: "showcase",
+        dimensionScores: existingScore?.dimensionScores ?? {},
+        teacherTotal: existingScore?.teacherTotal,
+        aiTotal: total,
+        finalTotal: computeFinalScore({ aiScore: total, aiWeight, teacherScore: existingScore?.teacherTotal, teacherWeight }) ?? undefined,
+        scoringMode: "hybrid",
+        comment: existingScore?.comment ?? "",
+        total: existingScore?.total ?? 0,
+        status: existingScore?.status ?? "draft",
       });
-      setLiveEvaluation(result);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "AI 实时评价失败";
+      const message = e instanceof Error ? e.message : "AI 过程评价失败";
       setEvalError(message);
-      toast.error("AI 汇报评价失败", { description: message });
+      toast.error("AI 过程评价失败", { description: message });
     } finally {
       setEvalLoading(false);
     }
-  }
-
-  function importAiScoresToDraft() {
-    const aiScores = aiScoresFromEvaluation(liveEvaluation, dimensions);
-    if (!aiScores) {
-      flashMessage("请先生成 AI 评价参考，再导入到实时评分", "err");
-      return;
-    }
-    setScores((prev) => ({ ...prev, ...aiScores }));
-    setComment(buildAiEvaluationComment(liveEvaluation, comment));
-    flashMessage("已将 AI 参考分和点评草稿导入，请确认后再提交评分或发送点评", "ok");
   }
 
   async function submitFeedback(kind: "question" | "comment") {
@@ -159,6 +166,7 @@ export function ShowcaseTeacherView({
   async function submitScore(status: "submitted" | "passed" | "revision" = "submitted") {
     if (!active) return;
     const total = weightedTotal(scores, dimensions);
+    const finalTotal = computeFinalScore({ aiScore: aiProcessScore, aiWeight, teacherScore: total, teacherWeight });
     if (total === 0 && status === "submitted") {
       flashMessage("请先拖动滑块给维度打分", "err");
       return;
@@ -171,8 +179,12 @@ export function ShowcaseTeacherView({
         groupId: active.id,
         stageKey: "showcase",
         dimensionScores: scores,
+        teacherTotal: total,
+        aiTotal: aiProcessScore,
+        finalTotal: finalTotal ?? undefined,
+        scoringMode: "hybrid",
         comment: comment.trim() || "展示结构清晰，后续可继续加强数据论证与落地说明。",
-        total,
+        total: finalTotal ?? total,
         status,
       });
       if (!result) {
@@ -181,7 +193,7 @@ export function ShowcaseTeacherView({
       flashMessage(
         status === "revision"
           ? `已记录「需修改」，当前总分 ${total}`
-          : `评分已提交，当前总分 ${total}`,
+          : finalTotal === null ? `教师评分已提交，等待 AI 过程评价后合成` : `评分已提交，最终分 ${finalTotal}`,
         "ok",
       );
     } catch (e) {
@@ -198,8 +210,10 @@ export function ShowcaseTeacherView({
   }
 
   const teacherScoreTotal = weightedTotal(scores, dimensions);
-  const aiReferenceScores = aiScoresFromEvaluation(liveEvaluation, dimensions);
-  const aiReferenceTotal = aiReferenceScores ? weightedTotal(aiReferenceScores, dimensions) : null;
+  const scoredFlows = course.content.evaluationPlan.flows ?? [];
+  const aiWeight = scoredFlows.find((flow) => flow.sourceRole === "ai")?.weight ?? 40;
+  const teacherWeight = scoredFlows.find((flow) => flow.sourceRole === "teacher")?.weight ?? 60;
+  const finalScore = computeFinalScore({ aiScore: aiProcessScore, aiWeight, teacherScore: teacherScoreTotal || existingScore?.teacherTotal, teacherWeight });
 
   return (
     <div className="space-y-5">
@@ -368,21 +382,13 @@ export function ShowcaseTeacherView({
               <Card className="xl:col-span-2">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="flex items-center gap-2 font-bold">
-                    <Gauge className="text-amber-600" size={18} /> AI 评价参考
+                    <Sparkles className="text-blue-600" size={18} /> AI 过程与专业评价
                   </h3>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${liveEvaluation?.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                    {liveEvaluation ? (liveEvaluation.source === "llm" ? "已生成" : "已生成") : "待生成"}
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${aiProcessScore !== null ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                    {aiProcessScore !== null ? `${aiProcessScore} 分 · 权重 ${aiWeight}%` : "待生成"}
                   </span>
                 </div>
-                <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold text-slate-700">现场表现速记（可选）</div>
-                  <TextArea
-                    className="h-16"
-                    onChange={(e) => setTeacherNotes(e.target.value)}
-                    placeholder="记录学生现场表现要点，AI 将据此生成各指标参考分与理由。"
-                    value={teacherNotes}
-                  />
-                </div>
+                <p className="mb-3 text-sm leading-6 text-slate-600">基于学习轨迹、伴学对话、作品迭代、AI 协作健康度和最终方案专业性独立评分；不会读取或建议教师现场评分。</p>
                 <PrimaryButton
                   className="h-9 px-3 text-sm"
                   onClick={() => void runLiveEval()}
@@ -390,38 +396,29 @@ export function ShowcaseTeacherView({
                   type="button"
                 >
                   {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                  {evalLoading ? "正在生成..." : "生成 AI 评价"}
+                  {evalLoading ? "正在生成..." : "生成 AI 过程评价"}
                 </PrimaryButton>
                 {evalError ? (
                   <div className="mt-3 rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
                     {evalError}
                   </div>
                 ) : null}
-                {liveEvaluation ? (
+                {processEvaluation ? (
                   <div className="mt-3 rounded-[6px] border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs leading-5 text-blue-700">
-                    AI 评价已生成。各指标参考分与建议理由已更新到下方“实时评分”滑块右侧，请在确认后选择是否一键导入。
+                    {processEvaluation.summary}
                   </div>
                 ) : null}
               </Card>
               <Card className="xl:col-span-2">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <h3 className="flex items-center gap-2 font-bold">
-                    <Star className="text-amber-600" size={18} /> 实时评分
+                    <Sparkles className="text-emerald-600" size={18} /> 教师现场汇报评分
                   </h3>
-                  <PrimaryButton
-                    className="h-9 px-3 text-sm"
-                    onClick={importAiScoresToDraft}
-                    disabled={!liveEvaluation}
-                    type="button"
-                    variant="outline"
-                  >
-                    <CheckCircle2 size={15} /> 一键导入 AI 参考
-                  </PrimaryButton>
+                  <span className="text-xs font-bold text-emerald-700">独立权重 {teacherWeight}%</span>
                 </div>
                 <ul className="space-y-3">
                   {dimensions.map((d) => (
                     <DimensionRow
-                      aiDimension={findAiDimension(liveEvaluation, d)}
                       dimension={d}
                       key={d.id}
                       onChange={(v) =>
@@ -431,20 +428,14 @@ export function ShowcaseTeacherView({
                     />
                   ))}
                 </ul>
-                {liveEvaluation?.overallComment ? (
-                  <div className="mt-3 rounded-[6px] border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-6 text-slate-700">
-                    <span className="font-semibold text-amber-700">AI 点评草稿：</span>
-                    {liveEvaluation.overallComment}
-                  </div>
-                ) : null}
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <ScoreChip label="教师评分" value={teacherScoreTotal} tone="emerald" />
-                  <ScoreChip label="AI 参考" value={aiReferenceTotal ?? "-"} tone="blue" />
-                  <ScoreChip label="当前最终分" value={teacherScoreTotal} tone="amber" />
+                  <ScoreChip label="AI 过程评价" value={aiProcessScore ?? "待完成"} tone="blue" />
+                  <ScoreChip label="当前最终分" value={finalScore ?? (aiProcessScore === null ? "待 AI 评价" : "待教师评分")} tone="amber" />
                 </div>
                 <div className="mt-2 rounded-[6px] border border-blue-100 bg-blue-50/40 p-2 text-xs leading-5 text-blue-700">
                   <span className="font-semibold">评分流程：</span>
-                  AI 只提供右侧参考分与理由；教师可一键导入为评分草稿，也可手动调整。提交后才会形成最终评分并同步给学生。
+                  AI 与教师分别负责不同板块并独立评分；两部分都完成后系统才按 {aiWeight}/{teacherWeight} 权重合成最终分。
                 </div>
               </Card>
             </div>
@@ -565,16 +556,13 @@ function DimensionRow({
   dimension,
   value,
   onChange,
-  aiDimension,
 }: {
   dimension: EvaluationDimension;
   value: number;
   onChange: (v: number) => void;
-  aiDimension?: LiveEvaluation["dimensions"][number];
 }) {
-  const aiScore = aiDimension?.suggestedScore;
   return (
-    <li className="grid gap-3 rounded-[8px] border border-slate-200 bg-white p-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <li className="rounded-[8px] border border-slate-200 bg-white p-3">
       <div>
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-slate-800">
@@ -593,17 +581,6 @@ function DimensionRow({
           value={value}
         />
       </div>
-      <div className="rounded-[6px] border border-blue-100 bg-blue-50/70 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-bold text-blue-700">AI 参考评分</span>
-          <span className="text-lg font-bold text-blue-800">
-            {typeof aiScore === "number" ? `${aiScore} 分` : "待生成"}
-          </span>
-        </div>
-        <p className="mt-1 text-xs leading-5 text-slate-600">
-          {aiDimension?.rationale ?? "生成 AI 评价后，这里会显示该指标的建议理由。"}
-        </p>
-      </div>
     </li>
   );
 }
@@ -613,40 +590,15 @@ function weightedTotal(
   dimensions: EvaluationDimension[],
 ): number {
   if (dimensions.length === 0) return 0;
+  const totalDimensionWeight = dimensions.reduce(
+    (sum, dimension) => sum + dimension.weight,
+    0,
+  );
+  if (totalDimensionWeight <= 0) return 0;
   return Math.round(
     dimensions.reduce(
-      (sum, d) => sum + ((scores[d.id] ?? 0) * d.weight) / 100,
+      (sum, d) => sum + ((scores[d.id] ?? 0) * d.weight) / totalDimensionWeight,
       0,
     ),
   );
-}
-
-function aiScoresFromEvaluation(
-  liveEvaluation: LiveEvaluation | null,
-  dimensions: EvaluationDimension[],
-): Record<string, number> | null {
-  if (!liveEvaluation?.dimensions.length) return null;
-  const scores: Record<string, number> = {};
-  for (const dimension of dimensions) {
-    const aiDimension = findAiDimension(liveEvaluation, dimension);
-    if (aiDimension) scores[dimension.id] = aiDimension.suggestedScore;
-  }
-  return Object.keys(scores).length ? scores : null;
-}
-
-function findAiDimension(liveEvaluation: LiveEvaluation | null | undefined, dimension: EvaluationDimension) {
-  return liveEvaluation?.dimensions.find(
-    (item) => item.dimensionId === dimension.id || item.name === dimension.name,
-  );
-}
-
-function buildAiEvaluationComment(liveEvaluation: LiveEvaluation | null, currentComment: string): string {
-  if (!liveEvaluation) return currentComment;
-  const lines = [
-    liveEvaluation.overallComment.trim(),
-    ...liveEvaluation.dimensions.map((item) => `${item.name}：${item.rationale}`),
-  ].filter(Boolean);
-  const aiComment = lines.join("\n");
-  if (!currentComment.trim()) return aiComment;
-  return `${currentComment.trim()}\n\nAI 评价参考：\n${aiComment}`;
 }

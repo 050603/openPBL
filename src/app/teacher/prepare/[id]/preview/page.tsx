@@ -8,12 +8,15 @@ import {
   Check,
   ChevronRight,
   Edit3,
+  Image as ImageIcon,
   MonitorPlay,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button, Card, FlowActionBar, Pill, SaveStatus, toast } from "@/components/ui";
+import { ProjectCoverImage } from "@/components/visuals";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
+import { hasBothScoredRoles, resolveDimensionRole } from "@/lib/evaluation/responsibility";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -54,12 +57,25 @@ export default function PreviewCoursePage() {
   }
 
   const isPublished = course.status === "ready" || course.status === "teaching" || course.status === "finished";
-  const evaluationWeight = course.content.evaluationPlan.flows?.filter((item) => item.enabled).reduce((sum, item) => sum + item.weight, 0) ?? 0;
+  const evaluationWeight = course.content.evaluationPlan.flows?.filter((item) => item.enabled && item.scored !== false).reduce((sum, item) => sum + item.weight, 0) ?? 0;
+  const requiredTeacherResources = (course.content.teachingOutline ?? []).filter((item) => item.openMaicUse === "teacher-resource");
+  const generatedTeacherResources = course.content.teacherResources?.scenes ?? [];
+  const missingTeacherResources = requiredTeacherResources.flatMap((activity) => {
+    const candidates = generatedTeacherResources.filter((resource) => !resource.stageKey || resource.stageKey === activity.stageKey);
+    return (activity.resourceTypes ?? []).flatMap((type) => {
+      if (type === "ppt" && !candidates.some((resource) => resource.type === "slide" || resource.type === "pbl")) return [`${activity.title}：PPT`];
+      if (type === "interactive-demo" && !candidates.some((resource) => resource.type === "interactive")) return [`${activity.title}：互动演示`];
+      if (type === "script" && !candidates.some((resource) => Boolean(resource.script?.trim()))) return [`${activity.title}：讲稿`];
+      return [];
+    });
+  });
   const publishChecks = [
     { label: "教学目标完整", done: Boolean(course.learningObjectives?.length || course.content.lessonOutline.some((item) => item.objectives.length)) },
     { label: "六个课堂阶段已配置", done: course.stages.length === 6 },
     { label: "AI 授知内容可用", done: Boolean(course.aiLearningClassroomId || course.content._openmaicClassroomId || course.content.lessonOutline.length) },
-    { label: `四类评价权重合计 ${evaluationWeight}%`, done: evaluationWeight === 100 },
+    { label: `AI/教师计分权重合计 ${evaluationWeight}%`, done: evaluationWeight === 100 },
+    { label: "AI 与教师评价维度均已确认", done: hasBothScoredRoles(course.content.evaluationPlan.dimensions) },
+    { label: missingTeacherResources.length ? `教师资源缺失：${missingTeacherResources.join("、")}` : "所选教师 PPT/互动资源/讲稿完整", done: missingTeacherResources.length === 0 },
     { label: "没有未确认高风险", done: !(course.teacherInterventions ?? []).some((item) => item.severity === "high" && item.status === "open") },
   ];
   const readyToPublish = publishChecks.every((item) => item.done);
@@ -287,6 +303,7 @@ export default function PreviewCoursePage() {
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="p-3">维度</th>
+                  <th className="p-3 w-28">负责角色</th>
                   <th className="p-3 w-24">权重</th>
                   <th className="p-3">说明</th>
                 </tr>
@@ -295,6 +312,7 @@ export default function PreviewCoursePage() {
                 {course.content.evaluationPlan.dimensions.map((d) => (
                   <tr className="border-b border-slate-100" key={d.id}>
                     <td className="p-3 font-semibold">{d.name}</td>
+                    <td className="p-3 text-slate-600">{resolveDimensionRole(d) === "ai" ? "AI" : "教师"}</td>
                     <td className="p-3 font-bold text-blue-700">{d.weight}%</td>
                     <td className="p-3 text-slate-600">{d.description}</td>
                   </tr>
@@ -343,6 +361,21 @@ export default function PreviewCoursePage() {
                 </dd>
               </div>
             </dl>
+          </Card>
+
+          <Card>
+            <div className="mb-3 flex items-center gap-2">
+              <ImageIcon size={18} className="text-slate-500" />
+              <h2 className="text-lg font-bold">课程封面图</h2>
+            </div>
+            <p className="mb-3 text-xs leading-5 text-slate-500">
+              AI 根据课程名称、学科与驱动问题生成封面图。发布后将显示在"我的课程"和学生项目启动页。
+            </p>
+            <ProjectCoverImage
+              course={course}
+              className="h-40 w-full"
+              allowGenerate
+            />
           </Card>
 
           {course.drivingQuestion ? (

@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartColumn, Check, ClipboardCheck, Clock3, FileText, Lightbulb, ListChecks, ShieldCheck } from "lucide-react";
-import { Card, Pill, PrimaryButton, toast } from "@/components/ui";
+import { Check, ClipboardCheck, Clock3, ListChecks } from "lucide-react";
+import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { RichTextEditor } from "@/components/rich-text-editor";
-import type { AiSupportRecord, Course } from "@/lib/session/types";
+import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { type ArtifactFocus, diagnoseProjectArtifact } from "@/lib/teaching-ai/client-api";
 import { CompanionRoundtable } from "./companion-roundtable";
+import { emitStudentArtifactEvent } from "@/lib/companion/events";
 
 const defaultDoc = "";
 
@@ -31,7 +31,6 @@ export function WorkspaceView({ course }: { course: Course }) {
         editorTitle: "结构化方案文档",
         placeholder: "按问题、用户/场景、成果形式、实施步骤、AI 使用方式、风险预案来补全方案...",
         submitLabel: "提交方案并等待纠偏",
-        aiTitle: "AI方案纠偏",
       }
     : {
         eyebrow: "阶段五 · 项目制作与 AI 实时支架",
@@ -40,28 +39,15 @@ export function WorkspaceView({ course }: { course: Course }) {
         editorTitle: "项目作品与过程文档",
         placeholder: "记录项目制作过程、资料来源、作品迭代、测试结果和下一步修改计划...",
         submitLabel: "提交阶段成果",
-        aiTitle: "AI任务支架",
       };
   const group = useMemo(() => course.groups?.find((item) => item.members.some((member) => member.studentId === session.studentId)) ?? course.groups?.[0], [course.groups, session.studentId]);
   const existing = course.submissions?.find((item) => item.groupId === group?.id && item.stageKey === stageKey && item.type === "document");
   const [documentText, setDocumentText] = useState(existing?.content ?? defaultDoc);
-  const [aiCollapsed, setAiCollapsed] = useState(course.uiState?.aiPanelCollapsed ?? false);
   const [status, setStatus] = useState<string | null>(null);
   const feedback = (course.feedback ?? []).filter((item) => item.targetId === group?.id || item.targetId === session.studentId);
-  const activity = (course.activityLog ?? []).slice(0, 6);
-  const groupUploads = (course.uploads ?? []).filter((item) => item.groupId === group?.id);
-  const groupTasks = (course.workPlan ?? []).filter((item) => item.groupId === group?.id);
-  const latestArtifactSupport = (course.aiSupports ?? [])
-    .filter((item) => item.groupId === group?.id && (item.kind === "artifact-diagnosis" || item.kind === "proposal-diagnosis"))
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-
-  // 真实进度计算：基于当前学生的 stageProgress
-  const myStageProgress = session.studentId
-    ? (course.students.find((s) => s.id === session.studentId)?.stageProgress ?? {})
-    : {};
 
   function saveDocument(action = "保存项目文档") {
-    session.upsertSubmission({
+    const submission = session.upsertSubmission({
       courseId: course.id,
       stageKey,
       type: "document",
@@ -71,11 +57,12 @@ export function WorkspaceView({ course }: { course: Course }) {
     });
     session.addActivity(course.id, action, "项目设计报告已更新", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 75);
+    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "项目设计报告" });
     setStatus("已保存");
   }
 
   function submitDocument() {
-    session.upsertSubmission({
+    const submission = session.upsertSubmission({
       courseId: course.id,
       stageKey,
       type: "document",
@@ -85,66 +72,8 @@ export function WorkspaceView({ course }: { course: Course }) {
     });
     session.addActivity(course.id, "提交项目方案", "学生已提交个人项目设计报告", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 100);
+    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "已提交项目设计报告" });
     setStatus("已提交");
-  }
-
-  function applyAdvice(text: string, support?: AiSupportRecord) {
-    const nextText = `${documentText}<p><strong>采纳的修改方向：</strong>${text}</p>`;
-    setDocumentText(nextText);
-    session.upsertSubmission({
-      courseId: course.id,
-      stageKey,
-      type: "document",
-      title: "项目设计报告",
-      content: nextText,
-      groupId: group?.id,
-    });
-    session.addActivity(course.id, "采纳AI支架建议", "作品已根据支架建议补充修改方向", group?.name ?? "个人项目");
-    session.updateStudentProgress(stageKey, 85);
-    setStatus("已采纳并保存修改");
-    if (support) {
-      session.upsertAiSupport({
-        ...support,
-        status: "student-applied",
-        adoption: {
-          decision: "adopted-after-edit",
-          before: documentText,
-          after: nextText,
-          handledBy: session.studentName ?? session.user.name,
-          handledAt: new Date().toISOString(),
-        },
-      });
-    }
-  }
-
-  async function runArtifactCheck(focus: ArtifactFocus) {
-    if (!group) return;
-    setStatus("AI 正在诊断当前作品...");
-    try {
-      const draft = await diagnoseProjectArtifact({
-        course,
-        group,
-        stageKey,
-        documentHtml: documentText,
-        uploads: groupUploads,
-        tasks: groupTasks,
-        focus,
-      });
-      session.upsertAiSupport({
-        ...draft,
-        courseId: course.id,
-        studentId: session.studentId,
-        studentName: session.studentName ?? session.user.name,
-      });
-      session.updateStudentProgress(stageKey, Math.max(80, myStageProgress[stageKey] ?? 0));
-      // 同时置位 aiAnalysisPending，提醒教师有新数据可刷新
-      session.setUiState(course.id, { aiAnalysisPending: true });
-      setStatus("已生成 AI 诊断");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "AI 诊断失败";
-      setStatus(message);
-      toast.error("AI 诊断失败", { description: message });
-    }
   }
 
   async function handleFileUpload(file: File) {
@@ -182,6 +111,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         files: [{ name: data.fileName, type: data.fileType, size: data.size, url: data.url }],
       });
       session.addActivity(course.id, "上传文件", data.fileName, group.name ?? "个人项目");
+      if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "file-uploaded", artifactId: data.id, summary: data.fileName });
       setStatus("文件已上传");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "上传失败");
@@ -190,7 +120,7 @@ export function WorkspaceView({ course }: { course: Course }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
+      <div className="grid gap-5">
         <div className="space-y-4">
           <Card>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -257,71 +187,6 @@ export function WorkspaceView({ course }: { course: Course }) {
           </Card>
         </div>
 
-        <aside className="space-y-4">
-          <Card>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold">{stageMode.aiTitle}</h2>
-              <button className="text-sm font-semibold text-blue-700" onClick={() => { setAiCollapsed((value) => !value); session.setUiState(course.id, { aiPanelCollapsed: !aiCollapsed }); }} type="button">
-                {aiCollapsed ? "展开" : "收起"}
-              </button>
-            </div>
-            {!aiCollapsed ? (
-              <>
-                <div className="grid gap-2">
-                  <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-blue-200 text-sm font-semibold text-blue-700 hover:bg-blue-50" onClick={() => runArtifactCheck("steps")} type="button">
-                    <ChartColumn size={16} /> {isReviewStage ? "检查方案结构" : "检查实施步骤"}
-                  </button>
-                  <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-emerald-200 text-sm font-semibold text-emerald-700 hover:bg-emerald-50" onClick={() => runArtifactCheck("evidence")} type="button">
-                    <FileText size={16} /> {isReviewStage ? "检查论证证据" : "查找证据缺口"}
-                  </button>
-                  <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-orange-200 text-sm font-semibold text-orange-700 hover:bg-orange-50" onClick={() => runArtifactCheck("risk")} type="button">
-                    <ShieldCheck size={16} /> {isReviewStage ? "扫描方案风险" : "扫描风险与伦理"}
-                  </button>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {latestArtifactSupport ? (
-                    <div className="rounded-[8px] border border-slate-200 p-4">
-                      <div className="mb-2 flex gap-3">
-                        <div className="grid h-8 w-8 place-items-center rounded-full bg-blue-50 text-blue-600"><Lightbulb size={18} /></div>
-                        <div>
-                          <div className="font-bold">{latestArtifactSupport.trigger}</div>
-                          <div className="text-xs text-slate-400">{latestArtifactSupport.status === "student-applied" ? "已采纳" : "待处理"}</div>
-                        </div>
-                      </div>
-                      <p className="text-sm leading-6 text-slate-600">{latestArtifactSupport.diagnosis}</p>
-                      <div className="mt-3 space-y-2">
-                        {latestArtifactSupport.suggestions.slice(0, 3).map((item) => (
-                          <button className="block w-full rounded-[6px] border border-slate-200 px-3 py-2 text-left text-sm leading-6 text-slate-700 hover:border-blue-300 hover:bg-blue-50/40" key={item} onClick={() => applyAdvice(item, latestArtifactSupport)} type="button">
-                            {item}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="mt-3 rounded-[6px] bg-slate-50 p-2 text-xs leading-5 text-slate-500">
-                        依据：{latestArtifactSupport.evidence.join("；")}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-[8px] border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">
-                      选择一个与当前作品相关的检查动作，AI 会基于文档、任务和上传材料给出可修改建议。
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </Card>
-
-          <Card>
-            <h2 className="mb-5 text-xl font-bold">过程记录</h2>
-            <div className="space-y-4">
-              {activity.map((item, index) => (
-                <div className="relative flex gap-3" key={item.id}>
-                  <span className={index === 0 ? "mt-1 h-3 w-3 rounded-full bg-emerald-500" : "mt-1 h-3 w-3 rounded-full bg-slate-300"} />
-                  <div><div className="font-bold">{item.actor} {item.action}</div>{item.detail ? <div className="mt-1 text-sm text-slate-500">{item.detail}</div> : null}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </aside>
       </div>
       <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-3 rounded-[10px] border border-slate-200/80 bg-white/95 px-4 py-3 shadow-[0_16px_44px_rgba(15,23,42,0.12)] backdrop-blur">
         {status ? <Pill tone="green">{status}</Pill> : null}

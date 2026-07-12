@@ -11,6 +11,7 @@
 
 import type { Scene } from "@openmaic/lib/types/stage";
 import type { TeacherResourceScene } from "@/lib/session/types";
+import { classifyTeacherResourceGeneration } from "@/lib/teacher-resources/facilitation-scaffolds";
 
 // 引入场景标题关键词（中英文）
 const INTRO_KEYWORDS = [
@@ -159,6 +160,7 @@ export function classifyScenes(scenes: Scene[]): SceneClassificationResult {
     if (isPbl || isIntro || isTeacherResource) {
       teacherScenes.push(scene);
       const outline = extractOutline(scene);
+      const generation = classifyTeacherResourceGeneration(scene.title ?? "");
       teacherResourceMeta.push({
         id: scene.id,
         role: isIntro ? "introduction" : isPbl ? "pbl-topic" : "teaching-aid",
@@ -168,6 +170,8 @@ export function classifyScenes(scenes: Scene[]): SceneClassificationResult {
         description: outline.description,
         keyPoints: outline.keyPoints,
         script: extractScript(scene),
+        generationMode: generation.mode,
+        ...(generation.mode === "dynamic-scaffold" ? { scaffoldKind: generation.kind } : {}),
       });
     } else {
       studentScenes.push(scene);

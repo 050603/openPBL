@@ -8,6 +8,7 @@ import {
   type IframePoolEntry,
 } from '@openmaic/lib/store/interactive-iframe-pool';
 import { useSceneRuntimeErrors } from '@openmaic/lib/store/scene-runtime-errors';
+import { useInteractionSyncStore } from '@openmaic/lib/store/interaction-sync';
 
 /**
  * Stable host for interactive scene iframes (#619).
@@ -33,6 +34,7 @@ export function InteractiveIframeHost() {
   const entries = useInteractiveIframePool((s) => s.entries);
   const activeSceneId = useInteractiveIframePool((s) => s.activeSceneId);
   const reset = useInteractiveIframePool((s) => s.reset);
+  const elevatedZIndex = useInteractiveIframePool((s) => s.elevatedZIndex);
   const setActiveScene = useWidgetIframeStore((s) => s.setActiveScene);
 
   // Portal into the fullscreen element when one is active (presentation mode
@@ -67,6 +69,7 @@ export function InteractiveIframeHost() {
           sceneId={sceneId}
           entry={entry}
           visible={entry.owner !== null && sceneId === activeSceneId}
+          elevatedZIndex={elevatedZIndex}
         />
       ))}
     </>,
@@ -78,6 +81,7 @@ interface PooledIframeProps {
   readonly sceneId: string;
   readonly entry: IframePoolEntry;
   readonly visible: boolean;
+  readonly elevatedZIndex: boolean;
 }
 
 /**
@@ -97,7 +101,7 @@ interface PooledIframeProps {
  * works correctly with a null origin because the host sends with
  * targetOrigin='*'.
  */
-function PooledIframe({ sceneId, entry, visible }: PooledIframeProps) {
+function PooledIframe({ sceneId, entry, visible, elevatedZIndex }: PooledIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const registerIframe = useWidgetIframeStore((s) => s.registerIframe);
 
@@ -126,17 +130,30 @@ function PooledIframe({ sceneId, entry, visible }: PooledIframeProps) {
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframeRef.current?.contentWindow) return;
       const d = e.data as
-        | { __maicInteractive?: boolean; kind?: string; errorKind?: string; message?: unknown }
+        | { __maicInteractive?: boolean; kind?: string; errorKind?: string; message?: unknown; state?: unknown }
         | undefined;
-      if (!d || d.__maicInteractive !== true || d.kind !== 'runtime-error') return;
-      const kind = typeof d.errorKind === 'string' ? d.errorKind : 'error';
-      const msg = typeof d.message === 'string' ? d.message : String(d.message ?? '');
-      useSceneRuntimeErrors.getState().addError(sceneId, `[${kind}] ${msg}`);
+      if (!d || d.__maicInteractive !== true) return;
+      if (d.kind === 'runtime-error') {
+        const kind = typeof d.errorKind === 'string' ? d.errorKind : 'error';
+        const msg = typeof d.message === 'string' ? d.message : String(d.message ?? '');
+        useSceneRuntimeErrors.getState().addError(sceneId, `[${kind}] ${msg}`);
+        return;
+      }
+      // Forward interaction state broadcasts to the sync store. The teacher's
+      // TeacherStageResources subscribes to the active scene's entry here and
+      // mirrors it into TeacherResourceProjection.interactionState so student
+      // devices can replay it. Only the active scene broadcasts — passive
+      // (hidden) iframes still fire load-time broadcasts, which we ignore by
+      // checking `visible` so a backgrounded keep-alive iframe doesn't clobber
+      // the foreground scene's state.
+      if (d.kind === 'state-broadcast' && visible && d.state && typeof d.state === 'object') {
+        useInteractionSyncStore.getState().broadcast(sceneId, d.state as Record<string, unknown>);
+      }
     };
     window.addEventListener('message', onMessage);
     iframeRef.current?.contentWindow?.postMessage({ __maicErrorReplayRequest: true }, '*');
     return () => window.removeEventListener('message', onMessage);
-  }, [sceneId, entry.srcDoc]);
+  }, [sceneId, entry.srcDoc, visible]);
 
   // A content change reloads the iframe; drop the previous render's errors so the
   // captured set reflects the CURRENT page (e.g. after the agent applies a fix).
@@ -158,7 +175,7 @@ function PooledIframe({ sceneId, entry, visible }: PooledIframeProps) {
     border: 0,
     borderRadius: '0.5rem', // matches the canvas box's rounded-lg
     overflow: 'hidden',
-    zIndex: 1,
+    zIndex: elevatedZIndex ? 9999 : 1,
     // visibility (not display) — display:none can drop the document on re-show.
     visibility: shown ? 'visible' : 'hidden',
     pointerEvents: shown ? 'auto' : 'none',

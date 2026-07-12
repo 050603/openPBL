@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { History, Loader2, MessageSquare, Send, Sparkles, Volume2, VolumeX, X } from "lucide-react";
 import { PrimaryButton } from "@/components/ui";
-import type { Course } from "@/lib/session/types";
+import type { CompanionTriggerKind, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { getCompanion, recommendedCompanions, type AiCompanionId } from "@/lib/ai-companions";
 import { useSettingsStore } from "@openmaic/lib/store/settings";
+import { STUDENT_ARTIFACT_EVENT, type StudentArtifactEvent } from "@/lib/companion/events";
+import { deriveStudentLearningProfile, studentProfilePrompt } from "@/lib/companion/student-profile";
 
 type ChatMsg = {
   role: "user" | "assistant";
@@ -83,7 +85,7 @@ type TTSQueueItem = {
 //   4. 暴露 currentTTS（正在播放项）和 queueLength 供 UI 显示
 // ============================================================
 
-function useCompanionTTS() {
+function useCompanionTTS(options?: { onQueueDrained?: () => void }) {
   // 从 OpenMAIC 设置存储读取 TTS 配置
   const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
   const ttsVoice = useSettingsStore((s) => s.ttsVoice);
@@ -102,6 +104,12 @@ function useCompanionTTS() {
   useEffect(() => {
     enabledRef.current = enabled;
   }, [enabled]);
+
+  // 朗读队列完全清空时的回调（用于串行显示控制）
+  const onQueueDrainedRef = useRef(options?.onQueueDrained);
+  useEffect(() => {
+    onQueueDrainedRef.current = options?.onQueueDrained;
+  }, [options?.onQueueDrained]);
 
   // 队列与播放状态用 ref 维护，避免闭包陈旧
   const queueRef = useRef<TTSQueueItem[]>([]);
@@ -200,6 +208,7 @@ function useCompanionTTS() {
       isPlayingRef.current = false;
       setSpeaking(false);
       setCurrentTTS(null);
+      onQueueDrainedRef.current?.();
       return;
     }
 
@@ -209,6 +218,7 @@ function useCompanionTTS() {
       syncQueueLength();
       setSpeaking(false);
       setCurrentTTS(null);
+      onQueueDrainedRef.current?.();
       return;
     }
 
@@ -357,10 +367,18 @@ export function CompanionRoundtable({
   course,
   stageKey,
   contextLabel,
+  autoSendMessage,
 }: {
   course: Course;
   stageKey: string;
   contextLabel: string;
+  /**
+   * 外部触发发送的消息。当此值变化为非空字符串时，组件自动打开面板并将
+   * 该消息作为学生发言发送给 AI 伴学小组。用于方案构思等场景中"AI 帮我
+   * 完善"按钮：父组件设置此 prop 即可触发对话，无需暴露内部 runRound。
+   * 重复设置同一个字符串不会重复发送（用 ref 记录上次值）。
+   */
+  autoSendMessage?: string | null;
 }) {
   const session = useSession();
   const configuredStages = course.uiState?.aiChatStagesEnabled ?? [];
@@ -390,7 +408,66 @@ export function CompanionRoundtable({
   const dragRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const streamingTextRef = useRef(""); // 防 React StrictMode 双调用导致的重复
-  const tts = useCompanionTTS();
+  const openingRequestedRef = useRef(false);
+  const studentHasSpokenRef = useRef(false);
+  const phaseRef = useRef<StreamPhase>("idle");
+  const directiveTriggeredRef = useRef<Set<string>>(new Set());
+  const idleTriggeredRef = useRef(false);
+  const lastActivityAtRef = useRef(Date.now());
+  const noProgressTriggeredRef = useRef(false);
+
+  // ===== 显示队列：控制智能体消息的串行显示 =====
+  // 生成不阻塞（SSE 流式接收），但显示和朗读串行：
+  // 第一个智能体说完话（显示+朗读完）后，第二个才显示并朗读
+  type DisplayQueueItem = { companionId: AiCompanionId; fullText: string };
+  const displayQueueRef = useRef<DisplayQueueItem[]>([]);
+  const isDisplayingRef = useRef(false);
+  const playNextDisplayRef = useRef<() => void>(() => undefined);
+
+  const tts = useCompanionTTS({
+    onQueueDrained: () => {
+      // TTS 队列空了，当前消息显示+朗读完毕，显示下一条
+      isDisplayingRef.current = false;
+      playNextDisplayRef.current();
+    },
+  });
+
+  // playNextDisplay：从 displayQueue 取出消息 → 显示 → 入队 TTS
+  // 在 tts 定义之后才能赋值（依赖 tts.enqueue）
+  playNextDisplayRef.current = () => {
+    if (isDisplayingRef.current) return;
+    const item = displayQueueRef.current.shift();
+    if (!item) return;
+    isDisplayingRef.current = true;
+    setMessages((cur) => [
+      ...cur,
+      {
+        role: "assistant" as const,
+        companionId: item.companionId,
+        content: item.fullText,
+        ts: new Date().toISOString(),
+      },
+    ]);
+    setVisibleBubble(item.companionId);
+    tts.enqueue(item.fullText, item.companionId);
+  };
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  // 外部触发自动发送：当 autoSendMessage 变化为新非空值时打开面板并发送
+  const lastAutoSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoSendMessage || !stageEnabled) return;
+    if (lastAutoSentRef.current === autoSendMessage) return;
+    if (phaseRef.current !== "idle") return; // 避免打断正在进行的对话
+    lastAutoSentRef.current = autoSendMessage;
+    setIsOpen(true);
+    void runRound(autoSendMessage);
+    // runRound 依赖最新 state，此处只在 autoSendMessage 变化时触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSendMessage, stageEnabled]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "auto" });
@@ -445,6 +522,121 @@ export function CompanionRoundtable({
     return () => window.removeEventListener("resize", updatePlacements);
   }, [isOpen, position, visibleBubble]);
 
+  useEffect(() => {
+    if (!stageEnabled || !session.studentId) return;
+    let cancelled = false;
+    let openingTimer: number | undefined;
+    const loadThread = async () => {
+      try {
+        const response = await fetch(`/api/companion/threads?courseId=${encodeURIComponent(course.id)}&studentId=${encodeURIComponent(session.studentId!)}&stageKey=${encodeURIComponent(stageKey)}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json() as {
+          thread?: { openingSentAt?: string; messages: Array<{ role: string; content: string; createdAt: string; visibility: string; companionId?: AiCompanionId }> } | null;
+          directives?: Array<{ id: string; goal: string }>;
+        };
+        if (cancelled) return;
+        const restored = (payload.thread?.messages ?? [])
+          .filter((message) => message.visibility === "student-and-teacher" && (message.role === "student" || message.role === "agent" || message.role === "teacher-guidance"))
+          .map((message): ChatMsg => ({
+            role: message.role === "student" ? "user" : "assistant",
+            content: message.role === "teacher-guidance" ? `教师指导：${message.content}` : message.content,
+            ts: message.createdAt,
+            companionId: message.companionId,
+          }));
+        setMessages(restored);
+        studentHasSpokenRef.current = restored.some((message) => message.role === "user");
+        if (!payload.thread?.openingSentAt && !openingRequestedRef.current) {
+          // Do not interrupt the student's first minute. If there is still no
+          // student speech after 60 seconds, 灵灵 gives a low-pressure opening
+          // prompt (only on stages where the role is configured).
+          openingTimer = window.setTimeout(() => {
+            if (openingRequestedRef.current || studentHasSpokenRef.current || phaseRef.current !== "idle") return;
+            openingRequestedRef.current = true;
+            void runRound(
+              `请根据“${contextLabel}”阶段目标和学生当前产物，主动用创意启发的方式说明下一步，并给出一个现在就能完成的小动作。`,
+              { kind: "stage-opening", reason: `进入${contextLabel}阶段后 60 秒未发言`, preferredCompanionId: available.some((companion) => companion.id === "ideation") ? "ideation" : undefined },
+            );
+          }, 60_000);
+        } else {
+          const nextDirective = payload.directives?.find((directive) => !directiveTriggeredRef.current.has(directive.id));
+          if (nextDirective) {
+            directiveTriggeredRef.current.add(nextDirective.id);
+            void runRound(`请执行教师目标“${nextDirective.goal}”，结合学生当前产物开始引导。`, { kind: "teacher-goal", reason: `教师目标：${nextDirective.goal}` });
+          }
+        }
+      } catch {
+        // 对话恢复失败不阻塞学生继续编辑。
+      }
+    };
+    void loadThread();
+    return () => { cancelled = true; if (openingTimer) window.clearTimeout(openingTimer); };
+    // runRound uses the latest render state; this effect is intentionally keyed to the thread identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.id, contextLabel, session.studentId, stageEnabled, stageKey]);
+
+  useEffect(() => {
+    if (!stageEnabled || !session.studentId) return;
+    const markActive = () => {
+      lastActivityAtRef.current = Date.now();
+      idleTriggeredRef.current = false;
+    };
+    window.addEventListener("pointerdown", markActive);
+    window.addEventListener("keydown", markActive);
+    const timer = window.setInterval(() => {
+      if (phase !== "idle" || idleTriggeredRef.current) return;
+      if (Date.now() - lastActivityAtRef.current < 180_000) return;
+      idleTriggeredRef.current = true;
+      void runRound("学生已连续三分钟没有新的操作。请根据当前阶段目标，给出温和、具体的下一步提醒。", { kind: "idle", reason: "连续 3 分钟无操作" });
+    }, 15_000);
+    return () => {
+      window.removeEventListener("pointerdown", markActive);
+      window.removeEventListener("keydown", markActive);
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, session.studentId, stageEnabled, stageKey]);
+
+  useEffect(() => {
+    if (!stageEnabled || !session.studentId) return;
+    const seenArtifactEvents = new Set<string>();
+    function onArtifactSaved(event: Event) {
+      const detail = (event as CustomEvent<StudentArtifactEvent>).detail;
+      if (!detail || detail.courseId !== course.id || detail.studentId !== session.studentId || detail.stageKey !== stageKey) return;
+      const eventKey = `${detail.kind}:${detail.artifactId ?? detail.summary ?? "event"}`;
+      if (seenArtifactEvents.has(eventKey)) return;
+      seenArtifactEvents.add(eventKey);
+      const isDocument = detail.kind === "document-saved";
+      const preferredCompanionId: AiCompanionId = isDocument ? "critic" : "reviewer";
+      if (!available.some((companion) => companion.id === preferredCompanionId)) return;
+      window.setTimeout(() => {
+        void runRound(
+          isDocument
+            ? "学生刚刚保存了项目文档。请从证据、逻辑和可验证性出发提出检验性问题，帮助学生发现一个需要核对的地方。"
+            : `学生刚刚上传了${detail.summary || "一个项目文件"}。请从真实使用者视角给出具体反馈，指出一个最值得改进的地方。`,
+          { kind: detail.kind, reason: isDocument ? "保存文档后主动检验" : "上传文件后主动用户视角反馈", preferredCompanionId },
+        );
+      }, 0);
+    }
+    window.addEventListener(STUDENT_ARTIFACT_EVENT, onArtifactSaved);
+    return () => window.removeEventListener(STUDENT_ARTIFACT_EVENT, onArtifactSaved);
+    // runRound intentionally uses the active render's state and refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.id, session.studentId, stageEnabled, stageKey]);
+
+  useEffect(() => {
+    if (phase !== "idle" || noProgressTriggeredRef.current) return;
+    const recentQuestions = messages.filter((message) => message.role === "user").slice(-3);
+    if (recentQuestions.length < 3) return;
+    const firstQuestionAt = Date.parse(recentQuestions[0].ts);
+    const hasNewArtifact = (course.submissions ?? []).some(
+      (submission) => submission.studentId === session.studentId && Date.parse(submission.updatedAt) > firstQuestionAt,
+    );
+    if (hasNewArtifact) return;
+    noProgressTriggeredRef.current = true;
+    void runRound("连续三轮讨论还没有形成新的产物变化。请先由记记收束当前讨论，再给出一个最小可执行动作。", { kind: "no-progress", reason: "连续 3 轮对话无产物进展" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.submissions, messages, phase, session.studentId]);
+
   const latestReplies = useMemo(() => {
     const latest = new Map<AiCompanionId, ChatMsg>();
     for (const message of messages) {
@@ -483,15 +675,19 @@ export function CompanionRoundtable({
     setPosition({ x: rect.left, y: rect.top });
   }
 
-  async function send() {
-    const text = input.trim();
-    if (!text || phase !== "idle") return;
+  async function runRound(text: string, trigger?: { kind: CompanionTriggerKind; reason: string; preferredCompanionId?: AiCompanionId }) {
+    if (!text || phaseRef.current !== "idle") return;
 
-    const userMsg: ChatMsg = { role: "user", content: text, ts: new Date().toISOString() };
-    setMessages((cur) => [...cur, userMsg]);
-    setInput("");
-    setIsOpen(false);
+    if (!trigger) {
+      const userMsg: ChatMsg = { role: "user", content: text, ts: new Date().toISOString() };
+      setMessages((cur) => [...cur, userMsg]);
+      setInput("");
+      setIsOpen(false);
+      lastActivityAtRef.current = Date.now();
+      idleTriggeredRef.current = false;
+    }
     setError(null);
+    phaseRef.current = "director";
     setPhase("director");
     setStreamingText("");
     streamingTextRef.current = "";
@@ -508,13 +704,14 @@ export function CompanionRoundtable({
         item.content.replace(/<[^>]+>/g, "").trim().length >= 30,
     );
 
-    if (asksForCompleteWork && !hasOwnWork) {
+    if (!trigger && asksForCompleteWork && !hasOwnWork) {
       const reply =
         "先给我你的想法、草稿或一个具体卡点吧。我可以提问、比较选项或检查漏洞，但项目的核心构思和作品需要由你完成。";
       setMessages((cur) => [
         ...cur,
         { role: "assistant", companionId: "knowledge", content: reply, ts: new Date().toISOString() },
       ]);
+      phaseRef.current = "idle";
       setPhase("idle");
       // 防替代提示也入队 TTS
       tts.enqueue(reply, "knowledge");
@@ -530,6 +727,8 @@ export function CompanionRoundtable({
     let speakersForRecord: AiCompanionId[] = [];
 
     try {
+      if (!trigger) studentHasSpokenRef.current = true;
+      const profile = session.studentId ? deriveStudentLearningProfile({ course, studentId: session.studentId, stageKey }) : null;
       const teacherContext =
         (course.teacherInterventions ?? [])
           .filter((item) => item.stageKey === stageKey && item.status === "open")
@@ -553,8 +752,12 @@ export function CompanionRoundtable({
           drivingQuestion: course.drivingQuestion,
           stageKey,
           stageLabel: contextLabel,
-          teacherContext,
           studentWork,
+          teacherContext: [teacherContext, profile ? studentProfilePrompt(profile) : ""].filter(Boolean).join("\n"),
+          courseId: course.id,
+          studentId: session.studentId,
+          studentName: session.studentName,
+          trigger,
         }),
         signal: controller.signal,
       });
@@ -586,11 +789,13 @@ export function CompanionRoundtable({
             // 内联处理事件，避免 handleEvent 函数中的副作用
             switch (event.type) {
               case "director_start":
+                phaseRef.current = "director";
                 setPhase("director");
                 break;
               case "director_result":
                 setDirectorSpeakers(event.speakers);
                 speakersForRecord = event.speakers;
+                phaseRef.current = "speaking";
                 setPhase("speaking");
                 break;
               case "agent_start":
@@ -606,20 +811,17 @@ export function CompanionRoundtable({
                 lastCompanionId = event.companionId;
                 break;
               case "agent_end": {
-                // 从 ref 读取完整回复，避免在 state updater 内执行副作用
+                // 从 ref 读取完整回复，入队 displayQueue 串行显示
                 const fullText = streamingTextRef.current;
                 if (fullText) {
-                  setMessages((cur) => [
-                    ...cur,
-                    {
-                      role: "assistant",
-                      companionId: event.companionId,
-                      content: fullText,
-                      ts: new Date().toISOString(),
-                    },
-                  ]);
-                  // 入队 TTS：前一个智能体的语音播完后才会播下一个，禁止打断
-                  tts.enqueue(fullText, event.companionId);
+                  displayQueueRef.current.push({
+                    companionId: event.companionId,
+                    fullText,
+                  });
+                  // 若当前没有正在显示+朗读的消息，立即显示；否则等 onQueueDrained 回调
+                  if (!isDisplayingRef.current) {
+                    playNextDisplayRef.current();
+                  }
                 }
                 streamingTextRef.current = "";
                 setStreamingText("");
@@ -629,8 +831,12 @@ export function CompanionRoundtable({
               }
               case "cue_user":
               case "done":
+                phaseRef.current = "done";
                 setPhase("done");
-                setTimeout(() => setPhase("idle"), 300);
+                setTimeout(() => {
+                  phaseRef.current = "idle";
+                  setPhase("idle");
+                }, 300);
                 break;
               case "error":
                 setError(event.message);
@@ -675,6 +881,7 @@ export function CompanionRoundtable({
       if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : "AI 暂时不可用");
     } finally {
+      phaseRef.current = "idle";
       setPhase("idle");
       setCurrentSpeaker(null);
       setStreamingText("");
@@ -683,9 +890,14 @@ export function CompanionRoundtable({
     }
   }
 
+  function send() {
+    void runRound(input.trim());
+  }
+
   function stopStream() {
     abortRef.current?.abort();
     tts.stop();
+    phaseRef.current = "idle";
     setPhase("idle");
     setCurrentSpeaker(null);
     // 将未完成的流式文本保存到消息列表

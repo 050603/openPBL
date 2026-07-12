@@ -12,34 +12,41 @@ import {
   Play,
   Presentation,
   RefreshCw,
+  Sparkles,
   Sprout,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 
 /**
- * ProjectCoverImage — 基于课程信息调用系统图片生成 API 生成项目封面图。
- * - 优先使用 course.coverImageUrl（已生成的缓存）
- * - 若无缓存则自动调用 /api/generate/image 生成
- * - 生成失败时显示渐变占位，可点击刷新重试
+ * ProjectCoverImage — 课程封面图显示与生成。
+ *
+ * 行为：
+ * - 若 course.coverImageUrl 已存在（教师备课阶段生成），直接显示，不重复生成。
+ * - 若无缓存图，显示渐变占位。教师端可通过 `allowGenerate` 开启生成按钮；
+ *   学生端默认不生成（依赖教师备课阶段产出的封面图）。
+ * - 生成调用 /api/openmaic/generate/image，结果写入 course.coverImageUrl。
  */
 export function ProjectCoverImage({
   course,
   className,
+  allowGenerate = false,
 }: {
   course: Course;
   className?: string;
+  /** 教师端设为 true 可显示生成/重新生成按钮 */
+  allowGenerate?: boolean;
 }) {
   const session = useSession();
   const [imageUrl, setImageUrl] = useState<string | null>(course.coverImageUrl ?? null);
-  const [loading, setLoading] = useState(!course.coverImageUrl);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const buildPrompt = useCallback(() => {
-    const parts = [
+    const parts: string[] = [
       "A professional project illustration for an educational PBL course",
     ];
     if (course.name) parts.push(`titled "${course.name}"`);
@@ -58,7 +65,7 @@ export function ProjectCoverImage({
     setError(false);
 
     try {
-      const res = await fetch("/api/generate/image", {
+      const res = await fetch("/api/openmaic/generate/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -73,12 +80,15 @@ export function ProjectCoverImage({
       }
 
       const data = await res.json();
-      const url = data?.result?.url ?? data?.result?.imageUrl ?? null;
+      const result = data?.result;
+      const url: string | null = result?.url ?? null;
+      const base64: string | null = result?.base64 ?? null;
+      const format: string = result?.format ?? "png";
+      const finalUrl = url ?? (base64 ? `data:image/${format};base64,${base64}` : null);
 
-      if (url) {
-        setImageUrl(url);
-        // 缓存到 session
-        session.updateCourse(course.id, { coverImageUrl: url });
+      if (finalUrl) {
+        setImageUrl(finalUrl);
+        session.updateCourse(course.id, { coverImageUrl: finalUrl });
       } else {
         setError(true);
       }
@@ -91,39 +101,31 @@ export function ProjectCoverImage({
     }
   }, [buildPrompt, course.id, session]);
 
-  useEffect(() => {
-    if (!course.coverImageUrl && !error) {
-      // The cover request is an external synchronization keyed by course id.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void generate();
-    }
-    return () => abortRef.current?.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [course.id]);
-
-  // 已有图片
+  // 已有图片：直接显示
   if (imageUrl) {
     return (
-      <div className={cn("relative overflow-hidden rounded-[8px]", className)}>
+      <div className={cn("group relative overflow-hidden rounded-[8px]", className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageUrl}
           alt={course.name || "项目封面"}
           className="h-full w-full object-cover"
         />
-        <button
-          className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/40 text-white opacity-0 transition hover:bg-black/60 group-hover:opacity-100"
-          onClick={() => { setImageUrl(null); void generate(); }}
-          title="重新生成封面"
-          type="button"
-        >
-          <RefreshCw size={14} />
-        </button>
+        {allowGenerate ? (
+          <button
+            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/40 text-white opacity-0 transition hover:bg-black/60 group-hover:opacity-100"
+            onClick={() => void generate()}
+            title="重新生成封面"
+            type="button"
+          >
+            <RefreshCw size={15} />
+          </button>
+        ) : null}
       </div>
     );
   }
 
-  // 加载中
+  // 教师端加载中
   if (loading) {
     return (
       <div
@@ -134,29 +136,45 @@ export function ProjectCoverImage({
       >
         <div className="flex flex-col items-center gap-2 text-slate-400">
           <Loader2 size={28} className="animate-spin" />
-          <span className="text-xs font-medium">正在生成项目封面…</span>
+          <span className="text-xs font-medium">正在生成课程封面…</span>
         </div>
       </div>
     );
   }
 
-  // 失败：显示占位
+  // 教师端：未生成或生成失败，显示生成按钮
+  if (allowGenerate) {
+    return (
+      <div
+        className={cn(
+          "group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+          className,
+        )}
+        onClick={() => error ? void generate() : void generate()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter") void generate(); }}
+      >
+        <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-40" />
+        <div className="relative flex flex-col items-center gap-2 text-slate-600">
+          {error ? <RefreshCw size={24} /> : <Sparkles size={24} />}
+          <span className="text-xs font-semibold">
+            {error ? "点击重新生成" : "生成课程封面图"}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // 学生端：无封面图时显示渐变占位（不自动生成，依赖教师备课阶段产出）
   return (
     <div
       className={cn(
-        "group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+        "relative overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
         className,
       )}
-      onClick={() => void generate()}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter") void generate(); }}
     >
-      <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-40" />
-      <div className="relative flex flex-col items-center gap-2 text-slate-500">
-        <RefreshCw size={24} />
-        <span className="text-xs font-medium">点击生成项目封面</span>
-      </div>
+      <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-30" />
     </div>
   );
 }
@@ -199,24 +217,6 @@ export function CampusPhoto({ className }: { className?: string }) {
   );
 }
 
-export function AnalysisThumbnail({ className }: { className?: string }) {
-  return (
-    <div className={cn("relative overflow-hidden rounded-[8px] bg-slate-900", className)}>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,#38bdf8_0_16%,transparent_17%),linear-gradient(140deg,#0f172a,#075985)]" />
-      <div className="absolute bottom-5 left-6 h-16 w-24 rounded-[5px] border border-cyan-300/50 bg-slate-800/80 shadow-xl" />
-      <div className="absolute right-5 top-7 h-28 w-36 rounded-[5px] border border-cyan-300/60 bg-cyan-950/80 p-3">
-        <div className="mb-3 h-4 w-20 rounded bg-cyan-300/60" />
-        <div className="flex h-16 items-end gap-2">
-          {[28, 54, 40, 74, 62].map((height) => (
-            <span className="w-4 rounded-t bg-cyan-300" key={height} style={{ height }} />
-          ))}
-        </div>
-      </div>
-      <LineChart className="absolute left-7 top-7 text-cyan-200" size={42} />
-    </div>
-  );
-}
-
 export function SlidePreview({ className }: { className?: string }) {
   return (
     <div
@@ -254,81 +254,6 @@ export function EvidenceStrip() {
       <div className="grid h-32 place-items-center rounded-[8px] border border-slate-200 bg-slate-50 text-2xl font-semibold text-slate-600">
         +3
       </div>
-    </div>
-  );
-}
-
-export function MindMap() {
-  const nodes = [
-    ["问题洞察", "left-[31%] top-[28%]", "border-blue-300 bg-blue-50 text-blue-700"],
-    ["执行路径", "right-[19%] top-[31%]", "border-violet-300 bg-violet-50 text-violet-700"],
-    ["核心策略", "left-[22%] bottom-[19%]", "border-amber-300 bg-amber-50 text-amber-700"],
-    ["评估与优化", "right-[20%] bottom-[20%]", "border-emerald-300 bg-emerald-50 text-emerald-700"],
-  ];
-
-  return (
-    <div className="relative h-[20rem] overflow-hidden rounded-[8px] border border-slate-200 bg-[radial-gradient(#dbeafe_1px,transparent_1px)] bg-[length:18px_18px]">
-      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[8px] border border-emerald-300 bg-emerald-50 px-7 py-3 text-xl font-bold text-emerald-700 shadow-sm">
-        校园低碳生活推广方案
-      </div>
-      <svg className="absolute inset-0 h-full w-full" aria-hidden>
-        <path d="M500 165 C410 110 360 100 290 95" fill="none" stroke="#60a5fa" strokeWidth="2" />
-        <path d="M530 160 C610 105 660 105 725 112" fill="none" stroke="#a78bfa" strokeWidth="2" />
-        <path d="M500 182 C390 240 330 244 255 255" fill="none" stroke="#f59e0b" strokeWidth="2" />
-        <path d="M535 185 C620 248 670 244 745 255" fill="none" stroke="#34d399" strokeWidth="2" />
-      </svg>
-      {nodes.map(([label, position, classes]) => (
-        <div
-          className={cn("absolute rounded-[6px] border px-4 py-2 text-base font-bold shadow-sm", position, classes)}
-          key={label}
-        >
-          {label}
-        </div>
-      ))}
-      <MapLeaves labels={["能源浪费", "一次性用品多", "低碳意识不足"]} side="left" top="top-[16%]" />
-      <MapLeaves labels={["线上宣传", "线下活动", "合作联动"]} side="right" top="top-[15%]" />
-      <MapLeaves labels={["宣传教育", "行为激励", "数据可视化"]} side="left" top="bottom-[6%]" />
-      <MapLeaves labels={["数据监测", "效果评估", "持续迭代"]} side="right" top="bottom-[6%]" />
-      <ToolRail />
-    </div>
-  );
-}
-
-function MapLeaves({
-  labels,
-  side,
-  top,
-}: {
-  labels: string[];
-  side: "left" | "right";
-  top: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "absolute flex flex-col gap-2",
-        side === "left" ? "left-[13%]" : "right-[7%]",
-        top,
-      )}
-    >
-      {labels.map((label) => (
-        <span className="rounded-[5px] border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm" key={label}>
-          {label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ToolRail() {
-  const icons = [Check, FileText, Play, Bot, Sprout];
-  return (
-    <div className="absolute left-4 top-16 grid gap-2 rounded-[8px] border border-slate-200 bg-white p-2 shadow-sm">
-      {icons.map((Icon, index) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[5px] text-slate-700 hover:bg-blue-50" key={index} type="button">
-          <Icon size={17} />
-        </button>
-      ))}
     </div>
   );
 }

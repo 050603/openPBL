@@ -9,6 +9,11 @@
 import { NextRequest } from "next/server";
 import { callLLM, callLLMStream, parseLLMJson } from "@/lib/llm/client";
 import { buildCompanionSystemPrompt, getCompanion, type AiCompanionId } from "@/lib/ai-companions";
+import { activeDirectivesForStudent, recorderVisibility, shouldUseReviewer } from "@/lib/companion/orchestrator";
+import { appendCompanionMessages, companionMessage, getCompanionThread } from "@/lib/companion/server-store";
+import { getCourse, updateCourse } from "@/lib/session/server-store";
+import type { CompanionTriggerKind } from "@/lib/session/types";
+import { aggregateCommonIssues } from "@/lib/learning-analytics/analyzer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,6 +30,10 @@ type CompanionChatRequest = {
   stageLabel: string;
   teacherContext: string;
   studentWork?: string;
+  courseId?: string;
+  studentId?: string;
+  studentName?: string;
+  trigger?: { kind: CompanionTriggerKind; reason?: string; preferredCompanionId?: AiCompanionId };
 };
 
 type DirectorResult = {
@@ -99,6 +108,87 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "MISSING_COMPANIONS" }, { status: 400 });
   }
 
+  let authoritativeHistory = body.history ?? [];
+  let teacherContext = body.teacherContext;
+  const canPersist = Boolean(body.courseId && body.studentId && body.stageKey);
+  if (canPersist) {
+    const course = await getCourse(body.courseId!);
+    if (!course) return Response.json({ error: "COURSE_NOT_FOUND" }, { status: 404 });
+    if (!course.students.some((student) => student.id === body.studentId)) {
+      return Response.json({ error: "STUDENT_NOT_IN_COURSE" }, { status: 403 });
+    }
+    const thread = await getCompanionThread(body.courseId!, body.studentId!, body.stageKey);
+    authoritativeHistory = (thread?.messages ?? [])
+      .filter((message) => message.role === "student" || message.role === "agent" || message.role === "teacher-guidance")
+      .slice(-12)
+      .map((message) => ({
+        role: message.role === "student" ? "user" as const : "assistant" as const,
+        content: message.content,
+      }));
+    const directives = activeDirectivesForStudent(
+      course.teacherAgentDirectives ?? [],
+      body.studentId!,
+      body.stageKey,
+    );
+    if (directives.length) {
+      teacherContext = [
+        teacherContext,
+        ...directives.map((directive) => `教师持续目标：${directive.goal}；引导要求：${directive.instruction}；完成标准：${directive.successCriteria.join("、")}`),
+      ].filter(Boolean).join("\n");
+    }
+    await appendCompanionMessages({
+      courseId: body.courseId!,
+      studentId: body.studentId!,
+      stageKey: body.stageKey,
+      openingTrigger: body.trigger?.kind,
+      messages: body.trigger
+        ? [companionMessage({ role: "system-trigger", content: body.trigger.reason || body.message, visibility: "teacher-only", triggerKind: body.trigger.kind })]
+        : [companionMessage({ role: "student", content: body.message, visibility: "student-and-teacher", authorId: body.studentId, authorName: body.studentName })],
+    });
+    const recentStudentMessages = (thread?.messages ?? []).filter((message) => message.role === "student").slice(-2);
+    if (!body.trigger && recentStudentMessages.length === 2) {
+      const evidenceStart = Date.parse(recentStudentMessages[0].createdAt);
+      const hasNewArtifact = (course.submissions ?? []).some(
+        (submission) => submission.studentId === body.studentId && Date.parse(submission.updatedAt) > evidenceStart,
+      );
+      if (!hasNewArtifact) {
+        const now = new Date().toISOString();
+        const signalId = `learning-signal-${body.studentId}-${body.stageKey}-conversation-no-progress`;
+        await updateCourse(body.courseId!, (current) => {
+          const existing = current.learningSignals?.find((signal) => signal.id === signalId);
+          const next = {
+            id: signalId,
+            courseId: body.courseId!,
+            studentId: body.studentId!,
+            stageKey: body.stageKey,
+            kind: "conversation-no-progress" as const,
+            severity: existing?.severity ?? "warning" as const,
+            status: "open" as const,
+            title: "多轮伴学对话没有形成产物进展",
+            summary: "连续 3 轮对话后没有检测到新的事实、选择或产物修改。",
+            normalizedIssueKey: `conversation-no-progress:${body.stageKey}:stage`,
+            evidenceEventIds: [...recentStudentMessages.map((message) => message.id), "current-message"],
+            aiInterventionAttempts: existing?.aiInterventionAttempts ?? 0,
+            firstDetectedAt: existing?.firstDetectedAt ?? now,
+            lastDetectedAt: now,
+          };
+          const learningSignals = [...(current.learningSignals ?? []).filter((signal) => signal.id !== signalId), next];
+          return { ...current, learningSignals, classCommonIssues: aggregateCommonIssues(learningSignals, current.students.length) };
+        });
+      }
+    }
+    if (body.trigger?.kind === "no-progress") {
+      await updateCourse(body.courseId!, (current) => ({
+        ...current,
+        learningSignals: (current.learningSignals ?? []).map((signal) => {
+          if (signal.studentId !== body.studentId || signal.stageKey !== body.stageKey || signal.kind !== "conversation-no-progress") return signal;
+          const attempts = signal.aiInterventionAttempts + 1;
+          return { ...signal, aiInterventionAttempts: attempts, severity: attempts >= 2 ? "high" : signal.severity, lastDetectedAt: new Date().toISOString() };
+        }),
+      }));
+    }
+  }
+
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -135,7 +225,7 @@ export async function POST(req: NextRequest) {
 
       const directorPrompt = buildDirectorPrompt({
         message: body.message,
-        history: body.history,
+        history: authoritativeHistory,
         companions: availableCompanions,
         stageLabel: body.stageLabel,
       });
@@ -153,8 +243,19 @@ export async function POST(req: NextRequest) {
         const speakers = Array.isArray(parsed.speakers)
           ? parsed.speakers.filter((id) => body.companionIds.includes(id))
           : [];
+        const selectedSpeakers = speakers.length ? speakers : [body.companionIds[0]];
+        if (body.trigger?.preferredCompanionId && body.companionIds.includes(body.trigger.preferredCompanionId)) {
+          selectedSpeakers.unshift(body.trigger.preferredCompanionId);
+        }
+        if (
+          shouldUseReviewer(body.trigger?.kind) &&
+          body.companionIds.includes("reviewer") &&
+          !selectedSpeakers.includes("reviewer")
+        ) {
+          selectedSpeakers.push("reviewer");
+        }
         directorResult = {
-          speakers: speakers.length ? speakers : [body.companionIds[0]],
+          speakers: [...new Set(selectedSpeakers)].slice(0, 2),
           cueUser: Boolean(parsed.cueUser),
         };
       } catch {
@@ -167,7 +268,7 @@ export async function POST(req: NextRequest) {
       if (signal.aborted) return;
 
       // === Step 2: 依次让每个选中角色发言 ===
-      const conversationHistory = [...body.history, { role: "user" as const, content: body.message }];
+      const conversationHistory = [...authoritativeHistory, { role: "user" as const, content: body.message }];
       const peerResponses: string[] = [];
 
       for (const companionId of directorResult.speakers) {
@@ -181,7 +282,7 @@ export async function POST(req: NextRequest) {
           courseName: body.courseName,
           drivingQuestion: body.drivingQuestion,
           stageLabel: body.stageLabel,
-          teacherContext: body.teacherContext,
+          teacherContext,
           studentWork: body.studentWork,
           peerResponses,
         });
@@ -218,7 +319,28 @@ export async function POST(req: NextRequest) {
         if (fullResponse) {
           conversationHistory.push({ role: "assistant", content: fullResponse });
           peerResponses.push(`${companion.name}：${fullResponse.slice(0, 500)}`);
+          if (canPersist) {
+            await appendCompanionMessages({
+              courseId: body.courseId!, studentId: body.studentId!, stageKey: body.stageKey,
+              messages: [companionMessage({ role: "agent", companionId, authorName: companion.name, content: fullResponse, visibility: "student-and-teacher", triggerKind: body.trigger?.kind })],
+            });
+          }
         }
+      }
+
+      if (canPersist && peerResponses.length) {
+        const recorderSummary = `本轮讨论：${peerResponses.join("；").slice(0, 1200)}`;
+        await appendCompanionMessages({
+          courseId: body.courseId!, studentId: body.studentId!, stageKey: body.stageKey,
+          messages: [companionMessage({
+            role: "agent",
+            companionId: "recorder",
+            authorName: "记记",
+            content: recorderSummary,
+            visibility: recorderVisibility(body.trigger?.kind),
+            triggerKind: body.trigger?.kind,
+          })],
+        });
       }
 
       // === Step 3: 结束 ===
