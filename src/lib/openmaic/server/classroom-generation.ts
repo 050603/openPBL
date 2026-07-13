@@ -186,7 +186,7 @@ function validateConfirmedPblDetails(
   );
   if (orphanDetails.length > 0) {
     throw new Error(
-      `二级资源层级校验失败：${orphanDetails
+      `课程大纲层级校验失败：${orphanDetails
         .slice(0, 3)
         .map((outline) => outline.title)
         .join('、')} 未关联有效的一级活动。`,
@@ -205,11 +205,11 @@ function validateConfirmedPblDetails(
     const validation = validatePblKnowledgeAlignment(
       studentDetails,
       input.knowledgePoints,
-      { requireReferences: true },
+      { requireReferences: true, requireCoverage: true },
     );
     if (validation.issues.length > 0) {
       throw new Error(
-        `二级资源知识点校验失败：${validation.issues
+        `课程大纲知识点校验失败：${validation.issues
           .slice(0, 3)
           .map((issue) => issue.message)
         .join('；')}`,
@@ -225,7 +225,7 @@ function validateConfirmedPblDetails(
     if (parentKnowledgeViolations.length > 0) {
       const violation = parentKnowledgeViolations[0];
       throw new Error(
-        `二级资源知识点与父级活动不一致：${violation.detail.title ?? violation.detail.id} 使用了 ${violation.invalidIds.join('、')}。`,
+        `课程大纲知识点与课程模块不一致：${violation.detail.title ?? violation.detail.id} 使用了 ${violation.invalidIds.join('、')}。`,
       );
     }
   }
@@ -376,6 +376,7 @@ export async function generateClassroom(
     pblProfile: input.pblProfile,
     pblTeachingActivities: input.pblTeachingActivities,
     pblActivityCatalog: input.pblActivityCatalog,
+    knowledgePoints: input.knowledgePoints,
   };
   const vocationalActive = resolveVocationalActive(requirements);
   const pdfText = pdfContent?.text || undefined;
@@ -451,7 +452,7 @@ export async function generateClassroom(
     input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
     Boolean(input.pblActivityCatalog?.length);
   if (isStructuredPbl && confirmedOutlines.length === 0) {
-    throw new Error('课程生成必须使用已确认的二级资源细化大纲，当前未收到有效细化内容。');
+    throw new Error('课程生成必须使用已确认的课程大纲，当前未收到有效课程大纲内容。');
   }
 
   let generatedLanguageDirective = '';

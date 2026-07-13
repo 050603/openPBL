@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   assessPblTimeAllocation,
+  buildPblProjectMainline,
+  derivePblTimeRatios,
+  estimateTtsDurationSec,
   PBL_TIME_RATIOS,
+  rescalePblDetailDurations,
   suggestPblTimeAllocation,
 } from './pbl-time-model';
 
@@ -45,5 +49,59 @@ describe('PBL time model', () => {
 
     expect(assessment.allocatedMinutes).toBe(60);
     expect(assessment.warnings.map((warning) => warning.code)).toContain('allocation-total-mismatch');
+  });
+
+  it('always recommends all six modules instead of renormalizing to AI learning', () => {
+    const assessment = assessPblTimeAllocation(120, [
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 120 },
+    ]);
+
+    expect(assessment.recommendedStageTotals.knowledge).toBe(24);
+    expect(assessment.recommendedStageTotals.practice).toBe(48);
+    expect(assessment.warnings.map((warning) => warning.code)).toContain('missing-module');
+  });
+
+  it('keeps practice as the largest module for advanced projects', () => {
+    const ratios = derivePblTimeRatios({
+      topic: '跨学科开放性研究项目',
+      grade: '高一',
+      difficulty: 'advanced',
+      knowledgePoints: [
+        { id: 'kp-1', level: 'foundation' },
+        { id: 'kp-2', level: 'application' },
+        { id: 'kp-3', level: 'extension' },
+      ],
+    });
+
+    expect(ratios.practice).toBeGreaterThan(ratios.knowledge);
+    expect(ratios.practice).toBeGreaterThan(ratios.launch);
+    expect(Object.values(ratios).reduce((sum, value) => sum + value, 0)).toBeCloseTo(1);
+  });
+
+  it('builds a strict six-module mainline and rescales child targets', () => {
+    const activities = [
+      { id: 'launch', stageKey: 'project-launch', durationMin: 10 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 20 },
+      { id: 'proposal', stageKey: 'proposal', durationMin: 10 },
+      { id: 'practice', stageKey: 'make', durationMin: 50 },
+      { id: 'showcase', stageKey: 'showcase', durationMin: 20 },
+      { id: 'reflection', stageKey: 'reflection', durationMin: 10 },
+    ];
+    const mainline = buildPblProjectMainline(120, activities);
+    expect(mainline.modules).toHaveLength(6);
+    expect(mainline.modules.at(-1)?.endMin).toBe(120);
+
+    const details = rescalePblDetailDurations(
+      [
+        { id: 'd1', parentActivityId: 'practice', targetDurationSec: 1200 },
+        { id: 'd2', parentActivityId: 'practice', targetDurationSec: 1800 },
+      ],
+      [{ id: 'practice', durationMin: 30 }],
+    );
+    expect(details.reduce((sum, detail) => sum + (detail.targetDurationSec ?? 0), 0)).toBe(1800);
+  });
+
+  it('estimates a positive Chinese TTS duration', () => {
+    expect(estimateTtsDurationSec('请先观察数据，再说明你的判断依据。')).toBeGreaterThan(1);
   });
 });

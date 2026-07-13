@@ -153,15 +153,6 @@ const STAGE_ALIASES: Record<string, PblStageKey> = {
   反思迁移: 'reflection',
 };
 
-const KIND_TO_STAGE: Record<Exclude<PblTimeActivityKind, 'other'>, PblStageKey> = {
-  launch: 'launch',
-  knowledge: 'ai-learning',
-  proposal: 'proposal',
-  practice: 'make',
-  showcase: 'showcase',
-  reflection: 'reflection',
-};
-
 const LEVEL_COMPLEXITY: Record<NonNullable<PblKnowledgeComplexity['level']>, number> = {
   foundation: 0.7,
   core: 1,
@@ -406,6 +397,22 @@ export function suggestPblTimeAllocation(
     });
   }
 
+  // A caller may still provide an incomplete outline. The UI normalizes the
+  // six canonical modules before editing, but this fallback keeps the helper
+  // total-preserving for programmatic callers and older drafts. Unrepresented
+  // module minutes are assigned to project practice when it exists.
+  const assigned = Object.values(suggestions).reduce((sum, value) => sum + value, 0);
+  const unrepresentedMinutes = Math.max(0, safeTotal - assigned);
+  if (unrepresentedMinutes > 0) {
+    const fallbackKind = groups.has('practice')
+      ? 'practice'
+      : (Array.from(groups.keys()).find((kind) => kind !== 'other') ?? 'other');
+    const fallbackActivity = groups.get(fallbackKind)?.[0];
+    if (fallbackActivity) {
+      suggestions[fallbackActivity.id] = (suggestions[fallbackActivity.id] ?? 0) + unrepresentedMinutes;
+    }
+  }
+
   return suggestions;
 }
 
@@ -580,7 +587,7 @@ export function buildPblProjectMainline(
       const duration = Number(activity.durationMin);
       return sum + (Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 0);
     }, 0);
-    const module = {
+    const timelineModule = {
       stageKey: definition.stageKey,
       label: definition.label,
       activityIds: matching.map((activity) => activity.id),
@@ -593,7 +600,7 @@ export function buildPblProjectMainline(
       resourcePlan: definition.resourcePlan,
     } satisfies PblProjectMainlineModule;
     cursor += durationMin;
-    return module;
+    return timelineModule;
   });
 
   return {
@@ -666,4 +673,3 @@ export function estimateTtsDurationSec(
   const speakingUnits = cjkCount / 4.5 + latinWordCount / 2.4 + punctuationCount * 0.08;
   return Math.max(options.minSeconds ?? 1, Math.round(speakingUnits / clamp(options.speed ?? 1, 0.5, 2)));
 }
-

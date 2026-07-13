@@ -1,6 +1,7 @@
 import { getCompanion } from "@/lib/ai-companions";
 import type { PblCourseConfig } from "@/lib/pbl-course-config";
 import type { SceneOutline } from "@openmaic/lib/types/generation";
+import { estimateTtsDurationSec } from "@/lib/pbl-time-model";
 
 export const PBL_STAGE_KEYS = [
   "launch",
@@ -174,7 +175,6 @@ export function checkPblStageCoverage(
 
   return {
     ok:
-      missingStageKeys.length === 0 &&
       missingStudentLearningStageKeys.length === 0 &&
       missingTeacherResourceStageKeys.length === 0 &&
       routingViolations.length === 0,
@@ -206,6 +206,11 @@ export function formatPblSceneContext(
     | "companionIds"
     | "companionPrompt"
     | "activityId"
+    | "parentActivityId"
+    | "detailKind"
+    | "knowledgePointIds"
+    | "targetDurationSec"
+    | "ttsPolicy"
     | "resourceTypes"
   >,
   config?: PblCourseConfig,
@@ -232,6 +237,11 @@ export function formatPblSceneContext(
     `受众：${outline.audience === "student" ? "学生课堂" : outline.audience === "teacher" ? "教师资源" : "未标注"}`,
     `生成目的：${outline.generationPurpose || "未标注"}`,
     outline.activityId ? `对应课堂活动：${outline.activityId}` : "",
+    outline.parentActivityId ? `所属课程模块：${outline.parentActivityId}` : "",
+    outline.detailKind ? `课程大纲资源角色：${outline.detailKind}` : "",
+    outline.knowledgePointIds?.length
+      ? `关联知识点 ID：${outline.knowledgePointIds.join("、")}`
+      : "",
     outline.resourceTypes?.length
       ? `要求的资源类型：${outline.resourceTypes.join("、")}`
       : "",
@@ -239,6 +249,11 @@ export function formatPblSceneContext(
     `伴学角色：${companions.length ? companions.join("、") : "按当前场景需要选择，不新增角色。"}`,
     companionDetails.length ? `伴学职责：${companionDetails.join("；")}` : "",
     `本阶段过程证据：${evidence.length ? evidence.join("、") : "按课程配置记录自然产生的过程证据。"}`,
+    outline.ttsPolicy === "target-duration" && outline.targetDurationSec
+      ? `学生 TTS 目标：${outline.targetDurationSec} 秒；中文讲稿可按约 4.5 字/秒估算，预计当前阶段提示至少需要 ${estimateTtsDurationSec(outline.stageLabel || "本阶段讲解")} 秒，并应通过内容长度与停顿贴近目标。`
+      : outline.ttsPolicy === "none"
+        ? "TTS 规则：本课程大纲资源是教师普通课堂资源，不生成 TTS。"
+        : "",
     outline.companionPrompt ? `伴学引导提示：${outline.companionPrompt}` : "",
     "硬性边界：学生是个人项目负责人；教师资源不能进入学生 AI 授知内容；AI 伴学只能提问、解释、质疑、建议和记录，不能替学生做最终决策或代做作品。",
   ]

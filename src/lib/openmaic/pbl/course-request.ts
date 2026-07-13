@@ -6,7 +6,10 @@ import type {
   SceneResourceType,
 } from "@openmaic/lib/types/generation";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
-import { assessPblTimeAllocation } from "@/lib/pbl-time-model";
+import {
+  assessPblTimeAllocation,
+  buildPblProjectMainline,
+} from "@/lib/pbl-time-model";
 
 export function buildTeacherActivityRequirements(
   content?: Partial<CourseContent>,
@@ -55,7 +58,24 @@ export function buildPblCourseRequirement(
   outlines?: SceneOutline[],
 ): string {
   const totalMinutes = Math.max(0, Math.round(course.hours * 60));
-  const timeAssessment = assessPblTimeAllocation(totalMinutes, content?.teachingOutline ?? []);
+  const timeContext = {
+    topic: course.name,
+    subject: course.subject,
+    summary: course.summary,
+    grade: course.grade,
+    difficulty: normalizePblCourseConfig(course.pblConfig).difficultyLevel,
+    knowledgePoints: content?.knowledgePoints,
+    knowledgeGraph: content?.knowledgeGraph,
+  };
+  const timeAssessment = assessPblTimeAllocation(
+    totalMinutes,
+    content?.teachingOutline ?? [],
+    timeContext,
+  );
+  const projectMainline = content?.projectMainline ?? buildPblProjectMainline(
+    totalMinutes,
+    content?.teachingOutline ?? [],
+  );
   return [
     "课程事实：",
     JSON.stringify(
@@ -76,13 +96,13 @@ export function buildPblCourseRequirement(
       ? `已确认知识结构：\n${JSON.stringify({ knowledgePoints: content.knowledgePoints ?? [], knowledgeGraph: content.knowledgeGraph ?? null }, null, 2)}`
       : "",
     content?.teachingOutline
-      ? `已确认一级课程活动大纲（每个一级活动可独立展开多个二级细化）：\n${JSON.stringify(content.teachingOutline, null, 2)}\n课程总时长：${totalMinutes} 分钟；当前活动合计：${timeAssessment.allocatedMinutes} 分钟；标准时间模型建议：${JSON.stringify(timeAssessment.recommendedStageTotals)}`
+      ? `已确认课程模块（每个模块可独立展开多个课程大纲资源）：\n${JSON.stringify(content.teachingOutline, null, 2)}\n课程总时长：${totalMinutes} 分钟；当前模块合计：${timeAssessment.allocatedMinutes} 分钟；六模块建议：${JSON.stringify(timeAssessment.recommendedStageTotals)}\n项目主线：${JSON.stringify(projectMainline, null, 2)}`
       : "",
     content?.teachingOutline?.length
-      ? `一级活动目录（用于校验二级 parentActivityId）：\n${JSON.stringify(buildPblActivityCatalog(content), null, 2)}`
+      ? `课程模块目录（用于校验课程大纲 parentActivityId）：\n${JSON.stringify(buildPblActivityCatalog(content), null, 2)}`
       : "",
     content?.knowledgePoints?.length
-      ? `二级细化只能引用以下已确认知识点 ID，请保持 knowledgePointIds 与备课目标一致：\n${JSON.stringify(content.knowledgePoints.map((point) => ({ id: point.id, name: point.name })), null, 2)}`
+      ? `课程大纲只能引用以下已确认知识点 ID，请保持 knowledgePointIds 与备课目标一致，并优先覆盖 foundation/core 后再安排 application/extension：\n${JSON.stringify(content.knowledgePoints.map((point) => ({ id: point.id, name: point.name, level: point.level })), null, 2)}`
       : "",
     content?.teachingOutline?.length
       ? `普通课堂活动的教师资源清单（每条都要单独生成和解析，AI 授知阶段除外）：\n${JSON.stringify(buildTeacherActivityRequirements(content), null, 2)}`

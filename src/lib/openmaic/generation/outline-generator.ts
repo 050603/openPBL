@@ -21,6 +21,8 @@ import {
   formatPblStageDefinitionsForPrompt,
   PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS,
 } from '@/lib/openmaic/pbl/course-template';
+import { normalizePblStageKey } from '@/lib/pbl-time-model';
+import { rescalePblDetailDurations } from '@/lib/pbl-time-model';
 import { formatImageDescription, formatImagePlaceholder } from './prompt-formatters';
 import { parseJsonResponse } from './json-repair';
 import { uniquifyMediaElementIds } from './scene-builder';
@@ -278,7 +280,12 @@ export function enforcePblOutlineContract(
   if (requirements.pblProfile?.generationTemplate !== 'pbl-six-stage') return outlines;
 
   const normalized = outlines.map((outline) => {
-    const next = normalizeInteractiveIntent(outline);
+    const next = normalizeInteractiveIntent({
+      ...outline,
+      ...(normalizePblStageKey(outline.stageKey)
+        ? { stageKey: normalizePblStageKey(outline.stageKey) }
+        : {}),
+    });
     const stage = PBL_STAGE_DEFINITIONS.find((item) => item.key === next.stageKey);
     if (!stage) {
       // An unlabelled PBL outline is never allowed to become student content
@@ -316,12 +323,13 @@ export function enforcePblOutlineContract(
   });
   const activities = requirements.pblTeachingActivities ?? [];
   for (const activity of activities) {
+    const activityStageKey = normalizePblStageKey(activity.stageKey) ?? activity.stageKey;
     const existing = normalized.find(
       (outline) =>
         outline.audience === 'teacher' &&
         (outline.activityId === activity.activityId || outline.parentActivityId === activity.activityId),
     );
-    if (activity.stageKey === 'ai-learning') {
+    if (activityStageKey === 'ai-learning') {
       continue;
     }
     if (existing) {
@@ -330,9 +338,9 @@ export function enforcePblOutlineContract(
         existing.generationPurpose === 'teacher-resource'
           ? 'teacher-resource'
           : 'facilitation-scaffold';
-      existing.stageKey = activity.stageKey;
+      existing.stageKey = activityStageKey;
       existing.stageLabel =
-        PBL_STAGE_DEFINITIONS.find((item) => item.key === activity.stageKey)?.label;
+        PBL_STAGE_DEFINITIONS.find((item) => item.key === activityStageKey)?.label;
       existing.resourceTypes = ['ppt', 'script'];
       const normalizedExisting = normalizeInteractiveIntent(existing);
       Object.assign(
@@ -347,9 +355,9 @@ export function enforcePblOutlineContract(
       continue;
     }
 
-    const stage = PBL_STAGE_DEFINITIONS.find((item) => item.key === activity.stageKey);
+    const stage = PBL_STAGE_DEFINITIONS.find((item) => item.key === activityStageKey);
     const teacherSupportPurpose =
-      activity.stageKey === 'launch' || activity.stageKey === 'showcase'
+      activityStageKey === 'launch' || activityStageKey === 'showcase'
         ? 'teacher-resource'
         : 'facilitation-scaffold';
 
@@ -367,16 +375,16 @@ export function enforcePblOutlineContract(
       ].filter(Boolean),
       estimatedDuration: Math.max(60, activity.durationMin * 60),
       order: normalized.length + 1,
-      stageKey: activity.stageKey,
-      stageLabel: stage?.label ?? activity.stageKey,
+      stageKey: activityStageKey,
+      stageLabel: stage?.label ?? activityStageKey,
       audience: 'teacher',
       generationPurpose: teacherSupportPurpose,
       activityId: activity.activityId,
       parentActivityId: activity.activityId,
       detailKind:
-        activity.stageKey === 'launch'
+        activityStageKey === 'launch'
           ? 'teacher-introduction'
-          : activity.stageKey === 'showcase'
+          : activityStageKey === 'showcase'
             ? 'showcase-coaching'
             : 'project-scaffold',
       targetDurationSec: Math.max(60, activity.durationMin * 60),
@@ -387,7 +395,7 @@ export function enforcePblOutlineContract(
     });
   }
 
-  return normalized.map((outline, index) => {
+  let withMetadata = normalized.map((outline) => {
     const parentActivity = requirements.pblActivityCatalog?.find(
       (activity) =>
         activity.activityId === outline.parentActivityId ||
@@ -409,11 +417,50 @@ export function enforcePblOutlineContract(
         ? { knowledgePointIds: [...parentActivity.knowledgePointIds] }
         : {}),
     };
-    return {
-      ...normalizePblDetailMetadata(withCatalogDefaults, parentActivity?.activityId),
-      order: index,
-    };
+    return normalizePblDetailMetadata(withCatalogDefaults, parentActivity?.activityId);
   });
+  const requiredKnowledgePoints = requirements.knowledgePoints ?? [];
+  const requiredKnowledgeIds = new Set(requiredKnowledgePoints.map((point) => point.id).filter(Boolean));
+  const studentIndexes = withMetadata
+    .map((outline, index) => ({ outline, index }))
+    .filter(({ outline }) => outline.audience === 'student' && outline.stageKey === 'ai-learning');
+  const coveredKnowledgeIds = new Set(
+    studentIndexes.flatMap(({ outline }) => outline.knowledgePointIds ?? []),
+  );
+  const missingKnowledgeIds = Array.from(requiredKnowledgeIds).filter(
+    (id) => !coveredKnowledgeIds.has(id),
+  );
+  if (missingKnowledgeIds.length > 0 && studentIndexes.length > 0) {
+    const targetIndex = studentIndexes[0].index;
+    const target = withMetadata[targetIndex];
+    const missingNames = requiredKnowledgePoints
+      .filter((point) => missingKnowledgeIds.includes(point.id))
+      .map((point) => point.name || point.id);
+    withMetadata = withMetadata.map((outline, index) =>
+      index === targetIndex
+        ? {
+            ...outline,
+            knowledgePointIds: Array.from(
+              new Set([...(outline.knowledgePointIds ?? []), ...missingKnowledgeIds]),
+            ),
+            keyPoints: Array.from(
+              new Set([...(outline.keyPoints ?? []), ...missingNames.map((name) => `知识点：${name}`)]),
+            ),
+            description: `${outline.description} 本场景还需覆盖：${missingNames.join('、')}。`,
+          }
+        : outline,
+    );
+    log.warn(
+      `PBL knowledge coverage was incomplete; attached ${missingKnowledgeIds.length} missing points to ${target.title}`,
+    );
+  }
+  const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({
+    id: activity.activityId,
+    durationMin: activity.durationMin,
+  }));
+  return rescalePblDetailDurations<SceneOutline>(withMetadata, parentActivities).map(
+    (outline, index) => ({ ...outline, order: index }),
+  );
 }
 
 const PBL_DETAIL_KINDS = new Set<PblDetailKind>([

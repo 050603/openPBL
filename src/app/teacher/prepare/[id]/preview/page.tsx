@@ -173,9 +173,22 @@ export default function PreviewCoursePage() {
 
           <Card>
             <div className="mb-4 flex items-center gap-2">
-              <h2 className="text-xl font-bold">一级课程活动大纲</h2>
-              <Pill tone="blue">宏观时间轴</Pill>
+              <h2 className="text-xl font-bold">课程模块</h2>
+              <Pill tone="blue">六模块时间分配</Pill>
             </div>
+            {course.content.projectMainline ? (
+              <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {course.content.projectMainline.modules.map((module) => (
+                  <div className="rounded-[6px] border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs" key={module.stageKey}>
+                    <div className="flex items-center justify-between gap-2 font-semibold text-slate-700">
+                      <span>{module.label}</span>
+                      <span className="tabular-nums text-blue-700">{module.durationMin} 分钟</span>
+                    </div>
+                    <p className="mt-1 text-slate-500">第 {module.startMin}-{module.endMin} 分钟</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {course.content.teachingOutline?.length ? (
               <ol className="space-y-3">
                 {course.content.teachingOutline.map((item, index) => (
@@ -221,7 +234,7 @@ export default function PreviewCoursePage() {
                 ))}
               </ol>
             ) : (
-              <p className="text-sm text-slate-500">暂无一级课程活动大纲。</p>
+              <p className="text-sm text-slate-500">暂无课程模块。</p>
             )}
           </Card>
 
@@ -267,10 +280,10 @@ export default function PreviewCoursePage() {
 
           <Card>
             <h2 className="mb-4 text-xl font-bold">
-              二级资源细化大纲（{course.content.lessonOutline.length}）
+              课程大纲（{course.content.lessonOutline.length}）
             </h2>
             {course.content.lessonOutline.length === 0 ? (
-              <p className="text-sm text-slate-500">暂无二级资源细化。</p>
+              <p className="text-sm text-slate-500">暂无课程大纲资源。</p>
             ) : (
               <ol className="space-y-3">
                 {course.content.lessonOutline.map((lo, i) => (
@@ -288,7 +301,7 @@ export default function PreviewCoursePage() {
                       </span>
                     </div>
                     {lo.parentActivityId ? (
-                      <p className="mb-2 text-xs text-slate-500">父级活动：{course.content.teachingOutline?.find((item) => item.id === lo.parentActivityId)?.title ?? lo.parentActivityId}</p>
+                      <p className="mb-2 text-xs text-slate-500">所属课程模块：{course.content.teachingOutline?.find((item) => item.id === lo.parentActivityId)?.title ?? lo.parentActivityId}</p>
                     ) : null}
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>

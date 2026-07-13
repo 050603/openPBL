@@ -165,6 +165,7 @@ function GenerationCoverage({
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {Object.values(coverage.entries).map((entry) => <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}><span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span><span className={entry.total ? "text-[var(--pbl-ai)]" : "text-rose-500"}>{entry.total ? `${entry.total} 场` : "缺少"}</span></div>)}
       </div>
+      {coverage.missingStageKeys.length ? <p className="mt-3 text-xs leading-5 text-slate-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。</p> : null}
       {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-amber-800">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " AI 授知需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
       {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-slate-500">元数据提醒：{coverage.metadataWarnings.join("；")}。</p> : null}
     </section>
@@ -491,7 +492,7 @@ export default function GenerateCoursePage() {
         <div>
           <h1 className="text-[28px] font-bold">生成课程</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {course.name} · 正在依据二级资源细化生成课程内容
+            {course.name} · 正在依据课程大纲生成课程内容
           </p>
         </div>
       </div>
@@ -509,7 +510,7 @@ export default function GenerateCoursePage() {
             <GenerationCoverage coverage={pblCoverage} />
 
             <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
-              ["二级细化场景", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
+              ["课程大纲资源", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
               ["互动活动", "按教学活动配置"], ["知识检查", "覆盖学习目标"],
               ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.openMaicUse !== "student-ai-learning").length ?? 0} 组`],
               ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
@@ -701,10 +702,10 @@ export default function GenerateCoursePage() {
         <aside className="space-y-5">
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-bold">
-              <Lightbulb className="text-blue-600" size={18} /> 二级资源细化生成
+              <Lightbulb className="text-blue-600" size={18} /> 课程大纲生成
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              系统会以一级活动时间轴为父级，生成二级 PPT、讲稿、互动和课堂支架，并按资源归属分流到学生或教师侧。
+              系统会以六个课程模块为父级，生成课程大纲中的 PPT、讲稿、互动和课堂支架，并按资源归属分流到学生或教师侧。
             </p>
           </Card>
 

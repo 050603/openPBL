@@ -11,7 +11,7 @@ export type PblDetailKnowledgeInput = {
 };
 
 export type PblKnowledgeIssue = {
-  code: 'unknown-knowledge-point' | 'missing-knowledge-reference';
+  code: 'unknown-knowledge-point' | 'missing-knowledge-reference' | 'missing-knowledge-coverage';
   outlineId?: string;
   title?: string;
   knowledgePointIds?: string[];
@@ -34,7 +34,7 @@ export type PblKnowledgeValidationResult = {
 export function validatePblKnowledgeAlignment(
   details: ReadonlyArray<PblDetailKnowledgeInput>,
   knowledgePoints: ReadonlyArray<PblKnowledgePointReference>,
-  options: { requireReferences?: boolean } = {},
+  options: { requireReferences?: boolean; requireCoverage?: boolean } = {},
 ): PblKnowledgeValidationResult {
   const knownIds = new Set(knowledgePoints.map((point) => point.id).filter(Boolean));
   const referenced = new Set<string>();
@@ -73,8 +73,20 @@ export function validatePblKnowledgeAlignment(
     .map((point) => point.id)
     .filter((id) => !referenced.has(id));
 
+  if (options.requireCoverage && unreferencedPointIds.length > 0) {
+    issues.push({
+      code: 'missing-knowledge-coverage',
+      knowledgePointIds: unreferencedPointIds,
+      message: `课程大纲尚未覆盖以下已确认知识点：${unreferencedPointIds.join('、')}`,
+    });
+  }
+
   return {
-    valid: !issues.some((issue) => issue.code === 'unknown-knowledge-point'),
+    valid: !issues.some(
+      (issue) =>
+        issue.code === 'unknown-knowledge-point' ||
+        issue.code === 'missing-knowledge-coverage',
+    ),
     issues,
     referencedPointIds: referencedKnownIds,
     unreferencedPointIds,

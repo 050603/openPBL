@@ -359,7 +359,7 @@ function applyGraphLevels(
 function validateLessonOutline(
   raw: unknown,
   input: GenerateInput,
-  context?: Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "teachingOutline">,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "teachingOutline">>,
 ): LessonOutlineSection[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error("AI 授知大纲生成失败：AI 未返回章节大纲。");
@@ -406,7 +406,7 @@ function validateLessonOutline(
         ? Math.max(60, Number(section.targetDurationSec))
         : Math.max(60, (parent?.durationMin ?? Number(section.durationMin) ?? 1) * 60),
       ttsPolicy: isStudentKnowledge ? "target-duration" : "none",
-    };
+    } satisfies LessonOutlineSection;
   });
 
   if (input.pblConfig?.generationTemplate !== "pbl-six-stage" || !context?.knowledgePoints?.length) {
@@ -419,7 +419,7 @@ function validateLessonOutline(
   if (missingPoints.length === 0 || aiDetails.length === 0) return details;
 
   const parentId = aiDetails[0].parentActivityId ?? context.teachingOutline?.find((activity) => activity.stageKey === "ai-learning")?.id;
-  const scaffoldDetails: LessonOutlineSection[] = missingPoints.map((point, index) => ({
+  const scaffoldDetails: LessonOutlineSection[] = missingPoints.map((point) => ({
     id: `lo-knowledge-coverage-${point.id}`,
     stageKey: "ai-learning",
     title: `知识点补充：${point.name}`,
@@ -434,7 +434,7 @@ function validateLessonOutline(
     ttsPolicy: "target-duration",
   }));
   const parentActivities = context.teachingOutline ?? [];
-  return rescalePblDetailDurations(
+  return rescalePblDetailDurations<LessonOutlineSection>(
     [...details, ...scaffoldDetails],
     parentActivities,
   );
@@ -460,12 +460,10 @@ const DETAIL_KIND_VALUES = new Set([
   "reflection-transfer",
   "other",
 ]);
-const TTS_POLICY_VALUES = new Set(["none", "target-duration"]);
-
 function validateTeachingOutline(
   raw: unknown,
   input: GenerateInput,
-  context?: Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">>,
 ): TeachingOutlineSection[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error("授课大纲生成失败：AI 未返回教案级授课大纲。");
@@ -573,17 +571,17 @@ function validateFullCourse(json: unknown, input: GenerateInput): CourseContent 
       (detail) => !detail.parentActivityId || !activityIds.has(detail.parentActivityId),
     );
     if (orphanDetails.length > 0) {
-      throw new Error("二级资源细化生成失败：存在未关联一级活动的资源。");
+      throw new Error("课程大纲生成失败：存在未关联课程模块的资源。");
     }
     const studentDetails = lessonOutline.filter((detail) => detail.stageKey === "ai-learning");
     const knowledgeValidation = validatePblKnowledgeAlignment(
       studentDetails,
       knowledgePoints,
-      { requireReferences: true },
+      { requireReferences: true, requireCoverage: true },
     );
     if (knowledgeValidation.issues.length > 0) {
       throw new Error(
-        `二级资源细化知识点校验失败：${knowledgeValidation.issues[0]?.message ?? "请检查知识点关联。"}`,
+        `课程大纲知识点校验失败：${knowledgeValidation.issues[0]?.message ?? "请检查知识点关联。"}`,
       );
     }
   }

@@ -31,7 +31,7 @@ export function normalizeKnowledgeGraphForDisplay(
         label: point.name,
         description: point.description,
         keyInfo: point.keyInfo,
-        level: (index < 2 ? "foundation" : index < 4 ? "core" : "application") as KnowledgeGraphNode["level"],
+        level: (point.level ?? (index < 2 ? "foundation" : index < 4 ? "core" : "application")) as KnowledgeGraphNode["level"],
       }));
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = (graph?.edges ?? []).filter(

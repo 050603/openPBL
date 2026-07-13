@@ -11,7 +11,7 @@ import {
   type PblTimeModelContext,
 } from '@/lib/pbl-time-model';
 
-type NormalizePblTeachingOutlineOptions = PblTimeModelContext & {
+type NormalizePblTeachingOutlineOptions = Omit<PblTimeModelContext, 'knowledgePoints' | 'knowledgeGraph'> & {
   totalMinutes: number;
   applyTimeModel?: boolean;
   knowledgePoints?: ReadonlyArray<KnowledgePoint>;
@@ -21,10 +21,6 @@ type NormalizePblTeachingOutlineOptions = PblTimeModelContext & {
 const KIND_TO_DEFINITION = new Map(
   PBL_MODULE_DEFINITIONS.map((definition) => [definition.kind, definition]),
 );
-
-function joinText(values: string[]): string {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).join('；');
-}
 
 function defaultTeachingActivity(
   definition: (typeof PBL_MODULE_DEFINITIONS)[number],
@@ -90,7 +86,7 @@ export function normalizePblTeachingOutline(
   );
   const source = activities.map((activity, index) => {
     const kind = classifyPblActivityKind(activity);
-    const definition = KIND_TO_DEFINITION.get(kind);
+    const definition = kind === 'other' ? undefined : KIND_TO_DEFINITION.get(kind);
     const stageKey = definition?.stageKey ?? normalizePblStageKey(activity.stageKey) ?? 'make';
     const validKnowledgePointIds = (activity.knowledgePointIds ?? []).filter((id) =>
       knownIds.size === 0 ? Boolean(id) : knownIds.has(id),

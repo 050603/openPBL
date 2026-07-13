@@ -59,6 +59,8 @@ export interface UserRequirements {
   pblTeachingActivities?: PblTeachingActivityRequirement[];
   /** Full first-level activity catalog, including student AI-learning activities. */
   pblActivityCatalog?: PblActivityCatalogEntry[];
+  /** Confirmed knowledge catalog used to keep second-level coverage deterministic. */
+  knowledgePoints?: Array<{ id: string; name?: string; level?: string }>;
 }
 
 // ==================== Stage 1 Output: Scene Outlines (Simplified) ====================

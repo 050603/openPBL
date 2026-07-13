@@ -180,6 +180,7 @@ export function buildTeachingOutlinePrompt(
 驱动问题：${input.drivingQuestion || "（无）"}
 个人项目配置：${personalProjectConfigText(input)}
 已确认 PBL 项目说明：${context?.pblOutline || "（尚未生成，可根据课程信息推断）"}
+已确认项目主线：${JSON.stringify(context?.projectMainline ?? null)}
 已确认知识点与图谱：${JSON.stringify({
     knowledgePoints: context?.knowledgePoints ?? [],
     knowledgeGraph: context?.knowledgeGraph ?? null,
@@ -245,7 +246,7 @@ export function buildLessonOutlinePrompt(
   const stageList = input.stages
     .map((s) => `- ${s.key}（${s.label}）：${s.description}`)
     .join("\n");
-  const user = `请基于以下课程信息、一级课程活动时间轴与已确认知识图谱，生成二级资源细化大纲。二级大纲是一级活动的深化，不是与一级活动一一对应的复制；一个一级活动可以拆出多个独立的 PPT、互动、练习或教师支架资源。
+  const user = `请基于以下课程信息、六个课程模块与已确认知识图谱，生成课程大纲。课程大纲是课程模块的深化，不是与课程模块一一对应的复制；一个课程模块可以拆出多个独立的 PPT、互动、练习或教师支架资源。
 
 课程名称：${input.name}
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
