@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
     body,
     'maic-agent',
   );
+  if (req.signal.aborted) return new Response(null, { status: 499 });
 
   // Per-stage model resolution for the generation tools. Each tool is a
   // self-contained black box that names the generation stage it produces (e.g.
@@ -155,6 +156,15 @@ export async function POST(req: NextRequest) {
     tools,
     history: toHistoryMessages(body.history),
   });
+  const onRequestAbort = () => {
+    abortController.abort(req.signal.reason);
+    agent.abort();
+  };
+  if (req.signal.aborted) {
+    onRequestAbort();
+  } else {
+    req.signal.addEventListener('abort', onRequestAbort, { once: true });
+  }
   log.info(`agent edit turn [model=${modelString}] scene=${body.scene?.id ?? 'none'}`);
 
   const encoder = new TextEncoder();
@@ -177,6 +187,7 @@ export async function POST(req: NextRequest) {
         log.error(`agent run failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         unsubscribe();
+        req.signal.removeEventListener('abort', onRequestAbort);
         try {
           controller.enqueue(encoder.encode('event: close\ndata: {}\n\n'));
         } catch {
@@ -188,6 +199,7 @@ export async function POST(req: NextRequest) {
     cancel() {
       agent.abort();
       abortController.abort();
+      req.signal.removeEventListener('abort', onRequestAbort);
     },
   });
 

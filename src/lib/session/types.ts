@@ -6,7 +6,9 @@ import type {
   PblTtsPolicy,
   SceneResourceType,
 } from "@openmaic/lib/types/generation";
-import type { PblProjectMainline } from "@/lib/pbl-time-model";
+import type { PblModuleTimingPlan, PblProjectMainline } from "@/lib/pbl-time-model";
+import type { PblActivityTimingInput } from "@/lib/pbl-time-estimation";
+import type { TtsTimingPlan } from "@/lib/openmaic/audio/tts-timing";
 
 export type CourseStatus =
   | "draft"
@@ -491,6 +493,7 @@ export type OpenMaicSceneOutlineSnapshot = {
   knowledgePointIds?: string[];
   targetDurationSec?: number;
   ttsPolicy?: PblTtsPolicy;
+  timingPlan?: TtsTimingPlan;
   resourceTypes?: SceneResourceType[];
   description?: string;
   keyPoints?: string[];
@@ -652,6 +655,8 @@ export type CourseContent = {
   _openmaicScenesCount?: number;
   /** Confirmed OpenMAIC outline snapshot used by the final classroom generator. */
   _openmaicSceneOutlines?: OpenMaicSceneOutlineSnapshot[];
+  /** AI module recommendation and teacher-confirmed fixed-total allocation. */
+  moduleTimingPlan?: PblModuleTimingPlan;
   /**
    * 教师授课资源：从 OpenMAIC 生成结果中拆分出的课程引入与 PBL 题目讲解内容。
    * 这些内容不会出现在学生 AI 授知课堂中，仅供教师在授课时使用。
@@ -721,6 +726,7 @@ export type TeacherResourceScene = {
   detailKind?: PblDetailKind;
   targetDurationSec?: number;
   ttsPolicy?: PblTtsPolicy;
+  timingPlan?: TtsTimingPlan;
   resourceTypes?: Array<
     "ppt" | "interactive-demo" | "code-interactive" | "script" | "worksheet" | "rubric" | "project-brief"
   >;
@@ -775,6 +781,8 @@ export type TeachingOutlineSection = {
   resourceTypes?: Array<
     "ppt" | "interactive-demo" | "code-interactive" | "script" | "worksheet" | "rubric" | "project-brief"
   >;
+  /** Optional structured inputs used by the multi-element time estimator. */
+  timingProfile?: Omit<PblActivityTimingInput, "id" | "title" | "stageKey" | "activityKind" | "targetDurationSec">;
   notes?: string;
 };
 
@@ -792,6 +800,7 @@ export type LessonOutlineSection = {
   resourceTypes?: SceneResourceType[];
   targetDurationSec?: number;
   ttsPolicy?: PblTtsPolicy;
+  timingPlan?: TtsTimingPlan;
 };
 
 export type EvaluationPlan = {

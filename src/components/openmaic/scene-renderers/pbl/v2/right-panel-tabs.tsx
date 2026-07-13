@@ -52,7 +52,7 @@ export function PBLV2RightPanelTabs({
         <div
           role="tablist"
           aria-label={t('pbl.v2.briefing.tablistLabel')}
-          className="flex w-full rounded-full border border-cyan-100/[0.12] bg-slate-700/[0.26] p-1"
+          className="flex w-full rounded-full border border-cyan-100/[0.12] bg-stone-700/[0.26] p-1"
         >
           <TabButton
             active={tab === 'submission'}

@@ -100,7 +100,7 @@ export function ProjectCoverImage({
           className,
         )}
       >
-        <div className="flex flex-col items-center gap-2 text-slate-400">
+        <div className="flex flex-col items-center gap-2 text-stone-400">
           <Loader2 size={28} className="animate-spin" />
           <span className="text-xs font-medium">正在生成课程封面…</span>
         </div>
@@ -122,7 +122,7 @@ export function ProjectCoverImage({
         onKeyDown={(e) => { if (e.key === "Enter") void generate(); }}
       >
         <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-40" />
-        <div className="relative flex flex-col items-center gap-2 text-slate-600">
+        <div className="relative flex flex-col items-center gap-2 text-stone-600">
           {error ? <RefreshCw size={24} /> : <Sparkles size={24} />}
           <span className="text-xs font-semibold">
             {error ? "点击重新生成" : "生成课程封面图"}
@@ -187,14 +187,14 @@ export function SlidePreview({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-slate-300 bg-slate-50 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-[8px] border border-dashed border-stone-300 bg-stone-50 text-center",
         className,
       )}
     >
       <CampusPhoto className="h-[60%] w-[80%] rounded-[6px] opacity-50" />
       <div className="px-6 pb-4">
-        <p className="text-base font-bold text-slate-600">演示预览占位</p>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="text-base font-bold text-stone-600">演示预览占位</p>
+        <p className="mt-1 text-sm text-stone-500">
           上传 PPT 或视频后，将在此处显示真实预览。
         </p>
       </div>
@@ -217,7 +217,7 @@ export function EvidenceStrip() {
           <BarChart3 className="text-blue-700" size={30} />
         </div>
       </div>
-      <div className="grid h-32 place-items-center rounded-[8px] border border-slate-200 bg-slate-50 text-2xl font-semibold text-slate-600">
+      <div className="grid h-32 place-items-center rounded-[8px] border border-stone-200 bg-stone-50 text-2xl font-semibold text-stone-600">
         +3
       </div>
     </div>

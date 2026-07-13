@@ -45,6 +45,8 @@ describe("PBL course configuration", () => {
     expect(text).toContain("校园节能方案");
     expect(text).toContain("recorder");
     expect(text).toContain("companionProfiles");
+    expect(text).toContain("companionStagePolicies");
+    expect(text).toContain("算法教程");
     expect(text).toContain("过程记录");
   });
 });

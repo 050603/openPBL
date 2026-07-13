@@ -73,6 +73,8 @@ describe("PBL outline fallbacks", () => {
     expect(systemPrompt).toContain("not a generic slide deck");
     expect(userPrompt).toContain("personal");
     expect(userPrompt).toContain("evidenceRequirements");
+    expect(userPrompt).toContain("companionStagePolicies");
+    expect(result.data?.outlines[0]?.companionIds).toEqual(["knowledge", "ideation"]);
   });
 
   it("preserves interactive learning intent and adds ordinary activity teacher support", () => {
@@ -140,6 +142,7 @@ describe("PBL outline fallbacks", () => {
       parentActivityId: "activity-1",
       ttsPolicy: "none",
       resourceTypes: ["ppt", "script"],
+      companionIds: ["knowledge", "ideation", "critic", "planner", "recorder"],
     });
     expect(result.find((outline) => outline.id === "learning-2")).toMatchObject({
       parentActivityId: "activity-ai",

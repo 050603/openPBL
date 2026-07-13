@@ -12,6 +12,14 @@ import { createLogger } from '@openmaic/lib/logger';
 import { linkClassroomToCourse } from '@/lib/openmaic-bridge/course-linker';
 import { splitGeneratedClassroom } from '@/lib/openmaic-bridge/server-classroom-split';
 import type { SceneOutline } from '@openmaic/lib/types/generation';
+import {
+  isPblModuleTimingPlanConfirmed,
+  type PblModuleTimingPlan,
+} from '@/lib/pbl-time-model';
+import {
+  isAbortError,
+  throwIfAborted,
+} from '@openmaic/lib/generation/generation-retry';
 
 const log = createLogger('GenerateAPI');
 
@@ -66,6 +74,7 @@ export async function POST(request: NextRequest) {
   const {
     requirement,
     pblProfile,
+    moduleTimingPlan,
     pblTeachingActivities,
     pblActivityCatalog,
     knowledgePoints,
@@ -76,10 +85,15 @@ export async function POST(request: NextRequest) {
     enableImageGeneration = false,
     enableVideoGeneration = false,
     enableTTS = false,
+    ttsProviderId,
+    ttsModelId,
+    ttsSpeed,
+    ttsLanguage,
     agentMode = 'default',
   } = body as {
     requirement?: string;
     pblProfile?: import('@openmaic/lib/types/generation').UserRequirements['pblProfile'];
+    moduleTimingPlan?: PblModuleTimingPlan;
     pblTeachingActivities?: import('@openmaic/lib/types/generation').UserRequirements['pblTeachingActivities'];
     pblActivityCatalog?: import('@openmaic/lib/types/generation').UserRequirements['pblActivityCatalog'];
     knowledgePoints?: Array<{ id: string; name?: string }>;
@@ -90,6 +104,10 @@ export async function POST(request: NextRequest) {
     enableImageGeneration?: boolean;
     enableVideoGeneration?: boolean;
     enableTTS?: boolean;
+    ttsProviderId?: string;
+    ttsModelId?: string;
+    ttsSpeed?: number;
+    ttsLanguage?: string;
     agentMode?: unknown;
   };
 
@@ -102,30 +120,63 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (
+    pblProfile?.generationTemplate === 'pbl-six-stage'
+    && !isPblModuleTimingPlanConfirmed(moduleTimingPlan)
+  ) {
+    return apiError(
+      API_ERROR_CODES.INVALID_REQUEST,
+      400,
+      'PBL module timing must be confirmed before classroom generation',
+    );
+  }
+
   const baseUrl = buildRequestOrigin(request);
   const sceneOutlines = normalizeSceneOutlines(rawSceneOutlines);
   const encoder = new TextEncoder();
+  const generationController = new AbortController();
+  const abortGeneration = () => {
+    if (!generationController.signal.aborted) {
+      generationController.abort(request.signal.reason);
+    }
+  };
+  const onRequestAbort = () => abortGeneration();
+  if (request.signal.aborted) {
+    abortGeneration();
+  } else {
+    request.signal.addEventListener('abort', onRequestAbort, { once: true });
+  }
+  const signal = generationController.signal;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       // 心跳：防止代理/浏览器在长时间无数据时关闭连接
       const heartbeatTimer = setInterval(() => {
+        if (signal.aborted) {
+          clearInterval(heartbeatTimer);
+          return;
+        }
         try {
           controller.enqueue(encoder.encode(`:heartbeat\n\n`));
         } catch {
+          abortGeneration();
           // controller 已关闭，忽略
         }
       }, HEARTBEAT_INTERVAL_MS);
 
       const send = (obj: unknown) => {
+        if (signal.aborted) return false;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+          return true;
         } catch {
+          abortGeneration();
           // controller 已关闭，忽略
         }
       };
 
       try {
+        throwIfAborted(signal);
         log.info(
           `Starting classroom generation [courseId=${courseId ?? 'none'}, reqLen=${requirement.length}]`,
         );
@@ -143,11 +194,17 @@ export async function POST(request: NextRequest) {
             enableImageGeneration,
             enableVideoGeneration,
             enableTTS,
+            ttsProviderId: typeof ttsProviderId === 'string' ? ttsProviderId : undefined,
+            ttsModelId: typeof ttsModelId === 'string' ? ttsModelId : undefined,
+            ttsSpeed: typeof ttsSpeed === 'number' ? ttsSpeed : undefined,
+            ttsLanguage: typeof ttsLanguage === 'string' ? ttsLanguage : undefined,
             agentMode: normalizeAgentMode(agentMode),
           },
           {
             baseUrl,
+            signal,
             onProgress: (progress) => {
+              throwIfAborted(signal);
               log.info(
                 `[Generation progress] ${progress.step}: ${progress.progress}% - ${progress.message}`,
               );
@@ -161,6 +218,7 @@ export async function POST(request: NextRequest) {
           },
         );
 
+        throwIfAborted(signal);
         const splitResult = await splitGeneratedClassroom({
           stage: result.stage,
           scenes: result.scenes,
@@ -169,19 +227,22 @@ export async function POST(request: NextRequest) {
           pblMode:
             pblProfile?.generationTemplate === 'pbl-six-stage' ||
             Boolean(pblTeachingActivities?.length),
+          signal,
         });
 
         // 关联到 openPBL 课程。此时学生课堂已经完成服务端分流，绝不再
         // 把含教师资源的原始全量课堂暴露给学生端。
         if (courseId) {
+          throwIfAborted(signal);
           await linkClassroomToCourse(courseId, splitResult.studentClassroomId, {
             scenesCount: splitResult.studentSceneCount,
             stageName: result.stage.name,
             teacherClassroomId: splitResult.teacherClassroomId,
             teacherResourceScenes: splitResult.teacherResourceScenes,
-          });
+          }, { signal });
         }
 
+        throwIfAborted(signal);
         log.info(
           `Classroom generation completed [id=${result.id}, scenes=${result.scenesCount}]`,
         );
@@ -199,6 +260,9 @@ export async function POST(request: NextRequest) {
           stage: { id: result.stage.id, name: result.stage.name },
         });
       } catch (error) {
+        if (signal.aborted || isAbortError(error)) {
+          return;
+        }
         log.error('Classroom generation failed:', error);
         send({
           type: 'error',
@@ -207,12 +271,16 @@ export async function POST(request: NextRequest) {
         });
       } finally {
         clearInterval(heartbeatTimer);
+        request.signal.removeEventListener('abort', onRequestAbort);
         try {
           controller.close();
         } catch {
           // controller 已关闭，忽略
         }
       }
+    },
+    cancel() {
+      abortGeneration();
     },
   });
 

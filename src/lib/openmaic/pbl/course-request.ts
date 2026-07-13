@@ -7,8 +7,8 @@ import type {
 } from "@openmaic/lib/types/generation";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import {
-  assessPblTimeAllocation,
   buildPblProjectMainline,
+  isPblModuleTimingPlanConfirmed,
 } from "@/lib/pbl-time-model";
 
 export function buildTeacherActivityRequirements(
@@ -58,24 +58,18 @@ export function buildPblCourseRequirement(
   outlines?: SceneOutline[],
 ): string {
   const totalMinutes = Math.max(0, Math.round(course.hours * 60));
-  const timeContext = {
-    topic: course.name,
-    subject: course.subject,
-    summary: course.summary,
-    grade: course.grade,
-    difficulty: normalizePblCourseConfig(course.pblConfig).difficultyLevel,
-    knowledgePoints: content?.knowledgePoints,
-    knowledgeGraph: content?.knowledgeGraph,
+  const moduleTimingPlan = content?.moduleTimingPlan;
+  const timingConfirmed = isPblModuleTimingPlanConfirmed(moduleTimingPlan);
+  const timeAssessment = {
+    allocatedMinutes: moduleTimingPlan?.allocations.reduce(
+      (sum, activity) => sum + Math.max(0, Math.round(activity.durationMin)),
+      0,
+    ) ?? 0,
+    recommendedStageTotals: moduleTimingPlan?.recommendedStageTotals ?? {},
   };
-  const timeAssessment = assessPblTimeAllocation(
-    totalMinutes,
-    content?.teachingOutline ?? [],
-    timeContext,
-  );
-  const projectMainline = content?.projectMainline ?? buildPblProjectMainline(
-    totalMinutes,
-    content?.teachingOutline ?? [],
-  );
+  const projectMainline = timingConfirmed && content?.teachingOutline?.length
+    ? content.projectMainline ?? buildPblProjectMainline(totalMinutes, content.teachingOutline)
+    : undefined;
   return [
     "课程事实：",
     JSON.stringify(
@@ -95,7 +89,7 @@ export function buildPblCourseRequirement(
     content?.knowledgePoints || content?.knowledgeGraph
       ? `已确认知识结构：\n${JSON.stringify({ knowledgePoints: content.knowledgePoints ?? [], knowledgeGraph: content.knowledgeGraph ?? null }, null, 2)}`
       : "",
-    content?.teachingOutline
+    content?.teachingOutline?.length
       ? `已确认课程模块（每个模块可独立展开多个课程大纲资源）：\n${JSON.stringify(content.teachingOutline, null, 2)}\n课程总时长：${totalMinutes} 分钟；当前模块合计：${timeAssessment.allocatedMinutes} 分钟；六模块建议：${JSON.stringify(timeAssessment.recommendedStageTotals)}\n项目主线：${JSON.stringify(projectMainline, null, 2)}`
       : "",
     content?.teachingOutline?.length

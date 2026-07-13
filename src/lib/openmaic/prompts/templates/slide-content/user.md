@@ -9,6 +9,7 @@
 
 {{teacherContext}}
 {{pblContext}}
+{{timingBudget}}
 
 ## Available Resources
 

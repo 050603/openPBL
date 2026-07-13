@@ -7,9 +7,9 @@ import { useSession } from '@/lib/session/store';
 
 function LoadingShell() {
   return (
-    <div className="grid h-screen place-items-center bg-white text-slate-500">
+    <div className="grid h-screen place-items-center bg-white text-stone-500">
       <div className="text-center">
-        <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+        <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-stone-300 border-t-blue-600" />
         <p className="text-sm">正在准备学习环境...</p>
       </div>
     </div>
@@ -29,7 +29,7 @@ function AiLearningPlayer() {
 
   if (!classroomId) {
     return (
-      <div className="grid h-screen place-items-center bg-white text-slate-500">
+      <div className="grid h-screen place-items-center bg-white text-stone-500">
         <p className="text-sm">缺少课堂 ID 参数</p>
       </div>
     );
@@ -37,7 +37,7 @@ function AiLearningPlayer() {
 
   if (!studentId) {
     return (
-      <div className="grid h-screen place-items-center bg-white text-slate-500">
+      <div className="grid h-screen place-items-center bg-white text-stone-500">
         <p className="text-sm">学生身份未初始化，请重新进入课堂</p>
       </div>
     );

@@ -103,7 +103,7 @@ export function DashboardShell({
   return (
     <div className={cn("min-h-screen text-[var(--pbl-text)]", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
       <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
-        <div className="mx-auto flex min-h-16 max-w-[1760px] items-center px-3 py-2 md:px-6">
+        <div className="flex min-h-16 items-center px-3 py-2 md:px-5">
           <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
@@ -127,7 +127,7 @@ export function DashboardShell({
                   <span className="block truncate text-xs font-normal text-[var(--pbl-text-muted)]">{[leadRole ? `${leadRole}主导` : null, currentTask ?? courseName].filter(Boolean).join(" · ")}</span>
                 </span>
                 {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
-                <ChevronDown size={14} className={cn("shrink-0 text-slate-400 transition", openPanel === "courses" && "rotate-180")} />
+                <ChevronDown size={14} className={cn("shrink-0 text-stone-400 transition", openPanel === "courses" && "rotate-180")} />
               </button>
             ) : null}
             {headerSlot}
@@ -146,7 +146,7 @@ export function DashboardShell({
               </Link>
             ) : null}
             <button
-              className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-slate-600 transition hover:border-slate-200 hover:bg-white"
+              className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-stone-600 transition hover:border-stone-200 hover:bg-white"
               onClick={() => toggle("notifications")}
               type="button"
               aria-label="通知中心"
@@ -167,12 +167,12 @@ export function DashboardShell({
               <span className="hidden max-w-[100px] truncate text-[13px] font-semibold md:inline">
                 {displayName || "未加入课堂"}
               </span>
-              <ChevronDown size={14} className={cn("text-slate-400 transition", openPanel === "profile" && "rotate-180")} />
+              <ChevronDown size={14} className={cn("text-stone-400 transition", openPanel === "profile" && "rotate-180")} />
             </button>
           </div>
         </div>
         {classroomBar ? (
-          <div className="mx-auto mt-2 max-w-[1760px]">
+          <div className="mt-2 px-3 md:px-5">
             {classroomBar}
           </div>
         ) : null}
@@ -187,17 +187,17 @@ export function DashboardShell({
           {openPanel === "profile" ? (
             <div className="space-y-3.5">
               <div>
-                <div className="text-base font-bold text-slate-900">个人信息</div>
-                <p className="mt-0.5 text-[13px] text-slate-500">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
+                <div className="text-base font-bold text-stone-900">个人信息</div>
+                <p className="mt-0.5 text-[13px] text-stone-500">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
               </div>
-              <label className="block text-[13px] font-semibold text-slate-700">
+              <label className="block text-[13px] font-semibold text-stone-700">
                 显示姓名
                 <TextInput className="mt-1.5 h-10" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} />
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton>
                 <Link
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50"
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-stone-200 bg-white text-[13px] font-semibold text-stone-600 transition hover:bg-stone-50"
                   href={isTeacher ? "/teacher/settings" : "/student"}
                   onClick={() => setOpenPanel(null)}
                 >
@@ -205,7 +205,7 @@ export function DashboardShell({
                 </Link>
               </div>
               <Link
-                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-rose-200 bg-rose-50 text-[13px] font-semibold text-rose-600 transition hover:bg-rose-100"
+                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[13px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
                 href={homeHref}
                 onClick={() => setOpenPanel(null)}
               >
@@ -217,8 +217,8 @@ export function DashboardShell({
       ) : null}
 
       <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
-        <div className={cn("mx-auto w-full px-4 pb-10 md:px-7", wide ? "max-w-[1720px]" : "max-w-[1540px]")}>
-          {subtitle ? <p className="mb-2 text-sm font-medium text-slate-500">{subtitle}</p> : null}
+        <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide && "max-w-none")}>
+          {subtitle ? <p className="mb-2 text-sm font-medium text-stone-500">{subtitle}</p> : null}
           {children}
         </div>
       </main>
@@ -247,7 +247,7 @@ function TopPopover({ children, onClose }: { children: ReactNode; onClose: () =>
   return (
     <div className="pbl-glass fixed right-4 top-[84px] z-40 w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-md)] p-4 md:right-8">
       <button
-        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-slate-400 transition hover:bg-white hover:text-slate-700"
+        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-stone-400 transition hover:bg-white hover:text-stone-700"
         onClick={onClose}
         type="button"
         aria-label="关闭"
@@ -264,8 +264,8 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
   return (
     <div>
       <div className="mb-3 pr-8">
-        <div className="text-base font-bold text-slate-900">课堂切换</div>
-        <p className="mt-0.5 text-[13px] text-slate-500">选择要进入的课堂或项目页面。</p>
+        <div className="text-base font-bold text-stone-900">课堂切换</div>
+        <p className="mt-0.5 text-[13px] text-stone-500">选择要进入的课堂或项目页面。</p>
       </div>
       <div className="max-h-[360px] space-y-1.5 overflow-auto pr-1">
         {courses.map((item) => {
@@ -287,10 +287,10 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
               onClick={onClose}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-[13px] font-bold text-slate-900">{item.name}</span>
+                <span className="truncate text-[13px] font-bold text-stone-900">{item.name}</span>
                 <StatusPill status={item.status} />
               </div>
-              <div className="mt-0.5 text-[11px] text-slate-500">
+              <div className="mt-0.5 text-[11px] text-stone-500">
                 {item.subject} · {item.grade} · 阶段 {item.currentStageIndex + 1}/{item.stages.length}
               </div>
             </Link>
@@ -305,23 +305,23 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
   return (
     <div>
       <div className="mb-3 pr-8">
-        <div className="text-base font-bold text-slate-900">通知中心</div>
-        <p className="mt-0.5 text-[13px] text-slate-500">课堂最近活动与反馈会显示在这里。</p>
+        <div className="text-base font-bold text-stone-900">通知中心</div>
+        <p className="mt-0.5 text-[13px] text-stone-500">课堂最近活动与反馈会显示在这里。</p>
       </div>
       {items.length ? (
         <div className="space-y-1.5">
           {items.map((item) => (
-            <div className="rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 p-2.5" key={item.id}>
-              <div className="text-[13px] font-semibold text-slate-900">
+            <div className="rounded-[var(--radius-sm)] border border-stone-200 bg-white/80 p-2.5" key={item.id}>
+              <div className="text-[13px] font-semibold text-stone-900">
                 {item.actor} · {item.action}
               </div>
-              {item.detail ? <div className="mt-0.5 text-[13px] text-slate-500">{item.detail}</div> : null}
-              <div className="mt-1.5 text-[11px] text-slate-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+              {item.detail ? <div className="mt-0.5 text-[13px] text-stone-500">{item.detail}</div> : null}
+              <div className="mt-1.5 text-[11px] text-stone-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-slate-300 bg-slate-50/40 py-8 text-center text-[13px] text-slate-500">
+        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-stone-300 bg-stone-50/40 py-8 text-center text-[13px] text-stone-500">
           暂无通知，课堂活动会在这里出现。
         </div>
       )}
@@ -362,7 +362,7 @@ export function AvatarStack({ names }: { names: string[] }) {
         </div>
       ))}
       {names.length > 4 ? (
-        <div className="-ml-1 grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+        <div className="-ml-1 grid h-8 w-8 place-items-center rounded-full bg-stone-100 text-xs font-bold text-stone-500">
           +{names.length - 4}
         </div>
       ) : null}
@@ -373,30 +373,30 @@ export function AvatarStack({ names }: { names: string[] }) {
 export function Toolbar() {
   const icons = [ClipboardList, FileText, CalendarDays, Database, Star];
   return (
-    <div className="flex h-11 items-center gap-1 border-b border-slate-200 bg-slate-50 px-3">
-      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+    <div className="flex h-11 items-center gap-1 border-b border-stone-200 bg-stone-50 px-3">
+      <select className="h-8 rounded-[6px] border border-stone-200 bg-white px-3 text-sm text-stone-600">
         <option>正文</option>
       </select>
-      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[6px] border border-stone-200 bg-white px-3 text-sm text-stone-600">
         <option>系统字体</option>
       </select>
-      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[6px] border border-stone-200 bg-white px-3 text-sm text-stone-600">
         <option>14</option>
       </select>
-      <span className="mx-2 h-6 w-px bg-slate-200" />
+      <span className="mx-2 h-6 w-px bg-stone-200" />
       {["B", "I", "U", "S"].map((item) => (
         <button className="grid h-8 w-8 place-items-center rounded-[6px] text-base font-bold hover:bg-white" key={item} type="button">
           {item}
         </button>
       ))}
-      <span className="mx-2 h-6 w-px bg-slate-200" />
+      <span className="mx-2 h-6 w-px bg-stone-200" />
       {icons.map((Icon, index) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-slate-700 hover:bg-white" key={index} type="button">
+        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-stone-700 hover:bg-white" key={index} type="button">
           <Icon size={17} />
         </button>
       ))}
-      <span className="ml-auto text-slate-400">撤销</span>
-      <span className="text-slate-400">重做</span>
+      <span className="ml-auto text-stone-400">撤销</span>
+      <span className="text-stone-400">重做</span>
     </div>
   );
 }

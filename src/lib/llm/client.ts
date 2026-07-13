@@ -233,13 +233,30 @@ async function callChatCompletions(
 }
 
 function extractJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("LLM 返回非 JSON");
-    return JSON.parse(match[0]);
+  const candidates = [
+    text.trim(),
+    text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Continue with the bounded JSON fragments below.
+    }
   }
+
+  const fragments = [
+    text.match(/\{[\s\S]*\}/)?.[0],
+    text.match(/\[[\s\S]*\]/)?.[0],
+  ].filter((fragment): fragment is string => Boolean(fragment));
+  for (const fragment of fragments) {
+    try {
+      return JSON.parse(fragment);
+    } catch {
+      // Keep the original error category for the UI.
+    }
+  }
+  throw new Error("LLM 返回非 JSON");
 }
 
 function emptyCourseContent(): CourseContent {
@@ -440,7 +457,6 @@ function validateLessonOutline(
   );
 }
 
-const OPEN_MAIC_USE_VALUES = new Set(["none", "student-ai-learning"]);
 const RESOURCE_TYPE_VALUES = new Set([
   "ppt",
   "interactive-demo",
@@ -460,57 +476,275 @@ const DETAIL_KIND_VALUES = new Set([
   "reflection-transfer",
   "other",
 ]);
-function validateTeachingOutline(
+
+type JsonRecord = Record<string, unknown>;
+
+function asJsonRecord(value: unknown): JsonRecord | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonRecord
+    : undefined;
+}
+
+function textFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const text = value
+      .map((item) => textFromUnknown(item))
+      .filter((item): item is string => Boolean(item))
+      .join("；");
+    return text || undefined;
+  }
+  const record = asJsonRecord(value);
+  if (!record) return undefined;
+  for (const key of ["text", "value", "content", "description", "action", "task", "responsibility", "role", "name", "label", "key"]) {
+    const text = textFromUnknown(record[key]);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function firstValue(record: JsonRecord, keys: ReadonlyArray<string>): unknown {
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null) return record[key];
+  }
+  return undefined;
+}
+
+function firstText(
+  record: JsonRecord,
+  keys: ReadonlyArray<string>,
+  nestedRecords: ReadonlyArray<JsonRecord | undefined> = [],
+): string | undefined {
+  const values = [record, ...nestedRecords];
+  for (const source of values) {
+    if (!source) continue;
+    for (const key of keys) {
+      const text = textFromUnknown(source[key]);
+      if (text) return text;
+    }
+  }
+  return undefined;
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const match = value.match(/-?\d+(?:\.\d+)?/);
+    if (match) {
+      const parsed = Number(match[0]);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
+}
+
+function stringListFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(/[,，、;；\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((item) => {
+      if (typeof item === "string") return stringListFromUnknown(item);
+      const record = asJsonRecord(item);
+      const id = record && firstText(record, ["id", "key", "value"]);
+      return id ? [id] : [];
+    })
+    .filter(Boolean);
+}
+
+function unwrapTeachingOutlinePayload(raw: unknown, depth = 0): unknown {
+  if (depth > 4) return undefined;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      return unwrapTeachingOutlinePayload(extractJson(raw), depth + 1);
+    } catch {
+      return undefined;
+    }
+  }
+  const record = asJsonRecord(raw);
+  if (!record) return undefined;
+  for (const key of [
+    "teachingOutline",
+    "teachingModules",
+    "courseModules",
+    "modules",
+    "outline",
+    "activities",
+    "items",
+    "课程模块",
+    "授课大纲",
+    "data",
+    "result",
+  ]) {
+    if (record[key] === undefined || record[key] === null) continue;
+    const payload = unwrapTeachingOutlinePayload(record[key], depth + 1);
+    if (payload !== undefined) return payload;
+  }
+  return undefined;
+}
+
+function normalizeTeachingOutlineStageKey(
+  raw: JsonRecord,
+  input: GenerateInput,
+  index: number,
+): string {
+  const requested = firstText(raw, ["stageKey", "stage_key", "stage", "phase", "moduleStage", "阶段"]);
+  const fallbackStage = input.stages[Math.min(index, Math.max(0, input.stages.length - 1))]?.key;
+  if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
+    return normalizePblStageKey(requested) ?? fallbackStage ?? "launch";
+  }
+  const exact = requested && input.stages.some((stage) => stage.key === requested) ? requested : undefined;
+  const byLabel = requested && input.stages.find((stage) => stage.label.trim() === requested)?.key;
+  return exact ?? byLabel ?? fallbackStage ?? "launch";
+}
+
+function normalizeTeachingActivityKind(value: unknown): TeachingOutlineSection["activityKind"] {
+  const normalized = textFromUnknown(value)?.trim().toLowerCase();
+  const aliases: Record<string, NonNullable<TeachingOutlineSection["activityKind"]>> = {
+    launch: "launch",
+    introduction: "launch",
+    引入: "launch",
+    启动: "launch",
+    knowledge: "knowledge",
+    teaching: "knowledge",
+    授知: "knowledge",
+    knowledge_teaching: "knowledge",
+    proposal: "proposal",
+    design: "proposal",
+    构思: "proposal",
+    practice: "practice",
+    make: "practice",
+    project_practice: "practice",
+    实践: "practice",
+    showcase: "showcase",
+    presentation: "showcase",
+    汇报: "showcase",
+    reflection: "reflection",
+    transfer: "reflection",
+    反思: "reflection",
+    other: "other",
+  };
+  return normalized ? aliases[normalized] : undefined;
+}
+
+/**
+ * Normalize the small structural variations commonly returned by LLMs.
+ * The six role fields are operationally required by the editor, so missing
+ * fields receive explicit, editable defaults instead of aborting the whole
+ * course generation request.
+ */
+export function normalizeTeachingOutlineResponse(
   raw: unknown,
   input: GenerateInput,
   context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">>,
 ): TeachingOutlineSection[] {
-  if (!Array.isArray(raw) || raw.length === 0) {
+  const payload = unwrapTeachingOutlinePayload(raw);
+  if (!Array.isArray(payload) || payload.length === 0) {
     throw new Error("授课大纲生成失败：AI 未返回教案级授课大纲。");
   }
-  const stageKeys = new Set(input.stages.map((stage) => stage.key));
-  const parsed = raw.map((item, index) => {
-    const section =
-      item && typeof item === "object" ? item as Partial<TeachingOutlineSection> : {};
-    const openMaicUse =
-      typeof section.openMaicUse === "string" && OPEN_MAIC_USE_VALUES.has(section.openMaicUse)
-        ? section.openMaicUse
-        : "none";
-    return {
-      id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `to-${index + 1}`,
-      stageKey: (() => {
-        const requested = typeof section.stageKey === "string" ? section.stageKey.trim() : "";
-        if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
-          return normalizePblStageKey(requested) ?? input.stages[Math.min(index, input.stages.length - 1)]?.key ?? "launch";
-        }
-        if (requested && stageKeys.has(requested)) return requested;
-        return input.stages[Math.min(index, input.stages.length - 1)]?.key ?? "launch";
-      })(),
-      title: requireText(section.title, "授课大纲"),
-      durationMin: Number.isFinite(Number(section.durationMin)) ? Math.max(1, Number(section.durationMin)) : 1,
-      teachingGoal: requireText(section.teachingGoal, "授课大纲"),
-      teacherRole: requireText(section.teacherRole, "授课大纲"),
-      platformRole: requireText(section.platformRole, "授课大纲"),
-      aiRole: requireText(section.aiRole, "授课大纲"),
-      studentActivity: requireText(section.studentActivity, "授课大纲"),
-      activityKind:
-        typeof section.activityKind === "string" &&
-        ["launch", "knowledge", "proposal", "practice", "showcase", "reflection", "other"].includes(section.activityKind)
-          ? section.activityKind
-          : undefined,
-      knowledgePointIds: Array.isArray(section.knowledgePointIds)
-        ? section.knowledgePointIds.filter((id): id is string => typeof id === "string")
-        : [],
-      openMaicUse,
-      resourceTypes: Array.isArray(section.resourceTypes)
-        ? section.resourceTypes.filter(
-            (type): type is NonNullable<TeachingOutlineSection["resourceTypes"]>[number] =>
-              typeof type === "string" && RESOURCE_TYPE_VALUES.has(type),
-          )
-        : [],
-      notes: typeof section.notes === "string" ? section.notes.trim() : "",
+
+  const parsed = payload.flatMap((item, index) => {
+    const section = asJsonRecord(item);
+    if (!section) return [];
+
+    const stageKey = normalizeTeachingOutlineStageKey(section, input, index);
+    const stageLabel = input.stages.find((stage) => stage.key === stageKey)?.label ?? stageKey;
+    const roleRecords = [
+      asJsonRecord(section.roles),
+      asJsonRecord(section.responsibilities),
+      asJsonRecord(section.roleAssignments),
+    ];
+    const missingFields: string[] = [];
+    const read = (keys: ReadonlyArray<string>, label: string): string => {
+      const value = firstText(section, keys, roleRecords);
+      if (value) return value;
+      missingFields.push(label);
+      return "";
     };
+
+    const title = read(["title", "name", "moduleName", "activityTitle", "课程模块"], "title") ||
+      `${stageLabel || "课程"}模块`;
+    const teachingGoal = read(
+      ["teachingGoal", "teaching_goal", "goal", "objective", "teachingObjective", "教学目标"],
+      "teachingGoal",
+    ) || `围绕“${title}”完成本模块的核心学习任务。`;
+    const teacherRole = read(
+      ["teacherRole", "teacher_role", "teacher", "teacherAction", "teacherTasks", "教师职责", "教师角色"],
+      "teacherRole",
+    ) || `教师组织“${title}”，明确任务要求并根据学生表现进行指导。`;
+    const platformRole = read(
+      ["platformRole", "platform_role", "platform", "platformAction", "platformTasks", "平台职责", "平台作用"],
+      "platformRole",
+    ) || "平台展示本模块资源，收集过程证据并记录学习结果。";
+    const aiRole = read(
+      ["aiRole", "ai_role", "ai", "aiAction", "aiTasks", "AI职责", "AI作用"],
+      "aiRole",
+    ) || (stageKey === "ai-learning"
+      ? "AI 提供分步讲解、练习与反馈，帮助学生独立完成任务，不直接给出最终答案。"
+      : "AI 提供伴学提示与澄清问题，不代替学生完成项目。");
+    const studentActivity = read(
+      ["studentActivity", "student_activity", "student", "studentTask", "studentAction", "studentTasks", "学生活动", "学习任务"],
+      "studentActivity",
+    ) || `学生围绕“${title}”完成任务并提交过程证据。`;
+
+    const rawResources = firstValue(section, ["resourceTypes", "resource_types", "resources", "资源类型"]);
+    const resourceTypes = stringListFromUnknown(rawResources).filter(
+      (type): type is NonNullable<TeachingOutlineSection["resourceTypes"]>[number] => RESOURCE_TYPE_VALUES.has(type),
+    );
+    const normalizedResourceTypes: NonNullable<TeachingOutlineSection["resourceTypes"]> = resourceTypes.length > 0
+      ? resourceTypes
+      : stageKey === "ai-learning"
+        ? ["ppt"]
+        : ["ppt", "script"];
+    const rawKnowledgePointIds = firstValue(section, [
+      "knowledgePointIds",
+      "knowledge_point_ids",
+      "knowledgeIds",
+      "knowledgePoints",
+      "知识点ID",
+    ]);
+    const knowledgePointIds = stringListFromUnknown(rawKnowledgePointIds);
+    const requestedOpenMaicUse = firstText(section, ["openMaicUse", "openMAICUse", "openmaicUse", "aiRoute", "route"]);
+    const openMaicUse = requestedOpenMaicUse === "student-ai-learning" || requestedOpenMaicUse === "student_ai_learning"
+      ? "student-ai-learning"
+      : stageKey === "ai-learning"
+        ? "student-ai-learning"
+        : "none";
+    const durationMin = Math.max(
+      1,
+      Math.round(toFiniteNumber(firstValue(section, ["durationMin", "durationMinutes", "duration", "minutes", "时长"]), 1)),
+    );
+    const notes = firstText(section, ["notes", "note", "remarks", "备注"]);
+    const normalizationNote = missingFields.length > 0
+      ? `AI 输出缺少字段（${missingFields.join("、")}），系统已补全，请教师核查。`
+      : undefined;
+
+    return [{
+      id: firstText(section, ["id", "moduleId", "activityId"]) ?? `to-${index + 1}`,
+      stageKey,
+      title,
+      durationMin,
+      teachingGoal,
+      teacherRole,
+      platformRole,
+      aiRole,
+      studentActivity,
+      activityKind: normalizeTeachingActivityKind(firstValue(section, ["activityKind", "activity_kind", "kind", "type", "活动类型"])),
+      knowledgePointIds,
+      openMaicUse,
+      resourceTypes: normalizedResourceTypes,
+      notes: [notes, normalizationNote].filter(Boolean).join("；"),
+    } satisfies TeachingOutlineSection];
   });
+
+  if (parsed.length === 0) {
+    throw new Error("授课大纲生成失败：AI 未返回可用课程模块。");
+  }
 
   if (input.pblConfig?.generationTemplate !== "pbl-six-stage") return parsed;
   return normalizePblTeachingOutline(parsed, {
@@ -523,6 +757,14 @@ function validateTeachingOutline(
     knowledgePoints: context?.knowledgePoints,
     knowledgeGraph: context?.knowledgeGraph,
   });
+}
+
+function validateTeachingOutline(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">>,
+): TeachingOutlineSection[] {
+  return normalizeTeachingOutlineResponse(raw, input, context);
 }
 
 function validateEvaluationPlan(raw: unknown): EvaluationPlan {
@@ -674,15 +916,16 @@ export async function generateCourseContent(
     };
   }
   if (action === "teachingOutline") {
+    const jsonRecord = asJsonRecord(json);
     return {
       content: {
         ...emptyCourseContent(),
         pblOutline:
-          typeof (json as { pblOutline?: unknown }).pblOutline === "string"
-            ? ((json as { pblOutline: string }).pblOutline).trim()
+          typeof jsonRecord?.pblOutline === "string"
+            ? jsonRecord.pblOutline.trim()
             : "",
-        teachingOutline: validateTeachingOutline(
-          (json as { teachingOutline?: unknown }).teachingOutline,
+        teachingOutline: normalizeTeachingOutlineResponse(
+          json,
           input,
           request.context,
         ),

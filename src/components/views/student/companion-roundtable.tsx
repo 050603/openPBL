@@ -1032,7 +1032,7 @@ export function CompanionRoundtable({
             className="fixed z-50 animate-[bubble-in_.24s_ease-out] cursor-auto select-text"
             style={bubblePlacement}
           >
-            <div className="max-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-700 shadow-[0_16px_38px_rgba(15,23,42,.16)] [overflow-wrap:anywhere]">
+            <div className="max-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border border-stone-200 bg-white px-3.5 py-3 text-[13px] leading-6 text-stone-700 shadow-[0_16px_38px_rgba(15,23,42,.16)] [overflow-wrap:anywhere]">
               <div className="sticky top-0 mb-1 flex items-center gap-1.5 bg-white/95 pb-1 text-[10px] font-bold backdrop-blur-sm" style={{ color: bubbleCompanion.color }}>
                 <span>{bubbleCompanion.name}</span><span className="opacity-55">{bubbleCompanion.role}</span>
               </div>
@@ -1042,7 +1042,7 @@ export function CompanionRoundtable({
         )}
 
         {phase === "director" && (
-          <div className="absolute bottom-[calc(100%+16px)] left-1/2 z-30 flex w-max -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full border border-teal-100 bg-white/95 px-3 py-1.5 text-xs font-semibold text-teal-700 shadow-lg">
+          <div className="absolute bottom-[calc(100%+16px)] left-1/2 z-30 flex w-max -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full border border-[var(--pbl-student-border)] bg-white/95 px-3 py-1.5 text-xs font-semibold text-[var(--pbl-student)] shadow-lg">
             <Loader2 size={13} className="animate-spin" /> 正在邀请合适的伙伴回应…
           </div>
         )}
@@ -1058,7 +1058,7 @@ export function CompanionRoundtable({
               <textarea
                 autoFocus
                 aria-label="向伴学小组提问"
-                className="min-h-24 max-h-40 min-w-0 flex-1 resize-y bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400"
+                className="min-h-24 max-h-40 min-w-0 flex-1 resize-y bg-transparent px-2 py-1.5 text-sm leading-6 text-stone-700 outline-none placeholder:text-stone-400"
                 disabled={isActive}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -1072,15 +1072,15 @@ export function CompanionRoundtable({
                 value={input}
               />
               {isActive ? (
-                <button className="grid h-9 w-9 place-items-center rounded-xl bg-[#a64b3c] text-white transition hover:-translate-y-0.5" onClick={stopStream} type="button" aria-label="停止回应">
+                <button className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--pbl-danger)] text-white transition hover:-translate-y-0.5 hover:brightness-90" onClick={stopStream} type="button" aria-label="停止回应">
                   <X size={15} />
                 </button>
               ) : (
-                <button className="grid h-9 w-9 place-items-center rounded-xl bg-teal-600 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-teal-700 disabled:opacity-40" disabled={!input.trim()} onClick={() => void send()} type="button" aria-label="发送">
+                <button className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--pbl-student)] text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--pbl-student-hover)] disabled:opacity-40" disabled={!input.trim()} onClick={() => void send()} type="button" aria-label="发送">
                   <Send size={15} />
                 </button>
               )}
-              <button className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 hover:bg-slate-100" onClick={closeDialog} type="button" aria-label="收起输入">
+              <button className="grid h-9 w-9 place-items-center rounded-xl text-stone-400 hover:bg-stone-100" onClick={closeDialog} type="button" aria-label="收起输入">
                 <X size={15} />
               </button>
             </div>
@@ -1088,14 +1088,14 @@ export function CompanionRoundtable({
         )}
 
         <div data-no-drag className="absolute -bottom-7 left-1/2 z-20 flex w-max min-w-max -translate-x-1/2 flex-nowrap items-center gap-2 whitespace-nowrap">
-          <button className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-[0_4px_14px_rgba(15,23,42,.1)] transition hover:-translate-y-0.5 hover:border-teal-200 hover:text-teal-700" onClick={tts.toggle} type="button" aria-label={tts.enabled ? "关闭语音" : "开启语音"}>
+          <button className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-stone-200 bg-white/95 text-stone-600 shadow-[0_4px_14px_rgba(15,23,42,.1)] transition hover:-translate-y-0.5 hover:border-[var(--pbl-student-border)] hover:text-[var(--pbl-student)]" onClick={tts.toggle} type="button" aria-label={tts.enabled ? "关闭语音" : "开启语音"}>
             {tts.enabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
           </button>
-          <button className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-200 bg-white/95 px-4 text-sm font-bold text-slate-600 shadow-[0_4px_14px_rgba(15,23,42,.1)] transition hover:-translate-y-0.5 hover:border-teal-200 hover:text-teal-700" onClick={() => setHistoryOpen((value) => !value)} type="button">
+          <button className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-stone-200 bg-white/95 px-4 text-sm font-bold text-stone-600 shadow-[0_4px_14px_rgba(15,23,42,.1)] transition hover:-translate-y-0.5 hover:border-[var(--pbl-student-border)] hover:text-[var(--pbl-student)]" onClick={() => setHistoryOpen((value) => !value)} type="button">
             <History size={13} /> 历史
           </button>
           {!isOpen && (
-            <button className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-teal-600 px-5 text-sm font-bold text-white shadow-[0_6px_18px_rgba(13,148,136,.28)] transition hover:-translate-y-0.5 hover:bg-teal-700" onClick={openDialog} type="button">
+            <button className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-[var(--pbl-student)] px-5 text-sm font-bold text-white shadow-[0_6px_18px_rgba(13,148,136,.28)] transition hover:-translate-y-0.5 hover:bg-[var(--pbl-student-hover)]" onClick={openDialog} type="button">
               <MessageSquare size={13} /> 发起讨论
             </button>
           )}
@@ -1103,7 +1103,7 @@ export function CompanionRoundtable({
 
         {historyOpen && (
           <div data-no-drag className="absolute bottom-12 right-0 z-40 max-h-64 w-[min(320px,calc(100vw-2rem))] cursor-auto select-text overflow-y-auto rounded-2xl border border-[#d8c6a8] bg-[#fffdf7]/98 p-3 shadow-2xl">
-            <div className="mb-2 flex items-center justify-between text-xs font-bold text-[#604d3a]"><span>讨论记录</span><button onClick={() => setHistoryOpen(false)} type="button" aria-label="关闭历史"><X size={14} /></button></div>
+            <div className="mb-2 flex items-center justify-between text-xs font-bold text-[var(--pbl-text-strong)]"><span>讨论记录</span><button onClick={() => setHistoryOpen(false)} type="button" aria-label="关闭历史"><X size={14} /></button></div>
             {messages.length ? messages.map((message, index) => (
               <div key={`${message.ts}-${index}`} className="mb-2 rounded-xl bg-[#f3eadb] px-3 py-2 text-xs leading-5 text-[#493e34]">
                 <b>{message.role === "user" ? "我" : getCompanion(message.companionId ?? "knowledge").name}：</b>{message.content}
@@ -1362,7 +1362,7 @@ export function CompanionRoundtable({
 
             {/* 错误提示 */}
             {error && (
-              <div className="border-t border-amber-100 bg-amber-50 px-4 py-1.5 text-xs text-amber-700">
+              <div className="border-t border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)] px-4 py-1.5 text-xs text-[var(--pbl-warning)]">
                 {error}
               </div>
             )}

@@ -77,13 +77,13 @@ export default function StudentEntryPage() {
       <div className="mx-auto max-w-[1180px] py-6 md:py-10">
         {/* 品牌引导区 */}
         <div className="mb-8">
-          <div className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-teal-700 ring-1 ring-teal-200">
+          <div className="inline-flex items-center gap-2 rounded-full bg-[var(--pbl-student-soft)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
             <Lightbulb size={12} /> 学生工作台
           </div>
-          <h1 className="mt-3 text-[30px] font-bold leading-tight tracking-tight text-slate-900">
+          <h1 className="mt-3 text-[30px] font-bold leading-tight tracking-tight text-stone-900">
             AI 探知 · 项目共创
           </h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-stone-500">
             输入教师提供的 6 位邀请码加入课堂，开启你的项目式学习之旅。加入后你将看到当前学习任务、阶段进度与 AI 学习伙伴。
           </p>
         </div>
@@ -102,31 +102,31 @@ export default function StudentEntryPage() {
               {leftHistory.length > 0 ? (
                 <div className="pbl-card rounded-[var(--radius-lg)] p-4">
                   <div className="mb-3 flex items-center gap-2">
-                    <RotateCcw size={15} className="text-teal-600" />
-                    <span className="text-sm font-bold text-slate-900">快速重新加入</span>
+                    <RotateCcw size={15} className="text-[var(--pbl-student)]" />
+                    <span className="text-sm font-bold text-stone-900">快速重新加入</span>
                   </div>
                   <div className="space-y-2">
                     {leftHistory.map((record) => (
                       <button
                         key={record.courseId}
-                        className="flex w-full items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white p-3 text-left transition hover:border-teal-300 hover:bg-teal-50/40 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="flex w-full items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white p-3 text-left transition hover:border-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]/40 disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={busy}
                         onClick={() => handleRejoin(record)}
                         type="button"
                       >
                         <div className="min-w-0">
-                          <div className="truncate text-[13px] font-bold text-slate-900">{record.courseName}</div>
-                          <div className="mt-0.5 truncate text-xs text-slate-500">
-                            以 <span className="font-semibold text-slate-700">{record.studentName}</span> 身份重新加入
+                          <div className="truncate text-[13px] font-bold text-stone-900">{record.courseName}</div>
+                          <div className="mt-0.5 truncate text-xs text-stone-500">
+                            以 <span className="font-semibold text-stone-700">{record.studentName}</span> 身份重新加入
                           </div>
                         </div>
-                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-teal-600 text-white">
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-[var(--pbl-student)] text-white">
                           <ArrowRight size={13} />
                         </span>
                       </button>
                     ))}
                   </div>
-                  <div className="mt-3 border-t border-slate-100 pt-3 text-center text-xs text-slate-400">
+                  <div className="mt-3 border-t border-stone-100 pt-3 text-center text-xs text-stone-400">
                     或使用邀请码加入新课堂
                   </div>
                 </div>
@@ -143,10 +143,10 @@ export default function StudentEntryPage() {
             <div className="pbl-card rounded-[var(--radius-lg)] p-5">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-teal-600">学习路径预览</div>
-                  <h2 className="mt-1 text-lg font-bold text-slate-900">加入课堂后你将完成</h2>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--pbl-student)]">学习路径预览</div>
+                  <h2 className="mt-1 text-lg font-bold text-stone-900">加入课堂后你将完成</h2>
                 </div>
-                <div className="grid h-10 w-10 place-items-center rounded-[var(--radius-sm)] bg-teal-50 text-teal-700">
+                <div className="grid h-10 w-10 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]">
                   <ClipboardList size={18} />
                 </div>
               </div>
@@ -191,12 +191,12 @@ export default function StudentEntryPage() {
               </div>
 
               {/* 学习承诺 */}
-              <div className="mt-5 rounded-[var(--radius-sm)] border border-teal-200 bg-teal-50/50 p-3.5">
+              <div className="mt-5 rounded-[var(--radius-sm)] border border-[var(--pbl-student-border)] bg-[var(--pbl-student-soft)]/50 p-3.5">
                 <div className="flex items-start gap-2.5">
-                  <Users size={16} className="mt-0.5 shrink-0 text-teal-700" />
+                  <Users size={16} className="mt-0.5 shrink-0 text-[var(--pbl-student)]" />
                   <div className="min-w-0">
-                    <div className="text-[13px] font-bold text-teal-900">协作 · 探究 · 迭代</div>
-                    <p className="mt-1 text-xs leading-5 text-teal-800/80">
+                    <div className="text-[13px] font-bold text-stone-900">协作 · 探究 · 迭代</div>
+                    <p className="mt-1 text-xs leading-5 text-stone-700/80">
                       你将独立承担一个完整项目，AI 伴学伙伴提供解释、启发、质疑与反馈。每一次选择、修改和作品迭代都会成为过程评价证据。
                     </p>
                   </div>
@@ -207,14 +207,14 @@ export default function StudentEntryPage() {
         )}
 
         {/* 底部辅助链接 */}
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4 text-[13px] text-slate-500">
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-4 text-[13px] text-stone-500">
           <Link
-            className="inline-flex items-center gap-1 hover:text-teal-700"
+            className="inline-flex items-center gap-1 hover:text-[var(--pbl-student)]"
             href="/"
           >
             <ArrowRight size={13} className="rotate-180" /> 返回首页
           </Link>
-          <span className="text-slate-300">|</span>
+          <span className="text-stone-300">|</span>
           <span className="inline-flex items-center gap-1">
             <KeyRound size={13} /> 没有邀请码？请向任课教师索取
           </span>
@@ -239,23 +239,23 @@ function TaskPreviewItem({
   tone: "indigo" | "blue" | "teal" | "amber" | "green";
 }) {
   const toneMap = {
-    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-100",
-    blue: "bg-blue-50 text-blue-700 ring-blue-100",
-    teal: "bg-teal-50 text-teal-700 ring-teal-100",
-    amber: "bg-amber-50 text-amber-700 ring-amber-100",
+    indigo: "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
+    blue: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-blue-100",
+    teal: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-[var(--pbl-student-border)]",
+    amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-[var(--pbl-warning-soft)]",
     green: "bg-emerald-50 text-emerald-700 ring-emerald-100",
   };
   return (
-    <div className="flex items-start gap-3 rounded-[var(--radius-sm)] border border-slate-100 bg-slate-50/50 p-3 transition hover:border-slate-200 hover:bg-white">
+    <div className="flex items-start gap-3 rounded-[var(--radius-sm)] border border-stone-100 bg-stone-50/50 p-3 transition hover:border-stone-200 hover:bg-white">
       <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)] ring-1 ${toneMap[tone]}`}>
         {icon}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-400">STEP {step}</span>
-          <span className="text-[13px] font-bold text-slate-900">{title}</span>
+          <span className="text-[10px] font-bold text-stone-400">STEP {step}</span>
+          <span className="text-[13px] font-bold text-stone-900">{title}</span>
         </div>
-        <p className="mt-0.5 text-xs leading-5 text-slate-500">{desc}</p>
+        <p className="mt-0.5 text-xs leading-5 text-stone-500">{desc}</p>
       </div>
     </div>
   );
@@ -270,20 +270,20 @@ function FinishedState({
 }) {
   return (
     <div className="pbl-card mx-auto max-w-md rounded-[var(--radius-lg)] p-6 text-center">
-      <div className="mx-auto grid h-12 w-12 place-items-center rounded-[var(--radius-md)] bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+      <div className="mx-auto grid h-12 w-12 place-items-center rounded-[var(--radius-md)] bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-1 ring-[var(--pbl-warning-soft)]">
         <KeyRound size={22} />
       </div>
-      <h2 className="mt-3 text-xl font-bold text-slate-900">课堂已结束</h2>
-      <p className="mt-1.5 text-sm leading-6 text-slate-500">
+      <h2 className="mt-3 text-xl font-bold text-stone-900">课堂已结束</h2>
+      <p className="mt-1.5 text-sm leading-6 text-stone-500">
         「{course.name}」已结束授课。如需重新加入，请输入新的邀请码。
       </p>
       <div className="mt-4 flex justify-center">
-        <span className="inline-flex h-6 items-center rounded-full bg-slate-100 px-2.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+        <span className="inline-flex h-6 items-center rounded-full bg-stone-100 px-2.5 text-xs font-semibold text-stone-500 ring-1 ring-stone-200">
           已结束
         </span>
       </div>
       <button
-        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-teal-600 text-sm font-semibold text-white transition hover:bg-teal-700"
+        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-student)] text-sm font-semibold text-white transition hover:bg-[var(--pbl-student-hover)]"
         onClick={onRejoin}
         type="button"
       >

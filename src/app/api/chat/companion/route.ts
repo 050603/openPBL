@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 import { callLLM, callLLMStream, parseLLMJson } from "@/lib/llm/client";
 import { buildCompanionSystemPrompt, getCompanion, type AiCompanionId } from "@/lib/ai-companions";
 import { activeDirectivesForStudent, recorderVisibility, shouldUseReviewer } from "@/lib/companion/orchestrator";
+import { buildCompanionContext, type CompanionContextSnapshot } from "@/lib/companion/context";
 import { appendCompanionMessages, companionMessage, getCompanionThread } from "@/lib/companion/server-store";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type { CompanionTriggerKind } from "@/lib/session/types";
@@ -50,6 +51,42 @@ type SSEEvent =
   | { type: "cue_user" }
   | { type: "done" }
   | { type: "error"; message: string };
+
+function buildRequestContext(body: CompanionChatRequest): CompanionContextSnapshot {
+  const noRecord = "（无服务端课程记录）";
+  const project = body.studentWork?.trim()
+    ? `本次学生提交内容：${body.studentWork.trim()}`
+    : noRecord;
+  const sections = {
+    course: `课程=${body.courseName || "未填写"}；驱动问题=${body.drivingQuestion || "未填写"}`,
+    project,
+    progress: `当前阶段=${body.stageLabel || body.stageKey}；当前请求未提供阶段进度`,
+    submissions: project,
+    uploads: noRecord,
+    teacherFeedback: body.teacherContext || noRecord,
+    scoring: noRecord,
+    aiEvaluation: noRecord,
+    aiSupports: noRecord,
+    reflection: noRecord,
+    processEvidence: noRecord,
+    teacherGuidance: body.teacherContext || noRecord,
+  };
+  return {
+    stageKey: body.stageKey,
+    stageLabel: body.stageLabel,
+    studentId: body.studentId,
+    studentName: body.studentName,
+    currentProgress: 0,
+    sections,
+    prompt: [
+      "服务端学习上下文（本次请求未关联可持久化课程，以下仅使用请求中提供的事实）：",
+      `课程=${sections.course}`,
+      `阶段=${sections.progress}`,
+      `学生提交=${sections.project}`,
+      `教师要求=${sections.teacherGuidance}`,
+    ].join("\n"),
+  };
+}
 
 function sseEncode(event: SSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
@@ -112,6 +149,7 @@ export async function POST(req: NextRequest) {
   let authoritativeHistory = body.history ?? [];
   let teacherContext = body.teacherContext;
   let effectiveCompanionIds = body.companionIds;
+  let companionContext = buildRequestContext(body);
   const canPersist = Boolean(body.courseId && body.studentId && body.stageKey);
   if (canPersist) {
     const course = await getCourse(body.courseId!);
@@ -128,6 +166,7 @@ export async function POST(req: NextRequest) {
     if (!effectiveCompanionIds.length) {
       return Response.json({ error: "NO_CONFIGURED_COMPANIONS_FOR_STAGE" }, { status: 400 });
     }
+    companionContext = buildCompanionContext(course, body.studentId, body.stageKey);
     const thread = await getCompanionThread(body.courseId!, body.studentId!, body.stageKey);
     authoritativeHistory = (thread?.messages ?? [])
       .filter((message) => message.role === "student" || message.role === "agent" || message.role === "teacher-guidance")
@@ -293,8 +332,9 @@ export async function POST(req: NextRequest) {
           courseName: body.courseName,
           drivingQuestion: body.drivingQuestion,
           stageLabel: body.stageLabel,
+          stageKey: body.stageKey,
           teacherContext,
-          studentWork: body.studentWork,
+          context: companionContext,
           peerResponses,
         });
 

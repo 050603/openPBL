@@ -7,6 +7,7 @@
 
 import type { ActionType } from './action';
 import type { MediaGenerationRequest } from '@openmaic/lib/media/types';
+import type { TtsTimingPlan } from '@openmaic/lib/audio/tts-timing';
 
 // ==================== PDF Image Types ====================
 
@@ -176,6 +177,8 @@ export interface SceneOutline {
   targetDurationSec?: number;
   /** Explicit TTS policy; target-duration is only used for student knowledge scenes. */
   ttsPolicy?: PblTtsPolicy;
+  /** Model-specific narration budget used by generation and playback verification. */
+  timingPlan?: TtsTimingPlan;
   /** Requested output form; the generator must preserve it for PBL scenes. */
   resourceTypes?: SceneResourceType[];
   outcomePart?: 'artifact' | 'presentation' | 'reflection';

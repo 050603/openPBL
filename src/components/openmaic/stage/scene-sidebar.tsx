@@ -110,7 +110,7 @@ export function SceneSidebar({
         width: displayWidth,
         transition: isDragging ? 'none' : 'width 0.3s ease',
       }}
-      className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-gray-100 dark:border-gray-800 shadow-[2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible"
+      className="bg-white/80 dark:bg-stone-900/80 backdrop-blur-xl border-r border-gray-100 dark:border-gray-800 shadow-[2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible"
     >
       {/* Drag handle */}
       {!collapsed && (
@@ -134,10 +134,10 @@ export function SceneSidebar({
               AI
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-bold leading-4 text-slate-900 dark:text-slate-100">
+              <span className="block text-sm font-bold leading-4 text-stone-900 dark:text-slate-100">
                 openPBL
               </span>
-              <span className="block text-[10px] font-semibold leading-3 text-slate-400 dark:text-slate-500">
+              <span className="block text-[10px] font-semibold leading-3 text-stone-400 dark:text-stone-500">
                 AI Classroom
               </span>
             </span>

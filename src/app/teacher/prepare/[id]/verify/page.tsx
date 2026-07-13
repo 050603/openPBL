@@ -45,16 +45,18 @@ import {
 } from "@/lib/openmaic/pbl/course-request";
 import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import {
-  assessPblTimeAllocation,
+  buildPblModuleTimingPlan,
   buildPblProjectMainline,
   formatPblProjectMainline,
+  isPblModuleTimingPlanConfirmed,
   PBL_MODULE_DEFINITIONS,
+  reallocatePblStageDurations,
   rescalePblDetailDurations,
-  suggestPblTimeAllocation,
   type PblTimeActivity,
 } from "@/lib/pbl-time-model";
 import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
 import { normalizePblTeachingOutline } from "@/lib/pbl-outline-normalization";
+import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -81,6 +83,7 @@ function sceneOutlineToLessonSection(
     resourceTypes: outline.resourceTypes,
     targetDurationSec: outline.targetDurationSec,
     ttsPolicy: outline.ttsPolicy,
+    timingPlan: outline.timingPlan,
   };
 }
 
@@ -102,6 +105,7 @@ function lessonSectionToSceneOutline(
     resourceTypes: section.resourceTypes,
     targetDurationSec: section.targetDurationSec ?? section.durationMin * 60,
     ttsPolicy: section.ttsPolicy,
+    timingPlan: section.timingPlan,
     order: index,
   };
 }
@@ -252,7 +256,6 @@ export default function VerifyCoursePage() {
   const { user, setCourseContent, updateCourse } = useSession();
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
-
   const [content, setContent] = useState<CourseContent | undefined>();
   const [open, setOpen] = useState<Record<Section, boolean>>({
     knowledgePoints: true,
@@ -302,15 +305,6 @@ export default function VerifyCoursePage() {
     () => checkPblStageCoverage(sceneOutlines),
     [sceneOutlines],
   );
-  const pblTimeAssessment = useMemo(
-    () =>
-      assessPblTimeAllocation(
-        Math.max(0, Math.round((course?.hours ?? 0) * 60)),
-        (content?.teachingOutline ?? []) as PblTimeActivity[],
-        pblTimeContext,
-      ),
-    [course?.hours, content?.teachingOutline, pblTimeContext],
-  );
   const pblKnowledgeValidation = useMemo(
     () =>
       validatePblKnowledgeAlignment(
@@ -348,68 +342,161 @@ export default function VerifyCoursePage() {
 
   const applyTeachingOutlineChange = useCallback(
     (nextTeachingOutline: TeachingOutlineSection[]) => {
-      const nextMainline = buildPblProjectMainline(
-        Math.max(0, Math.round((course?.hours ?? 0) * 60)),
+      const totalMinutes = Math.max(0, Math.round((course?.hours ?? 0) * 60));
+      const nextTimingPlan = nextTeachingOutline.length > 0
+        ? buildPblModuleTimingPlan(totalMinutes, nextTeachingOutline, pblTimeContext, {
+            status: "suggested",
+            preserveCurrentDurations: true,
+          })
+        : undefined;
+      const validActivityIds = new Set(nextTeachingOutline.map((activity) => activity.id));
+      const nextDetails = rescalePblDetailDurations(
+        sceneOutlines.filter(
+          (outline) => !outline.parentActivityId || validActivityIds.has(outline.parentActivityId),
+        ),
         nextTeachingOutline,
       );
-      const mainline = {
-        ...nextMainline,
-        generatedAt: new Date().toISOString(),
-      };
-      const nextDetails = rescalePblDetailDurations(sceneOutlines, nextTeachingOutline);
       setSceneOutlines(nextDetails);
       setContent((current) =>
         current
           ? {
               ...current,
               teachingOutline: nextTeachingOutline,
-              projectMainline: mainline,
-              pblOutline:
-                !current.pblOutline.trim() || current.pblOutline.startsWith("项目主线（")
+              projectMainline: undefined,
+              /* pblOutline:
+                mainline && (!current.pblOutline.trim() || current.pblOutline.startsWith("项目主线（"))
                   ? formatPblProjectMainline(mainline)
-                  : current.pblOutline,
+                  : current.pblOutline, */
+              pblOutline: "",
               lessonOutline: nextDetails.map((outline, index) =>
                 sceneOutlineToLessonSection(outline, index, stageKeys),
               ),
               _openmaicSceneOutlines: cloneSceneOutlinesForSession(nextDetails),
+              moduleTimingPlan: nextTimingPlan,
             }
           : current,
       );
     },
-    [course?.hours, sceneOutlines, stageKeys],
+    [course?.hours, pblTimeContext, sceneOutlines, stageKeys],
   );
+
+  const applyPblStageDurationChange = useCallback(
+    (kind: Exclude<PblTimeActivity["activityKind"], undefined | "other">, targetMinutes: number) => {
+      const activities = content?.teachingOutline ?? [];
+      const nextTeachingOutline = reallocatePblStageDurations(
+        Math.max(0, Math.round((course?.hours ?? 0) * 60)),
+        activities,
+        kind,
+        targetMinutes,
+        pblTimeContext,
+      );
+      applyTeachingOutlineChange(nextTeachingOutline);
+    },
+    [applyTeachingOutlineChange, content?.teachingOutline, course?.hours, pblTimeContext],
+  );
+
+  const confirmModuleTiming = useCallback(() => {
+    const activities = content?.teachingOutline ?? [];
+    const totalMinutes = Math.max(0, Math.round((course?.hours ?? 0) * 60));
+    const moduleTimingPlan = buildPblModuleTimingPlan(
+      totalMinutes,
+      activities,
+      pblTimeContext,
+      { status: "confirmed", preserveCurrentDurations: true },
+    );
+    if (!isPblModuleTimingPlanConfirmed(moduleTimingPlan)) {
+      const message = "请先完成六个模块的时间分配，并确保模块合计等于课程总时长。";
+      setError(message);
+      toast.error("课程时间尚未确认", { description: message });
+      return;
+    }
+    const projectMainline = {
+      ...buildPblProjectMainline(totalMinutes, activities),
+      generatedAt: new Date().toISOString(),
+    };
+    setContent((current) => current
+      ? {
+          ...current,
+          moduleTimingPlan,
+          projectMainline,
+          pblOutline: formatPblProjectMainline(projectMainline),
+        }
+      : current);
+    setInfo("六个模块的时间已确认，项目主线已生成。现在可以继续生成课程大纲。 ");
+    setError(undefined);
+  }, [content?.teachingOutline, course?.hours, pblTimeContext]);
 
   // Initialize content from course when loaded
   useEffect(() => {
     if (!course || content) return;
+    const totalMinutes = Math.max(0, Math.round(course.hours * 60));
     const baseTeachingOutline = course.content.teachingOutline ?? [];
     const teachingOutline = course.pblConfig?.generationTemplate === "pbl-six-stage"
       ? normalizePblTeachingOutline(baseTeachingOutline, {
-          totalMinutes: Math.max(0, Math.round(course.hours * 60)),
+          totalMinutes,
           topic: course.name,
           subject: course.subject,
           summary: course.summary,
           grade: course.grade,
-          difficulty: course.pblConfig.difficultyLevel,
+           difficulty: course.pblConfig?.difficultyLevel ?? "standard",
           knowledgePoints: course.content.knowledgePoints,
           knowledgeGraph: course.content.knowledgeGraph,
           applyTimeModel: Boolean(course.content.projectMainline),
         })
       : baseTeachingOutline;
-    const projectMainline = buildPblProjectMainline(
-      Math.max(0, Math.round(course.hours * 60)),
-      teachingOutline,
-    );
+    const hasModules = teachingOutline.length > 0;
+    const initialTimingPlan = hasModules
+      ? course.content.moduleTimingPlan ?? buildPblModuleTimingPlan(
+          totalMinutes,
+          teachingOutline,
+          {
+            topic: course.name,
+            subject: course.subject,
+            summary: course.summary,
+            grade: course.grade,
+             difficulty: course.pblConfig?.difficultyLevel ?? "standard",
+            knowledgePoints: course.content.knowledgePoints,
+            knowledgeGraph: course.content.knowledgeGraph,
+          },
+        )
+      : undefined;
+    const plannedTeachingOutline = initialTimingPlan
+      ? teachingOutline.map((activity) => ({
+          ...activity,
+          durationMin: initialTimingPlan.allocations.find((item) => item.id === activity.id)?.durationMin
+            ?? activity.durationMin,
+        }))
+      : teachingOutline;
+    const initialDetails = hasModules
+      ? rescalePblDetailDurations(
+          contentToSceneOutlines({ ...course.content, teachingOutline: plannedTeachingOutline }),
+          plannedTeachingOutline,
+        )
+      : [];
+    const initialPlanIsConfirmed = initialTimingPlan
+      ? isPblModuleTimingPlanConfirmed(initialTimingPlan)
+      : false;
+    const projectMainline = initialPlanIsConfirmed
+      ? {
+          ...buildPblProjectMainline(totalMinutes, plannedTeachingOutline),
+          generatedAt: course.content.projectMainline?.generatedAt ?? new Date().toISOString(),
+        }
+      : undefined;
     const initialContent: CourseContent = {
       ...course.content,
-      teachingOutline,
-      projectMainline: course.pblConfig?.generationTemplate === "pbl-six-stage"
-        ? projectMainline
-        : course.content.projectMainline,
+      teachingOutline: plannedTeachingOutline,
+      projectMainline,
+      moduleTimingPlan: initialTimingPlan,
+      lessonOutline: initialDetails.map((outline, index) =>
+        sceneOutlineToLessonSection(outline, index, stageKeys),
+      ),
+      _openmaicSceneOutlines: initialDetails.length
+        ? cloneSceneOutlinesForSession(initialDetails)
+        : undefined,
     };
     setContent(initialContent);
-    setSceneOutlines(contentToSceneOutlines(initialContent));
-  }, [course, content]);
+    setSceneOutlines(initialDetails);
+  }, [course, content, stageKeys]);
 
   const generateSection = useCallback(
     async (section: Section) => {
@@ -473,6 +560,8 @@ export default function VerifyCoursePage() {
           source: "llm";
         };
         const previousContent = content ?? course.content;
+        const totalMinutes = Math.max(0, Math.round(course.hours * 60));
+        const previousTeachingOutline = previousContent.teachingOutline ?? [];
         const generatedKnowledgePoints =
           section === "knowledgePoints"
             ? data.content.knowledgePoints
@@ -483,57 +572,98 @@ export default function VerifyCoursePage() {
             : previousContent.knowledgeGraph;
         const knowledgeAlignedTeachingOutline =
           section === "knowledgePoints" &&
-          course.pblConfig?.generationTemplate === "pbl-six-stage"
-            ? normalizePblTeachingOutline(previousContent.teachingOutline ?? [], {
-                totalMinutes: Math.max(0, Math.round(course.hours * 60)),
+          course.pblConfig?.generationTemplate === "pbl-six-stage" &&
+          previousTeachingOutline.length > 0
+            ? normalizePblTeachingOutline(previousTeachingOutline, {
+                totalMinutes,
                 topic: course.name,
                 subject: course.subject,
                 summary: course.summary,
                 grade: course.grade,
-                difficulty: course.pblConfig.difficultyLevel,
+               difficulty: course.pblConfig?.difficultyLevel ?? "standard",
                 knowledgePoints: generatedKnowledgePoints,
                 knowledgeGraph: generatedKnowledgeGraph,
                 applyTimeModel: Boolean(previousContent.projectMainline),
               })
-            : previousContent.teachingOutline;
-        const knowledgeAlignedMainline = knowledgeAlignedTeachingOutline
-          ? buildPblProjectMainline(
-              Math.max(0, Math.round(course.hours * 60)),
-              knowledgeAlignedTeachingOutline,
-            )
+            : undefined;
+        const knowledgeAlignedPlan = knowledgeAlignedTeachingOutline && knowledgeAlignedTeachingOutline.length > 0
+          ? buildPblModuleTimingPlan(totalMinutes, knowledgeAlignedTeachingOutline, {
+              topic: course.name,
+              subject: course.subject,
+              summary: course.summary,
+              grade: course.grade,
+              difficulty: course.pblConfig?.difficultyLevel ?? "standard",
+              knowledgePoints: generatedKnowledgePoints,
+              knowledgeGraph: generatedKnowledgeGraph,
+            })
           : undefined;
-        const generatedTeachingOutline = data.content.teachingOutline ?? [];
-        const generatedMainline = buildPblProjectMainline(
-          Math.max(0, Math.round(course.hours * 60)),
-          generatedTeachingOutline,
-        );
+        const knowledgeAlignedOutline = knowledgeAlignedPlan
+          ? knowledgeAlignedTeachingOutline!.map((activity) => ({
+              ...activity,
+              durationMin: knowledgeAlignedPlan.allocations.find((item) => item.id === activity.id)?.durationMin
+                ?? activity.durationMin,
+            }))
+          : knowledgeAlignedTeachingOutline;
+        const rawGeneratedTeachingOutline = data.content.teachingOutline ?? [];
+        const generatedTeachingOutline =
+          course.pblConfig?.generationTemplate === "pbl-six-stage"
+            && rawGeneratedTeachingOutline.length > 0
+            ? normalizePblTeachingOutline(rawGeneratedTeachingOutline, {
+                totalMinutes,
+                topic: course.name,
+                subject: course.subject,
+                summary: course.summary,
+                grade: course.grade,
+                difficulty: course.pblConfig?.difficultyLevel ?? "standard",
+                knowledgePoints: generatedKnowledgePoints,
+                knowledgeGraph: generatedKnowledgeGraph,
+              })
+            : rawGeneratedTeachingOutline;
+        const generatedTimingPlan = generatedTeachingOutline.length > 0
+          ? buildPblModuleTimingPlan(totalMinutes, generatedTeachingOutline, {
+              topic: course.name,
+              subject: course.subject,
+              summary: course.summary,
+              grade: course.grade,
+              difficulty: course.pblConfig?.difficultyLevel ?? "standard",
+              knowledgePoints: generatedKnowledgePoints,
+              knowledgeGraph: generatedKnowledgeGraph,
+            })
+          : undefined;
+        const plannedTeachingOutline = generatedTimingPlan
+          ? generatedTeachingOutline.map((activity) => ({
+              ...activity,
+              durationMin: generatedTimingPlan.allocations.find((item) => item.id === activity.id)?.durationMin
+                ?? activity.durationMin,
+            }))
+          : generatedTeachingOutline;
         setContent((prev) => ({
           ...(prev ?? course.content),
           ...(section === "knowledgePoints"
             ? {
                 knowledgePoints: data.content.knowledgePoints,
                 knowledgeGraph: data.content.knowledgeGraph,
-                ...(knowledgeAlignedTeachingOutline
-                  ? { teachingOutline: knowledgeAlignedTeachingOutline }
-                  : {}),
-                ...(knowledgeAlignedMainline
-                  ? {
-                      projectMainline: {
-                        ...knowledgeAlignedMainline,
-                        generatedAt: new Date().toISOString(),
-                      },
-                    }
-                  : {}),
+                teachingOutline:
+                  course.pblConfig?.generationTemplate === "pbl-six-stage"
+                    ? knowledgeAlignedOutline ?? []
+                    : previousTeachingOutline,
+                projectMainline: undefined,
+                moduleTimingPlan:
+                  course.pblConfig?.generationTemplate === "pbl-six-stage"
+                    ? knowledgeAlignedPlan
+                    : undefined,
+                lessonOutline: [],
+                _openmaicSceneOutlines: undefined,
               }
             : {}),
           ...(section === "teachingOutline"
-            ? {
-                pblOutline: data.content.pblOutline || (prev ?? course.content).pblOutline,
-                teachingOutline: generatedTeachingOutline,
-                projectMainline: {
-                  ...generatedMainline,
-                  generatedAt: new Date().toISOString(),
-                },
+              ? {
+                pblOutline: "",
+                teachingOutline: plannedTeachingOutline,
+                projectMainline: undefined,
+                moduleTimingPlan: generatedTimingPlan,
+                lessonOutline: [],
+                _openmaicSceneOutlines: undefined,
               }
             : {}),
           ...(section === "lessonOutline"
@@ -543,6 +673,9 @@ export default function VerifyCoursePage() {
             ? { evaluationPlan: data.content.evaluationPlan }
             : {}),
         }));
+        if (section === "knowledgePoints" || section === "teachingOutline") {
+          setSceneOutlines([]);
+        }
         if (section === "lessonOutline") {
           const generatedDetails = (data.content.lessonOutline ?? []).map((item, index) =>
             normalizeSceneOutlineSnapshot(lessonSectionToSceneOutline(item, index), index),
@@ -565,6 +698,16 @@ export default function VerifyCoursePage() {
   // 使用 OutlinesEditor 呈现，与课堂生成流程一致。
   const generateLessonOutlineOpenMAIC = useCallback(async () => {
     if (!course) return;
+    const currentContent = content ?? course.content;
+    if (
+      !currentContent.moduleTimingPlan
+      || !isPblModuleTimingPlanConfirmed(currentContent.moduleTimingPlan)
+    ) {
+      const message = "请先确认六个模块的时间，再生成课程大纲。";
+      setError(message);
+      toast.error("课程时间尚未确认", { description: message });
+      return;
+    }
     // 中止上一次流式生成
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -623,6 +766,7 @@ export default function VerifyCoursePage() {
           requirements: {
             requirement,
             pblProfile: course.pblConfig,
+            moduleTimingPlan: (content ?? course.content).moduleTimingPlan,
             pblTeachingActivities: buildTeacherActivityRequirements(content ?? course.content),
             pblActivityCatalog: buildPblActivityCatalog(content ?? course.content),
             knowledgePoints: (content ?? course.content).knowledgePoints.map((point) => ({
@@ -739,19 +883,39 @@ export default function VerifyCoursePage() {
 
   function buildPersistableContent(): CourseContent | null {
     if (!content) return null;
+    const teachingOutline = content.teachingOutline ?? [];
+    const totalMinutes = Math.max(0, Math.round((course?.hours ?? 0) * 60));
+    const currentPlan = content.moduleTimingPlan;
+    const confirmed = currentPlan?.status === "confirmed"
+      && isPblModuleTimingPlanConfirmed(currentPlan);
+    const moduleTimingPlan = teachingOutline.length > 0
+      ? buildPblModuleTimingPlan(totalMinutes, teachingOutline, pblTimeContext, {
+          status: confirmed ? "confirmed" : "suggested",
+          preserveCurrentDurations: true,
+          now: currentPlan?.generatedAt,
+        })
+      : undefined;
+    const projectMainline = moduleTimingPlan && confirmed
+      ? content.projectMainline ?? {
+          ...buildPblProjectMainline(totalMinutes, teachingOutline),
+          generatedAt: new Date().toISOString(),
+        }
+      : undefined;
+    const nextContent: CourseContent = {
+      ...content,
+      teachingOutline,
+      projectMainline,
+      moduleTimingPlan,
+    };
     return sceneOutlines.length > 0
       ? {
-          ...content,
-          teachingOutline: content.teachingOutline ?? [],
+          ...nextContent,
           lessonOutline: sceneOutlines.map((outline, index) =>
             sceneOutlineToLessonSection(outline, index, stageKeys),
           ),
           _openmaicSceneOutlines: cloneSceneOutlinesForSession(sceneOutlines),
         }
-      : {
-          ...content,
-          teachingOutline: content.teachingOutline ?? [],
-        };
+      : nextContent;
   }
 
   function saveDraft(showMessage = true): CourseContent | null {
@@ -771,7 +935,13 @@ export default function VerifyCoursePage() {
     if (!content) return false;
     if (!section) return true;
     if (section === "knowledgePoints") return content.knowledgePoints.length > 0;
-    if (section === "teachingOutline") return (content.teachingOutline?.length ?? 0) > 0;
+    if (section === "teachingOutline") {
+      return Boolean(
+        content.teachingOutline?.length
+        && content.moduleTimingPlan?.status === "confirmed"
+        && isPblModuleTimingPlanConfirmed(content.moduleTimingPlan),
+      );
+    }
     if (section === "lessonOutline") return sceneOutlines.length > 0 || content.lessonOutline.length > 0;
     return content.evaluationPlan.dimensions.length > 0;
   }
@@ -823,7 +993,7 @@ export default function VerifyCoursePage() {
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中…</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中…</div>
       </DashboardShell>
     );
   }
@@ -831,9 +1001,9 @@ export default function VerifyCoursePage() {
   if (!course) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">
+        <div className="grid place-items-center py-20 text-stone-500">
           未找到课程。
-          <Link className="mt-4 text-blue-700 hover:underline" href="/teacher">
+          <Link className="mt-4 text-[var(--pbl-teacher)] hover:underline" href="/teacher">
             返回课程列表
           </Link>
         </div>
@@ -846,42 +1016,41 @@ export default function VerifyCoursePage() {
       key: "teachingOutline",
       node: (
         <div className="space-y-4">
-          <PblTimeAllocationPanel
-            activities={content?.teachingOutline ?? []}
-            assessment={pblTimeAssessment}
-            onApplyRecommendation={() => {
+          <PblModuleTimingPanel
+            moduleActivities={content?.teachingOutline ?? []}
+            totalMinutes={Math.max(0, Math.round((course?.hours ?? 0) * 60))}
+            timeContext={pblTimeContext}
+            timingPlan={content?.moduleTimingPlan}
+            onChangeModuleDuration={applyPblStageDurationChange}
+            onApplyRecommendation={(allocations) => {
               const activities = content?.teachingOutline ?? [];
-              const suggestions = suggestPblTimeAllocation(
-                pblTimeAssessment.totalMinutes,
-                activities,
-                pblTimeContext,
-              );
               applyTeachingOutlineChange(
                 activities.map((item) => ({
                   ...item,
-                  durationMin: suggestions[item.id] ?? item.durationMin,
+                  durationMin: allocations[item.id] ?? item.durationMin,
                 })),
               );
             }}
+            onConfirm={confirmModuleTiming}
           />
           <div>
-            <div className="mb-2 text-sm font-bold text-slate-800">PBL 项目主线说明</div>
-            <p className="mb-2 text-xs leading-5 text-slate-500">下方时间轴由课程模块的最终分配自动重算；修改模块时，课程大纲中已有资源的目标时长也会同步更新。</p>
+            <div className="mb-2 text-sm font-bold text-stone-800">PBL 项目主线说明</div>
+            <p className="mb-2 text-xs leading-5 text-stone-500">下方时间轴由课程模块的最终分配自动重算；修改模块时，课程大纲中已有资源的目标时长也会同步更新。</p>
             {content?.projectMainline ? (
               <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {content.projectMainline.modules.map((module) => (
-                  <div className="rounded-[6px] border border-slate-200 bg-slate-50 px-3 py-2 text-xs" key={module.stageKey}>
-                    <div className="flex items-center justify-between gap-2 font-semibold text-slate-700">
+                  <div className="rounded-[6px] border border-stone-200 bg-stone-50 px-3 py-2 text-xs" key={module.stageKey}>
+                    <div className="flex items-center justify-between gap-2 font-semibold text-stone-700">
                       <span>{module.label}</span>
-                      <span className="tabular-nums text-blue-700">{module.durationMin} 分钟</span>
+                      <span className="tabular-nums text-[var(--pbl-teacher)]">{module.durationMin} 分钟</span>
                     </div>
-                    <p className="mt-1 text-slate-500">{module.startMin}-{module.endMin} 分钟</p>
+                    <p className="mt-1 text-stone-500">{module.startMin}-{module.endMin} 分钟</p>
                   </div>
                 ))}
               </div>
             ) : null}
             <textarea
-              className="min-h-[100px] w-full rounded-[6px] border border-slate-300 px-4 py-3 text-[15px] leading-7 outline-none focus:border-blue-500"
+              className="min-h-[100px] w-full rounded-[6px] border border-stone-300 px-4 py-3 text-[15px] leading-7 outline-none focus:border-[var(--pbl-teacher)]"
               onChange={(e) =>
                 setContent((c) =>
                   c ? { ...c, pblOutline: e.target.value } : c,
@@ -895,15 +1064,15 @@ export default function VerifyCoursePage() {
           <div className="grid gap-3">
             {(content?.teachingOutline ?? []).map((section, index) => (
               <div
-                className="rounded-[8px] border border-slate-200 bg-white p-4"
+                className="rounded-[8px] border border-stone-200 bg-white p-4"
                 key={section.id}
               >
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-xs font-bold text-[var(--pbl-teacher)]">
                     {index + 1}
                   </span>
                   <input
-                    className="h-9 min-w-[220px] flex-1 rounded-[6px] border border-slate-300 px-3 text-sm font-semibold outline-none focus:border-blue-500"
+                    className="h-9 min-w-[220px] flex-1 rounded-[6px] border border-stone-300 px-3 text-sm font-semibold outline-none focus:border-[var(--pbl-teacher)]"
                     onChange={(e) =>
                       updateTeachingOutlineItem(setContent, section.id, {
                         title: e.target.value,
@@ -911,24 +1080,11 @@ export default function VerifyCoursePage() {
                     }
                     value={section.title}
                   />
-                  <input
-                    className="h-9 w-20 rounded-[6px] border border-slate-300 px-2 text-right text-sm outline-none focus:border-blue-500"
-                    min={1}
-                    onChange={(e) =>
-                      applyTeachingOutlineChange(
-                        (content?.teachingOutline ?? []).map((item) =>
-                          item.id === section.id
-                            ? { ...item, durationMin: Math.max(1, Number(e.target.value) || 1) }
-                            : item,
-                        ),
-                      )
-                    }
-                    type="number"
-                    value={section.durationMin}
-                  />
-                  <span className="text-xs text-slate-500">分钟</span>
+                  <span className="rounded-[4px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-2.5 py-1.5 text-xs font-semibold tabular-nums text-[var(--pbl-teacher)]">
+                    {section.durationMin} 分钟
+                  </span>
                   <select
-                    className="h-9 rounded-[6px] border border-slate-300 px-2 text-sm outline-none focus:border-blue-500"
+                    className="h-9 rounded-[6px] border border-stone-300 px-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                     onChange={(e) =>
                       updateTeachingOutlineItem(setContent, section.id, {
                         openMaicUse: e.target.value as TeachingOutlineSection["openMaicUse"],
@@ -941,17 +1097,12 @@ export default function VerifyCoursePage() {
                   </select>
                   {index >= PBL_MODULE_DEFINITIONS.length ? (
                     <button
-                      className="text-sm font-semibold text-slate-400 hover:text-red-600"
+                      className="text-sm font-semibold text-stone-400 hover:text-red-600"
                       onClick={() =>
-                        setContent((c) =>
-                          c
-                            ? {
-                                ...c,
-                                teachingOutline: (c.teachingOutline ?? []).filter(
-                                  (item) => item.id !== section.id,
-                                ),
-                              }
-                            : c,
+                        applyTeachingOutlineChange(
+                          (content?.teachingOutline ?? []).filter(
+                            (item) => item.id !== section.id,
+                          ),
                         )
                       }
                       type="button"
@@ -959,7 +1110,7 @@ export default function VerifyCoursePage() {
                       删除
                     </button>
                   ) : (
-                    <span className="text-xs font-semibold text-blue-600">核心模块</span>
+                    <span className="text-xs font-semibold text-[var(--pbl-teacher)]">核心模块</span>
                   )}
                 </div>
 
@@ -1013,19 +1164,12 @@ export default function VerifyCoursePage() {
           </div>
 
           <button
-            className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
             onClick={() =>
-              setContent((c) =>
-                c
-                  ? {
-                      ...c,
-                      teachingOutline: [
-                        ...(c.teachingOutline ?? []),
-                        createEmptyTeachingOutlineItem(c.teachingOutline?.length ?? 0),
-                      ],
-                    }
-                  : c,
-              )
+              applyTeachingOutlineChange([
+                ...(content?.teachingOutline ?? []),
+                createEmptyTeachingOutlineItem(content?.teachingOutline?.length ?? 0),
+              ])
             }
             type="button"
           >
@@ -1045,8 +1189,8 @@ export default function VerifyCoursePage() {
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors",
                 kgViewMode === "graph"
-                  ? "bg-blue-50 text-blue-700 border border-blue-200"
-                  : "text-slate-500 hover:bg-slate-50 border border-transparent",
+                  ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] border border-[var(--pbl-teacher-border)]"
+                  : "text-stone-500 hover:bg-stone-50 border border-transparent",
               )}
               onClick={() => setKgViewMode("graph")}
             >
@@ -1057,8 +1201,8 @@ export default function VerifyCoursePage() {
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors",
                 kgViewMode === "list"
-                  ? "bg-blue-50 text-blue-700 border border-blue-200"
-                  : "text-slate-500 hover:bg-slate-50 border border-transparent",
+                  ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] border border-[var(--pbl-teacher-border)]"
+                  : "text-stone-500 hover:bg-stone-50 border border-transparent",
               )}
               onClick={() => setKgViewMode("list")}
             >
@@ -1069,13 +1213,13 @@ export default function VerifyCoursePage() {
           {kgViewMode === "graph" ? (
             /* ── 图谱视图 ── */
             <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
-              <div className="min-h-[520px] overflow-hidden rounded-[8px] border border-slate-200 bg-white">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                  <div className="flex items-center gap-2 font-bold text-slate-900">
-                    <Network size={18} className="text-blue-700" />
+              <div className="min-h-[520px] overflow-hidden rounded-[8px] border border-stone-200 bg-white">
+                <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+                  <div className="flex items-center gap-2 font-bold text-stone-900">
+                    <Network size={18} className="text-[var(--pbl-teacher)]" />
                     知识图谱
                   </div>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-stone-400">
                     点击节点查看详情 · 可拖拽、缩放
                   </div>
                 </div>
@@ -1101,19 +1245,19 @@ export default function VerifyCoursePage() {
                   const downstream = graph?.edges.filter((e) => e.source === kgSelectedNode) ?? [];
                   if (!point) return null;
                   return (
-                    <div className="rounded-[8px] border border-slate-200 bg-white">
-                      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                        <h3 className="text-sm font-bold text-slate-800">节点详情</h3>
-                        <button type="button" onClick={() => setKgSelectedNode(null)} className="text-slate-400 hover:text-slate-600">
+                    <div className="rounded-[8px] border border-stone-200 bg-white">
+                      <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+                        <h3 className="text-sm font-bold text-stone-800">节点详情</h3>
+                        <button type="button" onClick={() => setKgSelectedNode(null)} className="text-stone-400 hover:text-stone-600">
                           <X size={16} />
                         </button>
                       </div>
                       <div className="space-y-4 p-4">
                         {/* 节点名称 */}
                         <div>
-                          <label className="text-xs font-semibold text-slate-500">节点名称</label>
+                          <label className="text-xs font-semibold text-stone-500">节点名称</label>
                           <input
-                            className="mt-1 h-9 w-full rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                            className="mt-1 h-9 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                             value={point.name}
                             onChange={(e) => setContent((c) => {
                               if (!c) return c;
@@ -1124,9 +1268,9 @@ export default function VerifyCoursePage() {
                         </div>
                         {/* 节点说明 */}
                         <div>
-                          <label className="text-xs font-semibold text-slate-500">节点说明</label>
+                          <label className="text-xs font-semibold text-stone-500">节点说明</label>
                           <input
-                            className="mt-1 h-9 w-full rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                            className="mt-1 h-9 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                             value={point.description}
                             placeholder="描述该知识点"
                             onChange={(e) => setContent((c) => {
@@ -1138,9 +1282,9 @@ export default function VerifyCoursePage() {
                         </div>
                         {/* 关键信息 */}
                         <div>
-                          <label className="text-xs font-semibold text-slate-500">本课关键信息</label>
+                          <label className="text-xs font-semibold text-stone-500">本课关键信息</label>
                           <input
-                            className="mt-1 h-9 w-full rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                            className="mt-1 h-9 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                             value={point.keyInfo ?? ""}
                             placeholder="本课需要掌握的关键信息"
                             onChange={(e) => setContent((c) => {
@@ -1152,9 +1296,9 @@ export default function VerifyCoursePage() {
                         </div>
                         {/* 知识点难度层级 */}
                         <div>
-                          <label className="text-xs font-semibold text-slate-500">知识点层级</label>
+                          <label className="text-xs font-semibold text-stone-500">知识点层级</label>
                           <select
-                            className="mt-1 h-9 w-full rounded-[6px] border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            className="mt-1 h-9 w-full rounded-[6px] border border-stone-300 bg-white px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                             value={point.level ?? content?.knowledgeGraph?.nodes.find((node) => node.id === point.id)?.level ?? "core"}
                             onChange={(e) => setContent((c) => {
                               if (!c) return c;
@@ -1179,16 +1323,16 @@ export default function VerifyCoursePage() {
                         {/* 上游节点 */}
                         {upstream.length > 0 && (
                           <div>
-                            <label className="text-xs font-semibold text-slate-500">上游节点</label>
+                            <label className="text-xs font-semibold text-stone-500">上游节点</label>
                             <div className="mt-1 space-y-1">
                               {upstream.map((edge) => {
                                 const sourcePoint = content?.knowledgePoints.find((p) => p.id === edge.source);
                                 return (
-                                  <div key={edge.id} className="flex items-center gap-2 rounded-md bg-blue-50 px-3 py-1.5 text-xs">
-                                    <span className="font-semibold text-blue-700">{sourcePoint?.name ?? edge.source}</span>
-                                    <span className="text-slate-400">→</span>
+                                  <div key={edge.id} className="flex items-center gap-2 rounded-md bg-[var(--pbl-teacher-soft)] px-3 py-1.5 text-xs">
+                                    <span className="font-semibold text-[var(--pbl-teacher)]">{sourcePoint?.name ?? edge.source}</span>
+                                    <span className="text-stone-400">→</span>
                                     <input
-                                      className="h-6 w-16 rounded border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+                                      className="h-6 w-16 rounded border border-stone-200 bg-white px-1.5 text-xs outline-none focus:border-[var(--pbl-teacher)]"
                                       value={edge.label || "支撑"}
                                       onChange={(e) => setContent((c) => {
                                         if (!c) return c;
@@ -1198,7 +1342,7 @@ export default function VerifyCoursePage() {
                                     />
                                     <button
                                       type="button"
-                                      className="ml-auto text-slate-300 hover:text-red-500"
+                                      className="ml-auto text-stone-300 hover:text-red-500"
                                       title="删除此关系"
                                       onClick={() => setContent((c) => {
                                         if (!c) return c;
@@ -1217,14 +1361,14 @@ export default function VerifyCoursePage() {
                         {/* 下游节点 */}
                         {downstream.length > 0 && (
                           <div>
-                            <label className="text-xs font-semibold text-slate-500">下游节点</label>
+                            <label className="text-xs font-semibold text-stone-500">下游节点</label>
                             <div className="mt-1 space-y-1">
                               {downstream.map((edge) => {
                                 const targetPoint = content?.knowledgePoints.find((p) => p.id === edge.target);
                                 return (
-                                  <div key={edge.id} className="flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-1.5 text-xs">
+                                  <div key={edge.id} className="flex items-center gap-2 rounded-md bg-[var(--pbl-success-soft)] px-3 py-1.5 text-xs">
                                     <input
-                                      className="h-6 w-16 rounded border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+                                      className="h-6 w-16 rounded border border-stone-200 bg-white px-1.5 text-xs outline-none focus:border-[var(--pbl-teacher)]"
                                       value={edge.label || "支撑"}
                                       onChange={(e) => setContent((c) => {
                                         if (!c) return c;
@@ -1232,11 +1376,11 @@ export default function VerifyCoursePage() {
                                         return { ...c, knowledgeGraph: { ...g, edges: g.edges.map((item) => item.id === edge.id ? { ...item, label: e.target.value } : item) } };
                                       })}
                                     />
-                                    <span className="text-slate-400">→</span>
-                                    <span className="font-semibold text-emerald-700">{targetPoint?.name ?? edge.target}</span>
+                                    <span className="text-stone-400">→</span>
+                                    <span className="font-semibold text-[var(--pbl-success)]">{targetPoint?.name ?? edge.target}</span>
                                     <button
                                       type="button"
-                                      className="ml-auto text-slate-300 hover:text-red-500"
+                                      className="ml-auto text-stone-300 hover:text-red-500"
                                       title="删除此关系"
                                       onClick={() => setContent((c) => {
                                         if (!c) return c;
@@ -1253,7 +1397,7 @@ export default function VerifyCoursePage() {
                           </div>
                         )}
                         {/* 删除节点按钮 */}
-                        <div className="border-t border-slate-100 pt-3">
+                        <div className="border-t border-stone-100 pt-3">
                           <button
                             type="button"
                             className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-600 hover:bg-red-100"
@@ -1280,7 +1424,7 @@ export default function VerifyCoursePage() {
                     </div>
                   );
                 })() : (
-                  <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                  <div className="rounded-[8px] border border-dashed border-stone-200 bg-stone-50 p-6 text-center text-sm text-stone-500">
                     点击图谱中的节点查看详情
                   </div>
                 )}
@@ -1288,7 +1432,7 @@ export default function VerifyCoursePage() {
                 {/* 图谱视图下也保留添加节点/关系按钮 */}
                 <div className="flex gap-2">
                   <button
-                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
                     onClick={() =>
                       setContent((c) => {
                         if (!c) return c;
@@ -1307,7 +1451,7 @@ export default function VerifyCoursePage() {
                     + 添加节点
                   </button>
                   <button
-                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
                     disabled={(content?.knowledgePoints.length ?? 0) < 2}
                     onClick={() =>
                       setContent((c) => {
@@ -1334,15 +1478,15 @@ export default function VerifyCoursePage() {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_520px]">
               <div className="space-y-5 xl:order-2">
                 <div>
-                  <div className="mb-2 text-sm font-bold text-slate-800">知识节点</div>
+                  <div className="mb-2 text-sm font-bold text-stone-800">知识节点</div>
                   <div className="space-y-2">
                     {(content?.knowledgePoints ?? []).map((kp) => (
                       <div
-                        className="grid gap-2 overflow-hidden rounded-[8px] border border-slate-200 bg-white p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_auto]"
+                        className="grid gap-2 overflow-hidden rounded-[8px] border border-stone-200 bg-white p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_auto]"
                         key={kp.id}
                       >
                         <input
-                          className="h-10 min-w-0 rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                          className="h-10 min-w-0 rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) => {
                               if (!c) return c;
@@ -1358,7 +1502,7 @@ export default function VerifyCoursePage() {
                           value={kp.name}
                         />
                         <input
-                          className="h-10 min-w-0 rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                          className="h-10 min-w-0 rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) => {
                               if (!c) return c;
@@ -1375,7 +1519,7 @@ export default function VerifyCoursePage() {
                           value={kp.description}
                         />
                         <input
-                          className="h-10 min-w-0 rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                          className="h-10 min-w-0 rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) => {
                               if (!c) return c;
@@ -1392,7 +1536,7 @@ export default function VerifyCoursePage() {
                           value={kp.keyInfo ?? ""}
                         />
                         <button
-                          className="shrink-0 text-sm font-semibold text-slate-400 hover:text-red-600"
+                          className="shrink-0 text-sm font-semibold text-stone-400 hover:text-red-600"
                           onClick={() =>
                             setContent((c) => {
                               if (!c) return c;
@@ -1415,7 +1559,7 @@ export default function VerifyCoursePage() {
                     ))}
                   </div>
                   <button
-                    className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
                     onClick={() =>
                       setContent((c) => {
                         if (!c) return c;
@@ -1447,15 +1591,15 @@ export default function VerifyCoursePage() {
                 </div>
 
                 <div>
-                  <div className="mb-2 text-sm font-bold text-slate-800">节点关系</div>
+                  <div className="mb-2 text-sm font-bold text-stone-800">节点关系</div>
                   <div className="space-y-2">
                     {(content ? ensureKnowledgeGraph(content).edges : []).map((edge) => (
                       <div
-                        className="grid gap-2 overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                        className="grid gap-2 overflow-hidden rounded-[8px] border border-stone-200 bg-stone-50 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
                         key={edge.id}
                       >
                         <select
-                          className="h-10 rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                          className="h-10 rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) =>
                               c
@@ -1478,7 +1622,7 @@ export default function VerifyCoursePage() {
                           ))}
                         </select>
                         <select
-                          className="h-10 rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                          className="h-10 rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) =>
                               c
@@ -1501,7 +1645,7 @@ export default function VerifyCoursePage() {
                           ))}
                         </select>
                         <input
-                          className="h-10 rounded-[6px] border border-slate-300 px-3 text-sm outline-none focus:border-blue-500"
+                          className="h-10 rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) =>
                               c
@@ -1521,7 +1665,7 @@ export default function VerifyCoursePage() {
                           value={edge.label}
                         />
                         <button
-                          className="text-sm font-semibold text-slate-400 hover:text-red-600"
+                          className="text-sm font-semibold text-stone-400 hover:text-red-600"
                           onClick={() =>
                             setContent((c) =>
                               c
@@ -1543,7 +1687,7 @@ export default function VerifyCoursePage() {
                     ))}
                   </div>
                   <button
-                    className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
                     disabled={(content?.knowledgePoints.length ?? 0) < 2}
                     onClick={() =>
                       setContent((c) => {
@@ -1573,10 +1717,10 @@ export default function VerifyCoursePage() {
                 </div>
               </div>
 
-              <div className="min-h-[400px] overflow-hidden rounded-[8px] border border-slate-200 bg-white xl:order-1">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                  <div className="flex items-center gap-2 font-bold text-slate-900">
-                    <Network size={18} className="text-blue-700" />
+              <div className="min-h-[400px] overflow-hidden rounded-[8px] border border-stone-200 bg-white xl:order-1">
+                <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+                  <div className="flex items-center gap-2 font-bold text-stone-900">
+                    <Network size={18} className="text-[var(--pbl-teacher)]" />
                     图谱预览
                   </div>
                 </div>
@@ -1636,11 +1780,11 @@ export default function VerifyCoursePage() {
             />
             </I18nProvider>
           ) : (
-            <div className="rounded-[8px] border border-dashed border-slate-200 px-6 py-10 text-center">
-              <p className="text-sm text-slate-500">
+            <div className="rounded-[8px] border border-dashed border-stone-200 px-6 py-10 text-center">
+              <p className="text-sm text-stone-500">
                 暂无课程大纲。点击上方「AI 生成」按钮，基于课程模块生成资源。
               </p>
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-stone-400">
                 支持场景类型（幻灯片 / 测验 / 互动 / PBL）、关键知识点、教学目标等结构化编辑。
               </p>
             </div>
@@ -1659,9 +1803,9 @@ export default function VerifyCoursePage() {
             </div>
           </section>
           <h3 className="pt-3 font-semibold">评价维度</h3>
-          <div className="overflow-hidden rounded-[6px] border border-slate-200">
+          <div className="overflow-hidden rounded-[6px] border border-stone-200">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
+              <thead className="bg-stone-50 text-stone-500">
                 <tr>
                   <th className="p-3">维度</th>
                   <th className="p-3 w-28">负责角色</th>
@@ -1673,10 +1817,10 @@ export default function VerifyCoursePage() {
               <tbody>
                 {(content?.evaluationPlan.dimensions ?? []).map((d) => {
                   return (
-                    <tr className="border-b border-slate-100" key={d.id}>
+                    <tr className="border-b border-stone-100" key={d.id}>
                       <td className="p-3">
                         <input
-                          className="h-9 w-full rounded-[6px] border border-slate-200 px-2 text-sm outline-none focus:border-blue-500"
+                          className="h-9 w-full rounded-[6px] border border-stone-200 px-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) =>
                               c
@@ -1701,7 +1845,7 @@ export default function VerifyCoursePage() {
                       <td className="p-3">
                         <select
                           aria-label={`${d.name}负责角色`}
-                          className="h-9 w-full rounded-[6px] border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-500"
+                          className="h-9 w-full rounded-[6px] border border-stone-200 bg-white px-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) =>
                               c
@@ -1728,7 +1872,7 @@ export default function VerifyCoursePage() {
                       <td className="p-3">
                         <div className="flex items-center gap-1">
                           <input
-                            className="h-9 w-16 rounded-[6px] border border-slate-200 px-2 text-right text-sm outline-none focus:border-blue-500"
+                            className="h-9 w-16 rounded-[6px] border border-stone-200 px-2 text-right text-sm outline-none focus:border-[var(--pbl-teacher)]"
                             max={100}
                             min={0}
                             onChange={(e) =>
@@ -1755,12 +1899,12 @@ export default function VerifyCoursePage() {
                           type="number"
                           value={d.weight}
                           />
-                          <span className="text-xs text-slate-500">%</span>
+                          <span className="text-xs text-stone-500">%</span>
                         </div>
                       </td>
                       <td className="p-3">
                         <input
-                          className="h-9 w-full rounded-[6px] border border-slate-200 px-2 text-sm outline-none focus:border-blue-500"
+                          className="h-9 w-full rounded-[6px] border border-stone-200 px-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                           onChange={(e) =>
                             setContent((c) =>
                               c
@@ -1784,7 +1928,7 @@ export default function VerifyCoursePage() {
                       </td>
                       <td className="p-3 text-right">
                         <button
-                          className="text-sm font-semibold text-slate-400 hover:text-red-600"
+                          className="text-sm font-semibold text-stone-400 hover:text-red-600"
                           onClick={() =>
                             setContent((c) =>
                               c
@@ -1829,7 +1973,7 @@ export default function VerifyCoursePage() {
           </div>
           <div className="flex items-center justify-between">
             <button
-              className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
               onClick={() =>
                 setContent((c) =>
                   c
@@ -1857,7 +2001,7 @@ export default function VerifyCoursePage() {
               + 添加评价维度
             </button>
             <textarea
-              className="min-h-[60px] flex-1 ml-3 rounded-[6px] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              className="min-h-[60px] flex-1 ml-3 rounded-[6px] border border-stone-200 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
               onChange={(e) =>
                 setContent((c) =>
                   c
@@ -1895,49 +2039,27 @@ export default function VerifyCoursePage() {
     >
       <div className="mb-5 flex items-center gap-3">
         <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
           href="/teacher/prepare/new"
         >
           <ArrowLeft size={17} />
         </Link>
         <div>
           <h1 className="font-editorial text-3xl font-semibold">课程核查</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-stone-500">
             {course.name} · {course.subject} · {course.grade} · {course.hours} 课时
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-3">
-          <button
-            className="inline-flex h-10 items-center gap-2 rounded-[6px] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            onClick={() => saveDraft(true)}
-            type="button"
-          >
-            <Save size={16} /> 保存草稿
-          </button>
-          <PrimaryButton
-            className="h-12 px-7"
-            disabled={
-              !content ||
-              !isStepReady("knowledgePoints") ||
-              !isStepReady("teachingOutline") ||
-              !isStepReady("lessonOutline") ||
-              !isStepReady("evaluationPlan")
-            }
-            onClick={persistAndNext}
-            type="button"
-          >
-            确认并进入课程生成 →
-          </PrimaryButton>
-        </div>
+
       </div>
 
       {info ? (
-        <div className="mb-4 rounded-[8px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+        <div className="mb-4 rounded-[8px] border border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] px-4 py-3 text-sm font-semibold text-[var(--pbl-success)]">
           {info}
         </div>
       ) : null}
       {error ? (
-        <div className="mb-4 rounded-[8px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+        <div className="mb-4 rounded-[8px] border border-[var(--pbl-danger-soft)] bg-[var(--pbl-danger-soft)] px-4 py-3 text-sm font-semibold text-[var(--pbl-danger)]">
           {error}
         </div>
       ) : null}
@@ -1963,15 +2085,15 @@ export default function VerifyCoursePage() {
                 ["驱动问题", course.drivingQuestion || "未填写"],
                 ["课程简介", course.summary || "未填写"],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-xs font-bold text-slate-400">{label}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">{value}</div>
+                <div key={label} className="rounded-[8px] border border-stone-200 bg-stone-50 px-4 py-3">
+                  <div className="text-xs font-bold text-stone-400">{label}</div>
+                  <div className="mt-1 text-sm font-semibold text-stone-900">{value}</div>
                 </div>
               ))}
             </div>
             <div className="mt-4 flex justify-end">
               <PrimaryButton type="button" onClick={() => setFlowStep(1)}>
-                确认基础信息，进入知识图谱 →
+                进入下一步核查 →
               </PrimaryButton>
             </div>
           </Card>
@@ -2017,7 +2139,7 @@ export default function VerifyCoursePage() {
                       )
                     ) : null}
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-stone-500">
                     {SECTION_DESC[key]}
                   </p>
                 </div>
@@ -2027,7 +2149,7 @@ export default function VerifyCoursePage() {
                     <Pill tone="blue">六阶段项目式</Pill>
                     <button
                       type="button"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-3 text-sm font-semibold text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]"
                       onClick={(e) => {
                         e.stopPropagation();
                         void generateLessonOutlineOpenMAIC();
@@ -2054,7 +2176,7 @@ export default function VerifyCoursePage() {
                 ) : (
                   <button
                     type="button"
-                    className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
                     onClick={(e) => {
                       e.stopPropagation();
                       void generateSection(key);
@@ -2069,118 +2191,52 @@ export default function VerifyCoursePage() {
                   </button>
                 )}
                 {open[key] ? (
-                  <ChevronUp className="text-slate-400" size={20} />
+                  <ChevronUp className="text-stone-400" size={20} />
                 ) : (
-                  <ChevronDown className="text-slate-400" size={20} />
+                  <ChevronDown className="text-stone-400" size={20} />
                 )}
               </div>
             </div>
-            {open[key] ? <div className="border-t border-slate-100 p-5">{node}</div> : null}
+            {open[key] ? <div className="border-t border-stone-100 p-5">{node}</div> : null}
           </Card>
             ))
         )}
       </div>
 
-      <div className="mt-7 flex items-center justify-between border-t border-slate-200 pt-5">
-        <Link
-          className="text-sm font-semibold text-slate-500 hover:text-blue-600"
-          href="/teacher"
-        >
-          ← 返回课程列表
-        </Link>
+      <div className="mt-7 flex items-center justify-end border-t border-stone-200 pt-5">
         <div className="flex items-center gap-3">
           <button
-            className="inline-flex h-11 items-center gap-2 rounded-[6px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            className="inline-flex h-11 items-center gap-2 rounded-[6px] border border-stone-200 bg-white px-5 text-sm font-semibold text-stone-600 hover:bg-stone-50"
             onClick={() => saveDraft(true)}
             type="button"
           >
             <Save size={16} /> 保存草稿
           </button>
-          <PrimaryButton
-            className="h-12 px-7"
-            disabled={
-              !content ||
-              !isStepReady("knowledgePoints") ||
-              !isStepReady("teachingOutline") ||
-              !isStepReady("lessonOutline") ||
-              !isStepReady("evaluationPlan")
-            }
-            onClick={persistAndNext}
-            type="button"
-          >
-            确认并进入课程生成 →
-          </PrimaryButton>
+          {flowStep < FLOW_STEPS.length - 1 ? (
+            <PrimaryButton
+              type="button"
+              onClick={() => setFlowStep(flowStep + 1)}
+            >
+              进入下一步核查 →
+            </PrimaryButton>
+          ) : (
+            <PrimaryButton
+              disabled={
+                !content ||
+                !isStepReady("knowledgePoints") ||
+                !isStepReady("teachingOutline") ||
+                !isStepReady("lessonOutline") ||
+                !isStepReady("evaluationPlan")
+              }
+              onClick={persistAndNext}
+              type="button"
+            >
+              进入课程生成 →
+            </PrimaryButton>
+          )}
         </div>
       </div>
     </DashboardShell>
-  );
-}
-
-function PblTimeAllocationPanel({
-  activities,
-  assessment,
-  onApplyRecommendation,
-}: {
-  activities: ReadonlyArray<PblTimeActivity>;
-  assessment: ReturnType<typeof assessPblTimeAllocation>;
-  onApplyRecommendation: () => void;
-}) {
-  const rows: Array<{ key: keyof typeof assessment.stageTotals; label: string }> = [
-    { key: "launch", label: "项目启动" },
-    { key: "knowledge", label: "AI 授知" },
-    { key: "proposal", label: "方案构思" },
-    { key: "practice", label: "项目实践" },
-    { key: "showcase", label: "成果汇报" },
-    { key: "reflection", label: "反思迁移" },
-  ];
-  return (
-    <section className="rounded-[var(--radius-sm)] border border-blue-200 bg-blue-50/60 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-700">课程模块时间模型</p>
-          <p className="mt-1 text-sm text-slate-600">
-            课程总时长 {assessment.totalMinutes} 分钟 · 当前分配 {assessment.allocatedMinutes} 分钟
-            {assessment.deltaMinutes === 0 ? "（已对齐）" : `（相差 ${Math.abs(assessment.deltaMinutes)} 分钟）`}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onApplyRecommendation}
-          disabled={activities.length === 0}
-          className="rounded-[6px] border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          应用标准建议
-        </button>
-      </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {rows.map((row) => {
-          const actual = assessment.stageTotals[row.key];
-          const recommended = assessment.recommendedStageTotals[row.key];
-          const percent = assessment.totalMinutes > 0 ? Math.min(100, (actual / assessment.totalMinutes) * 100) : 0;
-          return (
-            <div className="rounded-[6px] border border-blue-100 bg-white px-3 py-2" key={row.key}>
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="font-semibold text-slate-700">{row.label}</span>
-                <span className="tabular-nums text-slate-500">{actual}m</span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-blue-500" style={{ width: `${percent}%` }} />
-              </div>
-              <p className="mt-1 text-[11px] text-slate-400">建议 {recommended}m</p>
-            </div>
-          );
-        })}
-      </div>
-      {assessment.warnings.length > 0 ? (
-        <div className="mt-3 space-y-1 text-xs leading-5 text-amber-800">
-          {assessment.warnings.map((warning) => (
-            <p key={warning.code}>⚠ {warning.message}</p>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-3 text-xs text-emerald-700">时间分配合理，仍可按实际课堂节奏微调。</p>
-      )}
-    </section>
   );
 }
 
@@ -2199,15 +2255,15 @@ function PblDetailHierarchySummary({
     detailsByParent.set(parentId, [...(detailsByParent.get(parentId) ?? []), detail]);
   });
   return (
-    <section className="rounded-[var(--radius-sm)] border border-slate-200 bg-white p-4">
+    <section className="rounded-[var(--radius-sm)] border border-stone-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">层级深化预览</p>
-          <p className="mt-1 text-sm text-slate-600">课程模块是六个宏观时间单元，课程大纲可在同一模块下独立拆分为多个资源。</p>
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-stone-500">层级深化预览</p>
+          <p className="mt-1 text-sm text-stone-600">课程模块是六个宏观时间单元，课程大纲可在同一模块下独立拆分为多个资源。</p>
         </div>
         <span className={cn(
           "rounded-full px-2.5 py-1 text-xs font-bold",
-          knowledgeValidation.issues.length > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700",
+          knowledgeValidation.issues.length > 0 ? "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]" : "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
         )}>
           知识点 {knowledgeValidation.referencedPointIds.length}/{knowledgeValidation.referencedPointIds.length + knowledgeValidation.unreferencedPointIds.length}
         </span>
@@ -2216,22 +2272,22 @@ function PblDetailHierarchySummary({
         {activities.map((activity) => {
           const childDetails = detailsByParent.get(activity.id) ?? [];
           return (
-            <div className="rounded-[6px] border border-slate-100 bg-slate-50/70 p-3" key={activity.id}>
+            <div className="rounded-[6px] border border-stone-100 bg-stone-50/70 p-3" key={activity.id}>
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="font-semibold text-slate-800">{activity.title}</span>
-                <span className="text-xs tabular-nums text-slate-500">{activity.durationMin} 分钟 · {childDetails.length} 个细化</span>
+                <span className="font-semibold text-stone-800">{activity.title}</span>
+                <span className="text-xs tabular-nums text-stone-500">{activity.durationMin} 分钟 · {childDetails.length} 个细化</span>
               </div>
               {childDetails.length > 0 ? (
-                <div className="mt-2 space-y-1 border-l-2 border-blue-200 pl-3">
+                <div className="mt-2 space-y-1 border-l-2 border-[var(--pbl-teacher-border)] pl-3">
                   {childDetails.map((detail) => (
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600" key={detail.id}>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-600" key={detail.id}>
                       <span className="min-w-0 truncate">↳ {detail.title}</span>
-                      <span className="shrink-0 text-slate-400">{Math.round((detail.targetDurationSec ?? detail.estimatedDuration ?? 0) / 60)} 分钟 · {detail.audience === "teacher" ? "教师资源" : "学生资源"}</span>
+                      <span className="shrink-0 text-stone-400">{Math.round((detail.targetDurationSec ?? detail.estimatedDuration ?? 0) / 60)} 分钟 · {detail.audience === "teacher" ? "教师资源" : "学生资源"}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-amber-700">尚未生成课程大纲资源</p>
+                <p className="mt-2 text-xs text-[var(--pbl-warning)]">尚未生成课程大纲资源</p>
               )}
             </div>
           );
@@ -2246,7 +2302,7 @@ function PblDetailHierarchySummary({
         </div>
       ) : null}
       {knowledgeValidation.unreferencedPointIds.length > 0 ? (
-        <p className="mt-2 text-xs text-slate-500">尚未被课程大纲覆盖的知识点：{knowledgeValidation.unreferencedPointIds.join("、")}</p>
+        <p className="mt-2 text-xs text-stone-500">尚未被课程大纲覆盖的知识点：{knowledgeValidation.unreferencedPointIds.join("、")}</p>
       ) : null}
     </section>
   );
@@ -2275,22 +2331,22 @@ function PblCoverageSummary({
             {hasOutlines ? "阶段归属来自场景显式标注；关键普通课堂活动支撑只检查项目启动与成果汇报。" : "生成后会在这里检查六个阶段和关键普通课堂活动支撑。"}
           </p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${coverage.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-          {coverage.ok ? "覆盖完整" : "需要补充"}
+        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${coverage.ok ? "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]" : "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]"}`}>
+          {hasOutlines ? (coverage.ok ? "覆盖完整" : "需要补充") : "待生成"}
         </span>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {hasOutlines ? <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {Object.values(coverage.entries).map((entry) => (
           <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}>
             <span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span>
             <span className={entry.total ? "text-[var(--pbl-ai)]" : "text-rose-500"}>{entry.total ? `${entry.total} 场` : "缺少"}</span>
           </div>
         ))}
-      </div>
-      {coverage.missingStageKeys.length ? (
-        <p className="mt-3 text-xs leading-5 text-slate-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}</p>
+      </div> : null}
+      {hasOutlines && coverage.missingStageKeys.length ? (
+        <p className="mt-3 text-xs leading-5 text-stone-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}</p>
       ) : null}
-      {!coverage.ok ? (
+      {hasOutlines && !coverage.ok ? (
         <div className="mt-3 space-y-1 text-xs leading-5 text-amber-800">
           {coverage.missingStageKeys.length ? <p>缺少阶段：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}</p> : null}
           {coverage.missingStudentLearningStageKeys.length ? <p>需要学生学习场景：AI 授知</p> : null}
@@ -2298,7 +2354,7 @@ function PblCoverageSummary({
           {coverage.routingViolations.length ? <p>分流需修正：{coverage.routingViolations[0]}</p> : null}
         </div>
       ) : null}
-      {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-slate-500">元数据提醒：{coverage.metadataWarnings.join("；")}</p> : null}
+      {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-stone-500">元数据提醒：{coverage.metadataWarnings.join("；")}</p> : null}
     </section>
   );
 }
@@ -2350,9 +2406,9 @@ function OutlineTextarea({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-bold text-slate-500">{label}</span>
+      <span className="mb-1 block text-xs font-bold text-stone-500">{label}</span>
       <textarea
-        className="min-h-[84px] w-full rounded-[6px] border border-slate-300 px-3 py-2 text-sm leading-6 outline-none focus:border-blue-500"
+        className="min-h-[84px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm leading-6 outline-none focus:border-[var(--pbl-teacher)]"
         onChange={(e) => onChange(e.target.value)}
         value={value}
       />

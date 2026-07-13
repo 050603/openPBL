@@ -29,16 +29,42 @@ import {
   generateMediaForClassroom,
   replaceMediaPlaceholders,
   generateTTSForClassroom,
+  resolveServerTtsTimingSelection,
+  type ServerTtsTimingSelection,
 } from '@openmaic/lib/server/classroom-media-generation';
-import { withGenerationRetry } from '@openmaic/lib/generation/generation-retry';
+import {
+  assessTtsDurationError,
+  buildTtsTimingPlan,
+  estimateSpeechDurationSec,
+} from '@openmaic/lib/audio/tts-timing';
+import {
+  estimatePblActivityTime,
+  type PblActivityContentType,
+  type PblActivityTimingInput,
+  type PblInteractionType,
+} from '@/lib/pbl-time-estimation';
+import {
+  throwIfAborted,
+  withGenerationRetry,
+} from '@openmaic/lib/generation/generation-retry';
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
+import type { Action } from '@openmaic/lib/types/action';
 import { validatePblKnowledgeAlignment } from '@/lib/pbl-outline-validation';
 import type { Scene, Stage } from '@openmaic/lib/types/stage';
 import { AGENT_COLOR_PALETTE, AGENT_DEFAULT_AVATARS } from '@openmaic/lib/constants/agent-defaults';
 import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('Classroom');
+
+function getSpeechActionText(actions: ReadonlyArray<Action> | undefined): string {
+  return (actions ?? [])
+    .filter((action): action is Extract<Action, { type: 'speech' }> => (
+      action.type === 'speech' && Boolean(action.text)
+    ))
+    .map((action) => action.text)
+    .join('\n');
+}
 
 export interface GenerateClassroomInput {
   requirement: string;
@@ -57,6 +83,10 @@ export interface GenerateClassroomInput {
   enableImageGeneration?: boolean;
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
+  ttsProviderId?: string;
+  ttsModelId?: string;
+  ttsSpeed?: number;
+  ttsLanguage?: string;
   agentMode?: 'default' | 'generate';
 }
 
@@ -168,6 +198,106 @@ export function normalizeSceneOutlinesForGeneration(outlines?: SceneOutline[]): 
           ? raw.ttsPolicy
           : undefined,
       order: index,
+    };
+  });
+}
+
+function inferOutlineContentType(outline: SceneOutline): PblActivityContentType {
+  if (outline.type === 'quiz' || outline.quizConfig) return 'quiz';
+  if (outline.type === 'interactive') {
+    if (outline.widgetType === 'code') return 'technical-explanation';
+    if (outline.widgetType === 'diagram') return 'technical-explanation';
+    return 'interaction';
+  }
+  const text = `${outline.title} ${outline.description} ${(outline.keyPoints ?? []).join(' ')}`.toLowerCase();
+  if (/case|案例|情境|证据|判断/.test(text)) return 'case-analysis';
+  if (/code|technical|技术|代码|编程|步骤|实现/.test(text)) return 'technical-explanation';
+  if (outline.detailKind === 'reflection-transfer') return 'reflection';
+  return 'theory';
+}
+
+function inferOutlineInteraction(outline: SceneOutline): PblActivityTimingInput['interaction'] {
+  if (outline.type !== 'interactive') return undefined;
+  const widget = outline.widgetOutline && typeof outline.widgetOutline === 'object'
+    ? outline.widgetOutline as Record<string, unknown>
+    : undefined;
+  const widgetType = outline.widgetType;
+  const type: PblInteractionType = widgetType === 'code'
+    ? 'code'
+    : widgetType === 'diagram'
+      ? 'diagram'
+      : widgetType === 'game'
+        ? 'game'
+        : widgetType === 'simulation'
+          ? 'simulation'
+          : 'custom';
+  const stepCount = Array.isArray(widget?.steps)
+    ? widget.steps.length
+    : Array.isArray(widget?.interactions)
+      ? widget.interactions.length
+      : 1;
+  return { type, stepCount, difficulty: 'standard' };
+}
+
+function inferOutlineQuiz(outline: SceneOutline): PblActivityTimingInput['quiz'] {
+  if (outline.type !== 'quiz' && !outline.quizConfig) return undefined;
+  const config = outline.quizConfig;
+  return {
+    questionCount: Math.max(1, Math.round(config?.questionCount ?? 3)),
+    questionTypes: config?.questionTypes,
+    difficulty: config?.difficulty === 'hard' ? 'advanced' : config?.difficulty === 'easy' ? 'introductory' : 'standard',
+  };
+}
+
+/** Attach fresh model-specific timing plans immediately before scene generation. */
+export function attachTtsTimingPlans(
+  outlines: SceneOutline[],
+  selection: ServerTtsTimingSelection,
+): SceneOutline[] {
+  return outlines.map((outline) => {
+    if (outline.audience === 'teacher' || outline.ttsPolicy === 'none') {
+      return { ...outline, timingPlan: undefined };
+    }
+    const activityTargetSec = Math.max(
+      1,
+      Math.round(outline.targetDurationSec ?? outline.estimatedDuration ?? 60),
+    );
+    const contentType = inferOutlineContentType(outline);
+    const interaction = inferOutlineInteraction(outline);
+    const quiz = inferOutlineQuiz(outline);
+    const activityEstimate = estimatePblActivityTime({
+      id: outline.id,
+      title: outline.title,
+      stageKey: outline.stageKey,
+      activityKind: outline.activityId ? 'knowledge' : undefined,
+      contentType,
+      targetDurationSec: activityTargetSec,
+      interaction,
+      quiz,
+    });
+    const speechTargetSec = contentType === 'quiz'
+      ? Math.max(15, Math.min(60, Math.round(activityTargetSec * 0.2)))
+      : interaction || quiz
+        ? Math.max(
+            15,
+            Math.min(
+              activityTargetSec,
+              activityTargetSec - activityEstimate.interactionSec - activityEstimate.quizSec
+                - activityEstimate.teacherSec - activityEstimate.transitionSec,
+            ),
+          )
+        : activityTargetSec;
+    return {
+      ...outline,
+      timingPlan: buildTtsTimingPlan({
+        targetDurationSec: speechTargetSec,
+        activityTargetDurationSec: activityTargetSec,
+        providerId: selection.providerId,
+        modelId: selection.modelId,
+        speed: selection.speed,
+        language: selection.language,
+        contentType,
+      }),
     };
   });
 }
@@ -287,12 +417,19 @@ export async function generateClassroom(
   input: GenerateClassroomInput,
   options: {
     baseUrl: string;
+    signal?: AbortSignal;
     onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
   },
 ): Promise<GenerateClassroomResult> {
   const { requirement, pdfContent } = input;
 
-  await options.onProgress?.({
+  const reportProgress = async (progress: ClassroomGenerationProgress) => {
+    throwIfAborted(options.signal);
+    await options.onProgress?.(progress);
+    throwIfAborted(options.signal);
+  };
+
+  await reportProgress({
     step: 'initializing',
     progress: 5,
     message: 'Initializing classroom generation',
@@ -307,6 +444,7 @@ export async function generateClassroom(
     apiKey,
     thinkingConfig: classroomThinking,
   } = await resolveModel({ stage: 'generate-classroom' });
+  throwIfAborted(options.signal);
   log.info(`Using server-configured model: ${modelString}`);
 
   // Fail fast if the resolved provider has no API key configured
@@ -329,6 +467,7 @@ export async function generateClassroom(
     const result = await callLLM(
       {
         model: languageModel,
+        abortSignal: options.signal,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: modelInfo?.outputWindow,
@@ -344,6 +483,7 @@ export async function generateClassroom(
     const result = await callLLM(
       {
         model: languageModel,
+        abortSignal: options.signal,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: modelInfo?.outputWindow,
@@ -360,6 +500,7 @@ export async function generateClassroom(
     const result = await callLLM(
       {
         model: searchQueryModel,
+        abortSignal: options.signal,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: 256,
@@ -381,7 +522,7 @@ export async function generateClassroom(
   const vocationalActive = resolveVocationalActive(requirements);
   const pdfText = pdfContent?.text || undefined;
 
-  await options.onProgress?.({
+  await reportProgress({
     step: 'researching',
     progress: 10,
     message: 'Researching topic',
@@ -412,6 +553,7 @@ export async function generateClassroom(
         }
       }
       try {
+        throwIfAborted(options.signal);
         const searchQuery = await buildSearchQuery(requirement, pdfText, searchQueryAiCall);
 
         log.info('Running web search for classroom generation', {
@@ -426,13 +568,16 @@ export async function generateClassroom(
           query: searchQuery.query,
           apiKey: webSearchConfig.apiKey,
           baseUrl: webSearchConfig.baseUrl,
+          signal: options.signal,
           baiduSubSources: webSearchConfig.baiduSubSources,
         });
+        throwIfAborted(options.signal);
         researchContext = formatSearchResultsAsContext(searchResult);
         if (researchContext) {
           log.info(`Web search returned ${searchResult.sources.length} sources`);
         }
       } catch (e) {
+        if (options.signal?.aborted) throw e;
         log.warn('Web search failed, continuing without search context:', e);
       }
     } else {
@@ -440,7 +585,7 @@ export async function generateClassroom(
     }
   }
 
-  await options.onProgress?.({
+  await reportProgress({
     step: 'generating_outlines',
     progress: 15,
     message: 'Generating scene outlines',
@@ -460,23 +605,24 @@ export async function generateClassroom(
   let generatedOutlines: SceneOutline[] = [];
   if (confirmedOutlines.length === 0) {
     const outlinesResult = await generateSceneOutlinesFromRequirements(
-    requirements,
-    pdfText,
-    undefined,
-    aiCall,
-    undefined,
-    {
-      imageGenerationEnabled: input.enableImageGeneration,
-      videoGenerationEnabled: input.enableVideoGeneration,
-      researchContext,
-      // NO teacherContext — agents haven't been generated yet
-    },
-  );
+      requirements,
+      pdfText,
+      undefined,
+      aiCall,
+      undefined,
+      {
+        imageGenerationEnabled: input.enableImageGeneration,
+        videoGenerationEnabled: input.enableVideoGeneration,
+        researchContext,
+        // NO teacherContext — agents haven't been generated yet
+      },
+    );
 
-  if (!outlinesResult.success || !outlinesResult.data) {
-    log.error('Failed to generate outlines:', outlinesResult.error);
-    throw new Error(outlinesResult.error || 'Failed to generate scene outlines');
-  }
+    throwIfAborted(options.signal);
+    if (!outlinesResult.success || !outlinesResult.data) {
+      log.error('Failed to generate outlines:', outlinesResult.error);
+      throw new Error(outlinesResult.error || 'Failed to generate scene outlines');
+    }
 
     generatedLanguageDirective = outlinesResult.data.languageDirective;
     generatedCourseTitle = outlinesResult.data.courseTitle;
@@ -484,10 +630,18 @@ export async function generateClassroom(
   }
   const languageDirective = input.languageDirective || generatedLanguageDirective;
   const courseTitle = input.courseTitle || generatedCourseTitle;
-  const outlines = enforcePblOutlineContract(
+  const baseOutlines = enforcePblOutlineContract(
     confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
     requirements,
   );
+  const ttsTimingSelection = resolveServerTtsTimingSelection({
+    providerId: input.ttsProviderId,
+    modelId: input.ttsModelId,
+    speed: input.ttsSpeed,
+    language: input.ttsLanguage,
+  });
+  const outlines = attachTtsTimingPlans(baseOutlines, ttsTimingSelection);
+  throwIfAborted(options.signal);
   validateConfirmedPblDetails(outlines, input);
   log.info(
     confirmedOutlines.length > 0
@@ -495,7 +649,7 @@ export async function generateClassroom(
       : `Generated ${outlines.length} scene outlines (languageDirective: ${languageDirective}, courseTitle: ${courseTitle ?? 'n/a'})`,
   );
 
-  await options.onProgress?.({
+    await reportProgress({
     step: 'generating_outlines',
     progress: 30,
     message: `Generated ${outlines.length} scene outlines`,
@@ -512,6 +666,7 @@ export async function generateClassroom(
       agents = await generateAgentProfiles(requirement, languageDirective, aiCall);
       log.info(`Generated ${agents.length} agent profiles`);
     } catch (e) {
+      if (options.signal?.aborted) throw e;
       log.warn('Agent profile generation failed, falling back to defaults:', e);
       agents = getDefaultAgents();
     }
@@ -556,13 +711,14 @@ export async function generateClassroom(
   let generatedScenes = 0;
 
   for (const [index, outline] of outlines.entries()) {
+    throwIfAborted(options.signal);
     const safeOutline = applyOutlineFallbacks(outline, true, {
       allowProceduralSkill: vocationalActive,
       personalProject: requirements.pblProfile?.projectMode === 'personal',
     });
     const progressStart = 30 + Math.floor((index / Math.max(outlines.length, 1)) * 60);
 
-    await options.onProgress?.({
+    await reportProgress({
       step: 'generating_scenes',
       progress: Math.max(progressStart, 31),
       message: `Generating scene ${index + 1}/${outlines.length}: ${safeOutline.title}`,
@@ -577,7 +733,7 @@ export async function generateClassroom(
       const nextAttempt = Math.min(event.attempt + 1, event.maxAttempts);
       const message = `Retrying scene ${index + 1}/${outlines.length} ${phase} (${nextAttempt}/${event.maxAttempts}): ${safeOutline.title}`;
       log.warn(`${message} — ${event.reason}`);
-      await options.onProgress?.({
+      await reportProgress({
         step: 'generating_scenes',
         progress: Math.max(progressStart, 31),
         message,
@@ -594,9 +750,11 @@ export async function generateClassroom(
           userRequirements: requirements,
           pblProfile: requirements.pblProfile,
           allowProceduralSkill: vocationalActive,
+          signal: options.signal,
         }),
       {
         label: `scene ${index + 1}/${outlines.length} content`,
+        signal: options.signal,
         shouldRetryResult: (result) => result === null,
         onRetry: (event) => reportSceneRetry('content', event),
       },
@@ -605,8 +763,9 @@ export async function generateClassroom(
       log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);
       continue;
     }
+    throwIfAborted(options.signal);
 
-    const actions = await withGenerationRetry(
+    let actions = await withGenerationRetry(
       () =>
         generateSceneActions(safeOutline, content, sceneAiCall, {
           agents,
@@ -615,9 +774,51 @@ export async function generateClassroom(
         }),
       {
         label: `scene ${index + 1}/${outlines.length} actions`,
+        signal: options.signal,
         onRetry: (event) => reportSceneRetry('actions', event),
       },
     );
+    throwIfAborted(options.signal);
+
+    // A single bounded correction pass keeps the generated script close to the
+    // model-specific narration budget without creating an unbounded LLM loop.
+    const timingPlan = safeOutline.timingPlan;
+    const firstSpeechText = getSpeechActionText(actions);
+    if (timingPlan && firstSpeechText) {
+      const firstEstimatedSec = estimateSpeechDurationSec(firstSpeechText, {
+        providerId: timingPlan.providerId,
+        modelId: timingPlan.modelId,
+        speed: timingPlan.speed,
+      });
+      const firstAssessment = assessTtsDurationError({
+        targetSec: timingPlan.targetDurationSec,
+        actualSec: firstEstimatedSec,
+      });
+      if (!firstAssessment.withinTolerance && timingPlan.targetDurationSec >= 30) {
+        const correctedActions = await generateSceneActions(safeOutline, content, sceneAiCall, {
+          agents,
+          languageDirective,
+          pblProfile: requirements.pblProfile,
+          timingCorrection: firstAssessment.suggestions.join('；'),
+        });
+        const correctedText = getSpeechActionText(correctedActions);
+        const correctedEstimatedSec = correctedText
+          ? estimateSpeechDurationSec(correctedText, {
+              providerId: timingPlan.providerId,
+              modelId: timingPlan.modelId,
+              speed: timingPlan.speed,
+            })
+          : 0;
+        const correctedError = Math.abs(correctedEstimatedSec - timingPlan.targetDurationSec);
+        const firstError = Math.abs(firstEstimatedSec - timingPlan.targetDurationSec);
+        if (correctedText && correctedError < firstError) {
+          actions = correctedActions;
+        }
+        log.warn(
+          `Scene timing correction ${safeOutline.title}: target=${timingPlan.targetDurationSec}s estimate=${firstEstimatedSec}s correctedEstimate=${correctedEstimatedSec}s`,
+        );
+      }
+    }
     log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
 
     const sceneId = createSceneWithActions(safeOutline, content, actions, api);
@@ -628,7 +829,7 @@ export async function generateClassroom(
 
     generatedScenes += 1;
     const progressEnd = 30 + Math.floor(((index + 1) / Math.max(outlines.length, 1)) * 60);
-    await options.onProgress?.({
+    await reportProgress({
       step: 'generating_scenes',
       progress: Math.min(progressEnd, 90),
       message: `Generated ${generatedScenes}/${outlines.length} scenes`,
@@ -646,7 +847,7 @@ export async function generateClassroom(
 
   // Phase: Media generation (after all scenes generated)
   if (input.enableImageGeneration || input.enableVideoGeneration) {
-    await options.onProgress?.({
+    await reportProgress({
       step: 'generating_media',
       progress: 90,
       message: 'Generating media files',
@@ -655,10 +856,16 @@ export async function generateClassroom(
     });
 
     try {
-      const mediaMap = await generateMediaForClassroom(outlines, stageId, options.baseUrl);
+      const mediaMap = await generateMediaForClassroom(
+        outlines,
+        stageId,
+        options.baseUrl,
+        options.signal,
+      );
       replaceMediaPlaceholders(scenes, mediaMap);
       log.info(`Media generation complete: ${Object.keys(mediaMap).length} files`);
     } catch (err) {
+      if (options.signal?.aborted) throw err;
       log.warn('Media generation phase failed, continuing:', err);
     }
   }
@@ -673,7 +880,7 @@ export async function generateClassroom(
       : scenes;
     const skippedScenes = scenes.length - ttsScenes.length;
 
-    await options.onProgress?.({
+    await reportProgress({
       step: 'generating_tts',
       progress: 94,
       message: isPblCourse
@@ -684,22 +891,30 @@ export async function generateClassroom(
     });
 
     try {
-      await generateTTSForClassroom(ttsScenes, stageId, options.baseUrl);
+      await generateTTSForClassroom(
+        ttsScenes,
+        stageId,
+        options.baseUrl,
+        options.signal,
+        ttsTimingSelection,
+      );
       log.info(
         `TTS generation complete [studentScenes=${ttsScenes.length}, skippedTeacherScenes=${skippedScenes}]`,
       );
     } catch (err) {
+      if (options.signal?.aborted) throw err;
       log.warn('TTS generation phase failed, continuing:', err);
     }
   }
 
-  await options.onProgress?.({
+  await reportProgress({
     step: 'persisting',
     progress: 98,
     message: 'Persisting classroom data',
     scenesGenerated: scenes.length,
     totalScenes: outlines.length,
   });
+  throwIfAborted(options.signal);
 
   const persisted = await persistClassroom(
     {
@@ -709,10 +924,11 @@ export async function generateClassroom(
     },
     options.baseUrl,
   );
+  throwIfAborted(options.signal);
 
   log.info(`Classroom persisted: ${persisted.id}, URL: ${persisted.url}`);
 
-  await options.onProgress?.({
+  await reportProgress({
     step: 'completed',
     progress: 100,
     message: 'Classroom generation completed',

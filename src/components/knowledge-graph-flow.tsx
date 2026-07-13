@@ -326,7 +326,7 @@ export function KnowledgeGraphFlow({
 
   if (normalized.nodes.length === 0) {
     return (
-      <div className="grid h-full place-items-center rounded-[8px] border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+      <div className="grid h-full place-items-center rounded-[8px] border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
         暂无知识图谱。请先生成或添加知识点。
       </div>
     );
@@ -377,7 +377,7 @@ export function KnowledgeGraphFlow({
         <button
           type="button"
           onClick={onToggleFullscreen}
-          className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700"
+          className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-md border border-stone-200 bg-white text-stone-500 shadow-sm transition-colors hover:bg-stone-50 hover:text-stone-700"
           title={isFullscreen ? "退出全屏" : "全屏显示"}
         >
           {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}

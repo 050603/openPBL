@@ -277,7 +277,7 @@ function SingleChoiceQuestion({
                     !selected &&
                     'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
                   !isReview && selected && 'bg-violet-500 text-white',
-                  isReview && isCorrectOpt && 'bg-emerald-500 text-white',
+                  isReview && isCorrectOpt && 'bg-[var(--pbl-success)] text-white',
                   isReview && isWrong && !isCorrectOpt && 'bg-red-400 text-white',
                   isReview &&
                     !isCorrectOpt &&
@@ -382,7 +382,7 @@ function MultipleChoiceQuestion({
                     !isSelected &&
                     'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
                   !isReview && isSelected && 'bg-violet-500 text-white',
-                  isReview && isCorrectOpt && 'bg-emerald-500 text-white',
+                  isReview && isCorrectOpt && 'bg-[var(--pbl-success)] text-white',
                   isReview && isWrong && 'bg-red-400 text-white',
                   isReview &&
                     !isCorrectOpt &&

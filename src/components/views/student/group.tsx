@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, BarChart3, CheckCircle2, ClipboardCheck, FileText, Image as ImageIcon, Lightbulb, Megaphone, PenLine, Plus, Save, Trash2, Video, Wand2 } from "lucide-react";
@@ -11,10 +11,10 @@ import { GroupBoardEditor } from "./group-board-editor";
 import { CompanionRoundtable } from "./companion-roundtable";
 
 const forms = [
-  { label: "方案报告", icon: FileText, color: "bg-blue-600" },
+  { label: "方案报告", icon: FileText, color: "bg-[var(--pbl-student)]" },
   { label: "海报手册", icon: ImageIcon, color: "bg-emerald-600" },
   { label: "短视频", icon: Video, color: "bg-violet-600" },
-  { label: "数据看板", icon: BarChart3, color: "bg-orange-500" },
+  { label: "数据看板", icon: BarChart3, color: "bg-[var(--pbl-accent)]" },
 ];
 // 通用构思引导问题：与具体主题无关，用于在没有 LLM 接入时
 // 引导小组讨论方向。完整 AI 建议将在 LLM 接入后基于课程内容生成。
@@ -62,7 +62,7 @@ export function GroupView({ course }: { course: Course }) {
     return (
       <Card className="text-center">
         <h2 className="text-2xl font-black">还没有小组</h2>
-        <p className="mt-2 text-sm text-slate-500">先创建或加入一个小组，再进入构思阶段。</p>
+        <p className="mt-2 text-sm text-stone-500">先创建或加入一个小组，再进入构思阶段。</p>
         <PrimaryButton className="mt-5" onClick={() => {
           const groupName = session.studentName ? `${session.studentName}的小组` : "新小组";
           const next = session.createGroup(course.id, groupName);
@@ -171,16 +171,16 @@ export function GroupView({ course }: { course: Course }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-4">
-        <button className="grid h-10 w-10 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={() => window.history.back()} type="button">
+        <button className="grid h-10 w-10 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-600 hover:bg-stone-50" onClick={() => window.history.back()} type="button">
           <ArrowLeft size={18} />
         </button>
         <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-600"><Lightbulb size={27} /></div>
         <div className="min-w-0">
           <h1 className="truncate text-3xl font-black leading-tight md:text-4xl">{group.name}</h1>
-          <p className="text-sm text-slate-500">{group.members.length} 名成员 · {group.topic}</p>
+          <p className="text-sm text-stone-500">{group.members.length} 名成员 · {group.topic}</p>
         </div>
         <AvatarStack names={group.members.map((member) => member.name)} />
-        <button className="ml-auto inline-flex h-10 items-center gap-2 rounded-[6px] border border-blue-200 px-4 font-semibold text-blue-700 hover:bg-blue-50" onClick={() => setAnnouncementOpen((value) => !value)} type="button">
+        <button className="ml-auto inline-flex h-10 items-center gap-2 rounded-[6px] border border-[var(--pbl-teacher-border)] px-4 font-semibold text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]" onClick={() => setAnnouncementOpen((value) => !value)} type="button">
           <Megaphone size={18} /> 组内公告
         </button>
       </div>
@@ -196,13 +196,13 @@ export function GroupView({ course }: { course: Course }) {
             </div>
             <div className="space-y-2">
               {announcements.map((item) => (
-                <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3" key={item.id}>
+                <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3" key={item.id}>
                   <div className="font-bold">{item.title}</div>
-                  <p className="mt-1 text-sm text-slate-600">{item.content}</p>
-                  <div className="mt-2 text-xs text-slate-400">{item.actor} · {new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+                  <p className="mt-1 text-sm text-stone-600">{item.content}</p>
+                  <div className="mt-2 text-xs text-stone-400">{item.actor} · {new Date(item.createdAt).toLocaleString("zh-CN")}</div>
                 </div>
               ))}
-              {!announcements.length ? <div className="rounded-[8px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">暂无组内公告</div> : null}
+              {!announcements.length ? <div className="rounded-[8px] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">暂无组内公告</div> : null}
             </div>
           </div>
         </Card>
@@ -224,7 +224,7 @@ export function GroupView({ course }: { course: Course }) {
         <Card>
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-xl font-black">选题 / 方向</h2>
-            <button className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700" onClick={() => setEditingTopic((value) => !value)} type="button">
+            <button className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--pbl-student)]" onClick={() => setEditingTopic((value) => !value)} type="button">
               <PenLine size={15} /> {editingTopic ? "完成" : "编辑"}
             </button>
           </div>
@@ -236,20 +236,20 @@ export function GroupView({ course }: { course: Course }) {
             </div>
           ) : (
             <div className="space-y-5">
-              <div><div className="text-sm text-slate-500">当前方向</div><div className="mt-2 text-xl font-black">{group.topic}</div></div>
-              <div><div className="text-sm text-slate-500">目标</div><p className="mt-2 text-[15px] text-slate-700">{group.goal}</p></div>
-              <div><div className="mb-2 text-sm text-slate-500">关键词</div><div className="flex flex-wrap gap-2">{group.keywords.map((tag) => <Pill key={tag} tone="gray">{tag}</Pill>)}</div></div>
+              <div><div className="text-sm text-stone-500">当前方向</div><div className="mt-2 text-xl font-black">{group.topic}</div></div>
+              <div><div className="text-sm text-stone-500">目标</div><p className="mt-2 text-[15px] text-stone-700">{group.goal}</p></div>
+              <div><div className="mb-2 text-sm text-stone-500">关键词</div><div className="flex flex-wrap gap-2">{group.keywords.map((tag) => <Pill key={tag} tone="gray">{tag}</Pill>)}</div></div>
             </div>
           )}
         </Card>
 
         <Card>
-          <h2 className="mb-5 text-xl font-black">成果形式选择 <span className="text-base font-medium text-slate-500">（可多选）</span></h2>
+          <h2 className="mb-5 text-xl font-black">成果形式选择 <span className="text-base font-medium text-stone-500">（可多选）</span></h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {forms.map(({ label, icon: Icon, color }) => {
               const selected = group.selectedForms.includes(label);
               return (
-                <button className={`relative flex h-32 flex-col items-center justify-center gap-3 rounded-[8px] border text-base font-black transition sm:h-[8.5rem] ${selected ? "border-blue-600 bg-blue-50 text-slate-950" : "border-slate-200 bg-white hover:border-blue-300"}`} key={label} onClick={() => toggleForm(label)} type="button">
+                <button className={`relative flex h-32 flex-col items-center justify-center gap-3 rounded-[8px] border text-base font-black transition sm:h-[8.5rem] ${selected ? "border-[var(--pbl-student)] bg-[var(--pbl-student-soft)] text-stone-900" : "border-stone-200 bg-white hover:border-[var(--pbl-teacher-border)]"}`} key={label} onClick={() => toggleForm(label)} type="button">
                   <span className={`grid h-11 w-11 place-items-center rounded-[5px] text-white ${color}`}>
                     <Icon size={22} strokeWidth={2.2} />
                   </span>
@@ -264,26 +264,26 @@ export function GroupView({ course }: { course: Course }) {
         <Card>
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-xl font-black">方案构思检查器</h2>
-            <button className="text-sm font-semibold text-blue-700" onClick={checkIdea} type="button">刷新诊断</button>
+            <button className="text-sm font-semibold text-[var(--pbl-student)]" onClick={checkIdea} type="button">刷新诊断</button>
           </div>
-          <p className="mb-4 text-xs text-slate-400">
+          <p className="mb-4 text-xs text-stone-400">
             读取当前选题、目标、成果形式和分工，只给检查与修改建议，不代写方案。
           </p>
           {latestIdeaSupport ? (
             <div className="space-y-4">
-              <div className="rounded-[8px] border border-blue-100 bg-blue-50/70 p-3">
+              <div className="rounded-[8px] border border-blue-100 bg-[var(--pbl-student-soft)]/70 p-3">
                 <div className="mb-1 flex items-center gap-2 font-black text-blue-800"><ClipboardCheck size={17} /> 诊断结论</div>
-                <p className="text-sm leading-6 text-slate-700">{latestIdeaSupport.diagnosis}</p>
+                <p className="text-sm leading-6 text-stone-700">{latestIdeaSupport.diagnosis}</p>
               </div>
               <div className="space-y-3">
                 {latestIdeaSupport.suggestions.map((item, index) => (
                   <div className="flex gap-3 text-[15px] leading-7" key={item}>
-                    <span className="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-sm font-black text-blue-700">{index + 1}</span>
+                    <span className="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-sm font-black text-[var(--pbl-student)]">{index + 1}</span>
                     <div className="flex-1"><p>{item}</p><div className="mt-2 flex flex-wrap gap-2"><button className="min-h-9 rounded-[var(--radius-xs)] border border-[var(--pbl-student)] px-3 text-xs font-semibold text-[var(--pbl-student)]" onClick={() => decideSuggestion(item, "adopted")} type="button">采纳到实施计划</button><button className="min-h-9 px-3 text-xs font-semibold text-[var(--pbl-student)]" onClick={() => { setEditingSuggestion(item); setEditedSuggestion(item); }} type="button">修改后采纳</button><button className="min-h-9 px-3 text-xs font-semibold text-[var(--pbl-text-muted)]" onClick={() => setRejectingSuggestion(item)} type="button">不采纳</button></div>{editingSuggestion === item ? <div className="mt-2 flex flex-col gap-2 sm:flex-row"><TextInput onChange={(event) => setEditedSuggestion(event.target.value)} value={editedSuggestion} /><button className="min-h-11 shrink-0 rounded-[var(--radius-xs)] bg-[var(--pbl-student)] px-3 text-xs font-semibold text-white" disabled={!editedSuggestion.trim()} onClick={() => decideSuggestion(item, "adopted-after-edit", editedSuggestion.trim())} type="button">保存并采纳</button></div> : null}{rejectingSuggestion === item ? <div className="mt-2 flex flex-col gap-2 sm:flex-row"><TextInput onChange={(event) => setRejectionReason(event.target.value)} placeholder="说明不采纳的理由" value={rejectionReason} /><button className="min-h-11 shrink-0 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-3 text-xs font-semibold text-white" disabled={!rejectionReason.trim()} onClick={() => decideSuggestion(item, "rejected")} type="button">记录决定</button></div> : null}</div>
                   </div>
                 ))}
               </div>
-              <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+              <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3 text-xs leading-5 text-stone-500">
                 依据：{latestIdeaSupport.evidence.join("；")}
               </div>
             </div>
@@ -291,11 +291,11 @@ export function GroupView({ course }: { course: Course }) {
             <div className="space-y-4">
               {brainstormBatches[promptBatch].map((item, index) => (
                 <div className="flex gap-3 text-[15px] leading-7" key={item}>
-                  <span className="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-sm font-black text-blue-700">{index + 1}</span>
+                  <span className="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-sm font-black text-[var(--pbl-student)]">{index + 1}</span>
                   <p>{item}</p>
                 </div>
               ))}
-              <button className="text-sm font-semibold text-blue-700" onClick={() => setPromptBatch((value) => (value + 1) % brainstormBatches.length)} type="button">换一批通用提示</button>
+              <button className="text-sm font-semibold text-[var(--pbl-student)]" onClick={() => setPromptBatch((value) => (value + 1) % brainstormBatches.length)} type="button">换一批通用提示</button>
             </div>
           )}
         </Card>
@@ -307,17 +307,17 @@ export function GroupView({ course }: { course: Course }) {
 
       <Card>
         <div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-black">分工计划表</h2><Pill tone="blue">{tasks.length} 项</Pill></div>
-        <div className="overflow-hidden rounded-[8px] border border-slate-200">
+        <div className="overflow-hidden rounded-[8px] border border-stone-200">
           <table className="w-full border-collapse text-left text-sm">
-            <thead><tr className="bg-slate-50 text-slate-600"><th className="p-3 font-semibold">角色</th><th className="p-3 font-semibold">成员</th><th className="p-3 font-semibold">主要任务</th><th className="p-3 font-semibold">进度</th><th className="p-3" /></tr></thead>
+            <thead><tr className="bg-stone-50 text-stone-600"><th className="p-3 font-semibold">角色</th><th className="p-3 font-semibold">成员</th><th className="p-3 font-semibold">主要任务</th><th className="p-3 font-semibold">进度</th><th className="p-3" /></tr></thead>
             <tbody>
               {tasks.map((item) => (
-                <tr className="border-b border-slate-100 last:border-b-0" key={item.id}>
+                <tr className="border-b border-stone-100 last:border-b-0" key={item.id}>
                   <td className="p-3 font-semibold">{item.role}</td>
                   <td className="p-3">{item.memberName}</td>
-                  <td className="p-3 text-slate-600">{item.task}</td>
+                  <td className="p-3 text-stone-600">{item.task}</td>
                   <td className="p-3"><button className="flex w-full items-center gap-2" onClick={() => session.upsertWorkPlanItem(course.id, { ...item, progress: Math.min(100, item.progress + 10) })} type="button"><ProgressBar className="w-20" tone={item.progress === 100 ? "green" : "blue"} value={item.progress} /><span className="w-9 text-right">{item.progress}%</span></button></td>
-                  <td className="p-3"><button className="text-slate-400 hover:text-red-500" onClick={() => session.deleteWorkPlanItem(course.id, item.id)} type="button"><Trash2 size={15} /></button></td>
+                  <td className="p-3"><button className="text-stone-400 hover:text-red-500" onClick={() => session.deleteWorkPlanItem(course.id, item.id)} type="button"><Trash2 size={15} /></button></td>
                 </tr>
               ))}
             </tbody>
@@ -333,12 +333,12 @@ export function GroupView({ course }: { course: Course }) {
             {memberOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </Select>
           <TextInput placeholder="任务描述" value={taskDraft.task} onChange={(event) => setTaskDraft((draft) => ({ ...draft, task: event.target.value }))} />
-          <button className="inline-flex h-11 items-center gap-1 rounded-[6px] bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50" onClick={addTask} disabled={!taskDraft.role || !taskDraft.memberName || !taskDraft.task} type="button"><Plus size={15} /> 添加</button>
+          <button className="inline-flex h-11 items-center gap-1 rounded-[6px] bg-[var(--pbl-student)] px-3 text-sm font-semibold text-white hover:bg-[var(--pbl-student-hover)] disabled:opacity-50" onClick={addTask} disabled={!taskDraft.role || !taskDraft.memberName || !taskDraft.task} type="button"><Plus size={15} /> 添加</button>
         </div>
-        {!memberOptions.length ? <p className="mt-2 text-xs text-amber-700">本组暂无成员，请先邀请同学加入小组，再分配任务。</p> : null}
+        {!memberOptions.length ? <p className="mt-2 text-xs text-[var(--pbl-warning)]">本组暂无成员，请先邀请同学加入小组，再分配任务。</p> : null}
       </Card>
 
-      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-5 rounded-[10px] border border-slate-200/80 bg-white px-6 py-5">
+      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-5 rounded-[10px] border border-stone-200/80 bg-white px-6 py-5">
         {status ? <Pill tone="green">{status}</Pill> : null}
         <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={() => saveIdea(false)} variant="outline"><Save size={21} /> 保存构思</PrimaryButton>
         <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={checkIdea}><Wand2 size={21} /> 检查方案完整性</PrimaryButton>

@@ -12,7 +12,7 @@ import type { Course, GroupBoardMode } from "@/lib/session/types";
 const TldrawWrapper = dynamic(() => import("./tldraw-wrapper"), {
   ssr: false,
   loading: () => (
-    <div className="grid h-[480px] place-items-center rounded-[10px] border border-slate-200 bg-slate-50 text-sm text-slate-500">
+    <div className="grid h-[480px] place-items-center rounded-[10px] border border-stone-200 bg-stone-50 text-sm text-stone-500">
       正在加载协作画板...
     </div>
   ),
@@ -63,7 +63,7 @@ export function GroupBoardEditor({ course, groupId, readOnly = false }: GroupBoa
 
   return (
     <Card className="overflow-hidden p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-bold">
             {mode === "mindmap" ? "协作思维导图" : "协作白板"}
@@ -76,13 +76,13 @@ export function GroupBoardEditor({ course, groupId, readOnly = false }: GroupBoa
         <div className="flex items-center gap-2">
           <ModeToggle mode={mode} onChange={handleModeChange} disabled={readOnly} />
           {!readOnly ? (
-            <span className="text-xs text-slate-500" data-testid="board-autosave-status">
+            <span className="text-xs text-stone-500" data-testid="board-autosave-status">
               <Save size={12} className="mr-1 inline" />
               {lastSavedAt ? `已自动保存 · ${new Date(lastSavedAt).toLocaleTimeString("zh-CN")}` : "自动保存已开启"}
               {autosaveTick > 0 ? ` · ${autosaveTick}` : ""}
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1 text-xs text-stone-500">
               <RefreshCw size={12} /> 教师只读视图
             </span>
           )}
@@ -114,10 +114,10 @@ function ModeToggle({
   disabled?: boolean;
 }) {
   return (
-    <div className="inline-flex rounded-[6px] border border-slate-200 bg-slate-50 p-1" role="tablist">
+    <div className="inline-flex rounded-[6px] border border-stone-200 bg-stone-50 p-1" role="tablist">
       <button
         className={`inline-flex h-8 items-center gap-1 rounded-[5px] px-3 text-sm font-semibold transition ${
-          mode === "mindmap" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"
+          mode === "mindmap" ? "bg-[var(--pbl-student)] text-white shadow-sm" : "text-stone-600 hover:bg-white"
         }`}
         disabled={disabled}
         onClick={() => onChange("mindmap")}
@@ -130,7 +130,7 @@ function ModeToggle({
       </button>
       <button
         className={`inline-flex h-8 items-center gap-1 rounded-[5px] px-3 text-sm font-semibold transition ${
-          mode === "whiteboard" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"
+          mode === "whiteboard" ? "bg-[var(--pbl-student)] text-white shadow-sm" : "text-stone-600 hover:bg-white"
         }`}
         disabled={disabled}
         onClick={() => onChange("whiteboard")}

@@ -28,7 +28,10 @@ describe("PBL course prompt", () => {
     expect(prompt?.system).toContain("audience");
     expect(prompt?.system).toContain("parentActivityId");
     expect(prompt?.system).toContain("targetDurationSec");
+    expect(prompt?.system).toContain("companionStagePolicies[stageKey]");
+    expect(prompt?.system).toContain("reflection");
     expect(prompt?.user).toContain("节能方案");
+    expect(prompt?.user).toContain("companionStagePolicies");
     expect(prompt?.user).toContain("launch, showcase");
     expect(prompt?.user).toContain("教师负责线下校准与成果评价");
   });

@@ -89,7 +89,7 @@ export function UserProfileCard() {
 
   if (!hydrated) {
     return (
-      <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80">
+      <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-stone-900/80">
         <div className="flex items-center gap-3">
           <div className="size-11 rounded-full bg-muted animate-pulse" />
           <div className="flex-1 space-y-2">
@@ -102,7 +102,7 @@ export function UserProfileCard() {
   }
 
   return (
-    <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80">
+    <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-stone-900/80">
       {/* File input — sr-only keeps it in the flow but invisible; label triggers it */}
       <input
         id={FILE_INPUT_ID}
@@ -122,7 +122,7 @@ export function UserProfileCard() {
           <div className="size-11 rounded-full bg-gray-50 dark:bg-gray-800 overflow-hidden ring-2 ring-violet-300/50 dark:ring-violet-600/40 group-hover/avatar:ring-violet-400 dark:group-hover/avatar:ring-violet-500 transition-all">
             <img src={avatar} alt="" className="size-full object-cover" />
           </div>
-          <div className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-white dark:bg-slate-800 border border-muted/60 flex items-center justify-center">
+          <div className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-white dark:bg-stone-800 border border-muted/60 flex items-center justify-center">
             <ChevronDown
               className={cn(
                 'size-2.5 text-muted-foreground transition-transform duration-200',

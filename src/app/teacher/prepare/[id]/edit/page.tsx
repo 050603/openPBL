@@ -12,7 +12,7 @@ export default function PrepareEditPage() {
     }
   }, [params, router]);
   return (
-    <div className="grid min-h-screen place-items-center text-slate-500">
+    <div className="grid min-h-screen place-items-center text-stone-500">
       正在跳转到课程核查…
     </div>
   );

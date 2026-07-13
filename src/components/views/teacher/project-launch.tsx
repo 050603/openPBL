@@ -60,7 +60,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
                 <Target size={16} /> 重点关注
               </div>
-              <p className="mt-2 text-sm leading-7 text-slate-700">
+              <p className="mt-2 text-sm leading-7 text-stone-700">
                 学生需要理解真实情境、驱动问题、个人成果要求与评价标准。每名学生独立承担完整项目，AI 伴学小组提供认知支持。
               </p>
             </div>
@@ -88,12 +88,12 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
           </h2>
           <ul className="space-y-3">
             {(course.announcements ?? []).map((announcement) => (
-              <li className="rounded-[8px] border border-slate-200 bg-white p-3" key={announcement.id}>
+              <li className="rounded-[8px] border border-stone-200 bg-white p-3" key={announcement.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold text-slate-800">{announcement.title}</div>
-                    <p className="mt-1 line-clamp-2 text-sm text-slate-500">{announcement.content}</p>
-                    <div className="mt-2 text-xs text-slate-400">
+                    <div className="font-semibold text-stone-800">{announcement.title}</div>
+                    <p className="mt-1 line-clamp-2 text-sm text-stone-500">{announcement.content}</p>
+                    <div className="mt-2 text-xs text-stone-400">
                       {new Date(announcement.createdAt).toLocaleString("zh-CN")} · {announcement.replies.length} 条回复
                     </div>
                   </div>
@@ -109,7 +109,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               </li>
             ))}
             {!course.announcements?.length ? (
-              <li className="rounded-[8px] border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-sm text-slate-500">暂无公告</li>
+              <li className="rounded-[8px] border border-dashed border-stone-300 bg-stone-50 py-8 text-center text-sm text-stone-500">暂无公告</li>
             ) : null}
           </ul>
         </Card>
@@ -122,11 +122,11 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
             <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <AvatarStack names={course.students.map((s) => s.name)} />
-                <span className="text-sm text-slate-500">最近加入：{course.students[course.students.length - 1]?.name}</span>
+                <span className="text-sm text-stone-500">最近加入：{course.students[course.students.length - 1]?.name}</span>
               </div>
               <ul className="mt-3 grid gap-2 md:grid-cols-2">
                 {course.students.map((s) => (
-                  <li className="flex items-center gap-3 rounded-[6px] border border-slate-200 bg-white px-3 py-2" key={s.id}>
+                  <li className="flex items-center gap-3 rounded-[6px] border border-stone-200 bg-white px-3 py-2" key={s.id}>
                     <Avatar name={s.name} size={32} />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold">{s.name}</span>
                     <Pill tone={course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "green" : "orange"}>
@@ -137,8 +137,8 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               </ul>
             </div>
           ) : (
-            <div className="rounded-[6px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">
-              <CheckCheck className="mx-auto mb-2 text-slate-300" size={20} />
+            <div className="rounded-[6px] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">
+              <CheckCheck className="mx-auto mb-2 text-stone-300" size={20} />
               等待学生通过邀请码加入...
             </div>
           )}
@@ -151,8 +151,8 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 function Field({ title, text }: { title: string; text: string }) {
   return (
     <div>
-      <div className="text-sm font-semibold text-slate-500">{title}</div>
-      <p className="mt-1 text-[15px] leading-7 text-slate-800">{text}</p>
+      <div className="text-sm font-semibold text-stone-500">{title}</div>
+      <p className="mt-1 text-[15px] leading-7 text-stone-800">{text}</p>
     </div>
   );
 }
@@ -167,11 +167,11 @@ function StatCard({ title, value, sub, icon, progress, tone = "blue" }: { title:
   return (
     <Card>
       <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">{title}</div>
+        <div className="text-sm text-stone-500">{title}</div>
         <div className={`grid h-9 w-9 place-items-center rounded-full ${toneColor}`}>{icon}</div>
       </div>
-      <div className="mt-2 text-2xl font-bold text-slate-950">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{sub}</div>
+      <div className="mt-2 text-2xl font-bold text-stone-900">{value}</div>
+      <div className="mt-1 text-xs text-stone-500">{sub}</div>
       <div className="mt-3">
         <ProgressBar className="h-1.5" tone={tone === "blue" ? "blue" : tone === "emerald" ? "green" : "orange"} value={progress} />
       </div>

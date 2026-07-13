@@ -109,16 +109,16 @@ export function AiLearningTeacherView({
     <div className="space-y-5">
       <header className="flex flex-col gap-3 border-b border-[var(--pbl-border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">AI 授知 · 教师观察台</p>
-          <h2 className="mt-1 text-2xl font-black text-slate-950">用学习证据决定何时现场介入</h2>
-          <p className="mt-1 text-sm text-slate-500">本阶段不控制伴学 Agent；风险用于教师巡视、个别辅导和全班补充教学。</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-teacher)]">AI 授知 · 教师观察台</p>
+          <h2 className="mt-1 text-2xl font-black text-stone-950">用学习证据决定何时现场介入</h2>
+          <p className="mt-1 text-sm text-stone-500">本阶段不控制伴学 Agent；风险用于教师巡视、个别辅导和全班补充教学。</p>
         </div>
         {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
       </header>
 
       {!hasClassroom ? (
-        <Card className="border-amber-200 bg-amber-50/70">
-          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-amber-600" size={21} /><div><h3 className="font-black text-amber-900">AI 课堂尚未生成</h3><p className="mt-1 text-sm text-amber-700">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
+        <Card className="border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70">
+          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-black text-[var(--pbl-warning)]">AI 课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
         </Card>
       ) : null}
 
@@ -131,33 +131,33 @@ export function AiLearningTeacherView({
 
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-indigo-700" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-slate-500">达到全班 30% 或至少 5 人时显示，适合转为全班补充教学。</p></div>
+          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-indigo-700" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">达到全班 30% 或至少 5 人时显示，适合转为全班补充教学。</p></div>
           <Pill tone={commonIssues.length ? "red" : "green"}>{commonIssues.length ? `${commonIssues.length} 项` : "暂无"}</Pill>
         </div>
         {commonIssues.length ? (
-          <ul className="mt-4 divide-y divide-rose-100 border-y border-rose-100">
-            {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-rose-800">{issue.title}</p><p className="mt-1 text-sm text-slate-600">{issue.summary}</p></div><span className="text-sm font-bold text-rose-700">影响 {issue.studentIds.length} 人</span></li>)}
+          <ul className="mt-4 divide-y divide-[var(--pbl-danger-border)] border-y border-[var(--pbl-danger-border)]">
+            {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-[var(--pbl-danger)]">{issue.title}</p><p className="mt-1 text-sm text-stone-600">{issue.summary}</p></div><span className="text-sm font-bold text-[var(--pbl-danger)]">影响 {issue.studentIds.length} 人</span></li>)}
           </ul>
-        ) : <div className="mt-4 flex items-center gap-2 border-y border-slate-100 py-5 text-sm text-slate-500"><CircleCheck className="text-emerald-600" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
+        ) : <div className="mt-4 flex items-center gap-2 border-y border-stone-100 py-5 text-sm text-stone-500"><CircleCheck className="text-emerald-600" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
       </Card>
 
       <Card>
-        <div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-black">学生学习状态</h3><p className="mt-1 text-sm text-slate-500">红色叹号表示存在未解决干预信号；点击学生查看证据与处理记录。</p></div><span className="text-sm text-slate-500">{course.students.length} 人</span></div>
+        <div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-black">学生学习状态</h3><p className="mt-1 text-sm text-stone-500">红色叹号表示存在未解决干预信号；点击学生查看证据与处理记录。</p></div><span className="text-sm text-stone-500">{course.students.length} 人</span></div>
         {summaries.length ? (
-          <ul className="divide-y divide-slate-100 border-y border-slate-100">
+          <ul className="divide-y divide-stone-100 border-y border-stone-100">
             {[...summaries].sort((a, b) => b.signals.length - a.signals.length || a.progress - b.progress).map((summary) => (
               <li key={summary.student.id}>
-                <button className="grid w-full gap-3 py-3 text-left transition hover:bg-slate-50 md:grid-cols-[220px_minmax(150px,1fr)_140px_120px_160px] md:items-center md:px-2" onClick={() => openStudent(summary.student.id)} type="button">
-                  <span className="flex items-center gap-3"><span className="relative"><Avatar name={summary.student.name} size={36} />{summary.signals.length ? <CircleAlert aria-label="有干预信号" className="absolute -right-2 -top-2 fill-white text-rose-600" size={19} /> : null}</span><span><span className="block font-bold text-slate-900">{summary.student.name}</span><span className="text-xs text-slate-500">{summary.signals.length ? `${summary.signals.length} 条待处理` : "暂无风险"}</span></span></span>
-                  <span><span className="mb-1 flex justify-between text-xs text-slate-500"><span>进度</span><strong>{summary.progress}%</strong></span><ProgressBar className="h-2" tone={summary.signals.length ? "red" : summary.progress >= 90 ? "green" : "slate"} value={summary.progress} /></span>
-                  <span className="text-sm"><span className="block text-xs text-slate-400">当前内容</span><span className="line-clamp-1 font-semibold text-slate-700">{currentScene(summary.events)}</span></span>
-                  <span className="text-sm"><span className="block text-xs text-slate-400">有效学习</span><span className="font-semibold text-slate-700">{summary.hasEvidence ? minutes(summary.effectiveDurationMs) : "暂无证据"}</span></span>
-                  <span className="text-sm"><span className="block text-xs text-slate-400">最近活动</span><span className="font-semibold text-slate-700">{summary.lastEvent ? new Date(summary.lastEvent.occurredAt).toLocaleString("zh-CN") : "尚未开始"}</span></span>
+                <button className="grid w-full gap-3 py-3 text-left transition hover:bg-stone-50 md:grid-cols-[220px_minmax(150px,1fr)_140px_120px_160px] md:items-center md:px-2" onClick={() => openStudent(summary.student.id)} type="button">
+                  <span className="flex items-center gap-3"><span className="relative"><Avatar name={summary.student.name} size={36} />{summary.signals.length ? <CircleAlert aria-label="有干预信号" className="absolute -right-2 -top-2 fill-white text-[var(--pbl-danger)]" size={19} /> : null}</span><span><span className="block font-bold text-stone-900">{summary.student.name}</span><span className="text-xs text-stone-500">{summary.signals.length ? `${summary.signals.length} 条待处理` : "暂无风险"}</span></span></span>
+                  <span><span className="mb-1 flex justify-between text-xs text-stone-500"><span>进度</span><strong>{summary.progress}%</strong></span><ProgressBar className="h-2" tone={summary.signals.length ? "red" : summary.progress >= 90 ? "green" : "slate"} value={summary.progress} /></span>
+                  <span className="text-sm"><span className="block text-xs text-stone-400">当前内容</span><span className="line-clamp-1 font-semibold text-stone-700">{currentScene(summary.events)}</span></span>
+                  <span className="text-sm"><span className="block text-xs text-stone-400">有效学习</span><span className="font-semibold text-stone-700">{summary.hasEvidence ? minutes(summary.effectiveDurationMs) : "暂无证据"}</span></span>
+                  <span className="text-sm"><span className="block text-xs text-stone-400">最近活动</span><span className="font-semibold text-stone-700">{summary.lastEvent ? new Date(summary.lastEvent.occurredAt).toLocaleString("zh-CN") : "尚未开始"}</span></span>
                 </button>
               </li>
             ))}
           </ul>
-        ) : <div className="py-12 text-center text-sm text-slate-500"><Eye className="mx-auto mb-2 text-slate-300" size={24} />暂无学生加入课堂</div>}
+        ) : <div className="py-12 text-center text-sm text-stone-500"><Eye className="mx-auto mb-2 text-stone-300" size={24} />暂无学生加入课堂</div>}
       </Card>
 
       <StudentLearningDetail course={course} onOpenChange={(open) => { if (!open) setSelectedStudentId(undefined); }} open={Boolean(selectedStudentId)} studentId={selectedStudentId} />
@@ -166,5 +166,5 @@ export function AiLearningTeacherView({
 }
 
 function MetricCard({ icon, label, value, helper, tone = "default" }: { icon: React.ReactNode; label: string; value: string; helper: string; tone?: "default" | "danger" }) {
-  return <Card className={tone === "danger" ? "border-rose-200 bg-rose-50/40" : undefined}><div className="flex items-center justify-between text-sm text-slate-500"><span>{label}</span><span className={tone === "danger" ? "text-rose-600" : "text-blue-700"}>{icon}</span></div><div className={`mt-2 text-2xl font-black ${tone === "danger" ? "text-rose-700" : "text-slate-950"}`}>{value}</div><p className="mt-1 text-xs text-slate-400">{helper}</p></Card>;
+  return <Card className={tone === "danger" ? "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/40" : undefined}><div className="flex items-center justify-between text-sm text-stone-500"><span>{label}</span><span className={tone === "danger" ? "text-[var(--pbl-danger)]" : "text-[var(--pbl-teacher)]"}>{icon}</span></div><div className={`mt-2 text-2xl font-black ${tone === "danger" ? "text-[var(--pbl-danger)]" : "text-stone-950"}`}>{value}</div><p className="mt-1 text-xs text-stone-400">{helper}</p></Card>;
 }

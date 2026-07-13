@@ -125,17 +125,17 @@ export function WorkspaceView({ course }: { course: Course }) {
           <Card>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-blue-700">{stageMode.eyebrow}</div>
-                <h2 className="mt-1 text-[24px] font-bold text-slate-950">{stageMode.title}</h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{stageMode.description}</p>
+                <div className="text-sm font-semibold text-[var(--pbl-student)]">{stageMode.eyebrow}</div>
+                <h2 className="mt-1 text-[24px] font-bold text-stone-900">{stageMode.title}</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">{stageMode.description}</p>
               </div>
               <Pill tone={isReviewStage ? "orange" : "blue"}>{isReviewStage ? "先纠偏再制作" : "边做边留证据"}</Pill>
             </div>
             {isReviewStage ? (
               <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {["问题是否清楚", "目标用户/场景", "成果形式", "实施步骤", "AI 使用边界", "风险与备选方案"].map((item, index) => (
-                  <div className="flex items-center gap-3 rounded-[8px] border border-amber-100 bg-amber-50/50 px-3 py-2 text-sm font-semibold text-slate-700" key={item}>
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-bold text-amber-700 ring-1 ring-amber-200">{index + 1}</span>
+                  <div className="flex items-center gap-3 rounded-[8px] border border-amber-100 bg-amber-50/50 px-3 py-2 text-sm font-semibold text-stone-700" key={item}>
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-bold text-[var(--pbl-warning)] ring-1 ring-[var(--pbl-warning-soft)]">{index + 1}</span>
                     {item}
                   </div>
                 ))}
@@ -147,12 +147,12 @@ export function WorkspaceView({ course }: { course: Course }) {
                   ["进行中", "上传草稿、记录 AI 建议采纳情况"],
                   ["已完成", "提交阶段成果并准备展示材料"],
                 ].map(([title, text], index) => (
-                  <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3" key={title}>
-                    <div className="flex items-center gap-2 font-bold text-slate-900">
-                      {index === 0 ? <ListChecks size={17} className="text-blue-700" /> : index === 1 ? <Clock3 size={17} className="text-blue-700" /> : <ClipboardCheck size={17} className="text-emerald-700" />}
+                  <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3" key={title}>
+                    <div className="flex items-center gap-2 font-bold text-stone-900">
+                      {index === 0 ? <ListChecks size={17} className="text-[var(--pbl-student)]" /> : index === 1 ? <Clock3 size={17} className="text-[var(--pbl-student)]" /> : <ClipboardCheck size={17} className="text-emerald-700" />}
                       {title}
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">{text}</p>
+                    <p className="mt-1 text-xs leading-5 text-stone-500">{text}</p>
                   </div>
                 ))}
               </div>
@@ -166,7 +166,7 @@ export function WorkspaceView({ course }: { course: Course }) {
                 <RichTextEditor value={documentText} onChange={setDocumentText} onFileUpload={handleFileUpload} placeholder={stageMode.placeholder} />
               </div>
             </div>
-            <div className="flex h-10 items-center justify-between border-t border-slate-100 px-5 text-sm text-slate-500">
+            <div className="flex h-10 items-center justify-between border-t border-stone-100 px-5 text-sm text-stone-500">
               <span>字数：{plainTextLength(documentText)}{group?.keywords?.length ? ` · 主题词：${group.keywords.join("、")}` : ""}</span>
               <span className="inline-flex items-center gap-1 text-emerald-600">本地可保存 <Check size={16} /></span>
             </div>
@@ -176,19 +176,19 @@ export function WorkspaceView({ course }: { course: Course }) {
             <h2 className="mb-4 text-xl font-bold">修改建议（{feedback.length}）</h2>
             <div className="space-y-3">
               {feedback.map((item) => (
-                <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-3" key={item.id}>
+                <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3" key={item.id}>
                   <Pill tone={item.kind === "revision" ? "orange" : item.kind === "praise" ? "green" : "blue"}>{item.kind}</Pill>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">{item.content}</p>
-                  <div className="mt-2 text-xs text-slate-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+                  <p className="mt-2 text-sm leading-6 text-stone-700">{item.content}</p>
+                  <div className="mt-2 text-xs text-stone-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
                 </div>
               ))}
-              {!feedback.length ? <div className="rounded-[8px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">暂无教师修改建议</div> : null}
+              {!feedback.length ? <div className="rounded-[8px] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">暂无教师修改建议</div> : null}
             </div>
           </Card>
         </div>
 
       </div>
-      <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-3 rounded-[10px] border border-slate-200/80 bg-white/95 px-4 py-3 shadow-[0_16px_44px_rgba(15,23,42,0.12)] backdrop-blur">
+      <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-3 rounded-[10px] border border-stone-200/80 bg-white/95 px-4 py-3 shadow-[0_16px_44px_rgba(15,23,42,0.12)] backdrop-blur">
         {status ? <Pill tone="green">{status}</Pill> : null}
         <PrimaryButton variant="outline" onClick={() => saveDocument()}>保存当前项目文档</PrimaryButton>
         <PrimaryButton tone="green" onClick={submitDocument}>{stageMode.submitLabel}</PrimaryButton>

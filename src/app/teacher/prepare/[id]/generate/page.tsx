@@ -26,7 +26,10 @@ import {
   buildTeacherActivityRequirements,
 } from "@/lib/openmaic/pbl/course-request";
 import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
+import { isPblModuleTimingPlanConfirmed } from "@/lib/pbl-time-model";
 import { requestCourseCoverImage } from "@/lib/course-cover";
+import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
+import { useSettingsStore } from "@/lib/openmaic/store/settings";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -165,9 +168,9 @@ function GenerationCoverage({
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {Object.values(coverage.entries).map((entry) => <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}><span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span><span className={entry.total ? "text-[var(--pbl-ai)]" : "text-rose-500"}>{entry.total ? `${entry.total} 场` : "缺少"}</span></div>)}
       </div>
-      {coverage.missingStageKeys.length ? <p className="mt-3 text-xs leading-5 text-slate-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。</p> : null}
+      {coverage.missingStageKeys.length ? <p className="mt-3 text-xs leading-5 text-stone-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。</p> : null}
       {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-amber-800">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " AI 授知需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
-      {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-slate-500">元数据提醒：{coverage.metadataWarnings.join("；")}。</p> : null}
+      {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-stone-500">元数据提醒：{coverage.metadataWarnings.join("；")}。</p> : null}
     </section>
   );
 }
@@ -190,6 +193,7 @@ function lessonSectionToSceneOutline(
     resourceTypes: section.resourceTypes,
     targetDurationSec: section.targetDurationSec ?? section.durationMin * 60,
     ttsPolicy: section.ttsPolicy,
+    timingPlan: section.timingPlan,
     order: index,
   };
 }
@@ -200,6 +204,10 @@ export default function GenerateCoursePage() {
   const { user, updateCourse } = session;
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
+  const ttsProviderId = useSettingsStore((state) => state.ttsProviderId);
+  const ttsSpeed = useSettingsStore((state) => state.ttsSpeed);
+  const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
+  const ttsModelId = ttsProvidersConfig[ttsProviderId]?.modelId;
 
   const [status, setStatus] = useState<GenStatus>("loading");
   const [result, setResult] = useState<GenResult | null>(null);
@@ -215,7 +223,6 @@ export default function GenerateCoursePage() {
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
   const pblCoverage = checkPblStageCoverage(course ? buildConfirmedSceneOutlines() : []);
-
   function buildRequirement(): string {
     return course
       ? buildPblCourseRequirement(course, course.content, buildConfirmedSceneOutlines())
@@ -236,6 +243,11 @@ export default function GenerateCoursePage() {
 
   async function startGeneration() {
     if (!course) return;
+    if (!isPblModuleTimingPlanConfirmed(course.content.moduleTimingPlan)) {
+      setStatus("error");
+      setError("请返回课程核查页，先确认六个模块的时间分配。");
+      return;
+    }
     setStatus("loading");
     setError(null);
     setSteps([]);
@@ -262,6 +274,7 @@ export default function GenerateCoursePage() {
         body: JSON.stringify({
           requirement: buildRequirement(),
           pblProfile: course.pblConfig,
+          moduleTimingPlan: course.content.moduleTimingPlan,
           pblTeachingActivities: buildTeacherActivityRequirements(course.content),
           pblActivityCatalog: buildPblActivityCatalog(course.content),
           knowledgePoints: course.content.knowledgePoints,
@@ -272,6 +285,10 @@ export default function GenerateCoursePage() {
           enableImageGeneration,
           enableVideoGeneration,
           enableTTS,
+          ttsProviderId,
+          ttsModelId,
+          ttsSpeed,
+          ttsLanguage: "zh-CN",
           agentMode: "default",
         }),
       });
@@ -452,7 +469,7 @@ export default function GenerateCoursePage() {
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中…</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中…</div>
       </DashboardShell>
     );
   }
@@ -460,7 +477,7 @@ export default function GenerateCoursePage() {
   if (!course) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">
+        <div className="grid place-items-center py-20 text-stone-500">
           未找到课程。
           <Link className="mt-4 text-blue-700 hover:underline" href="/teacher">
             返回课程列表
@@ -484,14 +501,14 @@ export default function GenerateCoursePage() {
     >
       <div className="mb-5 flex items-center gap-3">
         <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
           href={`/teacher/prepare/${course.id}/verify`}
         >
           <ArrowLeft size={17} />
         </Link>
         <div>
           <h1 className="text-[28px] font-bold">生成课程</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-stone-500">
             {course.name} · 正在依据课程大纲生成课程内容
           </p>
         </div>
@@ -503,7 +520,7 @@ export default function GenerateCoursePage() {
             <div className="mb-5 flex items-center justify-between">
               <h2 className="font-editorial text-2xl font-semibold">将生成的课程内容</h2>
             </div>
-            <p className="mb-4 text-sm leading-7 text-slate-500">
+            <p className="mb-4 text-sm leading-7 text-stone-500">
               系统将按已确认的课程结构生成学习内容，并在完成后分别整理普通课堂活动资源、学生内容与评价材料。
             </p>
 
@@ -519,7 +536,7 @@ export default function GenerateCoursePage() {
             <details className="border-y border-[var(--pbl-border)] py-3">
               <summary className="cursor-pointer text-sm font-semibold">生成设置 <span className="font-normal text-[var(--pbl-text-muted)]">· 联网、配图、视频与语音</span></summary>
             <div className="mt-4 space-y-3">
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-slate-200 px-4 py-3 hover:bg-slate-50">
+              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
                 <input
                   type="checkbox"
                   checked={enableWebSearch}
@@ -527,14 +544,14 @@ export default function GenerateCoursePage() {
                   className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-800">Web 搜索</div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="text-sm font-bold text-stone-800">Web 搜索</div>
+                  <div className="mt-1 text-xs text-stone-500">
                     生成前联网检索相关资料，丰富课件内容（需配置 Web Search Provider）
                   </div>
                 </div>
               </label>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-slate-200 px-4 py-3 hover:bg-slate-50">
+              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
                 <input
                   type="checkbox"
                   checked={enableImageGeneration}
@@ -542,14 +559,14 @@ export default function GenerateCoursePage() {
                   className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-800">图像生成</div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="text-sm font-bold text-stone-800">图像生成</div>
+                  <div className="mt-1 text-xs text-stone-500">
                     为课件场景配图（需配置 Image Provider，如 DALL·E）
                   </div>
                 </div>
               </label>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-slate-200 px-4 py-3 hover:bg-slate-50">
+              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
                 <input
                   type="checkbox"
                   checked={enableVideoGeneration}
@@ -557,14 +574,14 @@ export default function GenerateCoursePage() {
                   className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-800">视频生成</div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="text-sm font-bold text-stone-800">视频生成</div>
+                  <div className="mt-1 text-xs text-stone-500">
                     为课件场景配视频（需配置 Video Provider，耗时较长）
                   </div>
                 </div>
               </label>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-slate-200 px-4 py-3 hover:bg-slate-50">
+              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
                 <input
                   type="checkbox"
                   checked={enableTTS}
@@ -572,8 +589,8 @@ export default function GenerateCoursePage() {
                   className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-800">学生 AI 授知 TTS</div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="text-sm font-bold text-stone-800">学生 AI 授知 TTS</div>
+                  <div className="mt-1 text-xs text-stone-500">
                     仅为学生 AI 授知场景生成语音；普通课堂活动的 PPT 与讲稿不生成 TTS
                   </div>
                 </div>
@@ -586,7 +603,7 @@ export default function GenerateCoursePage() {
                 <Wand2 size={18} /> 开始生成
               </PrimaryButton>
               <Link
-                className="text-sm font-semibold text-slate-500 hover:underline"
+                className="text-sm font-semibold text-stone-500 hover:underline"
                 href={`/teacher/prepare/${course.id}/verify`}
               >
                 返回上一步
@@ -598,18 +615,18 @@ export default function GenerateCoursePage() {
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-xl font-bold">生成状态</h2>
               {status === "loading" && steps.length > 0 ? (
-                <span className="text-xs font-semibold text-slate-500">
+                <span className="text-xs font-semibold text-stone-500">
                   已接收 {steps.length} 条进度
                 </span>
               ) : null}
             </div>
 
-            <div className="flex items-start gap-4 rounded-[8px] border border-slate-200 px-4 py-4">
+            <div className="flex items-start gap-4 rounded-[8px] border border-stone-200 px-4 py-4">
               <span
                 className={cn(
                   "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
                   status === "loading" && "bg-blue-600 text-white",
-                  status === "success" && "bg-emerald-500 text-white",
+                  status === "success" && "bg-[var(--pbl-success)] text-white",
                   status === "error" && "bg-red-500 text-white",
                 )}
               >
@@ -636,7 +653,7 @@ export default function GenerateCoursePage() {
                       ? "生成完成，等待教师确认"
                       : "生成失败"}
                 </div>
-                <div className="mt-1 text-sm leading-7 text-slate-500">
+                <div className="mt-1 text-sm leading-7 text-stone-500">
                   {status === "loading"
                     ? "AI 正在根据课程信息生成完整授课内容，预计需要 1-5 分钟，请勿关闭页面。"
                     : status === "success" && result
@@ -655,19 +672,19 @@ export default function GenerateCoursePage() {
                 </ol>
                 <details className="mt-4">
                   <summary className="cursor-pointer text-sm font-semibold text-[var(--pbl-text-muted)]">查看详细生成日志</summary>
-                <ol className="max-h-72 space-y-1 overflow-y-auto rounded-[6px] border border-slate-100 bg-slate-50/50 p-3 text-xs">
+                <ol className="max-h-72 space-y-1 overflow-y-auto rounded-[6px] border border-stone-100 bg-stone-50/50 p-3 text-xs">
                   {steps.map((s, i) => (
                     <li
                       key={`${s.ts}-${i}`}
-                      className="flex items-start gap-2 border-b border-slate-100 pb-1 last:border-0 last:pb-0"
+                      className="flex items-start gap-2 border-b border-stone-100 pb-1 last:border-0 last:pb-0"
                     >
                       <span className="shrink-0 font-bold text-blue-600">
                         [{String(s.progress).padStart(3, " ")}%]
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-slate-700">{s.step}</div>
+                        <div className="font-semibold text-stone-700">{s.step}</div>
                         {s.message ? (
-                          <div className="truncate text-slate-500" title={s.message}>
+                          <div className="truncate text-stone-500" title={s.message}>
                             {s.message}
                           </div>
                         ) : null}
@@ -700,11 +717,19 @@ export default function GenerateCoursePage() {
         )}
 
         <aside className="space-y-5">
+          {course.content.moduleTimingPlan ? (
+            <PblModuleTimingPanel
+              moduleActivities={course.content.teachingOutline ?? []}
+              totalMinutes={Math.max(0, Math.round(course.hours * 60))}
+              timingPlan={course.content.moduleTimingPlan}
+              readOnly
+            />
+          ) : null}
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-bold">
               <Lightbulb className="text-blue-600" size={18} /> 课程大纲生成
             </h2>
-            <p className="mt-3 text-sm leading-7 text-slate-600">
+            <p className="mt-3 text-sm leading-7 text-stone-600">
               系统会以六个课程模块为父级，生成课程大纲中的 PPT、讲稿、互动和课堂支架，并按资源归属分流到学生或教师侧。
             </p>
           </Card>

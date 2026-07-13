@@ -8,6 +8,7 @@ Widget Config JSON: {{widgetConfig}}
 {{courseContext}}
 {{agents}}
 {{pblContext}}
+{{timingBudget}}
 
 **Language Directive**: {{languageDirective}}
 

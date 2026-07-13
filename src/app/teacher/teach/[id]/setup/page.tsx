@@ -50,7 +50,7 @@ export default function TeachSetupPage() {
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中…</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中…</div>
       </DashboardShell>
     );
   }
@@ -58,7 +58,7 @@ export default function TeachSetupPage() {
   if (!course) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">
+        <div className="grid place-items-center py-20 text-stone-500">
           未找到课程。
           <Link className="mt-4 text-blue-700 hover:underline" href="/teacher">
             返回课程列表
@@ -89,14 +89,14 @@ export default function TeachSetupPage() {
     >
       <div className="mb-5 flex items-center gap-3">
         <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
           href="/teacher"
         >
           <ArrowLeft size={17} />
         </Link>
         <div>
           <h1 className="text-[28px] font-bold">班级配置</h1>
-          <p className="mt-1 text-sm text-slate-500">{course.name} · 确认个人项目课堂人数，开始上课</p>
+          <p className="mt-1 text-sm text-stone-500">{course.name} · 确认个人项目课堂人数，开始上课</p>
         </div>
       </div>
 
@@ -104,10 +104,10 @@ export default function TeachSetupPage() {
         <div className="space-y-5">
           <Card>
             <h2 className="text-xl font-bold">课堂协作方式</h2>
-            <p className="mt-1 text-sm text-slate-500">新课堂模式固定采用“个人项目 + AI 伴学小组”</p>
+            <p className="mt-1 text-sm text-stone-500">新课堂模式固定采用“个人项目 + AI 伴学小组”</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[8px] border border-blue-300 bg-blue-50 p-4"><div className="flex items-center gap-2 font-bold text-blue-800"><Users size={19} />每名学生独立完成项目</div><p className="mt-2 text-sm leading-6 text-slate-600">学生承担构思、决策、制作、汇报与反思，不再进行真实学生分组。</p></div>
-              <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />角色化 AI 伴学小组</div><p className="mt-2 text-sm leading-6 text-slate-600">知识、启发、质疑、方案、评审和记录伙伴提供全过程认知支架。</p></div>
+              <div className="rounded-[8px] border border-blue-300 bg-blue-50 p-4"><div className="flex items-center gap-2 font-bold text-blue-800"><Users size={19} />每名学生独立完成项目</div><p className="mt-2 text-sm leading-6 text-stone-600">学生承担构思、决策、制作、汇报与反思，不再进行真实学生分组。</p></div>
+              <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />角色化 AI 伴学小组</div><p className="mt-2 text-sm leading-6 text-stone-600">知识、启发、质疑、方案、评审和记录伙伴提供全过程认知支架。</p></div>
             </div>
           </Card>
 
@@ -115,11 +115,11 @@ export default function TeachSetupPage() {
             <h2 className="text-xl font-bold">人数与配置</h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                <span className="mb-2 block text-sm font-semibold text-stone-700">
                   班级总人数
                 </span>
                 <input
-                  className="h-11 w-full rounded-[6px] border border-slate-300 px-4 outline-none focus:border-blue-500"
+                  className="h-11 w-full rounded-[6px] border border-stone-300 px-4 outline-none focus:border-blue-500"
                   min={1}
                   onChange={(e) => setTotalStudents(Number(e.target.value) || 1)}
                   type="number"
@@ -127,36 +127,36 @@ export default function TeachSetupPage() {
                 />
               </label>
               <div>
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                <span className="mb-2 block text-sm font-semibold text-stone-700">
                   预计个人项目数
                 </span>
-                <div className="flex h-11 items-center rounded-[6px] border border-slate-200 bg-slate-50 px-4 text-base font-bold text-slate-700">
-                  <Users className="mr-2 text-slate-400" size={18} /> {totalStudents} 个
+                <div className="flex h-11 items-center rounded-[6px] border border-stone-200 bg-stone-50 px-4 text-base font-bold text-stone-700">
+                  <Users className="mr-2 text-stone-400" size={18} /> {totalStudents} 个
                 </div>
               </div>
             </div>
-            <p className="mt-4 text-sm leading-6 text-slate-500">每位加入课堂的学生都会自动获得一个私有项目空间和一组 AI 伴学伙伴。</p>
+            <p className="mt-4 text-sm leading-6 text-stone-500">每位加入课堂的学生都会自动获得一个私有项目空间和一组 AI 伴学伙伴。</p>
           </Card>
 
           <Card>
             <h2 className="text-xl font-bold">课程信息确认</h2>
             <dl className="mt-3 grid grid-cols-2 gap-y-3 text-sm">
               <div>
-                <dt className="text-slate-500">课程</dt>
+                <dt className="text-stone-500">课程</dt>
                 <dd className="mt-0.5 font-semibold">{course.name}</dd>
               </div>
               <div>
-                <dt className="text-slate-500">学科 / 年级</dt>
+                <dt className="text-stone-500">学科 / 年级</dt>
                 <dd className="mt-0.5 font-semibold">
                   {course.subject} · {course.grade}
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-500">课时</dt>
+                <dt className="text-stone-500">课时</dt>
                 <dd className="mt-0.5 font-semibold">{course.hours}</dd>
               </div>
               <div>
-                <dt className="text-slate-500">阶段数</dt>
+                <dt className="text-stone-500">阶段数</dt>
                 <dd className="mt-0.5 font-semibold">{course.stages.length}</dd>
               </div>
             </dl>
@@ -177,7 +177,7 @@ export default function TeachSetupPage() {
           ) : (
             <Card>
               <h2 className="text-lg font-bold">邀请码</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-600">
+              <p className="mt-3 text-sm leading-7 text-stone-600">
                 点击「开始上课」后，系统将自动生成 6 位邀请码，学生可在学生端输入加入。
               </p>
             </Card>
@@ -185,8 +185,8 @@ export default function TeachSetupPage() {
 
           <Card>
             <h2 className="text-lg font-bold">在线学生</h2>
-            <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-              <Users className="text-slate-400" size={16} />
+            <div className="mt-3 flex items-center gap-2 text-sm text-stone-500">
+              <Users className="text-stone-400" size={16} />
               {isTeaching
                 ? `当前 ${course.students.filter((s) => isStudentOnline(s)).length} 人在线（共 ${course.students.length} 人加入）`
                 : "课堂尚未开始"}
@@ -197,7 +197,7 @@ export default function TeachSetupPage() {
                   const online = isStudentOnline(s);
                   return (
                     <li
-                      className="flex items-center gap-2 rounded-[6px] border border-slate-200 bg-white px-3 py-2"
+                      className="flex items-center gap-2 rounded-[6px] border border-stone-200 bg-white px-3 py-2"
                       key={s.id}
                     >
                       <span className="relative">
@@ -205,7 +205,7 @@ export default function TeachSetupPage() {
                           {s.name.slice(0, 1)}
                         </span>
                         <span
-                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${online ? "bg-green-500" : "bg-slate-300"}`}
+                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white ${online ? "bg-green-500" : "bg-stone-300"}`}
                           aria-hidden="true"
                         />
                       </span>
@@ -242,7 +242,7 @@ export default function TeachSetupPage() {
                 <PlayCircle size={18} /> 开始上课
               </PrimaryButton>
             )}
-            <p className="mt-3 text-center text-xs text-slate-500">
+            <p className="mt-3 text-center text-xs text-stone-500">
               {isTeaching
                 ? "课堂已开启，可随时进入教室推进阶段"
                 : "点击开始上课后，邀请码将激活，学生可加入"}

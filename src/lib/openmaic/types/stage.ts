@@ -20,6 +20,7 @@ import type {
 } from '@openmaic/lib/types/generation';
 import type { PBLProjectConfig } from '@openmaic/lib/pbl/types';
 import type { PBLProjectV2 } from '@openmaic/lib/pbl/v2/types';
+import type { TtsTimingPlan } from '@openmaic/lib/audio/tts-timing';
 
 export type {
   SceneType,
@@ -110,6 +111,7 @@ export type PblSceneMetadata = {
   knowledgePointIds?: string[];
   targetDurationSec?: number;
   ttsPolicy?: PblTtsPolicy;
+  timingPlan?: TtsTimingPlan;
   resourceTypes?: SceneResourceType[];
 };
 

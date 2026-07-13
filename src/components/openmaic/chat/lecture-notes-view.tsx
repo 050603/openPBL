@@ -50,7 +50,7 @@ const ACTION_ICON_ONLY: Record<string, { Icon: typeof Flashlight; style: string 
   widget_reveal: {
     Icon: Eye,
     style:
-      'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300/40 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300',
+      'bg-emerald-50 dark:bg-[var(--pbl-success)]/15 border-emerald-300/40 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300',
   },
 };
 

@@ -8,6 +8,7 @@
 {{courseContext}}
 {{agents}}
 {{pblContext}}
+{{timingBudget}}
 
 **Language Directive**: {{languageDirective}}
 

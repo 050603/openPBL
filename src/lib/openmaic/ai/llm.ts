@@ -17,6 +17,10 @@ import {
   pickThinkingEffort,
   pickThinkingLevel,
 } from '@openmaic/lib/ai/thinking-config';
+import {
+  isAbortError,
+  throwIfAborted,
+} from '@openmaic/lib/generation/generation-retry';
 const log = createLogger('LLM');
 
 // Re-export for external use
@@ -292,6 +296,7 @@ export async function callLLM<T extends GenerateTextParams>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      throwIfAborted(params.abortSignal);
       // Resolve effective thinking config: per-call > global env > undefined
       const effectiveThinking = thinking ?? getGlobalThinkingConfig();
       const injectedParams = injectProviderOptions(params, effectiveThinking);
@@ -302,6 +307,7 @@ export async function callLLM<T extends GenerateTextParams>(
       const result = await thinkingContext.run(effectiveThinking, () =>
         generateText(injectedParams),
       );
+      throwIfAborted(params.abortSignal);
 
       // Validate result (only when retries are configured)
       if (validate && !validate(result.text)) {
@@ -315,6 +321,12 @@ export async function callLLM<T extends GenerateTextParams>(
       return result;
     } catch (error) {
       lastError = error;
+
+      // A disconnected request must never spend another retry attempt. Some
+      // providers wrap AbortError, so check both the error and the signal.
+      if (isAbortError(error) || params.abortSignal?.aborted) {
+        throw error;
+      }
 
       if (attempt < maxAttempts) {
         log.warn(`[${source}] Call failed (attempt ${attempt}/${maxAttempts}), retrying...`, error);
@@ -343,6 +355,7 @@ export function streamLLM<T extends StreamTextParams>(
   thinking?: ThinkingConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): StreamTextResult<any, any> {
+  throwIfAborted(params.abortSignal);
   // Resolve effective thinking config and wrap in thinkingContext
   const effectiveThinking = thinking ?? getGlobalThinkingConfig();
   const injectedParams = injectProviderOptions(params, effectiveThinking);

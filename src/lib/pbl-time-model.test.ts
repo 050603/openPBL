@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   assessPblTimeAllocation,
+  buildPblModuleTimingPlan,
   buildPblProjectMainline,
   derivePblTimeRatios,
   estimateTtsDurationSec,
   PBL_TIME_RATIOS,
+  reallocatePblStageDurations,
   rescalePblDetailDurations,
   suggestPblTimeAllocation,
+  isPblModuleTimingPlanConfirmed,
 } from './pbl-time-model';
 
 describe('PBL time model', () => {
@@ -99,6 +102,80 @@ describe('PBL time model', () => {
       [{ id: 'practice', durationMin: 30 }],
     );
     expect(details.reduce((sum, detail) => sum + (detail.targetDurationSec ?? 0), 0)).toBe(1800);
+  });
+
+  it('does not create a project mainline before modules exist', () => {
+    expect(buildPblProjectMainline(60, []).modules).toEqual([]);
+  });
+
+  it('keeps the course total fixed when a teacher changes a stage total', () => {
+    const activities = [
+      { id: 'launch', stageKey: 'launch', durationMin: 12 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 24 },
+      { id: 'proposal', stageKey: 'proposal', durationMin: 12 },
+      { id: 'practice', stageKey: 'make', durationMin: 48 },
+      { id: 'showcase', stageKey: 'showcase', durationMin: 18 },
+      { id: 'reflection', stageKey: 'reflection', durationMin: 6 },
+    ];
+    const next = reallocatePblStageDurations(120, activities, 'practice', 60);
+    const assessment = assessPblTimeAllocation(120, next);
+
+    expect(assessment.stageTotals.practice).toBe(60);
+    expect(assessment.allocatedMinutes).toBe(120);
+    expect(next.every((activity) => activity.durationMin >= 1)).toBe(true);
+  });
+
+  it('builds an AI module recommendation from course difficulty and knowledge complexity', () => {
+    const activities = [
+      { id: 'launch', stageKey: 'launch', durationMin: 1 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 1 },
+      { id: 'proposal', stageKey: 'proposal', durationMin: 1 },
+      { id: 'practice', stageKey: 'make', durationMin: 1 },
+      { id: 'showcase', stageKey: 'showcase', durationMin: 1 },
+      { id: 'reflection', stageKey: 'reflection', durationMin: 1 },
+    ];
+    const plan = buildPblModuleTimingPlan(120, activities, {
+      difficulty: 'advanced',
+      knowledgePoints: [
+        { id: 'kp-1', level: 'application' },
+        { id: 'kp-2', level: 'extension' },
+      ],
+    }, { now: '2026-07-13T00:00:00.000Z' });
+
+    expect(plan.status).toBe('suggested');
+    expect(plan.totalMinutes).toBe(120);
+    expect(plan.allocations.reduce((sum, item) => sum + item.durationMin, 0)).toBe(120);
+    expect(plan.allocations.find((item) => item.activityKind === 'practice' || item.stageKey === 'make')?.durationMin)
+      .toBeGreaterThan(plan.allocations.find((item) => item.stageKey === 'ai-learning')?.durationMin ?? 0);
+    expect(plan.generatedAt).toBe('2026-07-13T00:00:00.000Z');
+  });
+
+  it('keeps teacher-edited allocations as the confirmed source of truth', () => {
+    const activities = [
+      { id: 'launch', stageKey: 'launch', durationMin: 10 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 24 },
+      { id: 'proposal', stageKey: 'proposal', durationMin: 12 },
+      { id: 'practice', stageKey: 'make', durationMin: 48 },
+      { id: 'showcase', stageKey: 'showcase', durationMin: 18 },
+      { id: 'reflection', stageKey: 'reflection', durationMin: 8 },
+    ];
+    const plan = buildPblModuleTimingPlan(120, activities, undefined, {
+      status: 'confirmed',
+      preserveCurrentDurations: true,
+      now: '2026-07-13T00:00:00.000Z',
+    });
+
+    expect(plan.allocations.reduce((sum, item) => sum + item.durationMin, 0)).toBe(120);
+    expect(isPblModuleTimingPlanConfirmed(plan)).toBe(true);
+  });
+
+  it('does not confirm a plan with an invalid total or missing canonical module', () => {
+    const plan = buildPblModuleTimingPlan(60, [
+      { id: 'launch', stageKey: 'launch', durationMin: 10 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 50 },
+    ], undefined, { status: 'confirmed', preserveCurrentDurations: true });
+
+    expect(isPblModuleTimingPlanConfirmed(plan)).toBe(false);
   });
 
   it('estimates a positive Chinese TTS duration', () => {

@@ -1,3 +1,10 @@
+import type { CompanionContextSnapshot } from "./companion/context";
+import {
+  buildStagePolicyPrompt,
+  getCompanionStagePolicy,
+  stageRoleGuidance,
+} from "./companion/stage-policy";
+
 export type AiCompanionId = "knowledge" | "ideation" | "critic" | "planner" | "reviewer" | "recorder";
 
 export type AiCompanion = {
@@ -43,9 +50,8 @@ export const AI_COMPANIONS: AiCompanion[] = [
     canQuestion: false,
     stages: ["launch", "ai-learning", "proposal", "make"],
     instruction:
-      "你负责知识支持。直接提供清晰的概念解释、背景知识和实例类比，帮助学生理解。" +
-      "禁止提问或反问，不要说'你觉得呢''你认为呢'之类的话。" +
-      "用适龄语言，先给出核心解释，再补充一个例子帮助学生巩固理解。",
+      "你负责知识支持。在当前阶段契约允许的范围内提供清晰的概念解释、背景知识和实例类比，帮助学生理解。" +
+      "禁止提问或反问，不要说'你觉得呢''你认为呢'之类的话；知识讲解的范围和长度服从当前阶段目标。",
   },
   {
     id: "ideation",
@@ -56,11 +62,10 @@ export const AI_COMPANIONS: AiCompanion[] = [
     color: "#7c3aed",
     emoji: "💡",
     canQuestion: false,
-    stages: ["proposal", "make", "reflection"],
+    stages: ["launch", "proposal", "make"],
     instruction:
-      "你负责创意启发。直接提供多个具体的创意建议、思路方向和联想，帮助学生打开视野。" +
-      "禁止提问或反问。每次至少给出两个不同方向的创意建议，并简要说明每个方向的价值。" +
-      "不替学生选定方向，但要让选项足够具体可执行。",
+      "你负责创意启发。在当前阶段契约允许的范围内提供可比较的创意建议、思路方向和联想，帮助学生打开视野。" +
+      "禁止提问或反问；不替学生选定方向，建议的数量和具体程度服从当前阶段目标。",
   },
   {
     id: "critic",
@@ -71,7 +76,7 @@ export const AI_COMPANIONS: AiCompanion[] = [
     color: "#ea580c",
     emoji: "🔍",
     canQuestion: true,
-    stages: ["proposal", "make", "showcase"],
+    stages: ["ai-learning", "proposal", "make", "showcase"],
     instruction:
       "你是伴学小组中唯一可以提问的角色。通过提问和反问帮助学生发现方案中的漏洞、矛盾和遗漏。" +
       "从证据、逻辑、可行性与 AI 责任边界提出质疑，每次提出一到两个关键问题。" +
@@ -88,9 +93,8 @@ export const AI_COMPANIONS: AiCompanion[] = [
     canQuestion: false,
     stages: ["proposal", "make"],
     instruction:
-      "你负责方案规划。直接提供多个可选方案和比较维度，帮助拆解步骤。" +
-      "禁止提问或反问。用口语化的方式分点描述选项，给出每个方案的优劣比较。" +
-      "明确最终选择必须由学生作出，你只提供分析和建议。",
+      "你负责方案规划。在当前阶段契约允许的范围内提供可选方向、比较维度和下一步拆解。" +
+      "禁止提问或反问；明确最终选择必须由学生作出，你只提供分析和建议。",
   },
   {
     id: "reviewer",
@@ -101,11 +105,10 @@ export const AI_COMPANIONS: AiCompanion[] = [
     color: "#db2777",
     emoji: "⭐",
     canQuestion: false,
-    stages: ["make", "showcase"],
+    stages: ["make", "showcase", "reflection"],
     instruction:
-      "你负责评审反馈。以真实用户或评审的视角，直接给出对作品的具体评价和改进建议。" +
-      "禁止提问或反问。评价要覆盖清晰度、可用性、可信度三个维度。" +
-      "给出具体的、可操作的改进建议，而不是抽象的评论。",
+      "你负责评审反馈。以真实用户或评审的视角，在当前阶段契约允许的范围内给出具体评价和改进支架。" +
+      "禁止提问或反问；优先引用证据并指出最值得处理的一到两处，不把反馈扩展成学生的完整成果。",
   },
   {
     id: "recorder",
@@ -118,9 +121,8 @@ export const AI_COMPANIONS: AiCompanion[] = [
     canQuestion: false,
     stages: ["proposal", "make", "showcase", "reflection"],
     instruction:
-      "你负责过程记录。直接梳理和总结本次对话中的关键选择、修改和困难。" +
-      "禁止提问或反问。用口语化的方式依次说明讨论要点和待办事项。" +
-      "提醒学生保存关键决策记录，便于后续追溯。",
+      "你负责过程记录。只梳理和总结学生已经表达或提交的关键选择、行动、修改、困难和证据。" +
+      "禁止提问或反问；记录范围、待办数量和表达方式服从当前阶段契约，不替学生补写不存在的结果。",
   },
 ];
 
@@ -129,7 +131,8 @@ export function getCompanion(id: AiCompanionId): AiCompanion {
 }
 
 export function recommendedCompanions(stageKey: string): AiCompanion[] {
-  return AI_COMPANIONS.filter((companion) => companion.stages.includes(stageKey));
+  const allowed = getCompanionStagePolicy(stageKey).allowedCompanionIds;
+  return AI_COMPANIONS.filter((companion) => allowed.includes(companion.id));
 }
 
 export function buildCompanionSystemPrompt(input: {
@@ -137,12 +140,20 @@ export function buildCompanionSystemPrompt(input: {
   courseName: string;
   drivingQuestion: string;
   stageLabel: string;
+  stageKey: string;
   teacherContext: string;
-  studentWork?: string;
   peerResponses?: string[];
+  context: CompanionContextSnapshot;
 }): string {
-  const { companion, courseName, drivingQuestion, stageLabel, teacherContext } = input;
-  const studentWork = input.studentWork?.trim() || "学生还没有提交可供分析的阶段产物";
+  const {
+    companion,
+    courseName,
+    drivingQuestion,
+    stageLabel,
+    teacherContext,
+    stageKey,
+  } = input;
+  const policy = getCompanionStagePolicy(stageKey);
   const peerContext = input.peerResponses?.length
     ? input.peerResponses.map((response, index) => `${index + 1}. ${response}`).join("\n")
     : "本轮还没有其他伙伴发言";
@@ -152,17 +163,19 @@ export function buildCompanionSystemPrompt(input: {
 
   return [
     `你是"${companion.role}"${companion.name}，是这节课上的一名伴学伙伴。你和几个同学一起在课堂旁听，随时帮忙。`,
-    `当前课程：${courseName}。驱动问题：${drivingQuestion || "尚未填写"}。学生处于"${stageLabel}"阶段。`,
+    `当前课程：${courseName}。驱动问题：${drivingQuestion || "尚未填写"}。学生处于"${stageLabel || policy.label}"阶段。`,
     `你的职责：${companion.instruction}`,
+    `你在本阶段的具体职责：${stageRoleGuidance(stageKey, companion.id)}`,
+    buildStagePolicyPrompt(stageKey),
     `教师导学要求：${teacherContext}。`,
-    `你知道的学生产物（只据此判断，不得臆造）：${studentWork.slice(0, 1200)}。`,
+    `你必须使用以下服务端学习上下文来判断；其中没有记录的内容不得臆造：\n${input.context.prompt}`,
     `本轮前序伙伴观点：\n${peerContext}`,
     `功能边界：${questionRule}`,
     "协同规则（必须严格遵守）：",
     "  - 你正在加入一场已经开始的圆桌讨论。不要问候、不要自我介绍。",
     "  - 不要复述前序伙伴已经说过的内容，包括相似的观点、相同的例子和重复的建议。",
     "  - 可以引用前序伙伴的话来衔接，比如'刚才问问提到的问题，我来补充一个思路'或'策策说的第一个方向，具体可以这样落地'。",
-    "  - 你的发言必须提供前序伙伴没有提到的新价值：新角度、新知识、新方案、新质疑，或对前序观点的具体展开。",
+    `  - 你的发言必须提供前序伙伴没有提到、且属于${policy.label}阶段允许范围的新价值；可用帮助类型包括：${policy.helpTypes.join("、")}。`,
     "  - 如果前序伙伴已经把你想说的说得差不多了，换个角度切入，或者直接给学生一个具体的下一步动作。",
     "输出格式规则（必须严格遵守）：",
     "  - 不要使用任何 Markdown 语法，包括加粗、标题、代码块、列表符号等",
@@ -177,7 +190,7 @@ export function buildCompanionSystemPrompt(input: {
     "  - 过程文档是纯文本记录，学生会在里面描述自己做了什么、做到哪一步。不要要求学生必须上传截图或文件作为证据，学生在文档中写明完成了某步骤就算有效进展",
     "  - 如果学生描述了完成的步骤，认可进展并引导下一步；只在学生明显遗漏关键环节时才提醒补充",
     `通用规则：不直接代替学生完成最终作品；不替学生作最终决定；鼓励学生基于建议自主决策，并要求学生说明采纳或拒绝建议的理由。不要空泛鼓励，不说"很好""加油"后就结束。`,
-    `回复结构：先点名学生当前产物或描述中的一个具体信息，再给出符合你身份的判断或支架，最后落到一个学生现在就能完成的动作。如果学生描述的内容太少，可以温和地询问更多细节，但不要否定已有的进展。`,
-    `回复要求：80-180 字，口语化、具体且可执行；每句话都必须推进当前"${stageLabel}"活动。说话像课堂上的同学，自然、简短、有温度。`,
+    `回复结构：先点名学生当前产物或描述中的一个具体信息，再给出符合你身份和${policy.label}阶段目标的判断或支架，最后落到一个学生现在就能完成的动作。如果学生描述的内容太少，指出需要补充的事实，但不要用无关教程填充空白。`,
+    `回复要求：80-180 字，口语化、具体且可执行；每句话都必须推进当前"${stageLabel || policy.label}"活动。说话像课堂上的同学，自然、简短、有温度。`,
   ].join("\n");
 }

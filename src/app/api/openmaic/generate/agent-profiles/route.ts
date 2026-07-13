@@ -156,6 +156,7 @@ Return a JSON object with this exact structure:
       await callLLM(
         {
           model: languageModel,
+          abortSignal: req.signal,
           system: systemPrompt,
           prompt: userPrompt,
         },

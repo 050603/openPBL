@@ -81,9 +81,9 @@ const TYPE_THEME: Record<
     dot: 'bg-purple-400',
   },
   interactive: {
-    chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
-    chipHover: 'hover:bg-emerald-100/80 dark:hover:bg-emerald-500/15',
-    accent: 'bg-emerald-500',
+    chip: 'bg-emerald-50 text-emerald-600 dark:bg-[var(--pbl-success)]/10 dark:text-emerald-300',
+    chipHover: 'hover:bg-emerald-100/80 dark:hover:bg-[var(--pbl-success)]/15',
+    accent: 'bg-[var(--pbl-success)]',
     dot: 'bg-emerald-400',
   },
   pbl: {
@@ -255,7 +255,7 @@ export function OutlinesEditor({
           : cn(
               'relative overflow-hidden rounded-3xl border border-border/40',
               'bg-white/85 shadow-[0_30px_80px_-30px_rgba(15,23,42,0.25)] backdrop-blur-xl',
-              'dark:border-white/5 dark:bg-slate-950/70 dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]',
+              'dark:border-white/5 dark:bg-stone-900/70 dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]',
             ),
       )}
     >
@@ -558,8 +558,8 @@ function SceneRow({
       }}
       className={cn(
         'group/scene relative rounded-2xl px-3 py-3.5 transition-colors md:px-4',
-        'hover:bg-slate-50/60 dark:hover:bg-slate-800/30',
-        'focus-within:bg-slate-50/80 dark:focus-within:bg-slate-800/40',
+        'hover:bg-stone-50/60 dark:hover:bg-stone-800/30',
+        'focus-within:bg-stone-50/80 dark:focus-within:bg-stone-800/40',
         isDragging && 'opacity-40',
         isDragTarget && 'bg-blue-500/[0.04] ring-1 ring-blue-400/40',
       )}
@@ -1302,7 +1302,7 @@ function InteractiveConfigDisclosure({
                   className={cn(
                     'rounded-md border px-2 py-1.5 text-xs font-medium transition-all',
                     selected
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                      ? 'border-emerald-500/40 bg-[var(--pbl-success)]/10 text-emerald-700 dark:text-emerald-200'
                       : 'border-border/40 bg-transparent text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground',
                   )}
                 >

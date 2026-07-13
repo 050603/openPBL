@@ -39,6 +39,10 @@ import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
 import { resolveVocationalActive } from '@openmaic/lib/config/feature-flags';
 import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
 import {
+  isPblModuleTimingPlanConfirmed,
+  type PblModuleTimingPlan,
+} from '@/lib/pbl-time-model';
+import {
   formatPblStageDefinitionsForPrompt,
   PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS,
 } from '@/lib/openmaic/pbl/course-template';
@@ -306,7 +310,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { requirements, pdfText, pdfImages, imageMapping, researchContext, agents } = body as {
-      requirements: UserRequirements;
+      requirements: UserRequirements & { moduleTimingPlan?: PblModuleTimingPlan };
       pdfText?: string;
       pdfImages?: PdfImage[];
       imageMapping?: ImageMapping;
@@ -314,6 +318,17 @@ export async function POST(req: NextRequest) {
       agents?: AgentInfo[];
     };
     requirementSnippet = requirements?.requirement?.substring(0, 60);
+
+    if (
+      requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+      && !isPblModuleTimingPlanConfirmed(requirements.moduleTimingPlan)
+    ) {
+      return apiError(
+        'INVALID_REQUEST',
+        400,
+        'PBL module timing must be confirmed before outline generation',
+      );
+    }
 
     // Build user profile string for language inference context
     const userProfileText =

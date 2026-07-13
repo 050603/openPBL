@@ -33,7 +33,7 @@ export function AiLearningTeacherPreview({ course }: { course: Course }) {
         </PrimaryButton>
       </DialogTrigger>
       <DialogContent className="h-[min(92vh,900px)] max-h-[92vh] w-[min(1200px,calc(100vw-24px))] max-w-none overflow-hidden p-0">
-        <DialogHeader className="border-b border-slate-200 bg-slate-50 px-5 py-4 pr-14">
+        <DialogHeader className="border-b border-stone-200 bg-stone-50 px-5 py-4 pr-14">
           <DialogTitle className="flex items-center gap-2">
             <Eye className="text-blue-700" size={19} /> 教师预览 · {course.name}
           </DialogTitle>

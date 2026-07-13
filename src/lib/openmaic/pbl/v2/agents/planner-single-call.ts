@@ -26,6 +26,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import { parseJsonResponse } from '@openmaic/lib/generation/json-repair';
 import { normalizeProjectRuntime, normalizeScenario } from '../operations/progress';
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 import {
   PlannerV2Error,
@@ -506,12 +507,14 @@ export async function generatePBLV2ProjectSingleCall(
   const basePrompt = buildSingleCallUserPrompt(scenarioRoleplay);
 
   const callModel = async (prompt: string): Promise<PlannerLLMOutput | null> => {
+    throwIfAborted(callbacks?.signal);
     const result = await callLLM(
-      { model, system: systemPrompt, prompt },
+      { model, system: systemPrompt, prompt, abortSignal: callbacks?.signal },
       'pbl-v2-planner-single',
       undefined,
       thinkingConfig,
     );
+    throwIfAborted(callbacks?.signal);
     return parseJsonResponse<PlannerLLMOutput>(result.text);
   };
 
@@ -521,6 +524,7 @@ export async function generatePBLV2ProjectSingleCall(
 
   // One targeted retry: hand the model its concrete problems back.
   if (gaps.length > 0) {
+    throwIfAborted(callbacks?.signal);
     log.warn(
       `Single-call planner first attempt had ${gaps.length} gap(s); retrying once: ${gaps.join('; ')}`,
     );
@@ -539,6 +543,7 @@ export async function generatePBLV2ProjectSingleCall(
   }
 
   hydrateProject(project, parsed);
+  throwIfAborted(callbacks?.signal);
 
   callbacks?.onProgress?.({ kind: 'project_info', title: project.title });
   for (const milestone of project.milestones) {

@@ -55,7 +55,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
       <div className="min-w-0 space-y-5">
         <div className="flex flex-wrap items-center gap-4">
-          <h1 className="text-3xl font-bold tracking-[0] leading-tight text-slate-950 md:text-4xl">{title}</h1>
+          <h1 className="text-3xl font-bold tracking-[0] leading-tight text-stone-900 md:text-4xl">{title}</h1>
           <Pill tone="green">进行中</Pill>
         </div>
         <ProjectCoverImage course={course} className="h-56 w-full sm:h-60 md:h-64" />
@@ -68,37 +68,37 @@ export function ProjectLaunchView({ course }: { course: Course }) {
         />
         <Card>
           <div className="flex gap-4">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600">
               <FileText size={26} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-950">成果要求</h2>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] leading-7 text-slate-700">
+              <h2 className="text-xl font-bold text-stone-900">成果要求</h2>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] leading-7 text-stone-700">
                 <li>按教师设定的课程阶段推进项目，完成各阶段任务。</li>
                 <li>在「方案阶段」提交完整项目方案文档。</li>
                 <li>在「成果汇报与评价」阶段完成个人汇报与材料提交。</li>
               </ul>
-              <p className="mt-2 text-xs text-slate-500">具体要求以教师发布的项目公告与待办为准。</p>
+              <p className="mt-2 text-xs text-stone-500">具体要求以教师发布的项目公告与待办为准。</p>
             </div>
           </div>
         </Card>
 
         <Card>
           <div className="mb-5 flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-blue-50 text-blue-600">
+            <div className="grid h-11 w-11 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600">
               <Flag size={25} />
             </div>
             <h2 className="text-xl font-bold">时间安排</h2>
           </div>
           <div className="relative grid gap-2 overflow-x-auto pb-1" style={{ gridTemplateColumns: `repeat(${projectTimeline.length}, minmax(96px, 1fr))` }}>
-            <div className="absolute left-[6%] right-[7%] top-[18px] h-1 rounded-full bg-slate-200" />
+            <div className="absolute left-[6%] right-[7%] top-[18px] h-1 rounded-full bg-stone-200" />
             {projectTimeline.map(([step, label, date], index) => (
               <div className="relative z-10 min-w-[86px] text-center" key={step}>
-                <div className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-base font-bold text-white ${index <= course.currentStageIndex ? "bg-blue-600" : "bg-slate-300"}`}>
+                <div className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-base font-bold text-white ${index <= course.currentStageIndex ? "bg-[var(--pbl-student)]" : "bg-stone-300"}`}>
                   {step}
                 </div>
-                <div className={index <= course.currentStageIndex ? "mt-3 font-bold text-blue-700" : "mt-3 font-semibold text-slate-600"}>{label}</div>
-                <div className={index <= course.currentStageIndex ? "mt-1 text-sm text-blue-600" : "mt-1 text-sm text-slate-500"}>{date}</div>
+                <div className={index <= course.currentStageIndex ? "mt-3 font-bold text-[var(--pbl-student)]" : "mt-3 font-semibold text-stone-600"}>{label}</div>
+                <div className={index <= course.currentStageIndex ? "mt-1 text-sm text-blue-600" : "mt-1 text-sm text-stone-500"}>{date}</div>
               </div>
             ))}
           </div>
@@ -114,16 +114,16 @@ export function ProjectLaunchView({ course }: { course: Course }) {
             const displayTitle = todo.id.includes("group") ? "确认个人项目空间" : todo.title;
             const displayDescription = todo.id.includes("group") ? "系统已为你建立个人项目与 AI 伴学小组" : todo.description;
             return (
-              <div className="mb-3 flex items-center gap-4 rounded-[8px] border border-slate-200 p-3 last:mb-0" key={todo.id}>
-                <div className={`grid h-10 w-10 place-items-center rounded-[6px] ${done ? "bg-emerald-50 text-emerald-600" : "bg-blue-50 text-blue-600"}`}>
+              <div className="mb-3 flex items-center gap-4 rounded-[8px] border border-stone-200 p-3 last:mb-0" key={todo.id}>
+                <div className={`grid h-10 w-10 place-items-center rounded-[6px] ${done ? "bg-emerald-50 text-emerald-600" : "bg-[var(--pbl-student-soft)] text-blue-600"}`}>
                   {done ? <CheckCircle2 size={22} /> : <Icon size={23} />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="font-bold">{displayTitle}</div>
-                  <div className="text-sm text-slate-500">{displayDescription}</div>
+                  <div className="text-sm text-stone-500">{displayDescription}</div>
                 </div>
                 <button
-                  className={`h-9 rounded-[5px] border px-3 text-sm font-semibold ${done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-400 text-blue-700 hover:bg-blue-50"}`}
+                  className={`h-9 rounded-[5px] border px-3 text-sm font-semibold ${done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-400 text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]"}`}
                   onClick={() => completeTodo(todo.id)}
                   type="button"
                   disabled={done}
@@ -145,7 +145,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
               const downloaded = Boolean(studentId && resource.downloadedBy.includes(studentId));
               return (
                 <button
-                  className="flex w-full items-center gap-3 rounded-[8px] border border-slate-200 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/40"
+                  className="flex w-full items-center gap-3 rounded-[8px] border border-stone-200 bg-white p-3 text-left transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-student-soft)]/40"
                   key={resource.id}
                   onClick={() => downloadResource(resource.id, resource.url)}
                   type="button"
@@ -153,10 +153,10 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                   <FileBadge type={resource.type} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-semibold">{resource.title}</div>
-                    <div className="text-sm text-slate-500">{resource.type} · {resource.size}</div>
-                    {resource.description ? <div className="mt-1 line-clamp-2 text-xs text-slate-400">{resource.description}</div> : null}
+                    <div className="text-sm text-stone-500">{resource.type} · {resource.size}</div>
+                    {resource.description ? <div className="mt-1 line-clamp-2 text-xs text-stone-400">{resource.description}</div> : null}
                   </div>
-                  {downloaded ? <Pill tone="green">已下载</Pill> : <Download size={17} className="text-blue-700" />}
+                  {downloaded ? <Pill tone="green">已下载</Pill> : <Download size={17} className="text-[var(--pbl-student)]" />}
                 </button>
               );
             })}
@@ -170,26 +170,26 @@ export function ProjectLaunchView({ course }: { course: Course }) {
           </div>
           <div className="space-y-3">
             {(course.announcements ?? []).map((announcement) => (
-              <div className="rounded-[8px] border border-slate-200 bg-white p-3" key={announcement.id}>
+              <div className="rounded-[8px] border border-stone-200 bg-white p-3" key={announcement.id}>
                 <button
                   className="flex w-full items-center justify-between gap-2 text-left"
                   onClick={() => setExpandedAnnouncement(expandedAnnouncement === announcement.id ? null : announcement.id)}
                   type="button"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-bold text-slate-900">{announcement.title}</span>
-                    <span className="mt-1 block text-xs text-slate-500">{new Date(announcement.createdAt).toLocaleString("zh-CN")}</span>
+                    <span className="block truncate font-bold text-stone-900">{announcement.title}</span>
+                    <span className="mt-1 block text-xs text-stone-500">{new Date(announcement.createdAt).toLocaleString("zh-CN")}</span>
                   </span>
                   <Pill tone={announcement.pinned ? "blue" : "gray"}>{announcement.replies.length} 回复</Pill>
                 </button>
                 {expandedAnnouncement === announcement.id ? (
-                  <div className="mt-3 border-t border-slate-100 pt-3">
-                    <p className="text-sm leading-6 text-slate-700">{announcement.content}</p>
+                  <div className="mt-3 border-t border-stone-100 pt-3">
+                    <p className="text-sm leading-6 text-stone-700">{announcement.content}</p>
                     <div className="mt-3 space-y-2">
                       {announcement.replies.slice(0, 3).map((item) => (
-                        <div className="rounded-[6px] bg-slate-50 p-2 text-sm" key={item.id}>
-                          <span className="font-bold text-slate-800">{item.studentName}：</span>
-                          <span className="text-slate-600">{item.content}</span>
+                        <div className="rounded-[6px] bg-stone-50 p-2 text-sm" key={item.id}>
+                          <span className="font-bold text-stone-800">{item.studentName}：</span>
+                          <span className="text-stone-600">{item.content}</span>
                         </div>
                       ))}
                     </div>
@@ -200,7 +200,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                         value={replyDrafts[announcement.id] ?? ""}
                         onChange={(event) => setReplyDrafts((drafts) => ({ ...drafts, [announcement.id]: event.target.value }))}
                       />
-                      <button className="grid h-10 w-10 place-items-center rounded-[6px] bg-blue-600 text-white hover:bg-blue-700" onClick={() => reply(announcement.id)} type="button">
+                      <button className="grid h-10 w-10 place-items-center rounded-[6px] bg-[var(--pbl-student)] text-white hover:bg-[var(--pbl-student-hover)]" onClick={() => reply(announcement.id)} type="button">
                         <Send size={16} />
                       </button>
                     </div>
@@ -209,8 +209,8 @@ export function ProjectLaunchView({ course }: { course: Course }) {
               </div>
             ))}
             {!course.announcements?.length ? (
-              <div className="rounded-[8px] border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-sm text-slate-500">
-                <MessageCircle className="mx-auto mb-2 text-slate-300" size={22} />
+              <div className="rounded-[8px] border border-dashed border-stone-300 bg-stone-50 py-8 text-center text-sm text-stone-500">
+                <MessageCircle className="mx-auto mb-2 text-stone-300" size={22} />
                 暂无公告，教师发布后会自动同步。
               </div>
             ) : null}
@@ -227,12 +227,12 @@ function InfoBlock({ icon, title, text }: { icon: ReactNode; title: string; text
   return (
     <Card>
       <div className="flex gap-4">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600">
           {icon}
         </div>
         <div>
-          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
-          <p className="mt-2 text-[15px] leading-7 text-slate-700">{text}</p>
+          <h2 className="text-xl font-bold text-stone-900">{title}</h2>
+          <p className="mt-2 text-[15px] leading-7 text-stone-700">{text}</p>
         </div>
       </div>
     </Card>

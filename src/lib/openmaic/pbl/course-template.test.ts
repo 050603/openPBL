@@ -79,6 +79,8 @@ describe("PBL six-stage course template", () => {
     expect(text).toContain("critic、recorder");
     expect(text).toContain("记记");
     expect(text).toContain("方案修订记录");
+    expect(text).toContain("阶段伴学服务契约");
+    expect(text).toContain("替学生选定方向");
     expect(text).toContain("不能替学生做最终决策");
   });
 });

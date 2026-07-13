@@ -342,7 +342,7 @@ export function SlideNavRail() {
       className={cn(
         'relative flex h-full shrink-0 flex-col overflow-hidden',
         'border-r border-gray-100 dark:border-gray-800',
-        'bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl',
+        'bg-white/80 dark:bg-stone-900/80 backdrop-blur-xl',
         'shadow-[2px_0_24px_rgba(0,0,0,0.02)]',
       )}
       style={{

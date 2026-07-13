@@ -81,6 +81,8 @@ export function normalizePblTeachingOutline(
   activities: ReadonlyArray<TeachingOutlineSection>,
   options: NormalizePblTeachingOutlineOptions,
 ): TeachingOutlineSection[] {
+  if (activities.length === 0) return [];
+
   const knownIds = new Set(
     (options.knowledgePoints ?? []).map((point) => point.id).filter(Boolean),
   );

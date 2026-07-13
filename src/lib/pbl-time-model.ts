@@ -1,4 +1,5 @@
 import type { PblDetailKind, PblTtsPolicy } from '@openmaic/lib/types/generation';
+import { estimateSpeechDurationSec } from '@openmaic/lib/audio/tts-timing';
 
 export const PBL_STAGE_KEYS = [
   'launch',
@@ -48,6 +49,24 @@ export type PblTimeActivity = {
   activityKind?: PblTimeActivityKind;
   durationMin: number;
   knowledgePointIds?: string[];
+};
+
+export type PblModuleTimingStatus = 'suggested' | 'confirmed';
+
+export type PblModuleTimingAllocation = PblTimeActivity & {
+  /** AI-recommended duration before teacher edits. */
+  recommendedDurationMin: number;
+};
+
+/** The only course-level timing state used by the teacher workflow. */
+export type PblModuleTimingPlan = {
+  schemaVersion: 1;
+  totalMinutes: number;
+  status: PblModuleTimingStatus;
+  allocations: PblModuleTimingAllocation[];
+  recommendedStageTotals: Record<PblTimeActivityKind, number>;
+  generatedAt: string;
+  confirmedAt?: string;
 };
 
 export type PblModuleDefinition = {
@@ -362,6 +381,23 @@ function distributeActivityMinutes(
   );
 }
 
+function distributeActivityMinutesWithMinimum(
+  totalMinutes: number,
+  activities: readonly PblTimeActivity[],
+  context?: PblTimeModelContext,
+): number[] {
+  if (activities.length === 0) return [];
+  const safeTotal = Math.max(0, Math.round(totalMinutes));
+  if (safeTotal < activities.length) {
+    return distributeActivityMinutes(safeTotal, activities, context);
+  }
+  return distributeActivityMinutes(
+    safeTotal - activities.length,
+    activities,
+    context,
+  ).map((minutes) => minutes + 1);
+}
+
 /** Recommend the six module totals independently of which rows an LLM returned. */
 export function recommendPblStageTotals(
   totalMinutes: number,
@@ -414,6 +450,137 @@ export function suggestPblTimeAllocation(
   }
 
   return suggestions;
+}
+
+export function buildPblModuleTimingPlan(
+  totalMinutes: number,
+  activities: ReadonlyArray<PblTimeActivity>,
+  context?: PblTimeModelContext,
+  options: {
+    status?: PblModuleTimingStatus;
+    preserveCurrentDurations?: boolean;
+    now?: string;
+  } = {},
+): PblModuleTimingPlan {
+  const safeTotal = Math.max(0, Math.round(totalMinutes));
+  const recommended = suggestPblTimeAllocation(safeTotal, activities, context);
+  const preserveCurrentDurations = options.preserveCurrentDurations === true;
+  const allocations = activities.map((activity) => ({
+    ...activity,
+    durationMin: preserveCurrentDurations
+      ? Math.max(0, Math.round(Number(activity.durationMin) || 0))
+      : recommended[activity.id] ?? Math.max(0, Math.round(Number(activity.durationMin) || 0)),
+    recommendedDurationMin: recommended[activity.id] ?? 0,
+  }));
+  const status = options.status ?? 'suggested';
+  const generatedAt = options.now ?? new Date().toISOString();
+  return {
+    schemaVersion: 1,
+    totalMinutes: safeTotal,
+    status,
+    allocations,
+    recommendedStageTotals: recommendPblStageTotals(safeTotal, context),
+    generatedAt,
+    ...(status === 'confirmed' ? { confirmedAt: generatedAt } : {}),
+  };
+}
+
+export function isPblModuleTimingPlanConfirmed(
+  plan: Pick<PblModuleTimingPlan, 'totalMinutes' | 'allocations' | 'status'> | undefined,
+): boolean {
+  if (!plan || plan.status !== 'confirmed') return false;
+  const kinds = new Set(plan.allocations.map((activity) => classifyPblActivityKind(activity)));
+  if (PBL_MODULE_DEFINITIONS.some((definition) => !kinds.has(definition.kind))) return false;
+  const allocated = plan.allocations.reduce(
+    (sum, activity) => sum + Math.max(0, Math.round(Number(activity.durationMin) || 0)),
+    0,
+  );
+  return allocated === Math.max(0, Math.round(plan.totalMinutes));
+}
+
+/**
+ * Reallocate a fixed course duration after a teacher changes one canonical
+ * module total. The requested module receives the requested time; all other
+ * represented modules share the remainder in proportion to their current
+ * allocation (falling back to the modeled ratios for empty drafts). Child
+ * activities within each module are then distributed by their knowledge load.
+ */
+export function reallocatePblStageDurations<T extends PblTimeActivity>(
+  totalMinutes: number,
+  activities: ReadonlyArray<T>,
+  targetKind: Exclude<PblTimeActivityKind, 'other'>,
+  targetMinutes: number,
+  context?: PblTimeModelContext,
+): T[] {
+  const safeTotal = Math.max(0, Math.round(totalMinutes));
+  const groups = new Map<PblTimeActivityKind, Array<{ activity: PblTimeActivity; index: number }>>();
+
+  activities.forEach((activity, index) => {
+    const kind = classifyPblActivityKind(activity);
+    const effectiveKind = kind === 'other' ? 'practice' : kind;
+    const group = groups.get(effectiveKind) ?? [];
+    group.push({ activity: { ...activity }, index });
+    groups.set(effectiveKind, group);
+  });
+
+  const targetGroup = groups.get(targetKind) ?? [];
+  if (targetGroup.length === 0) return activities.map((activity) => ({ ...activity }));
+
+  const currentTotals = emptyStageTotals();
+  for (const [kind, group] of groups) {
+    currentTotals[kind] = group.reduce(
+      (sum, entry) => sum + Math.max(0, Math.round(Number(entry.activity.durationMin) || 0)),
+      0,
+    );
+  }
+
+  const modeledKinds = PBL_MODULE_DEFINITIONS.map((definition) => definition.kind);
+  const otherKinds = modeledKinds.filter((kind) => kind !== targetKind && groups.has(kind));
+  const minimumOtherMinutes = otherKinds.reduce(
+    (sum, kind) => sum + (groups.get(kind)?.length ?? 0),
+    0,
+  );
+  const minimumTargetMinutes = safeTotal >= targetGroup.length + minimumOtherMinutes
+    ? targetGroup.length
+    : 0;
+  const maximumTargetMinutes = Math.max(minimumTargetMinutes, safeTotal - minimumOtherMinutes);
+  const boundedTargetMinutes = clamp(
+    Math.round(Number(targetMinutes) || 0),
+    minimumTargetMinutes,
+    maximumTargetMinutes,
+  );
+
+  const recommended = recommendPblStageTotals(safeTotal, context);
+  const remainder = Math.max(0, safeTotal - boundedTargetMinutes);
+  const otherStageTotals = new Map<PblTimeActivityKind, number>();
+  const otherAllocations = allocateIntegerByWeights(
+    remainder,
+    otherKinds.map((kind) => currentTotals[kind] > 0 ? currentTotals[kind] : recommended[kind]),
+  );
+  otherKinds.forEach((kind, index) => {
+    otherStageTotals.set(kind, otherAllocations[index] ?? 0);
+  });
+
+  const next = activities.map((activity) => ({ ...activity }));
+  const stageTotals = new Map<PblTimeActivityKind, number>([
+    [targetKind, boundedTargetMinutes],
+    ...otherKinds.map((kind) => [kind, otherStageTotals.get(kind) ?? 0] as const),
+  ]);
+
+  for (const kind of modeledKinds) {
+    const group = groups.get(kind) ?? [];
+    if (group.length === 0) continue;
+    const stageTotal = stageTotals.get(kind) ?? currentTotals[kind];
+    const distributed = distributeActivityMinutesWithMinimum(stageTotal, group.map((entry) => entry.activity), context);
+    group.forEach((entry, index) => {
+      next[entry.index] = {
+        ...next[entry.index],
+        durationMin: distributed[index] ?? 0,
+      };
+    });
+  }
+
+  return next;
 }
 
 export type PblTimeWarningSeverity = 'warning' | 'error';
@@ -580,6 +747,13 @@ export function buildPblProjectMainline(
   activities: ReadonlyArray<PblTimeActivity>,
 ): PblProjectMainline {
   const safeTotal = Math.max(0, Math.round(totalMinutes));
+  if (activities.length === 0) {
+    return {
+      totalMinutes: safeTotal,
+      allocatedMinutes: 0,
+      modules: [],
+    };
+  }
   let cursor = 0;
   const modules = PBL_MODULE_DEFINITIONS.map((definition) => {
     const matching = activities.filter((activity) => classifyPblActivityKind(activity) === definition.kind);
@@ -663,13 +837,17 @@ export function rescalePblDetailDurations<T extends PblTimedDetail>(
 
 export function estimateTtsDurationSec(
   text: string,
-  options: { speed?: number; minSeconds?: number } = {},
+  options: {
+    speed?: number;
+    minSeconds?: number;
+    providerId?: string;
+    modelId?: string;
+  } = {},
 ): number {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (!normalized) return options.minSeconds ?? 1;
-  const cjkCount = (normalized.match(/[\u3400-\u9fff]/g) ?? []).length;
-  const latinWordCount = (normalized.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) ?? []).length;
-  const punctuationCount = (normalized.match(/[，。！？；：,.!?;:]/g) ?? []).length;
-  const speakingUnits = cjkCount / 4.5 + latinWordCount / 2.4 + punctuationCount * 0.08;
-  return Math.max(options.minSeconds ?? 1, Math.round(speakingUnits / clamp(options.speed ?? 1, 0.5, 2)));
+  return estimateSpeechDurationSec(text, {
+    speed: options.speed,
+    minSeconds: options.minSeconds,
+    providerId: options.providerId,
+    modelId: options.modelId,
+  });
 }

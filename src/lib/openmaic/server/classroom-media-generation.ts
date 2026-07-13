@@ -37,6 +37,10 @@ import type { TTSProviderId } from '@openmaic/lib/audio/types';
 import { splitLongSpeechActions } from '@openmaic/lib/audio/tts-utils';
 import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@openmaic/lib/audio/voxcpm';
 import {
+  getTtsTimingProfile,
+} from '@openmaic/lib/audio/tts-timing';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
+import {
   hasPblRoutingMetadata,
   isStudentAiLearningScene,
 } from '@openmaic/lib/pbl/scene-routing';
@@ -52,6 +56,13 @@ type ServerTTSRuntime = {
   format: string;
 };
 
+export type ServerTtsTimingSelection = {
+  providerId: string;
+  modelId: string;
+  speed: number;
+  language: string;
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -63,8 +74,12 @@ async function ensureDir(dir: string) {
 const DOWNLOAD_TIMEOUT_MS = 120_000; // 2 minutes
 const DOWNLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
 
-async function downloadToBuffer(url: string): Promise<Buffer> {
-  const resp = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buffer> {
+  const timeoutSignal = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
+  const downloadSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+  const resp = await fetch(url, { signal: downloadSignal });
   if (!resp.ok) throw new Error(`Download failed: ${resp.status} ${resp.statusText}`);
   const contentLength = Number(resp.headers.get('content-length') || 0);
   if (contentLength > DOWNLOAD_MAX_SIZE) {
@@ -85,7 +100,9 @@ export async function generateMediaForClassroom(
   outlines: SceneOutline[],
   classroomId: string,
   baseUrl: string,
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
+  throwIfAborted(signal);
   const mediaDir = path.join(CLASSROOMS_DIR, classroomId, 'media');
   await ensureDir(mediaDir);
 
@@ -109,6 +126,7 @@ export async function generateMediaForClassroom(
   const generateImages = async () => {
     for (const req of imageRequests) {
       try {
+        throwIfAborted(signal);
         const providerId = imageProviderIds[0] as ImageProviderId;
         const apiKey = resolveImageApiKey(providerId);
         const providerConfig = IMAGE_PROVIDERS[providerId];
@@ -122,6 +140,7 @@ export async function generateMediaForClassroom(
           { providerId, apiKey, baseUrl: resolveImageBaseUrl(providerId), model },
           { prompt: req.prompt, aspectRatio: req.aspectRatio || '16:9' },
         );
+        throwIfAborted(signal);
 
         let buf: Buffer;
         let ext: string;
@@ -129,7 +148,7 @@ export async function generateMediaForClassroom(
           buf = Buffer.from(result.base64, 'base64');
           ext = 'png';
         } else if (result.url) {
-          buf = await downloadToBuffer(result.url);
+          buf = await downloadToBuffer(result.url, signal);
           const urlExt = path.extname(new URL(result.url).pathname).replace('.', '');
           ext = ['png', 'jpg', 'jpeg', 'webp'].includes(urlExt) ? urlExt : 'png';
         } else {
@@ -137,11 +156,13 @@ export async function generateMediaForClassroom(
           continue;
         }
 
+        throwIfAborted(signal);
         const filename = `${req.elementId}.${ext}`;
         await fs.writeFile(path.join(mediaDir, filename), buf);
         mediaMap[req.elementId] = mediaServingUrl(baseUrl, classroomId, `media/${filename}`);
         log.info(`Generated image: ${filename}`);
       } catch (err) {
+        if (signal?.aborted) throw err;
         log.warn(`Image generation failed for ${req.elementId}:`, err);
       }
     }
@@ -150,6 +171,7 @@ export async function generateMediaForClassroom(
   const generateVideos = async () => {
     for (const req of videoRequests) {
       try {
+        throwIfAborted(signal);
         const providerId = videoProviderIds[0] as VideoProviderId;
         const apiKey = resolveVideoApiKey(providerId);
         if (!apiKey) {
@@ -168,19 +190,23 @@ export async function generateMediaForClassroom(
           { providerId, apiKey, baseUrl: resolveVideoBaseUrl(providerId), model },
           normalized,
         );
+        throwIfAborted(signal);
 
-        const buf = await downloadToBuffer(result.url);
+        const buf = await downloadToBuffer(result.url, signal);
+        throwIfAborted(signal);
         const filename = `${req.elementId}.mp4`;
         await fs.writeFile(path.join(mediaDir, filename), buf);
         mediaMap[req.elementId] = mediaServingUrl(baseUrl, classroomId, `media/${filename}`);
         log.info(`Generated video: ${filename}`);
       } catch (err) {
+        if (signal?.aborted) throw err;
         log.warn(`Video generation failed for ${req.elementId}:`, err);
       }
     }
   };
 
   await Promise.all([generateImages(), generateVideos()]);
+  throwIfAborted(signal);
 
   return mediaMap;
 }
@@ -259,11 +285,51 @@ function resolveServerTTSRuntimes(providerIds: string[]): ServerTTSRuntime[] {
   });
 }
 
+function getConfiguredTtsProviderIds(): string[] {
+  return Object.entries(getServerTTSProviders())
+    .filter(([id, info]) => id !== 'browser-native-tts' && !info.disabled)
+    .map(([id]) => id);
+}
+
+/** Resolve the same provider/model that server-side audio generation will use. */
+export function resolveServerTtsTimingSelection(options: {
+  providerId?: string;
+  modelId?: string;
+  speed?: number;
+  language?: string;
+} = {}): ServerTtsTimingSelection {
+  const configuredIds = getConfiguredTtsProviderIds();
+  const runtimes = resolveServerTTSRuntimes(
+    options.providerId && configuredIds.includes(options.providerId)
+      ? [options.providerId, ...configuredIds.filter((id) => id !== options.providerId)]
+      : configuredIds,
+  );
+  const runtime = runtimes[0];
+  const providerId = runtime?.providerId ?? options.providerId ?? 'default';
+  const requestedModelIsForSelectedProvider = Boolean(
+    options.modelId && (!options.providerId || options.providerId === providerId),
+  );
+  const modelId = runtime?.modelId ?? options.modelId ?? '';
+  const profile = getTtsTimingProfile(
+    providerId,
+    requestedModelIsForSelectedProvider ? options.modelId : modelId,
+  );
+  return {
+    providerId: profile.providerId,
+    modelId: profile.modelId,
+    speed: Math.min(4, Math.max(0.25, Number(options.speed ?? profile.defaultSpeed) || profile.defaultSpeed)),
+    language: options.language || 'zh-CN',
+  };
+}
+
 export async function generateTTSForClassroom(
   scenes: Scene[],
   classroomId: string,
   baseUrl: string,
+  signal?: AbortSignal,
+  timingOptions: Partial<ServerTtsTimingSelection> = {},
 ): Promise<void> {
+  throwIfAborted(signal);
   // Defensive second gate: if the caller passes a routed PBL scene set, only
   // the explicit student AI-learning route may receive audio. This keeps
   // future callers from accidentally reintroducing TTS on teacher resources.
@@ -292,9 +358,17 @@ export async function generateTTSForClassroom(
     log.warn('No usable server TTS provider configured, skipping TTS generation');
     return;
   }
-  const splitProviderId = runtimes[0].providerId;
-
+  const preferredRuntimeIndex = timingOptions.providerId
+    ? runtimes.findIndex((runtime) => runtime.providerId === timingOptions.providerId)
+    : 0;
+  if (preferredRuntimeIndex > 0) {
+    const [preferred] = runtimes.splice(preferredRuntimeIndex, 1);
+    if (preferred) runtimes.unshift(preferred);
+  }
+  const selectedRuntime = runtimes[0];
+  const splitProviderId = selectedRuntime.providerId;
   for (const scene of eligibleScenes) {
+    throwIfAborted(signal);
     if (!scene.actions) continue;
 
     // Split long speech actions into multiple shorter ones before TTS generation,
@@ -313,12 +387,19 @@ export async function generateTTSForClassroom(
 
     for (const action of scene.actions) {
       if (action.type !== 'speech' || !(action as SpeechAction).text) continue;
+      throwIfAborted(signal);
       const speechAction = action as SpeechAction;
+      const narrationTargetSec =
+        typeof scene.timingPlan?.targetDurationSec === 'number' && scene.timingPlan.targetDurationSec > 0
+          ? scene.timingPlan.targetDurationSec
+          : typeof scene.targetDurationSec === 'number' && scene.targetDurationSec > 0
+            ? scene.targetDurationSec
+            : undefined;
       const targetDurationSec =
-        typeof scene.targetDurationSec === 'number' && scene.targetDurationSec > 0
+        typeof narrationTargetSec === 'number' && narrationTargetSec > 0
           ? Math.max(
               1,
-              (scene.targetDurationSec * Math.max(1, speechAction.text.length)) /
+              (narrationTargetSec * Math.max(1, speechAction.text.length)) /
                 Math.max(1, totalSpeechCharacters),
             )
           : undefined;
@@ -332,17 +413,22 @@ export async function generateTTSForClassroom(
       let generated = false;
       for (const runtime of runtimes) {
         try {
+          throwIfAborted(signal);
           const result = await generateTTS(
             {
               providerId: runtime.providerId,
-              modelId: runtime.modelId,
+              modelId:
+                runtime.providerId === selectedRuntime.providerId && timingOptions.modelId
+                  ? timingOptions.modelId
+                  : runtime.modelId,
               apiKey: runtime.apiKey,
               baseUrl: runtime.baseUrl,
               voice: runtime.voice,
-              speed: speechAction.speed,
+              speed: speechAction.speed ?? timingOptions.speed,
             },
             speechAction.text,
           );
+          throwIfAborted(signal);
 
           const filename = `${audioId}.${result.format || runtime.format}`;
           await fs.writeFile(path.join(audioDir, filename), result.audio);
@@ -355,6 +441,7 @@ export async function generateTTSForClassroom(
           generated = true;
           break;
         } catch (err) {
+          if (signal?.aborted) throw err;
           log.warn(`TTS provider "${runtime.providerId}" failed for action ${action.id}:`, err);
         }
       }
@@ -362,5 +449,6 @@ export async function generateTTSForClassroom(
         log.warn(`TTS generation failed for action ${action.id}: all configured providers failed`);
       }
     }
+
   }
 }

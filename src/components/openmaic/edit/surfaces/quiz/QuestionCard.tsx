@@ -237,7 +237,7 @@ export function QuestionCard({ question: q, index, expanded, onToggle }: Props) 
                       className={cn(
                         'group/opt flex items-center gap-2 rounded-xl border p-1 transition-colors',
                         correct
-                          ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/25 dark:bg-emerald-500/[0.07]'
+                          ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/25 dark:bg-[var(--pbl-success)]/[0.07]'
                           : 'border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
                       )}
                     >
@@ -251,7 +251,7 @@ export function QuestionCard({ question: q, index, expanded, onToggle }: Props) 
                           'relative flex h-8 w-8 shrink-0 items-center justify-center border font-mono text-xs font-bold transition-all',
                           q.type === 'single' ? 'rounded-full' : 'rounded-lg',
                           correct
-                            ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                            ? 'border-emerald-500 bg-[var(--pbl-success)] text-white shadow-sm shadow-emerald-500/30'
                             : 'border-zinc-300 bg-white text-zinc-400 hover:border-emerald-400 hover:text-emerald-500 dark:border-zinc-600 dark:bg-zinc-800',
                         )}
                       >

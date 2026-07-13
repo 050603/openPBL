@@ -23,32 +23,37 @@ type SupportRequest = {
   input: unknown;
 };
 
+type SupportHandler = (input: unknown, signal: AbortSignal) => Promise<unknown>;
+
 const HANDLERS: Record<
   string,
-  (input: unknown) => Promise<unknown>
+  SupportHandler
 > = {
-  diagnoseGroupIdea: (input) => diagnoseGroupIdea(input as Parameters<typeof diagnoseGroupIdea>[0]),
-  diagnoseProjectArtifact: (input) =>
-    diagnoseProjectArtifact(input as Parameters<typeof diagnoseProjectArtifact>[0]),
-  buildShowcaseCoach: (input) => buildShowcaseCoach(input as Parameters<typeof buildShowcaseCoach>[0]),
-  buildReflectionEvidencePrompts: (input) =>
-    buildReflectionEvidencePrompts(input as Parameters<typeof buildReflectionEvidencePrompts>[0]),
-  buildTeacherInterventionSignals: (input) => {
+  diagnoseGroupIdea: (input, signal) =>
+    diagnoseGroupIdea(input as Parameters<typeof diagnoseGroupIdea>[0], { abortSignal: signal }),
+  diagnoseProjectArtifact: (input, signal) =>
+    diagnoseProjectArtifact(input as Parameters<typeof diagnoseProjectArtifact>[0], { abortSignal: signal }),
+  buildShowcaseCoach: (input, signal) =>
+    buildShowcaseCoach(input as Parameters<typeof buildShowcaseCoach>[0], { abortSignal: signal }),
+  buildReflectionEvidencePrompts: (input, signal) =>
+    buildReflectionEvidencePrompts(input as Parameters<typeof buildReflectionEvidencePrompts>[0], { abortSignal: signal }),
+  buildTeacherInterventionSignals: (input, signal) => {
     const { course, stageKey } = input as {
       course: Parameters<typeof buildTeacherInterventionSignals>[0];
       stageKey: string;
     };
-    return buildTeacherInterventionSignals(course, stageKey);
+    return buildTeacherInterventionSignals(course, stageKey, { abortSignal: signal });
   },
-  generateProjectSkeleton: (input) =>
-    generateProjectSkeleton(input as Parameters<typeof generateProjectSkeleton>[0]),
-  diagnoseAllProposals: (input) => diagnoseAllProposals(input as Parameters<typeof diagnoseAllProposals>[0]),
-  generateProcessEvaluation: (input) =>
-    generateProcessEvaluation(input as Parameters<typeof generateProcessEvaluation>[0]),
-  generateLiveEvaluation: (input) =>
-    generateLiveEvaluation(input as Parameters<typeof generateLiveEvaluation>[0]),
-  suggestProjectDirections: (input) =>
-    suggestProjectDirections(input as Parameters<typeof suggestProjectDirections>[0]),
+  generateProjectSkeleton: (input, signal) =>
+    generateProjectSkeleton(input as Parameters<typeof generateProjectSkeleton>[0], { abortSignal: signal }),
+  diagnoseAllProposals: (input, signal) =>
+    diagnoseAllProposals(input as Parameters<typeof diagnoseAllProposals>[0], { abortSignal: signal }),
+  generateProcessEvaluation: (input, signal) =>
+    generateProcessEvaluation(input as Parameters<typeof generateProcessEvaluation>[0], { abortSignal: signal }),
+  generateLiveEvaluation: (input, signal) =>
+    generateLiveEvaluation(input as Parameters<typeof generateLiveEvaluation>[0], { abortSignal: signal }),
+  suggestProjectDirections: (input, signal) =>
+    suggestProjectDirections(input as Parameters<typeof suggestProjectDirections>[0], { abortSignal: signal }),
 };
 
 export async function POST(req: NextRequest) {
@@ -69,9 +74,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await handler(body.input);
+    if (req.signal.aborted) return new Response(null, { status: 499 });
+    const result = await handler(body.input, req.signal);
+    if (req.signal.aborted) return new Response(null, { status: 499 });
     return Response.json({ result });
   } catch (e) {
+    if (req.signal.aborted || (e instanceof Error && e.name === "AbortError")) {
+      return new Response(null, { status: 499 });
+    }
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[api/teaching-ai/support] action=${body.action} failed:`, message);
     return Response.json({ error: "SUPPORT_CALL_FAILED", detail: message }, { status: 500 });

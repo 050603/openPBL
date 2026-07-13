@@ -25,7 +25,7 @@ export default function TeacherResourcesPage() {
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中…</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中…</div>
       </DashboardShell>
     );
   }
@@ -33,7 +33,7 @@ export default function TeacherResourcesPage() {
   if (!course) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">
+        <div className="grid place-items-center py-20 text-stone-500">
           未找到课程。
           <Link className="mt-4 text-blue-700 hover:underline" href="/teacher">
             返回课程列表
@@ -62,25 +62,25 @@ export default function TeacherResourcesPage() {
       >
         <div className="mb-5 flex items-center gap-3">
           <Link
-            className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
             href={`/teacher/prepare/${course.id}/preview`}
           >
             <ArrowLeft size={17} />
           </Link>
           <div>
             <h1 className="text-[28px] font-bold">教师授课资源</h1>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-stone-500">
               {course.name} · 按阶段生成的 PPT、互动演示与讲稿
             </p>
           </div>
         </div>
 
-        <div className="rounded-[12px] border border-dashed border-slate-200 bg-slate-50 p-10 text-center">
-          <Sparkles className="mx-auto mb-3 text-slate-300" size={32} />
-          <p className="text-sm text-slate-600">
+        <div className="rounded-[12px] border border-dashed border-stone-200 bg-stone-50 p-10 text-center">
+          <Sparkles className="mx-auto mb-3 text-stone-300" size={32} />
+          <p className="text-sm text-stone-600">
             暂无教师授课资源。
           </p>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-stone-400">
             完成 AI 课程生成后，系统会按授课大纲拆分各阶段的 PPT、互动演示和讲稿。
           </p>
           <Link

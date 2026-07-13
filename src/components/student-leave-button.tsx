@@ -36,7 +36,7 @@ export function StudentLeaveButton({
     <AlertDialog>
       <AlertDialogTrigger asChild><button
       className={
-        "inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 " +
+        "inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50 " +
         (className ?? "")
       }
       onClick={handleClick}

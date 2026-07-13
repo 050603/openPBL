@@ -44,10 +44,10 @@ type RichTextEditorProps = {
 };
 
 function ToolBtn({ active, disabled, onClick, title, children }: { active?: boolean; disabled?: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
-  return <button type="button" title={title} aria-label={title} disabled={disabled} onClick={onClick} className={`grid h-11 w-11 place-items-center rounded-[5px] text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 ${active ? "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]" : ""}`}>{children}</button>;
+  return <button type="button" title={title} aria-label={title} disabled={disabled} onClick={onClick} className={`grid h-11 w-11 place-items-center rounded-[5px] text-stone-600 transition-colors hover:bg-stone-100 disabled:opacity-40 ${active ? "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]" : ""}`}>{children}</button>;
 }
 
-function Divider() { return <span className="mx-1 h-5 w-px bg-slate-200" />; }
+function Divider() { return <span className="mx-1 h-5 w-px bg-stone-200" />; }
 
 /**
  * TipTap-powered rich text editor with a formatting toolbar. Used for the
@@ -89,7 +89,7 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         class:
-          "prose prose-slate max-w-none focus:outline-none px-5 py-4 text-[15px] leading-8 min-h-[360px]",
+          "prose prose-stone max-w-none focus:outline-none px-5 py-4 text-[15px] leading-8 min-h-[360px]",
         "data-placeholder": placeholder,
       },
     },
@@ -140,7 +140,7 @@ export function RichTextEditor({
   if (!editor) {
     return (
       <div
-        className="rounded-[6px] border border-slate-200 bg-slate-50"
+        className="rounded-[6px] border border-stone-200 bg-stone-50"
         style={{ minHeight }}
       />
     );
@@ -148,8 +148,8 @@ export function RichTextEditor({
 
   return (
     <>
-    <div className="overflow-hidden rounded-[8px] border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-100 bg-slate-50/80 px-2 py-1.5">
+    <div className="overflow-hidden rounded-[8px] border border-stone-200 bg-white">
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-stone-100 bg-stone-50/80 px-2 py-1.5">
         <ToolBtn title="撤销" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}>
           <Undo2 size={16} />
         </ToolBtn>
@@ -219,7 +219,7 @@ export function RichTextEditor({
           <>
             <Divider />
             <label
-              className="grid h-8 cursor-pointer place-items-center rounded-[5px] text-slate-600 transition hover:bg-slate-100"
+              className="grid h-8 cursor-pointer place-items-center rounded-[5px] text-stone-600 transition hover:bg-stone-100"
               title="上传文件"
             >
               <UploadCloud size={16} />

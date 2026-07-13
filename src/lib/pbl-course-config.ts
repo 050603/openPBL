@@ -6,6 +6,7 @@
  */
 
 import { getCompanion } from "@/lib/ai-companions";
+import { COMPANION_STAGE_KEYS, buildStagePolicyPrompt, getCompanionStagePolicy } from "@/lib/companion/stage-policy";
 
 export type PblCompanionId =
   | "knowledge"
@@ -40,7 +41,7 @@ export type PblOutcomeSpec = {
 export type PblCourseConfig = {
   /** The new classroom mode intentionally has no real student group. */
   projectMode: "personal";
-  /** Used by the timing model to calibrate scaffolding and practice demand. */
+  /** Used by the deterministic timing model to adjust scaffolding and practice demand. */
   difficultyLevel: "introductory" | "standard" | "advanced";
   evidenceRequirements: PblEvidenceRequirement[];
   outcome: PblOutcomeSpec;
@@ -212,6 +213,21 @@ export function formatPblCourseConfigForPrompt(config?: PblCourseConfig | null):
           instruction: companion.instruction,
         };
       }),
+      companionStagePolicies: Object.fromEntries(
+        COMPANION_STAGE_KEYS.map((stageKey) => {
+          const policy = getCompanionStagePolicy(stageKey);
+          return [stageKey, {
+            label: policy.label,
+            objective: policy.objective,
+            studentDeliverable: policy.studentDeliverable,
+            allowedCompanionIds: policy.allowedCompanionIds,
+            helpTypes: policy.helpTypes,
+            prohibitedActions: policy.prohibitedActions,
+            requiredContext: policy.requiredContext,
+            prompt: buildStagePolicyPrompt(stageKey),
+          }];
+        }),
+      ),
     },
     null,
     2,

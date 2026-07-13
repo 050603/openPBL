@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const reply = await callLLM(body.messages);
+    const reply = await callLLM(body.messages, { abortSignal: req.signal });
     return Response.json({ reply: reply ?? "" });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

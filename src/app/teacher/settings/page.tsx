@@ -891,7 +891,7 @@ export default function TeacherSettingsPage() {
             />
           </div>
 
-          <div className="mb-5 overflow-x-auto border-b border-slate-200">
+          <div className="mb-5 overflow-x-auto border-b border-stone-200">
             <div className="flex min-w-max gap-1">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
@@ -905,7 +905,7 @@ export default function TeacherSettingsPage() {
                       "inline-flex h-12 items-center gap-2 border-b-2 px-4 text-sm font-bold transition",
                       active
                         ? "border-blue-600 text-blue-700"
-                        : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800",
+                        : "border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-800",
                     )}
                   >
                     <Icon size={16} />
@@ -920,13 +920,13 @@ export default function TeacherSettingsPage() {
             <main className="min-w-0">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-950">{tabCopy.title}</h2>
-                  <p className="mt-1 text-sm text-slate-500">{tabCopy.description}</p>
+                  <h2 className="text-xl font-bold text-stone-900">{tabCopy.title}</h2>
+                  <p className="mt-1 text-sm text-stone-500">{tabCopy.description}</p>
                 </div>
                 <div className="relative w-full md:w-[320px]">
                   <Search
                     size={16}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
                   />
                   <TextInput
                     value={query}
@@ -938,7 +938,7 @@ export default function TeacherSettingsPage() {
               </div>
 
               {configLoading ? (
-                <div className="mb-4 inline-flex items-center gap-2 rounded-[6px] bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-500">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-[6px] bg-stone-100 px-3 py-2 text-sm font-semibold text-stone-500">
                   <Loader2 size={16} className="animate-spin" />
                   正在读取服务端配置
                 </div>
@@ -975,7 +975,7 @@ export default function TeacherSettingsPage() {
                               <button
                                 type="button"
                                 onClick={() => setDeletingProvider(selectedLlmProvider)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-red-50 hover:text-red-600"
                                 title="删除配置"
                               >
                                 <Trash2 size={14} />
@@ -1024,21 +1024,21 @@ export default function TeacherSettingsPage() {
                           <ProviderLogo icon={provider.icon} name={provider.name} />
                           <span className="min-w-0 flex-1">
                             <span className="flex flex-wrap items-center gap-2">
-                              <span className="font-bold text-slate-950">{provider.name}</span>
+                              <span className="font-bold text-stone-900">{provider.name}</span>
                               <ProviderStateBadge provider={provider} saved={saved} />
                             </span>
-                            <span className="mt-1 block truncate text-xs text-slate-500">
+                            <span className="mt-1 block truncate text-xs text-stone-500">
                               {provider.defaultBaseUrl || provider.description || provider.id}
                             </span>
                           </span>
                           <ChevronRight
                             size={18}
-                            className={cn("shrink-0 text-slate-400 transition", expanded && "rotate-90")}
+                            className={cn("shrink-0 text-stone-400 transition", expanded && "rotate-90")}
                           />
                         </button>
 
                         {expanded ? (
-                          <div className="mt-4 border-t border-slate-100 pt-4">
+                          <div className="mt-4 border-t border-stone-100 pt-4">
                             <ModalityConfigForm
                               provider={provider}
                               saved={saved}
@@ -1074,11 +1074,11 @@ export default function TeacherSettingsPage() {
               <Card className="sticky top-24">
                 <div className="mb-4 flex items-center gap-2">
                   <SlidersHorizontal size={18} className="text-blue-600" />
-                  <h3 className="text-base font-bold text-slate-950">操作顺序</h3>
+                  <h3 className="text-base font-bold text-stone-900">操作顺序</h3>
                 </div>
                 <div className="space-y-3">
                   {tabCopy.tips.map((tip, index) => (
-                    <div key={tip} className="flex gap-3 text-sm text-slate-600">
+                    <div key={tip} className="flex gap-3 text-sm text-stone-600">
                       <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
                         {index + 1}
                       </span>
@@ -1086,13 +1086,13 @@ export default function TeacherSettingsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-5 rounded-[8px] border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-xs font-bold uppercase tracking-[0.08em] text-slate-400">
+                <div className="mt-5 rounded-[8px] border border-stone-200 bg-stone-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-[0.08em] text-stone-400">
                     连接测试说明
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                  <p className="mt-2 text-sm leading-6 text-stone-600">
                     AI 模型测试会向服务端发送完整模型标识，例如
-                    <span className="font-semibold text-slate-900"> deepseek:deepseek-v4-flash</span>，
+                    <span className="font-semibold text-stone-900"> deepseek:deepseek-v4-flash</span>，
                     确保模型能被正确识别和调用。
                   </p>
                 </div>
@@ -1105,10 +1105,10 @@ export default function TeacherSettingsPage() {
       {/* 删除确认对话框 */}
       {deletingProvider ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-950">确认删除配置</h3>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              即将删除 <span className="font-bold text-slate-900">{deletingProvider.name}</span> 的密钥、
+          <div className="mx-4 max-w-md rounded-xl border border-stone-200 bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-stone-900">确认删除配置</h3>
+            <p className="mt-3 text-sm leading-6 text-stone-600">
+              即将删除 <span className="font-bold text-stone-900">{deletingProvider.name}</span> 的密钥、
               服务地址、模型列表等全部配置。删除后需重新填写才能使用该服务。
             </p>
             <div className="mt-5 flex items-center justify-end gap-3">
@@ -1116,7 +1116,7 @@ export default function TeacherSettingsPage() {
                 type="button"
                 onClick={() => setDeletingProvider(null)}
                 disabled={deleting}
-                className="h-9 rounded-[8px] border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="h-9 rounded-[8px] border border-stone-200 bg-white px-4 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
               >
                 取消
               </button>
@@ -1170,12 +1170,12 @@ function ProviderList({
               "group flex w-full items-center gap-3 rounded-[8px] border px-3 py-3 text-left transition",
               selected
                 ? "border-blue-300 bg-blue-50 shadow-sm"
-                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                : "border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50",
             )}
           >
             <ProviderLogo icon={provider.icon} name={provider.name} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-bold text-slate-950">
+              <span className="block truncate text-sm font-bold text-stone-900">
                 {provider.name}
               </span>
               <span className="mt-1 flex items-center gap-2">
@@ -1196,7 +1196,7 @@ function ProviderList({
                     onDelete(provider);
                   }
                 }}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-slate-300 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-stone-300 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
                 title="删除配置"
               >
                 <Trash2 size={13} />
@@ -1310,13 +1310,13 @@ function LlmConfigForm({
                     "flex min-h-12 items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-sm transition",
                     selected
                       ? "border-blue-400 bg-blue-50 text-blue-800 shadow-sm ring-1 ring-blue-200"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                      : "border-stone-200 bg-white text-stone-600 hover:border-stone-300",
                   )}
                 >
                   {selected ? (
                     <Zap size={17} className="shrink-0 text-blue-500" />
                   ) : (
-                    <Circle size={17} className="shrink-0 text-slate-300" />
+                    <Circle size={17} className="shrink-0 text-stone-300" />
                   )}
                   <span className="min-w-0">
                     <span className="block truncate font-bold">{modelMeta?.name || modelId}</span>
@@ -1442,8 +1442,8 @@ function ModalityConfigForm({
                       isActive
                         ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200"
                         : isSelected
-                          ? "border-slate-300 bg-slate-50 text-slate-700"
-                          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
+                          ? "border-stone-300 bg-stone-50 text-stone-700"
+                          : "border-stone-200 bg-white text-stone-500 hover:border-stone-300",
                     )}
                   >
                     {isActive ? (
@@ -1460,18 +1460,18 @@ function ModalityConfigForm({
         ) : null}
       </div>
 
-      <div className="flex flex-col justify-between rounded-[8px] border border-slate-200 bg-slate-50 p-3">
-        <div className="text-xs leading-5 text-slate-500">
+      <div className="flex flex-col justify-between rounded-[8px] border border-stone-200 bg-stone-50 p-3">
+        <div className="text-xs leading-5 text-stone-500">
           <div className="mb-3 rounded-[8px] border border-blue-100 bg-white p-2 text-blue-700">
             <div className="flex items-center gap-1.5 font-bold">
               {saved?.priority === 0 ? <CheckCircle2 size={13} /> : <Zap size={13} />}
               {saved?.priority === 0 ? "当前应用默认" : "保存后设为默认"}
             </div>
-            <div className="mt-1 text-[11px] leading-4 text-slate-500">
+            <div className="mt-1 text-[11px] leading-4 text-stone-500">
               系统会优先使用此服务商和选中的默认模型完成对应模态任务。
             </div>
           </div>
-          <div className="font-bold text-slate-700">服务标识</div>
+          <div className="font-bold text-stone-700">服务标识</div>
           <div className="mt-1 break-all">{provider.id}</div>
         </div>
         <div className="mt-4 space-y-2">
@@ -1522,7 +1522,7 @@ function ActionRow({
   onTest: () => void;
 }) {
   return (
-    <div className="space-y-3 border-t border-slate-100 pt-4">
+    <div className="space-y-3 border-t border-stone-100 pt-4">
       <div className="flex flex-wrap items-center gap-3">
         <PrimaryButton onClick={onSave} disabled={saving || testing} className="h-10 px-4 text-sm">
           {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
@@ -1557,12 +1557,12 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-800">
-        {Icon ? <Icon size={16} className="text-slate-400" /> : null}
+      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-stone-800">
+        {Icon ? <Icon size={16} className="text-stone-400" /> : null}
         {label}
       </span>
       {children}
-      {helper ? <span className="mt-2 block text-xs leading-5 text-slate-500">{helper}</span> : null}
+      {helper ? <span className="mt-2 block text-xs leading-5 text-stone-500">{helper}</span> : null}
     </label>
   );
 }
@@ -1610,7 +1610,7 @@ function SecretField({
           type="button"
           aria-label={show ? "隐藏密钥" : "显示密钥"}
           onClick={onToggleShow}
-          className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-[6px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-[6px] text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
         >
           {show ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
@@ -1653,17 +1653,17 @@ function StatusTile({
   helper: string;
 }) {
   return (
-    <div className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+    <div className="rounded-[8px] border border-stone-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
       <div className="flex items-start gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-blue-50 text-blue-700">
           <Icon size={19} />
         </span>
         <span className="min-w-0">
-          <span className="block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">
+          <span className="block text-xs font-bold uppercase tracking-[0.08em] text-stone-400">
             {label}
           </span>
-          <span className="mt-1 block truncate text-lg font-bold text-slate-950">{value}</span>
-          <span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-500">{helper}</span>
+          <span className="mt-1 block truncate text-lg font-bold text-stone-900">{value}</span>
+          <span className="mt-1 block line-clamp-2 text-xs leading-5 text-stone-500">{helper}</span>
         </span>
       </div>
     </div>
@@ -1709,7 +1709,7 @@ function ProviderLogo({ icon, name }: { icon?: string; name: string }) {
   if (icon) {
     const src = icon.startsWith("/logos/") ? `/openmaic${icon}` : icon;
     return (
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] border border-slate-200 bg-white">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] border border-stone-200 bg-white">
         <Image
           src={src}
           alt={name}
@@ -1723,7 +1723,7 @@ function ProviderLogo({ icon, name }: { icon?: string; name: string }) {
   }
 
   return (
-    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-slate-100 text-sm font-bold text-slate-600">
+    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-stone-100 text-sm font-bold text-stone-600">
       {name.slice(0, 2)}
     </span>
   );
@@ -1731,9 +1731,9 @@ function ProviderLogo({ icon, name }: { icon?: string; name: string }) {
 
 function EmptyPanel({ text }: { text: string }) {
   return (
-    <div className="grid min-h-56 place-items-center rounded-[8px] border border-dashed border-slate-300 bg-slate-50 text-center text-sm text-slate-500">
+    <div className="grid min-h-56 place-items-center rounded-[8px] border border-dashed border-stone-300 bg-stone-50 text-center text-sm text-stone-500">
       <div>
-        <AlertCircle className="mx-auto mb-2 text-slate-400" size={22} />
+        <AlertCircle className="mx-auto mb-2 text-stone-400" size={22} />
         {text}
       </div>
     </div>

@@ -69,6 +69,7 @@ export function ShowcaseTeacherView({
   // Track which group's score we've loaded so we don't reset sliders
   // when dimensions array reference changes during re-renders.
   const lastLoadedGroupId = useRef<string | null>(null);
+  const messageTimerRef = useRef<number | null>(null);
 
   // Only reset scores when the active group changes or on first load.
   // We intentionally do NOT depend on `dimensions` or `existingScore`
@@ -80,7 +81,13 @@ export function ShowcaseTeacherView({
     lastLoadedGroupId.current = active?.id ?? null;
 
     if (existingScore) {
-      setScores(existingScore.dimensionScores ?? {});
+      const persistedScores = existingScore.dimensionScores ?? {};
+      setScores(
+        dimensions.reduce<Record<string, number>>((result, dimension) => {
+          result[dimension.id] = clampScore(persistedScores[dimension.id] ?? 0);
+          return result;
+        }, {}),
+      );
       setComment(existingScore.comment ?? "");
     } else {
       // 没有已有评分：重置为 0
@@ -101,8 +108,16 @@ export function ShowcaseTeacherView({
 
   function flashMessage(text: string, tone: "ok" | "err") {
     setMessage({ tone, text });
-    window.setTimeout(() => setMessage(null), 3500);
+    if (messageTimerRef.current !== null) window.clearTimeout(messageTimerRef.current);
+    messageTimerRef.current = window.setTimeout(() => {
+      messageTimerRef.current = null;
+      setMessage(null);
+    }, 3500);
   }
+
+  useEffect(() => () => {
+    if (messageTimerRef.current !== null) window.clearTimeout(messageTimerRef.current);
+  }, []);
 
   // AI 仅评价过程与方案专业性，不读取教师现场评分，也不提供教师参考分。
   async function runLiveEval() {
@@ -116,18 +131,25 @@ export function ShowcaseTeacherView({
         : null;
       setProcessEvaluation(result);
       setAiProcessScore(total);
+      const teacherTotal = weightedTotal(scores, dimensions);
+      const finalTotal = computeFinalScore({
+        aiScore: total,
+        aiWeight,
+        teacherScore: teacherTotal,
+        teacherWeight,
+      });
       session.upsertRubricScore({
         id: existingScore?.id,
         courseId: course.id,
         groupId: active.id,
         stageKey: "showcase",
-        dimensionScores: existingScore?.dimensionScores ?? {},
-        teacherTotal: existingScore?.teacherTotal,
+        dimensionScores: scores,
+        teacherTotal,
         aiTotal: total,
-        finalTotal: computeFinalScore({ aiScore: total, aiWeight, teacherScore: existingScore?.teacherTotal, teacherWeight }) ?? undefined,
+        finalTotal: finalTotal ?? undefined,
         scoringMode: "hybrid",
-        comment: existingScore?.comment ?? "",
-        total: existingScore?.total ?? 0,
+        comment: comment.trim(),
+        total: finalTotal ?? teacherTotal,
         status: existingScore?.status ?? "draft",
       });
     } catch (e) {
@@ -165,7 +187,11 @@ export function ShowcaseTeacherView({
 
   async function submitScore(status: "submitted" | "passed" | "revision" = "submitted") {
     if (!active) return;
-    const total = weightedTotal(scores, dimensions);
+    const normalizedScores = dimensions.reduce<Record<string, number>>((result, dimension) => {
+      result[dimension.id] = clampScore(scores[dimension.id] ?? 0);
+      return result;
+    }, {});
+    const total = weightedTotal(normalizedScores, dimensions);
     const finalTotal = computeFinalScore({ aiScore: aiProcessScore, aiWeight, teacherScore: total, teacherWeight });
     if (total === 0 && status === "submitted") {
       flashMessage("请先拖动滑块给维度打分", "err");
@@ -178,7 +204,7 @@ export function ShowcaseTeacherView({
         courseId: course.id,
         groupId: active.id,
         stageKey: "showcase",
-        dimensionScores: scores,
+        dimensionScores: normalizedScores,
         teacherTotal: total,
         aiTotal: aiProcessScore,
         finalTotal: finalTotal ?? undefined,
@@ -236,8 +262,8 @@ export function ShowcaseTeacherView({
         <div
           className={`flex items-start gap-2 rounded-[8px] border px-4 py-3 text-sm font-semibold ${
             message.tone === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              ? "border-emerald-200 bg-emerald-50 text-[var(--pbl-success)]"
+              : "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]"
           }`}
         >
           {message.tone === "ok" ? (
@@ -267,7 +293,7 @@ export function ShowcaseTeacherView({
                   className={`cursor-pointer rounded-[6px] border px-3 py-2 transition ${
                     group.id === active?.id
                       ? "border-blue-400 bg-blue-50/60"
-                      : "border-slate-200 bg-white hover:border-blue-300"
+                      : "border-stone-200 bg-white hover:border-blue-300"
                   }`}
                   key={group.id}
                   onClick={() => setActiveId(group.id)}
@@ -282,7 +308,7 @@ export function ShowcaseTeacherView({
                       <Pill tone="orange">待评</Pill>
                     )}
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs text-stone-500">
                     {group.topic} · {group.members.length} 人
                   </div>
                   <div className="mt-2 flex items-center gap-1.5">
@@ -303,16 +329,16 @@ export function ShowcaseTeacherView({
                 <div>
                   <h2 className="text-lg font-bold">
                     {active.name}
-                    <span className="ml-2 text-base font-semibold text-slate-500">
+                    <span className="ml-2 text-base font-semibold text-stone-500">
                       {active.topic}
                     </span>
                   </h2>
-                  <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                  <div className="mt-1 flex items-center gap-2 text-sm text-stone-500">
                     <AvatarStack names={active.members.map((m) => m.name)} /> 汇报人：
                     {active.members[0]?.name ?? "-"}
                   </div>
                   {existingScore ? (
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs text-stone-500">
                       已评过：总分 {existingScore.total}（{existingScore.status === "passed" ? "通过" : existingScore.status === "revision" ? "需修改" : "已提交"}）
                     </div>
                   ) : null}
@@ -344,13 +370,13 @@ export function ShowcaseTeacherView({
                   <ul className="space-y-2">
                     {activeUploads.map((file) => (
                       <li
-                        className="flex items-center gap-3 rounded-[6px] border border-slate-200 px-3 py-2"
+                        className="flex items-center gap-3 rounded-[6px] border border-stone-200 px-3 py-2"
                         key={file.id}
                       >
                         <FileBadge type={file.fileType} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold">{file.fileName}</div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-stone-500">
                             {file.title} · {file.size}
                           </div>
                         </div>
@@ -363,7 +389,7 @@ export function ShowcaseTeacherView({
                           <Eye size={15} />
                         </a>
                         <a
-                          className="grid h-8 w-8 place-items-center rounded-[6px] border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          className="grid h-8 w-8 place-items-center rounded-[6px] border border-stone-200 text-stone-600 hover:bg-stone-50"
                           href={file.url}
                           download
                         >
@@ -373,7 +399,7 @@ export function ShowcaseTeacherView({
                     ))}
                   </ul>
                 ) : (
-                  <div className="rounded-[6px] border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500">
+                  <div className="rounded-[6px] border border-dashed border-stone-300 py-10 text-center text-sm text-stone-500">
                     暂未提交
                   </div>
                 )}
@@ -384,11 +410,11 @@ export function ShowcaseTeacherView({
                   <h3 className="flex items-center gap-2 font-bold">
                     <Sparkles className="text-blue-600" size={18} /> AI 过程与专业评价
                   </h3>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${aiProcessScore !== null ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${aiProcessScore !== null ? "bg-emerald-50 text-[var(--pbl-success)]" : "bg-stone-100 text-stone-600"}`}>
                     {aiProcessScore !== null ? `${aiProcessScore} 分 · 权重 ${aiWeight}%` : "待生成"}
                   </span>
                 </div>
-                <p className="mb-3 text-sm leading-6 text-slate-600">基于学习轨迹、伴学对话、作品迭代、AI 协作健康度和最终方案专业性独立评分；不会读取或建议教师现场评分。</p>
+                <p className="mb-3 text-sm leading-6 text-stone-600">基于学习轨迹、伴学对话、作品迭代、AI 协作健康度和最终方案专业性独立评分；不会读取或建议教师现场评分。</p>
                 <PrimaryButton
                   className="h-9 px-3 text-sm"
                   onClick={() => void runLiveEval()}
@@ -399,7 +425,7 @@ export function ShowcaseTeacherView({
                   {evalLoading ? "正在生成..." : "生成 AI 过程评价"}
                 </PrimaryButton>
                 {evalError ? (
-                  <div className="mt-3 rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                  <div className="mt-3 rounded-[6px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-3 py-2 text-sm font-semibold text-[var(--pbl-danger)]">
                     {evalError}
                   </div>
                 ) : null}
@@ -414,7 +440,7 @@ export function ShowcaseTeacherView({
                   <h3 className="flex items-center gap-2 font-bold">
                     <Sparkles className="text-emerald-600" size={18} /> 教师现场汇报评分
                   </h3>
-                  <span className="text-xs font-bold text-emerald-700">独立权重 {teacherWeight}%</span>
+                  <span className="text-xs font-bold text-[var(--pbl-success)]">独立权重 {teacherWeight}%</span>
                 </div>
                 <ul className="space-y-3">
                   {dimensions.map((d) => (
@@ -422,7 +448,7 @@ export function ShowcaseTeacherView({
                       dimension={d}
                       key={d.id}
                       onChange={(v) =>
-                        setScores((prev) => ({ ...prev, [d.id]: v }))
+                        setScores((prev) => ({ ...prev, [d.id]: clampScore(v) }))
                       }
                       value={scores[d.id] ?? 0}
                     />
@@ -491,7 +517,7 @@ export function ShowcaseTeacherView({
             </Card>
           </div>
         ) : (
-          <div className="grid place-items-center rounded-[10px] border border-dashed border-slate-300 py-20 text-sm text-slate-500">
+          <div className="grid place-items-center rounded-[10px] border border-dashed border-stone-300 py-20 text-sm text-stone-500">
             暂无个人项目
           </div>
         )}
@@ -511,16 +537,16 @@ function Metric({
 }) {
   return (
     <Card>
-      <div className="text-sm text-slate-500">{label}</div>
+      <div className="text-sm text-stone-500">{label}</div>
       <div
         className={`mt-2 truncate text-2xl font-bold ${
           tone === "blue"
             ? "text-blue-700"
             : tone === "green"
-              ? "text-emerald-700"
+              ? "text-[var(--pbl-success)]"
               : tone === "orange"
-                ? "text-amber-700"
-                : "text-slate-950"
+                ? "text-[var(--pbl-warning)]"
+                : "text-stone-900"
         }`}
       >
         {value}
@@ -540,10 +566,10 @@ function ScoreChip({
 }) {
   const className =
     tone === "emerald"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      ? "border-emerald-200 bg-emerald-50 text-[var(--pbl-success)]"
       : tone === "blue"
         ? "border-blue-200 bg-blue-50 text-blue-700"
-        : "border-amber-200 bg-amber-50 text-amber-700";
+        : "border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]";
   return (
     <div className={`rounded-[6px] border p-3 ${className}`}>
       <div className="text-xs font-semibold">{label}</div>
@@ -562,27 +588,42 @@ function DimensionRow({
   onChange: (v: number) => void;
 }) {
   return (
-    <li className="rounded-[8px] border border-slate-200 bg-white p-3">
+    <li className="rounded-[8px] border border-stone-200 bg-white p-3">
       <div>
         <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-slate-800">
+          <span className="text-sm font-semibold text-stone-800">
             {dimension.name}
-            <span className="ml-2 text-xs text-slate-500">权重 {dimension.weight}%</span>
+            <span className="ml-2 text-xs text-stone-500">权重 {dimension.weight}%</span>
           </span>
           <span className="text-sm font-bold">{value}</span>
         </div>
-        <div className="mt-1 text-xs text-slate-500">{dimension.description}</div>
+        <div className="mt-1 text-xs text-stone-500">{dimension.description}</div>
+        <input
+          aria-label={`${dimension.name}分数`}
+          className="mt-1 h-8 w-20 rounded-[4px] border border-stone-200 px-2 text-right text-sm font-semibold tabular-nums outline-none focus:border-blue-500"
+          inputMode="numeric"
+          max={100}
+          min={0}
+          onChange={(e) => onChange(clampScore(Number(e.target.value)))}
+          type="number"
+          value={value}
+        />
         <input
           className="mt-1 w-full accent-blue-600"
           max={100}
           min={0}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => onChange(clampScore(Number(e.target.value)))}
           type="range"
           value={value}
         />
       </div>
     </li>
   );
+}
+
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 function weightedTotal(

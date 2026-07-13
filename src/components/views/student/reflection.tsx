@@ -300,11 +300,11 @@ export function ReflectionView({ course }: { course?: Course }) {
       <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-3xl font-bold leading-tight md:text-4xl">个人评价与反思</h1>
-          <p className="mt-3 text-base text-slate-500">
+          <p className="mt-3 text-base text-stone-500">
             回顾项目全过程，查看评价与建议，反思成长与不足，持续提升综合素养。
           </p>
         </div>
-        <div className="text-sm font-semibold text-slate-600 sm:text-base">
+        <div className="text-sm font-semibold text-stone-600 sm:text-base">
           项目：{title}　评价时间：{evaluationDate}
         </div>
       </div>
@@ -313,24 +313,24 @@ export function ReflectionView({ course }: { course?: Course }) {
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-bold">
-              AI过程评价 <span className="text-slate-400">ⓘ</span>
+              AI过程评价 <span className="text-stone-400">ⓘ</span>
             </h2>
             {latestRubric ? (
               <span className="rounded-[6px] bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
                 已收到评分
               </span>
             ) : myGroup ? (
-              <span className="rounded-[6px] bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+              <span className="rounded-[6px] bg-[var(--pbl-warning-soft)] px-3 py-1 text-xs font-bold text-[var(--pbl-warning)]">
                 待教师评分
               </span>
             ) : (
-              <span className="rounded-[6px] bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+              <span className="rounded-[6px] bg-stone-100 px-3 py-1 text-xs font-bold text-stone-600">
                 数据同步中
               </span>
             )}
           </div>
           {!latestRubric ? (
-            <div className="mb-3 rounded-[8px] border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500">
+            <div className="mb-3 rounded-[8px] border border-dashed border-stone-200 px-4 py-3 text-sm text-stone-500">
               {myGroup
                 ? `你的个人项目「${myGroup.name}」尚未收到教师评分。教师在「成果汇报与评价」阶段提交评分后将自动同步至此。`
                 : "个人项目数据正在同步中，请稍候刷新。"}
@@ -338,23 +338,23 @@ export function ReflectionView({ course }: { course?: Course }) {
           ) : null}
           <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_190px]">
             <EvaluationRadar data={radarData} />
-            <div className="border-l border-slate-200 pl-7">
-              <div className="text-base text-slate-600">综合得分</div>
+            <div className="border-l border-stone-200 pl-7">
+              <div className="text-base text-stone-600">综合得分</div>
               <div className="mt-4 text-5xl font-bold text-blue-600">
                 {overallScore}
-                <span className="text-lg text-slate-500"> /100</span>
+                <span className="text-lg text-stone-500"> /100</span>
               </div>
               <div className="mt-3 flex text-blue-600">
                 {Array.from({ length: FIVE_STAR_TOTAL }).map((_, index) => (
                   <Star
-                    className={index < overallStars ? "" : "text-slate-300"}
+                    className={index < overallStars ? "" : "text-stone-300"}
                     fill="currentColor"
                     key={index}
                     size={23}
                   />
                 ))}
               </div>
-              <div className="mt-4 text-sm text-slate-500">
+              <div className="mt-4 text-sm text-stone-500">
                 {classRankPercent === null ? (
                   "暂无同级对比数据"
                 ) : (
@@ -375,7 +375,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                 <Avatar name={session.user?.name ?? "教师"} />
                 <div className="min-w-0">
                   <div className="truncate font-bold">{session.user?.name ?? "教师"}</div>
-                  <div className="text-sm text-slate-500">{formatDate(teacherFeedback.createdAt)}</div>
+                  <div className="text-sm text-stone-500">{formatDate(teacherFeedback.createdAt)}</div>
                 </div>
                 <span className="ml-auto shrink-0 rounded-[6px] bg-emerald-50 px-3 py-2 font-bold text-emerald-700">
                   {teacherFeedback.kind === "praise"
@@ -389,14 +389,14 @@ export function ReflectionView({ course }: { course?: Course }) {
                           : "已评价"}
                 </span>
               </div>
-              <p className="break-words text-[15px] leading-8 text-slate-700">
+              <p className="break-words text-[15px] leading-8 text-stone-700">
                 {teacherFeedback.content}
               </p>
             </>
           ) : (
-            <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-[8px] border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
               暂未收到教师评价。
-              <div className="mt-1 text-xs text-slate-400">
+              <div className="mt-1 text-xs text-stone-400">
                 完成个人项目汇报后，教师将在此留言。
               </div>
             </div>
@@ -409,28 +409,28 @@ export function ReflectionView({ course }: { course?: Course }) {
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-xl font-bold">自我反思</h2>
-            <button className="inline-flex h-9 items-center gap-1 rounded-[6px] border border-blue-300 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50" onClick={generateReflectionPrompts} type="button">
+            <button className="inline-flex h-9 items-center gap-1 rounded-[6px] border border-[var(--pbl-teacher-border)] px-3 text-sm font-semibold text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]" onClick={generateReflectionPrompts} type="button">
               <Wand2 size={15} /> 提取过程证据
             </button>
           </div>
           {latestReflectionSupport ? (
-            <div className="mb-4 rounded-[8px] border border-blue-100 bg-blue-50/70 p-3">
+            <div className="mb-4 rounded-[8px] border border-blue-100 bg-[var(--pbl-student-soft)]/70 p-3">
               <div className="font-bold text-blue-800">{latestReflectionSupport.diagnosis}</div>
               <div className="mt-2 space-y-2">
                 {latestReflectionSupport.suggestions.map((item) => (
-                  <div className="text-sm leading-6 text-slate-700" key={item}>· {item}</div>
+                  <div className="text-sm leading-6 text-stone-700" key={item}>· {item}</div>
                 ))}
               </div>
-              <div className="mt-2 text-xs leading-5 text-slate-500">可引用证据：{latestReflectionSupport.evidence.join("；")}</div>
+              <div className="mt-2 text-xs leading-5 text-stone-500">可引用证据：{latestReflectionSupport.evidence.join("；")}</div>
             </div>
           ) : null}
           <textarea
-            className="min-h-[140px] w-full resize-none rounded-[8px] border border-slate-300 p-4 text-[15px] leading-8 outline-none focus:border-blue-500"
+            className="min-h-[140px] w-full resize-none rounded-[8px] border border-stone-300 p-4 text-[15px] leading-8 outline-none focus:border-blue-500"
             onChange={(e) => setContent(e.target.value)}
             placeholder="回顾本项目全过程：你最大的收获是什么？遇到了哪些困难？下一步如何改进？"
             value={content}
           />
-          <div className="mt-2 flex items-center justify-between text-sm text-slate-500">
+          <div className="mt-2 flex items-center justify-between text-sm text-stone-500">
             <span>
               {isViewingExisting ? "已加载历史反思，编辑后将覆盖原内容" : "首次撰写"}
             </span>
@@ -440,7 +440,7 @@ export function ReflectionView({ course }: { course?: Course }) {
           </div>
           <h3 className="mb-2 mt-5 text-base font-bold">下一轮改进计划</h3>
           <textarea
-            className="min-h-[90px] w-full resize-none rounded-[8px] border border-slate-300 p-3 text-[14px] leading-7 outline-none focus:border-blue-500"
+            className="min-h-[90px] w-full resize-none rounded-[8px] border border-stone-300 p-3 text-[14px] leading-7 outline-none focus:border-blue-500"
             onChange={(e) => {
               setImprovementPlanText(e.target.value);
               if (planError) setPlanError(null);
@@ -449,9 +449,9 @@ export function ReflectionView({ course }: { course?: Course }) {
             value={improvementPlanText}
           />
           {planError ? (
-            <div className="mt-1 text-xs text-rose-600">{planError}</div>
+            <div className="mt-1 text-xs text-[var(--pbl-danger)]">{planError}</div>
           ) : null}
-          <div className="mt-1 text-right text-xs text-slate-400">
+          <div className="mt-1 text-right text-xs text-stone-400">
             {improvementPlanText.length} 字
           </div>
         </Card>
@@ -459,17 +459,17 @@ export function ReflectionView({ course }: { course?: Course }) {
         <Card>
           <h2 className="mb-5 text-xl font-bold">成长建议</h2>
           {improvementSuggestions.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-[8px] border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
               暂未配置评价量规，无法生成具体建议。
             </div>
           ) : (
             <div className="space-y-5">
               {improvementSuggestions.map((item, index) => (
                 <div className="flex gap-3" key={`${index}-${item}`}>
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-500 font-bold text-white">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)]0 font-bold text-white">
                     {index + 1}
                   </span>
-                  <p className="text-[15px] leading-7 text-slate-700">{item}</p>
+                  <p className="text-[15px] leading-7 text-stone-700">{item}</p>
                 </div>
               ))}
             </div>
@@ -479,12 +479,12 @@ export function ReflectionView({ course }: { course?: Course }) {
         <Card>
           <h2 className="mb-5 text-xl font-bold">
             成长里程碑{" "}
-            <span className="text-base font-medium text-slate-500">
+            <span className="text-base font-medium text-stone-500">
               （已完成 {milestonesCompleted} / {milestones.length}）
             </span>
           </h2>
           {milestones.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-[8px] border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
               课程尚未配置阶段。
             </div>
           ) : (
@@ -497,7 +497,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                     <div className="flex items-center gap-3 text-[15px]" key={m.key}>
                       <span
                         className={`grid h-5 w-5 place-items-center rounded-full text-xs font-bold text-white ${
-                          m.done ? "bg-emerald-500" : "bg-slate-300"
+                          m.done ? "bg-[var(--pbl-success)]" : "bg-stone-300"
                         }`}
                       >
                         {m.done ? "✓" : ""}
@@ -509,7 +509,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                   );
                 })}
               </div>
-              <div className="mx-auto grid h-32 w-32 place-items-center rounded-full bg-blue-50 text-5xl text-blue-200">
+              <div className="mx-auto grid h-32 w-32 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-5xl text-blue-200">
                 ★
               </div>
             </div>
@@ -517,7 +517,7 @@ export function ReflectionView({ course }: { course?: Course }) {
         </Card>
       </div>
 
-      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-4 rounded-[10px] border border-slate-200/80 bg-white px-6 py-5 sm:gap-6">
+      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-4 rounded-[10px] border border-stone-200/80 bg-white px-6 py-5 sm:gap-6">
         <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={() => saveReflection()}>
           <Save size={21} /> {isViewingExisting ? "更新反思" : "保存反思"}
         </PrimaryButton>

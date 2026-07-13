@@ -18,6 +18,7 @@ import { ProjectCoverImage } from "@/components/visuals";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { hasBothScoredRoles, resolveDimensionRole } from "@/lib/evaluation/responsibility";
 import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
+import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 
 const STEPS = [
   { key: "new", label: "创建项目" },
@@ -39,7 +40,7 @@ export default function PreviewCoursePage() {
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">加载中…</div>
+        <div className="grid place-items-center py-20 text-stone-500">加载中…</div>
       </DashboardShell>
     );
   }
@@ -47,7 +48,7 @@ export default function PreviewCoursePage() {
   if (!course) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
-        <div className="grid place-items-center py-20 text-slate-500">
+        <div className="grid place-items-center py-20 text-stone-500">
           未找到课程。
           <Link className="mt-4 text-blue-700 hover:underline" href="/teacher">
             返回课程列表
@@ -123,21 +124,21 @@ export default function PreviewCoursePage() {
     >
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
           href={`/teacher/prepare/${course.id}/verify`}
         >
           <ArrowLeft size={17} />
         </Link>
         <div>
           <h1 className="font-editorial text-3xl font-semibold">课程设计稿</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-stone-500">
             {course.name} · 完整预览后可发布或开始授课
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {isPublished ? <Pill tone="green">已发布</Pill> : <Pill tone="amber">未发布</Pill>}
           <Link
-            className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-stone-200 bg-white px-4 text-sm font-semibold text-stone-600 hover:bg-stone-50"
             href={`/teacher/prepare/${course.id}/verify`}
           >
             <Edit3 size={15} /> 修改
@@ -161,12 +162,21 @@ export default function PreviewCoursePage() {
 
       {view === "student" ? <StudentCoursePreview course={course} /> : <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-5">
+          {course.content.moduleTimingPlan ? (
+            <PblModuleTimingPanel
+              moduleActivities={course.content.teachingOutline ?? []}
+              totalMinutes={course.content.moduleTimingPlan.totalMinutes}
+              timingPlan={course.content.moduleTimingPlan}
+              readOnly
+            />
+          ) : null}
+
           <Card>
             <div className="mb-4 flex items-center gap-2">
               <h2 className="text-xl font-bold">PBL 大纲</h2>
               <Pill tone="blue">核心</Pill>
             </div>
-            <p className="whitespace-pre-line text-[15px] leading-8 text-slate-700">
+            <p className="whitespace-pre-line text-[15px] leading-8 text-stone-700">
               {course.content.pblOutline || "（未填写）"}
             </p>
           </Card>
@@ -180,11 +190,11 @@ export default function PreviewCoursePage() {
               <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {course.content.projectMainline.modules.map((module) => (
                   <div className="rounded-[6px] border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs" key={module.stageKey}>
-                    <div className="flex items-center justify-between gap-2 font-semibold text-slate-700">
+                    <div className="flex items-center justify-between gap-2 font-semibold text-stone-700">
                       <span>{module.label}</span>
                       <span className="tabular-nums text-blue-700">{module.durationMin} 分钟</span>
                     </div>
-                    <p className="mt-1 text-slate-500">第 {module.startMin}-{module.endMin} 分钟</p>
+                    <p className="mt-1 text-stone-500">第 {module.startMin}-{module.endMin} 分钟</p>
                   </div>
                 ))}
               </div>
@@ -193,7 +203,7 @@ export default function PreviewCoursePage() {
               <ol className="space-y-3">
                 {course.content.teachingOutline.map((item, index) => (
                   <li
-                    className="rounded-[8px] border border-slate-200 p-4"
+                    className="rounded-[8px] border border-stone-200 p-4"
                     key={item.id}
                   >
                     <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -201,7 +211,7 @@ export default function PreviewCoursePage() {
                         {index + 1}
                       </span>
                       <span className="font-bold">{item.title}</span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                      <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-semibold text-stone-600">
                         {item.durationMin} 分钟
                       </span>
                       {item.openMaicUse ? (
@@ -213,20 +223,20 @@ export default function PreviewCoursePage() {
                       ) : null}
                     </div>
                     <div className="grid gap-3 text-sm md:grid-cols-2">
-                      <p className="leading-6 text-slate-600">
-                        <b className="text-slate-800">目标：</b>
+                      <p className="leading-6 text-stone-600">
+                        <b className="text-stone-800">目标：</b>
                         {item.teachingGoal}
                       </p>
-                      <p className="leading-6 text-slate-600">
-                        <b className="text-slate-800">学生活动：</b>
+                      <p className="leading-6 text-stone-600">
+                        <b className="text-stone-800">学生活动：</b>
                         {item.studentActivity}
                       </p>
-                      <p className="leading-6 text-slate-600">
-                        <b className="text-slate-800">教师：</b>
+                      <p className="leading-6 text-stone-600">
+                        <b className="text-stone-800">教师：</b>
                         {item.teacherRole}
                       </p>
-                      <p className="leading-6 text-slate-600">
-                        <b className="text-slate-800">平台 / AI：</b>
+                      <p className="leading-6 text-stone-600">
+                        <b className="text-stone-800">平台 / AI：</b>
                         平台：{item.platformRole}；AI：{item.aiRole}
                       </p>
                     </div>
@@ -234,7 +244,7 @@ export default function PreviewCoursePage() {
                 ))}
               </ol>
             ) : (
-              <p className="text-sm text-slate-500">暂无课程模块。</p>
+              <p className="text-sm text-stone-500">暂无课程模块。</p>
             )}
           </Card>
 
@@ -243,7 +253,7 @@ export default function PreviewCoursePage() {
             <ol className="space-y-3">
               {course.stages.map((stage, i) => (
                 <li
-                  className="flex items-start gap-3 rounded-[8px] border border-slate-200 p-4"
+                  className="flex items-start gap-3 rounded-[8px] border border-stone-200 p-4"
                   key={stage.key}
                 >
                   <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-50 text-sm font-bold text-blue-700">
@@ -251,11 +261,11 @@ export default function PreviewCoursePage() {
                   </span>
                   <div className="flex-1">
                     <div className="text-base font-bold">{stage.label}</div>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-stone-500">
                       {stage.description}
                     </p>
                   </div>
-                  <ChevronRight className="text-slate-300" size={18} />
+                  <ChevronRight className="text-stone-300" size={18} />
                 </li>
               ))}
             </ol>
@@ -266,11 +276,11 @@ export default function PreviewCoursePage() {
             <div className="grid grid-cols-2 gap-3">
               {course.content.knowledgePoints.map((kp) => (
                 <div
-                  className="rounded-[8px] border border-slate-200 p-3"
+                  className="rounded-[8px] border border-stone-200 p-3"
                   key={kp.id}
                 >
                   <div className="text-sm font-bold">{kp.name}</div>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                  <p className="mt-1 text-xs leading-5 text-stone-500">
                     {kp.description}
                   </p>
                 </div>
@@ -283,12 +293,12 @@ export default function PreviewCoursePage() {
               课程大纲（{course.content.lessonOutline.length}）
             </h2>
             {course.content.lessonOutline.length === 0 ? (
-              <p className="text-sm text-slate-500">暂无课程大纲资源。</p>
+              <p className="text-sm text-stone-500">暂无课程大纲资源。</p>
             ) : (
               <ol className="space-y-3">
                 {course.content.lessonOutline.map((lo, i) => (
                   <li
-                    className="rounded-[8px] border border-slate-200 p-4"
+                    className="rounded-[8px] border border-stone-200 p-4"
                     key={lo.id}
                   >
                     <div className="mb-2 flex items-center gap-2">
@@ -296,25 +306,25 @@ export default function PreviewCoursePage() {
                         {i + 1}
                       </span>
                       <span className="text-base font-bold">{lo.title}</span>
-                      <span className="ml-auto text-xs text-slate-500">
+                      <span className="ml-auto text-xs text-stone-500">
                         {lo.durationMin} 分钟
                       </span>
                     </div>
                     {lo.parentActivityId ? (
-                      <p className="mb-2 text-xs text-slate-500">所属课程模块：{course.content.teachingOutline?.find((item) => item.id === lo.parentActivityId)?.title ?? lo.parentActivityId}</p>
+                      <p className="mb-2 text-xs text-stone-500">所属课程模块：{course.content.teachingOutline?.find((item) => item.id === lo.parentActivityId)?.title ?? lo.parentActivityId}</p>
                     ) : null}
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <div className="mb-1 text-xs font-semibold text-slate-500">教学目标</div>
-                        <ul className="list-disc space-y-1 pl-5 text-slate-700">
+                        <div className="mb-1 text-xs font-semibold text-stone-500">教学目标</div>
+                        <ul className="list-disc space-y-1 pl-5 text-stone-700">
                           {lo.objectives.map((o, idx) => (
                             <li key={idx}>{o}</li>
                           ))}
                         </ul>
                       </div>
                       <div>
-                        <div className="mb-1 text-xs font-semibold text-slate-500">教学活动</div>
-                        <ul className="list-disc space-y-1 pl-5 text-slate-700">
+                        <div className="mb-1 text-xs font-semibold text-stone-500">教学活动</div>
+                        <ul className="list-disc space-y-1 pl-5 text-stone-700">
                           {lo.activities.map((a, idx) => (
                             <li key={idx}>{a}</li>
                           ))}
@@ -330,7 +340,7 @@ export default function PreviewCoursePage() {
           <Card>
             <h2 className="mb-4 text-xl font-bold">评价方案</h2>
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
+              <thead className="bg-stone-50 text-stone-500">
                 <tr>
                   <th className="p-3">维度</th>
                   <th className="p-3 w-28">负责角色</th>
@@ -340,18 +350,18 @@ export default function PreviewCoursePage() {
               </thead>
               <tbody>
                 {course.content.evaluationPlan.dimensions.map((d) => (
-                  <tr className="border-b border-slate-100" key={d.id}>
+                  <tr className="border-b border-stone-100" key={d.id}>
                     <td className="p-3 font-semibold">{d.name}</td>
-                    <td className="p-3 text-slate-600">{resolveDimensionRole(d) === "ai" ? "AI" : "教师"}</td>
+                    <td className="p-3 text-stone-600">{resolveDimensionRole(d) === "ai" ? "AI" : "教师"}</td>
                     <td className="p-3 font-bold text-blue-700">{d.weight}%</td>
-                    <td className="p-3 text-slate-600">{d.description}</td>
+                    <td className="p-3 text-stone-600">{d.description}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {course.content.evaluationPlan.overallRubric ? (
-              <div className="mt-4 rounded-[6px] border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-                <b className="text-slate-700">整体说明：</b>
+              <div className="mt-4 rounded-[6px] border border-stone-200 bg-stone-50 p-3 text-sm leading-6 text-stone-600">
+                <b className="text-stone-700">整体说明：</b>
                 {course.content.evaluationPlan.overallRubric}
               </div>
             ) : null}
@@ -363,29 +373,29 @@ export default function PreviewCoursePage() {
             <h2 className="text-lg font-bold">课程信息</h2>
             <dl className="mt-3 space-y-2 text-sm">
               <div className="flex justify-between">
-                <dt className="text-slate-500">课程名称</dt>
+                <dt className="text-stone-500">课程名称</dt>
                 <dd className="font-semibold">{course.name}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500">学科 / 年级</dt>
+                <dt className="text-stone-500">学科 / 年级</dt>
                 <dd className="font-semibold">
                   {course.subject} · {course.grade}
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500">课时</dt>
+                <dt className="text-stone-500">课时</dt>
                 <dd className="font-semibold">{course.hours}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500">阶段数</dt>
+                <dt className="text-stone-500">阶段数</dt>
                 <dd className="font-semibold">{course.stages.length}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500">知识点数</dt>
+                <dt className="text-stone-500">知识点数</dt>
                 <dd className="font-semibold">{course.content.knowledgePoints.length}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500">状态</dt>
+                <dt className="text-stone-500">状态</dt>
                 <dd className="font-semibold">
                   {isPublished ? "已发布" : "备课中"}
                 </dd>
@@ -395,10 +405,10 @@ export default function PreviewCoursePage() {
 
           <Card>
             <div className="mb-3 flex items-center gap-2">
-              <ImageIcon size={18} className="text-slate-500" />
+              <ImageIcon size={18} className="text-stone-500" />
               <h2 className="text-lg font-bold">课程封面图</h2>
             </div>
-            <p className="mb-3 text-xs leading-5 text-slate-500">
+            <p className="mb-3 text-xs leading-5 text-stone-500">
               AI 根据课程名称、学科与驱动问题生成封面图。发布后将显示在&quot;我的课程&quot;和学生项目启动页。
             </p>
             <ProjectCoverImage
@@ -411,7 +421,7 @@ export default function PreviewCoursePage() {
           {course.drivingQuestion ? (
             <Card>
               <h2 className="text-lg font-bold">驱动问题</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-700">
+              <p className="mt-3 text-sm leading-7 text-stone-700">
                 {course.drivingQuestion}
               </p>
             </Card>
@@ -428,13 +438,13 @@ export default function PreviewCoursePage() {
                   <span
                     className={
                       item.done
-                        ? "grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white"
-                        : "grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-slate-500"
+                        ? "grid h-5 w-5 place-items-center rounded-full bg-[var(--pbl-success)] text-white"
+                        : "grid h-5 w-5 place-items-center rounded-full bg-stone-200 text-stone-500"
                     }
                   >
                     {item.done ? <Check size={12} /> : "·"}
                   </span>
-                  <span className={item.done ? "text-slate-700" : "text-slate-500"}>
+                  <span className={item.done ? "text-stone-700" : "text-stone-500"}>
                     {item.label}
                   </span>
                 </li>

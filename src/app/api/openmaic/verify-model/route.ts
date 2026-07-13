@@ -3,11 +3,13 @@ import { createLogger } from '@openmaic/lib/logger';
 import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
 import { resolveModel } from '@openmaic/lib/server/resolve-model';
 import { callLLM } from '@openmaic/lib/ai/llm';
+import { isAbortError } from '@openmaic/lib/generation/generation-retry';
 const log = createLogger('Verify Model');
 
 export async function POST(req: NextRequest) {
   let model: string | undefined;
   try {
+    if (req.signal.aborted) return new Response(null, { status: 499 });
     const body = await req.json();
     const { apiKey, baseUrl, providerType } = body;
     model = body.model;
@@ -39,6 +41,7 @@ export async function POST(req: NextRequest) {
     const { text } = await callLLM(
       {
         model: languageModel,
+        abortSignal: req.signal,
         prompt: 'Say "OK" if you can hear me.',
         maxOutputTokens: 64,
       },
@@ -52,6 +55,9 @@ export async function POST(req: NextRequest) {
       response: text,
     });
   } catch (error) {
+    if (req.signal.aborted || isAbortError(error)) {
+      return new Response(null, { status: 499 });
+    }
     log.error(`Model verification failed [model="${model ?? 'unknown'}"]:`, error);
 
     let errorMessage = 'Connection failed';

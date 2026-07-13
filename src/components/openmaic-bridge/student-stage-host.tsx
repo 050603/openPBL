@@ -30,6 +30,7 @@ import { createLearningEvent, postLearningEvents } from '@/lib/learning-analytic
 import type { LearningEvent, LearningEventType } from '@/lib/session/types';
 import { cn } from '@/lib/utils';
 import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
+import { estimateSpeechDurationSec } from '@openmaic/lib/audio/tts-timing';
 
 const log = createLogger('StudentStageHost');
 
@@ -91,16 +92,19 @@ export function selectStudentLearningScenes(scenes: Scene[]): Scene[] {
 
 function expectedDurationSec(scene?: Scene): number | undefined {
   if (!scene) return undefined;
+  if (scene.timingPlan) {
+    const target = scene.timingPlan.activityTargetDurationSec ?? scene.timingPlan.targetDurationSec;
+    if (target > 0) return target;
+  }
   const value = (scene as Scene & { estimatedDuration?: number }).estimatedDuration;
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return value <= 60 ? value * 60 : value;
   }
-  const speechChars = (scene.actions ?? []).reduce((sum, action) => {
-    if (action.type !== 'speech') return sum;
-    const text = 'text' in action && typeof action.text === 'string' ? action.text : '';
-    return sum + text.length;
-  }, 0);
-  return speechChars > 0 ? Math.max(30, Math.round(speechChars * 0.15)) : undefined;
+  const speechText = (scene.actions ?? [])
+    .filter((action) => action.type === 'speech' && 'text' in action && typeof action.text === 'string')
+    .map((action) => 'text' in action && typeof action.text === 'string' ? action.text : '')
+    .join('\n');
+  return speechText ? Math.max(30, estimateSpeechDurationSec(speechText)) : undefined;
 }
 
 export function StudentStageHost({
@@ -418,7 +422,7 @@ export function StudentStageHost({
             className={cn(
               'relative flex flex-col overflow-hidden bg-background text-foreground',
               variant === 'embedded'
-                ? 'h-full min-h-[640px] rounded-[8px] border border-slate-200'
+                ? 'h-full min-h-[640px] rounded-[8px] border border-stone-200'
                 : 'h-screen',
               className,
             )}

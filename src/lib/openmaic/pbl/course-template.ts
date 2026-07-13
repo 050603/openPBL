@@ -1,16 +1,9 @@
 import { getCompanion } from "@/lib/ai-companions";
 import type { PblCourseConfig } from "@/lib/pbl-course-config";
 import type { SceneOutline } from "@openmaic/lib/types/generation";
-import { estimateTtsDurationSec } from "@/lib/pbl-time-model";
+import { COMPANION_STAGE_KEYS, buildStagePolicyPrompt, resolveCompanionIds } from "@/lib/companion/stage-policy";
 
-export const PBL_STAGE_KEYS = [
-  "launch",
-  "ai-learning",
-  "proposal",
-  "make",
-  "showcase",
-  "reflection",
-] as const;
+export const PBL_STAGE_KEYS = COMPANION_STAGE_KEYS;
 
 export type PblStageKey = (typeof PBL_STAGE_KEYS)[number];
 export type PblSceneAudience = "student" | "teacher";
@@ -211,6 +204,7 @@ export function formatPblSceneContext(
     | "knowledgePointIds"
     | "targetDurationSec"
     | "ttsPolicy"
+    | "timingPlan"
     | "resourceTypes"
   >,
   config?: PblCourseConfig,
@@ -222,9 +216,12 @@ export function formatPblSceneContext(
   const evidence = (config?.evidenceRequirements ?? [])
     .filter((item) => !stageKey || item.stageKeys.includes(stageKey))
     .map((item) => `${item.label}${item.required ? "（必需）" : "（可选）"}`);
-  const companions = outline.companionIds?.length
+  const configuredCompanions = outline.companionIds?.length
     ? outline.companionIds
     : config?.companionIds ?? [];
+  const companions = stageKey
+    ? resolveCompanionIds(stageKey, configuredCompanions)
+    : configuredCompanions;
   const companionDetails = companions.map((id) => {
     const companion = getCompanion(id as Parameters<typeof getCompanion>[0]);
     return `${companion.name}（${id}）：${companion.instruction}`;
@@ -248,9 +245,12 @@ export function formatPblSceneContext(
     `本阶段分工：${stage?.responsibility || "遵守课程的显式阶段标注。"}`,
     `伴学角色：${companions.length ? companions.join("、") : "按当前场景需要选择，不新增角色。"}`,
     companionDetails.length ? `伴学职责：${companionDetails.join("；")}` : "",
+    stageKey ? `阶段伴学服务契约：\n${buildStagePolicyPrompt(stageKey)}` : "",
     `本阶段过程证据：${evidence.length ? evidence.join("、") : "按课程配置记录自然产生的过程证据。"}`,
     outline.ttsPolicy === "target-duration" && outline.targetDurationSec
-      ? `学生 TTS 目标：${outline.targetDurationSec} 秒；中文讲稿可按约 4.5 字/秒估算，预计当前阶段提示至少需要 ${estimateTtsDurationSec(outline.stageLabel || "本阶段讲解")} 秒，并应通过内容长度与停顿贴近目标。`
+      ? outline.timingPlan
+        ? `学生 TTS 模型：${outline.timingPlan.providerId}/${outline.timingPlan.modelId || "default"}；AI 朗读目标：${outline.timingPlan.targetDurationSec} 秒；内容量控制在 ${outline.timingPlan.minUnits}-${outline.timingPlan.maxUnits} ${outline.timingPlan.unit === "latin-word" ? "英文词" : "中文字符/混合文本单位"}，必须通过有效概念、依据、案例、反例和分步解释贴近目标，不得使用固定的 4.5 字/秒公式。`
+        : `学生 TTS 目标：${outline.targetDurationSec} 秒；服务端会按实际 TTS 模型参数计算所需内容量，必须通过有效概念、依据、案例、反例和分步解释贴近目标，不得使用固定的 4.5 字/秒公式。`
       : outline.ttsPolicy === "none"
         ? "TTS 规则：本课程大纲资源是教师普通课堂资源，不生成 TTS。"
         : "",

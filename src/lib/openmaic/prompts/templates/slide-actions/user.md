@@ -6,6 +6,7 @@ Description: {{description}}
 {{agents}}
 {{userProfile}}
 {{pblContext}}
+{{timingBudget}}
 
 **Language Directive**: {{languageDirective}}
 

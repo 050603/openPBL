@@ -49,10 +49,10 @@ export function SectionTitle({
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-[18px] font-bold leading-tight text-slate-900">
+        <h2 className="text-[18px] font-bold leading-tight text-stone-900">
           {title}
         </h2>
-        {hint ? <p className="mt-1 text-[13px] text-slate-500">{hint}</p> : null}
+        {hint ? <p className="mt-1 text-[13px] text-stone-500">{hint}</p> : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
@@ -174,7 +174,7 @@ export function PrimaryButton({
         "inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-semibold transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-55",
         variant === "solid" && solid[tone],
         variant === "outline" && "border bg-white " + outline[tone],
-        variant === "ghost" && "text-slate-600 hover:bg-slate-100",
+        variant === "ghost" && "text-stone-600 hover:bg-stone-100",
         sizes[size],
         className,
       )}

@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { normalizePblTeachingOutline } from './pbl-outline-normalization';
 
 describe('PBL teaching outline normalization', () => {
+  it('does not manufacture canonical modules for an empty draft', () => {
+    expect(normalizePblTeachingOutline([], { totalMinutes: 60 })).toEqual([]);
+  });
+
   it('fills missing canonical modules and puts all confirmed knowledge IDs in AI learning', () => {
     const result = normalizePblTeachingOutline(
       [
@@ -48,4 +52,3 @@ describe('PBL teaching outline normalization', () => {
     );
   });
 });
-

@@ -63,25 +63,25 @@ export function KnowledgeGraphView({
 
   if (layout.length === 0) {
     return (
-      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+      <div className="rounded-[8px] border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
         暂无知识图谱。请先生成或添加知识点。
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-[8px] border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center gap-2 font-bold text-slate-900">
+    <div className="overflow-hidden rounded-[8px] border border-stone-200 bg-white">
+      <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+        <div className="flex items-center gap-2 font-bold text-stone-900">
           <Network size={18} className="text-blue-700" />
           {title}
         </div>
-        <div className="text-xs font-semibold text-slate-400">
+        <div className="text-xs font-semibold text-stone-400">
           {layout.length} 节点 · {normalized.edges.length} 关系
         </div>
       </div>
       <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="relative bg-slate-50" style={{ height }}>
+        <div className="relative bg-stone-50" style={{ height }}>
           <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
               <marker id="kg-arrow" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">
@@ -113,7 +113,7 @@ export function KnowledgeGraphView({
             return (
               <span
                 key={edge.id}
-                className="pointer-events-none absolute rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200"
+                className="pointer-events-none absolute rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-stone-500 ring-1 ring-stone-200"
                 style={{
                   left: `${(source.x + target.x) / 2}%`,
                   top: `${(source.y + target.y) / 2}%`,
@@ -148,12 +148,12 @@ export function KnowledgeGraphView({
           })}
         </div>
         {showDetails ? (
-          <div className="border-t border-slate-100 p-4 lg:border-l lg:border-t-0">
+          <div className="border-t border-stone-100 p-4 lg:border-l lg:border-t-0">
             {selected ? (
               <div>
-                <div className="text-xs font-bold text-slate-400">当前知识节点</div>
-                <h3 className="mt-1 text-base font-bold text-slate-950">{selected.label}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{selected.description || "暂无描述"}</p>
+                <div className="text-xs font-bold text-stone-400">当前知识节点</div>
+                <h3 className="mt-1 text-base font-bold text-stone-900">{selected.label}</h3>
+                <p className="mt-2 text-sm leading-6 text-stone-600">{selected.description || "暂无描述"}</p>
                 {selected.keyInfo ? (
                   <div className="mt-3 rounded-[6px] border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
                     <span className="font-bold">本课关键：</span>
@@ -183,15 +183,15 @@ function RelatedEdges({
   if (related.length === 0) return null;
   return (
     <div className="mt-4">
-      <div className="mb-2 text-xs font-bold text-slate-400">关联关系</div>
+      <div className="mb-2 text-xs font-bold text-stone-400">关联关系</div>
       <ul className="space-y-1.5">
         {related.map((edge) => {
           const otherId = edge.source === nodeId ? edge.target : edge.source;
           const other = nodes.find((node) => node.id === otherId);
           return (
-            <li key={edge.id} className="rounded-[6px] bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
-              <span className="font-bold text-slate-800">{edge.label}</span>
-              <span className="mx-1 text-slate-300">→</span>
+            <li key={edge.id} className="rounded-[6px] bg-stone-50 px-2.5 py-2 text-xs text-stone-600">
+              <span className="font-bold text-stone-800">{edge.label}</span>
+              <span className="mx-1 text-stone-300">→</span>
               {other?.label ?? otherId}
             </li>
           );

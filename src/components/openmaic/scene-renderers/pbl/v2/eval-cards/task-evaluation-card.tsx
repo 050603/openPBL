@@ -47,7 +47,7 @@ export function TaskEvaluationCard({ evaluation, className }: Props) {
   return (
     <div
       className={cn(
-        'pbl-v2-task-review-card mt-2 space-y-3 rounded-2xl px-3.5 py-3 text-sm text-slate-800',
+        'pbl-v2-task-review-card mt-2 space-y-3 rounded-2xl px-3.5 py-3 text-sm text-stone-800',
         className,
       )}
     >
@@ -72,7 +72,7 @@ export function TaskEvaluationCard({ evaluation, className }: Props) {
             <Sparkles className="w-3 h-3" />
             {t('pbl.v2.taskEvalCard.strengths')}
           </div>
-          <ul className="space-y-1 text-sm leading-snug text-slate-700">
+          <ul className="space-y-1 text-sm leading-snug text-stone-700">
             {strengths.map((s, i) => (
               <li key={i} className="flex gap-1.5">
                 <span className="shrink-0 text-indigo-600">✓</span>
@@ -89,7 +89,7 @@ export function TaskEvaluationCard({ evaluation, className }: Props) {
             <TrendingUp className="w-3 h-3" />
             {t('pbl.v2.taskEvalCard.improvements')}
           </div>
-          <ul className="space-y-1 text-sm leading-snug text-slate-700">
+          <ul className="space-y-1 text-sm leading-snug text-stone-700">
             {improvements.map((s, i) => (
               <li key={i} className="flex gap-1.5">
                 <span className="shrink-0 text-cyan-700">→</span>

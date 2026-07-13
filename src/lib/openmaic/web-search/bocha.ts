@@ -7,6 +7,7 @@
 
 import { proxyFetch } from '@openmaic/lib/server/proxy-fetch';
 import type { WebSearchResult, WebSearchSource } from '@openmaic/lib/types/web-search';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 const BOCHA_DEFAULT_BASE_URL = 'https://api.bocha.cn';
 const BOCHA_MAX_RESULTS = 50;
@@ -49,8 +50,10 @@ export async function searchWithBocha(params: {
   apiKey: string;
   maxResults?: number;
   baseUrl?: string;
+  signal?: AbortSignal;
 }): Promise<WebSearchResult> {
-  const { query, apiKey, maxResults = 10, baseUrl } = params;
+  const { query, apiKey, maxResults = 10, baseUrl, signal } = params;
+  throwIfAborted(signal);
   const startedAt = Date.now();
 
   const res = await proxyFetch(buildBochaWebSearchUrl(baseUrl), {
@@ -59,6 +62,7 @@ export async function searchWithBocha(params: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
+    signal,
     body: JSON.stringify({
       query,
       freshness: 'noLimit',
@@ -79,6 +83,7 @@ export async function searchWithBocha(params: {
     log_id?: string;
     data?: BochaSearchData;
   } & BochaSearchData;
+  throwIfAborted(signal);
 
   if (raw.code !== undefined && String(raw.code) !== '200') {
     const message = raw.message || raw.msg || 'Request failed';

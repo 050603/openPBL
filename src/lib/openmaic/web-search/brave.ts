@@ -11,6 +11,7 @@
 import { proxyFetch } from '@openmaic/lib/server/proxy-fetch';
 import type { WebSearchResult, WebSearchSource } from '@openmaic/lib/types/web-search';
 import { normalizeWebSearchQuery } from './utils';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 const BRAVE_DEFAULT_BASE_URL = 'https://search.brave.com';
 
@@ -115,6 +116,7 @@ async function searchWithBraveApi(
   query: string,
   apiKey: string,
   maxResults: number,
+  signal?: AbortSignal,
 ): Promise<WebSearchSource[]> {
   const url = new URL('/res/v1/web/search', BRAVE_API_BASE_URL);
   url.searchParams.set('q', query);
@@ -126,6 +128,7 @@ async function searchWithBraveApi(
       'X-Subscription-Token': apiKey,
       Accept: 'application/json',
     },
+    signal,
   });
 
   if (!res.ok) {
@@ -161,10 +164,12 @@ async function searchWithBraveScrape(
   query: string,
   maxResults: number,
   baseUrl?: string,
+  signal?: AbortSignal,
 ): Promise<WebSearchSource[]> {
   const res = await proxyFetch(buildBraveSearchUrl(query, baseUrl), {
     method: 'GET',
     headers: BRAVE_HEADERS,
+    signal,
   });
 
   if (!res.ok) {
@@ -173,6 +178,7 @@ async function searchWithBraveScrape(
   }
 
   const html = await res.text();
+  throwIfAborted(signal);
   return parseBraveSearchHtml(html, maxResults);
 }
 
@@ -181,14 +187,17 @@ export async function searchWithBrave(params: {
   apiKey?: string;
   maxResults?: number;
   baseUrl?: string;
+  signal?: AbortSignal;
 }): Promise<WebSearchResult> {
-  const { query: rawQuery, apiKey, maxResults = 5, baseUrl } = params;
+  const { query: rawQuery, apiKey, maxResults = 5, baseUrl, signal } = params;
+  throwIfAborted(signal);
   const query = normalizeWebSearchQuery(rawQuery);
   const startedAt = Date.now();
 
   const sources = apiKey
-    ? await searchWithBraveApi(query, apiKey, maxResults)
-    : await searchWithBraveScrape(query, maxResults, baseUrl);
+    ? await searchWithBraveApi(query, apiKey, maxResults, signal)
+    : await searchWithBraveScrape(query, maxResults, baseUrl, signal);
+  throwIfAborted(signal);
 
   return {
     answer: '',

@@ -2,6 +2,7 @@ import type { TeacherResourceScene } from "@/lib/session/types";
 import { checkPblStageCoverage, type PblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import { classifyScenes } from "@/lib/openmaic-bridge/scene-classifier";
 import { persistClassroom } from "@openmaic/lib/server/classroom-storage";
+import { throwIfAborted } from "@openmaic/lib/generation/generation-retry";
 import type { Scene, Stage } from "@openmaic/lib/types/stage";
 
 export interface ServerClassroomSplitResult {
@@ -24,7 +25,9 @@ export async function splitGeneratedClassroom(input: {
   courseName?: string;
   baseUrl: string;
   pblMode?: boolean;
+  signal?: AbortSignal;
 }): Promise<ServerClassroomSplitResult> {
+  throwIfAborted(input.signal);
   if (input.scenes.length === 0) {
     throw new Error("课堂未包含任何场景，无法完成资源分流");
   }
@@ -47,6 +50,7 @@ export async function splitGeneratedClassroom(input: {
     throw new Error("PBL 生成结果没有明确标记为 AI 授知的学生学习场景");
   }
 
+  throwIfAborted(input.signal);
   await persistClassroom(
     {
       id: input.stage.id,
@@ -56,8 +60,10 @@ export async function splitGeneratedClassroom(input: {
     input.baseUrl,
   );
 
+  throwIfAborted(input.signal);
   let teacherClassroomId = "";
   if (teacherScenes.length > 0) {
+    throwIfAborted(input.signal);
     teacherClassroomId = `${input.stage.id}-teacher`;
     const teacherStage: Stage = {
       ...input.stage,
@@ -77,6 +83,7 @@ export async function splitGeneratedClassroom(input: {
       },
       input.baseUrl,
     );
+    throwIfAborted(input.signal);
   }
 
   return {

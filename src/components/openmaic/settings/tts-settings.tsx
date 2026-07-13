@@ -542,7 +542,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                 key={model.id}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border/40 text-xs font-mono text-muted-foreground"
               >
-                <span className="size-1.5 rounded-full bg-emerald-500/70" />
+                <span className="size-1.5 rounded-full bg-[var(--pbl-success)]/70" />
                 {model.name}
               </div>
             ))}

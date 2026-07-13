@@ -56,6 +56,7 @@ import type {
 } from './pipeline-types';
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
 import { createLogger } from '@openmaic/lib/logger';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 const log = createLogger('Generation');
 
 const INTERACTIVE_WIDGET_ACTIONS = [
@@ -94,6 +95,8 @@ export interface SceneContentOptions {
    * Only consumed by the slide branch alongside `editDirective`.
    */
   baselineContent?: GeneratedSlideContent;
+  /** Abort nested PBL generation when the owning request ends. */
+  signal?: AbortSignal;
 }
 
 export interface SceneActionsOptions {
@@ -103,6 +106,24 @@ export interface SceneActionsOptions {
   languageDirective?: string;
   pblProfile?: PblCourseConfig;
   pblContext?: string;
+  /** One bounded correction pass when the first action script misses its timing budget. */
+  timingCorrection?: string;
+}
+
+function formatTimingPlanForPrompt(outline: SceneOutline, timingCorrection?: string): string {
+  const plan = outline.timingPlan;
+  if (!plan) return '';
+  const activityTarget = plan.activityTargetDurationSec ?? plan.targetDurationSec;
+  const unitLabel = plan.unit === 'latin-word' ? '英文词' : '中文字符/混合文本单位';
+  return [
+    '## 时间预算（必须执行）',
+    `- TTS 模型：${plan.providerId}/${plan.modelId || 'default'}`,
+    `- 内容类型：${plan.contentType}`,
+    `- 总活动目标：约 ${activityTarget} 秒；本场景 AI 朗读目标：约 ${plan.targetDurationSec} 秒`,
+    `- 讲稿量：${plan.minUnits}-${plan.maxUnits} ${unitLabel}，目标约 ${plan.targetUnits} ${unitLabel}`,
+    '- 讲稿要通过增加有效概念、依据、例子、反例或分步解释达到时长，不得用重复套话或故意放慢语速凑时长。',
+    timingCorrection ? `- 上一次生成偏离目标，请优先修正：${timingCorrection}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 // ==================== Stage 2: Full Scenes (Two-Step) ====================
@@ -324,6 +345,7 @@ export async function generateSceneContent(
     allowProceduralSkill = false,
     editDirective,
     baselineContent,
+    signal,
   } = options;
   const pblContext = formatPblSceneContext(outline, pblProfile ?? userRequirements?.pblProfile);
 
@@ -379,6 +401,7 @@ export async function generateSceneContent(
         thinkingConfig,
         targetLanguage,
         userRequirements,
+        signal,
       );
     default:
       return null;
@@ -798,6 +821,7 @@ async function generateSlideContent(
     teacherContext,
     languageDirective: languageDirective || '',
     pblContext: pblContext || '',
+    timingBudget: formatTimingPlanForPrompt(outline),
     imageElementEnabled,
     generatedImageEnabled,
     generatedVideoEnabled,
@@ -1042,7 +1066,9 @@ async function generatePBLSceneContent(
   thinkingConfig?: ThinkingConfig,
   targetLanguage?: string,
   userRequirements?: UserRequirements,
+  signal?: AbortSignal,
 ): Promise<GeneratedPBLContent | null> {
+  throwIfAborted(signal);
   if (!languageModel) {
     log.error('LanguageModel required for PBL generation');
     return null;
@@ -1083,7 +1109,10 @@ async function generatePBLSceneContent(
         : undefined,
       targetLanguage,
     };
-    const onProgress = (event: unknown) => log.info(`PBL v2 progress: ${JSON.stringify(event)}`);
+    const onProgress = (event: unknown) => {
+      throwIfAborted(signal);
+      log.info(`PBL v2 progress: ${JSON.stringify(event)}`);
+    };
 
     const attempts: Array<{ label: string; run: () => Promise<PBLProjectV2> }> = [
       {
@@ -1092,20 +1121,22 @@ async function generatePBLSceneContent(
           generatePBLV2ProjectSingleCall(
             plannerInput,
             languageModel,
-            { onProgress },
+            { onProgress, signal },
             thinkingConfig,
           ),
       },
       {
         label: 'loop',
         run: () =>
-          generatePBLV2Project(plannerInput, languageModel, { onProgress }, thinkingConfig),
+          generatePBLV2Project(plannerInput, languageModel, { onProgress, signal }, thinkingConfig),
       },
     ];
 
     for (const attempt of attempts) {
       try {
+        throwIfAborted(signal);
         const projectV2 = await attempt.run();
+        throwIfAborted(signal);
         log.info(
           `PBL v2 generated (${attempt.label}): ${projectV2.milestones.length} milestones, ${projectV2.roles.length} roles`,
         );
@@ -1114,6 +1145,7 @@ async function generatePBLSceneContent(
           projectV2,
         };
       } catch (err) {
+        if (signal?.aborted) throw err;
         const msg =
           err instanceof PlannerV2Error
             ? `validation failed: ${err.message}`
@@ -1145,6 +1177,7 @@ async function generatePBLSceneContent(
       languageModel,
       {
         onProgress: (msg) => log.info(`${msg}`),
+        signal,
       },
       thinkingConfig,
     );
@@ -1154,6 +1187,7 @@ async function generatePBLSceneContent(
 
     return { projectConfig };
   } catch (error) {
+    if (signal?.aborted) throw error;
     log.error(`PBL v1 generation also failed:`, error);
     return null;
   }
@@ -1389,10 +1423,13 @@ export async function generateSceneActions(
       userProfile: userProfile || '',
       languageDirective: languageDirective || '',
       pblContext,
+      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
     });
 
     if (!prompts) {
-      return generateDefaultSlideActions(outline, content.elements);
+      const fallback = generateDefaultSlideActions(outline, content.elements);
+
+      return fallback;
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1400,10 +1437,14 @@ export async function generateSceneActions(
 
     if (actions.length > 0) {
       // Validate and fill in Action IDs
-      return processActions(actions, content.elements, agents);
+      const processed = processActions(actions, content.elements, agents);
+
+      return processed;
     }
 
-    return generateDefaultSlideActions(outline, content.elements);
+    const fallback = generateDefaultSlideActions(outline, content.elements);
+
+    return fallback;
   }
 
   if (outline.type === 'quiz' && 'questions' in content) {
@@ -1419,20 +1460,27 @@ export async function generateSceneActions(
       agents: agentsText,
       languageDirective: languageDirective || '',
       pblContext,
+      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
     });
 
     if (!prompts) {
-      return generateDefaultQuizActions(outline);
+      const fallback = generateDefaultQuizActions(outline);
+
+      return fallback;
     }
 
     const response = await aiCall(prompts.system, prompts.user);
     const actions = parseActionsFromStructuredOutput(response, outline.type);
 
     if (actions.length > 0) {
-      return processActions(actions, [], agents);
+      const processed = processActions(actions, [], agents);
+
+      return processed;
     }
 
-    return generateDefaultQuizActions(outline);
+    const fallback = generateDefaultQuizActions(outline);
+
+    return fallback;
   }
 
   if (outline.type === 'interactive' && 'html' in content) {
@@ -1450,10 +1498,13 @@ export async function generateSceneActions(
       agents: agentsText,
       languageDirective: languageDirective || '',
       pblContext,
+      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
     });
 
     if (!prompts) {
-      return generateDefaultInteractiveActions(outline);
+      const fallback = generateDefaultInteractiveActions(outline);
+
+      return fallback;
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1464,10 +1515,14 @@ export async function generateSceneActions(
     );
 
     if (actions.length > 0) {
-      return processActions(actions, [], agents);
+      const processed = processActions(actions, [], agents);
+
+      return processed;
     }
 
-    return generateDefaultInteractiveActions(outline);
+    const fallback = generateDefaultInteractiveActions(outline);
+
+    return fallback;
   }
 
   if (outline.type === 'pbl' && 'projectConfig' in content) {
@@ -1483,20 +1538,27 @@ export async function generateSceneActions(
       agents: agentsText,
       languageDirective: languageDirective || '',
       pblContext,
+      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
     });
 
     if (!prompts) {
-      return generateDefaultPBLActions(outline);
+      const fallback = generateDefaultPBLActions(outline);
+
+      return fallback;
     }
 
     const response = await aiCall(prompts.system, prompts.user);
     const actions = parseActionsFromStructuredOutput(response, outline.type);
 
     if (actions.length > 0) {
-      return processActions(actions, [], agents);
+      const processed = processActions(actions, [], agents);
+
+      return processed;
     }
 
-    return generateDefaultPBLActions(outline);
+    const fallback = generateDefaultPBLActions(outline);
+
+    return fallback;
   }
 
   return [];
@@ -1695,6 +1757,7 @@ export function createSceneWithActions(
       : {}),
     ...(outline.targetDurationSec ? { targetDurationSec: outline.targetDurationSec } : {}),
     ...(outline.ttsPolicy ? { ttsPolicy: outline.ttsPolicy } : {}),
+    ...(outline.timingPlan ? { timingPlan: outline.timingPlan } : {}),
     ...(outline.resourceTypes?.length ? { resourceTypes: [...outline.resourceTypes] } : {}),
   };
 

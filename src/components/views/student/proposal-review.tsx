@@ -136,7 +136,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
     {/* 主要输入：自由描述 */}
     <Card>
       <label className="block">
-        <span className="mb-2 block text-sm font-semibold text-slate-800">用一段话描述你的项目想法</span>
+        <span className="mb-2 block text-sm font-semibold text-stone-800">用一段话描述你的项目想法</span>
         <TextArea
           className="min-h-40"
           onChange={(event) => setDescription(event.target.value)}
@@ -151,7 +151,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
         <PrimaryButton type="button" variant="outline" onClick={extractFromDescription}>
           <Wand2 size={16} /> 从描述提取结构化要点
         </PrimaryButton>
-        <span className="text-xs text-slate-400">提取后可在下方"方案详情"中修改</span>
+        <span className="text-xs text-stone-400">提取后可在下方"方案详情"中修改</span>
       </div>
     </Card>
 
@@ -163,12 +163,12 @@ export function ProposalReviewView({ course }: { course: Course }) {
         onClick={() => setDetailsOpen((v) => !v)}
       >
         <div>
-          <span className="text-sm font-bold text-slate-900">方案详情</span>
-          <span className="ml-2 text-xs text-slate-500">
+          <span className="text-sm font-bold text-stone-900">方案详情</span>
+          <span className="ml-2 text-xs text-stone-500">
             {complete ? "已完整 · 可提交校准" : "待补充"}
           </span>
         </div>
-        {detailsOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+        {detailsOpen ? <ChevronUp size={18} className="text-stone-400" /> : <ChevronDown size={18} className="text-stone-400" />}
       </button>
       {detailsOpen ? (
         <div className="mt-4 grid gap-4">
@@ -206,7 +206,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
     <div className="grid gap-4 md:grid-cols-2">
       <Card>
         <div className="flex items-center gap-2 font-bold text-emerald-800"><ShieldCheck size={19} />项目所有权检查</div>
-        <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+        <ul className="mt-3 space-y-2 text-sm leading-6 text-stone-600">
           <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-emerald-600" size={16} />由我提出问题并选择最终方向</li>
           <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-emerald-600" size={16} />由我完成核心制作与判断</li>
           <li className="flex gap-2"><Sparkles className="mt-1 shrink-0 text-violet-600" size={16} />AI 只提供解释、启发、质疑与反馈</li>
@@ -214,8 +214,8 @@ export function ProposalReviewView({ course }: { course: Course }) {
       </Card>
       <Card>
         <p className="text-sm font-semibold">方案完整度</p>
-        <div className="mt-2 text-3xl font-bold text-blue-700">{complete ? "已完整" : "待补充"}</div>
-        <p className="mt-2 text-sm leading-6 text-slate-500">教师会重点检查你能否说明"为什么这样做"。</p>
+        <div className="mt-2 text-3xl font-bold text-[var(--pbl-student)]">{complete ? "已完整" : "待补充"}</div>
+        <p className="mt-2 text-sm leading-6 text-stone-500">教师会重点检查你能否说明"为什么这样做"。</p>
       </Card>
     </div>
 

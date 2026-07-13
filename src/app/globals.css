@@ -58,6 +58,7 @@
   --pbl-warning-soft: #fff7ed;
   --pbl-danger: #dc2626;
   --pbl-danger-soft: #fef2f2;
+  --pbl-danger-border: #fecaca;
   --pbl-achievement: #9333ea;
   --pbl-achievement-soft: #faf5ff;
 
@@ -233,8 +234,8 @@ select {
 .pbl-page {
   margin-inline: auto;
   width: 100%;
-  max-width: 96rem;
-  padding-inline: clamp(1rem, 3vw, 2rem);
+  max-width: 100%;
+  padding-inline: clamp(1rem, 2.5vw, 2.5rem);
 }
 
 .pbl-focus-ring:focus-visible {

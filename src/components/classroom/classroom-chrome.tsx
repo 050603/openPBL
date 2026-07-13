@@ -10,31 +10,63 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { FormField, Textarea } from "@/components/ui/form";
 
 export function StageProgress({ course, onSelect, readonly = false }: { course: Course; onSelect?: (index: number) => void; readonly?: boolean }) {
+  const total = course.stages.length;
+  const completed = course.currentStageIndex;
+  const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
   return (
-    <nav aria-label="课堂阶段" className="overflow-x-auto border-y border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
-      <ol className="mx-auto flex min-w-max items-center px-2 md:min-w-0 md:justify-center">
-        {course.stages.map((stage, index) => {
-          const current = index === course.currentStageIndex;
-          const done = index < course.currentStageIndex;
-          return (
-            <li className="flex items-center" key={stage.key}>
-              <button
-                aria-current={current ? "step" : undefined}
-                className={cn("flex min-h-12 items-center gap-2 border-b-2 px-3 text-sm transition-colors", current ? "border-[var(--pbl-teacher)] font-semibold text-[var(--pbl-teacher)]" : "border-transparent text-[var(--pbl-text-muted)]", !readonly && "hover:bg-[var(--pbl-surface-soft)]")}
-                disabled={readonly}
-                onClick={() => onSelect?.(index)}
-                type="button"
-              >
-                <span className={cn("grid h-5 w-5 place-items-center rounded-full border text-[11px]", done && "border-[var(--pbl-success)] bg-[var(--pbl-success)] text-white", current && "border-[var(--pbl-teacher)]", !done && !current && "border-[var(--pbl-border-strong)]")}>
-                  {done ? <Check aria-hidden="true" size={12} /> : index + 1}
-                </span>
-                {stage.label}
-              </button>
-              {index < course.stages.length - 1 ? <ChevronRight aria-hidden="true" className="text-[var(--pbl-border-strong)]" size={14} /> : null}
-            </li>
-          );
-        })}
-      </ol>
+    <nav aria-label="课堂阶段" className="border-b border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+      <div className="flex items-center gap-3 px-3 py-2 md:px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {course.stages.map((stage, index) => {
+            const current = index === course.currentStageIndex;
+            const done = index < course.currentStageIndex;
+            return (
+              <div className="flex shrink-0 items-center" key={stage.key}>
+                <button
+                  aria-current={current ? "step" : undefined}
+                  className={cn(
+                    "flex items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-sm transition-colors",
+                    current
+                      ? "bg-[var(--pbl-teacher-soft)] font-semibold text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]"
+                      : "text-[var(--pbl-text-muted)]",
+                    !readonly && "hover:bg-[var(--pbl-surface-soft)]",
+                  )}
+                  disabled={readonly}
+                  onClick={() => onSelect?.(index)}
+                  type="button"
+                >
+                  <span
+                    className={cn(
+                      "grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold transition-colors",
+                      done && "bg-[var(--pbl-success)] text-white",
+                      current && "bg-[var(--pbl-teacher)] text-white",
+                      !done && !current && "border border-[var(--pbl-border-strong)] text-[var(--pbl-text-muted)]",
+                    )}
+                  >
+                    {done ? <Check aria-hidden="true" size={12} /> : index + 1}
+                  </span>
+                  <span className="whitespace-nowrap">{stage.label}</span>
+                </button>
+                {index < total - 1 ? (
+                  <ChevronRight aria-hidden="true" className="mx-0.5 shrink-0 text-[var(--pbl-border-strong)]" size={14} />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden shrink-0 items-center gap-2 md:flex">
+          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-stone-200">
+            <div
+              className="h-full rounded-full bg-[var(--pbl-teacher)] transition-all duration-300"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <span className="text-xs font-semibold text-[var(--pbl-text-muted)]">
+            {completed}/{total}
+          </span>
+        </div>
+      </div>
     </nav>
   );
 }

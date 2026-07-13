@@ -130,8 +130,8 @@ export function OpenMaicResourcePlayer({
             )}
           >
             {state === "loading" ? (
-              <div className="flex flex-1 items-center justify-center bg-slate-50">
-                <div className="text-center text-slate-500">
+              <div className="flex flex-1 items-center justify-center bg-stone-50">
+                <div className="text-center text-stone-500">
                   <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-blue-600" />
                   <p className="text-sm">正在加载授课资源...</p>
                 </div>

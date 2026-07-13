@@ -21,9 +21,9 @@ export function WizardStepper({
               <span
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-full text-sm font-bold",
-                  state === "done" && "bg-emerald-500 text-white",
+                  state === "done" && "bg-[var(--pbl-success)] text-white",
                   state === "current" && "bg-[var(--pbl-teacher)] text-white",
-                  state === "todo" && "bg-slate-200 text-slate-500",
+                  state === "todo" && "bg-stone-200 text-stone-500",
                 )}
               >
                 {state === "done" ? <Check size={14} /> : index + 1}
@@ -31,9 +31,9 @@ export function WizardStepper({
               <span
                 className={cn(
                   "text-sm font-semibold",
-                  state === "current" && "text-blue-700",
-                  state === "done" && "text-emerald-700",
-                  state === "todo" && "text-slate-500",
+                  state === "current" && "text-[var(--pbl-teacher)]",
+                  state === "done" && "text-[var(--pbl-success)]",
+                  state === "todo" && "text-stone-500",
                 )}
               >
                 {step.label}
@@ -43,7 +43,7 @@ export function WizardStepper({
               <span
                 className={cn(
                   "h-px w-10 shrink-0",
-                  state === "done" ? "bg-emerald-300" : "bg-slate-200",
+                  state === "done" ? "bg-emerald-300" : "bg-stone-200",
                 )}
               />
             ) : null}

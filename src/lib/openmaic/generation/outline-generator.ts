@@ -23,6 +23,7 @@ import {
 } from '@/lib/openmaic/pbl/course-template';
 import { normalizePblStageKey } from '@/lib/pbl-time-model';
 import { rescalePblDetailDurations } from '@/lib/pbl-time-model';
+import { resolveCompanionIds } from '@/lib/companion/stage-policy';
 import { formatImageDescription, formatImagePlaceholder } from './prompt-formatters';
 import { parseJsonResponse } from './json-repair';
 import { uniquifyMediaElementIds } from './scene-builder';
@@ -390,7 +391,7 @@ export function enforcePblOutlineContract(
       targetDurationSec: Math.max(60, activity.durationMin * 60),
       ttsPolicy: 'none',
       resourceTypes: ['ppt', 'script'] as SceneResourceType[],
-      companionIds: requirements.pblProfile.companionIds,
+      companionIds: resolveCompanionIds(activityStageKey, requirements.pblProfile.companionIds),
       companionPrompt: `围绕课堂活动“${activity.title}”提供教师主持提示，并记录学生实际证据。`,
     });
   }
@@ -504,12 +505,16 @@ function normalizePblDetailMetadata(
         : undefined;
   const isStudentKnowledge =
     outline.audience === 'student' && outline.stageKey === 'ai-learning';
+  const stageCompanionIds = outline.stageKey
+    ? resolveCompanionIds(outline.stageKey, outline.companionIds)
+    : outline.companionIds;
 
   return {
     ...outline,
     ...(parentActivityId ? { parentActivityId } : {}),
     ...(detailKind ? { detailKind } : {}),
     ...(targetDurationSec !== undefined ? { targetDurationSec } : {}),
+    ...(stageCompanionIds?.length ? { companionIds: stageCompanionIds } : {}),
     ttsPolicy: isStudentKnowledge ? outline.ttsPolicy ?? 'target-duration' : 'none',
   };
 }
