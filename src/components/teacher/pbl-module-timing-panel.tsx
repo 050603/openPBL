@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Clock3, Gauge, LockKeyhole, WandSparkles } from "lucide-react";
 import {
   buildPblModuleTimingPlan,
@@ -20,6 +20,130 @@ function moduleLabel(kind: PblTimeActivityKind, fallback?: string): string {
     ?? "其他课程模块";
 }
 
+// 协调色板：色相均匀分布，饱和度/明度相近，搭配美观
+const MODULE_COLORS = [
+  "bg-indigo-500",
+  "bg-sky-500",
+  "bg-teal-500",
+  "bg-amber-500",
+  "bg-rose-400",
+  "bg-violet-500",
+];
+
+function TimeBar({
+  activities,
+  totalMinutes,
+  readOnly,
+  onChangeDurations,
+}: {
+  activities: ReadonlyArray<{ id: string; kind: PblTimeActivityKind; durationMin: number; label: string }>;
+  totalMinutes: number;
+  readOnly: boolean;
+  onChangeDurations: (durations: Record<string, number>) => void;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ index: number; barWidth: number; barLeft: number; leftId: string; rightId: string; pairTotal: number; precedingMinutes: number } | null>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, index: number) => {
+    if (readOnly || !barRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = barRef.current.getBoundingClientRect();
+    const leftActivity = activities[index];
+    const rightActivity = activities[index + 1];
+    if (!leftActivity || !rightActivity) return;
+    // 计算拖动分隔线左侧所有模块的总分钟数（不含当前 leftActivity）
+    let precedingMinutes = 0;
+    for (let i = 0; i < index; i++) {
+      precedingMinutes += activities[i].durationMin;
+    }
+    dragRef.current = {
+      index,
+      barWidth: rect.width,
+      barLeft: rect.left,
+      leftId: leftActivity.id,
+      rightId: rightActivity.id,
+      pairTotal: leftActivity.durationMin + rightActivity.durationMin,
+      precedingMinutes,
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [readOnly, activities]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const x = Math.max(0, Math.min(drag.barWidth, e.clientX - drag.barLeft));
+    const ratio = x / drag.barWidth;
+    // 鼠标位置对应的总分钟数，减去前面模块的分钟数，才是当前 leftActivity 的目标分钟数
+    const mouseTotalMinutes = ratio * totalMinutes;
+    const newMinutes = Math.round(mouseTotalMinutes - drag.precedingMinutes);
+
+    const minEach = 5;
+    const clampedLeft = Math.max(minEach, Math.min(drag.pairTotal - minEach, newMinutes));
+    const remainder = drag.pairTotal - clampedLeft;
+
+    onChangeDurations({
+      [drag.leftId]: clampedLeft,
+      [drag.rightId]: Math.max(minEach, remainder),
+    });
+  }, [totalMinutes, onChangeDurations]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (dragRef.current) {
+      (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+      dragRef.current = null;
+    }
+  }, []);
+
+  // 计算每个模块的累计偏移量（百分比）
+  let cumPct = 0;
+  const segments = activities.map((activity) => {
+    const pct = totalMinutes > 0 ? (activity.durationMin / totalMinutes) * 100 : 0;
+    const left = cumPct;
+    cumPct += pct;
+    return { activity, left, width: pct };
+  });
+
+  return (
+    <div className="mb-4">
+      <p className="mb-2 text-xs font-semibold text-stone-500">拖动分隔线调整模块时间比重，或在下方输入精确分钟数</p>
+      <div
+        ref={barRef}
+        className="relative h-14 w-full overflow-hidden rounded-[6px] border border-stone-200 select-none"
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        {segments.map((seg, index) => {
+          const color = MODULE_COLORS[index % MODULE_COLORS.length];
+          return (
+            <div
+              key={seg.activity.id}
+              className={cn("absolute top-0 flex h-full flex-col items-center justify-center text-white", color)}
+              style={{ left: `${seg.left}%`, width: `${seg.width}%` }}
+            >
+              <span className="truncate px-1 text-[11px] font-bold leading-tight">{seg.activity.label}</span>
+              <span className="text-[10px] tabular-nums opacity-90">{seg.activity.durationMin}分</span>
+              {!readOnly && index < segments.length - 1 ? (
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, index)}
+                  className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-ew-resize items-center justify-center bg-white/50 hover:bg-white/90 hover:w-2.5 transition-all"
+                >
+                  <div className="h-6 w-0.5 bg-white/80" />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-stone-400">
+        <span>0 分钟</span>
+        <span>{totalMinutes} 分钟</span>
+      </div>
+    </div>
+  );
+}
+
 export function PblModuleTimingPanel({
   moduleActivities,
   totalMinutes,
@@ -27,6 +151,7 @@ export function PblModuleTimingPanel({
   timingPlan,
   readOnly = false,
   onChangeModuleDuration,
+  onBatchChangeDurations,
   onApplyRecommendation,
   onConfirm,
 }: {
@@ -39,6 +164,8 @@ export function PblModuleTimingPanel({
     kind: Exclude<PblTimeActivityKind, "other">,
     targetMinutes: number,
   ) => void;
+  /** 批量更新多个模块时长，不触发全局重分配。TimeBar 拖动时优先使用此回调。 */
+  onBatchChangeDurations?: (durations: Record<string, number>) => void;
   onApplyRecommendation?: (allocations: Readonly<Record<string, number>>) => void;
   onConfirm?: () => void;
 }) {
@@ -151,6 +278,36 @@ export function PblModuleTimingPanel({
             </button>
           ) : null}
         </div>
+
+        {!readOnly && (onChangeModuleDuration || onBatchChangeDurations) ? (
+          <TimeBar
+            activities={moduleActivities.map((activity) => {
+              const kind = classifyPblActivityKind(activity);
+              return {
+                id: activity.id,
+                kind,
+                durationMin: activity.durationMin,
+                label: moduleLabel(kind, activity.title),
+              };
+            })}
+            totalMinutes={safeTotalMinutes}
+            readOnly={readOnly}
+            onChangeDurations={(durations) => {
+              // 优先使用批量更新，避免逐个调用 onChangeModuleDuration 触发全局重分配
+              if (onBatchChangeDurations) {
+                onBatchChangeDurations(durations);
+                return;
+              }
+              Object.entries(durations).forEach(([id, minutes]) => {
+                const activity = moduleActivities.find((a) => a.id === id);
+                if (activity) {
+                  const kind = classifyPblActivityKind(activity);
+                  if (kind !== "other") onChangeModuleDuration?.(kind, minutes);
+                }
+              });
+            }}
+          />
+        ) : null}
 
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {moduleActivities.map((activity) => {

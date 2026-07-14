@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   AlertCircle,
+  ArrowLeft,
   BadgeCheck,
   Bot,
   CheckCircle2,
@@ -651,7 +653,7 @@ export default function TeacherSettingsPage() {
     if (activeTab === "llm") {
       setSelectedLlmId(provider.id);
     } else {
-      setExpandedId((current) => (current === provider.id ? null : provider.id));
+      setExpandedId(provider.id);
     }
   }
 
@@ -926,6 +928,7 @@ export default function TeacherSettingsPage() {
   }
 
   const selectedLlmProvider = providers.find((provider) => provider.id === selectedLlmId) ?? null;
+  const selectedModalityProvider = providers.find((provider) => provider.id === expandedId) ?? null;
 
   async function handleDelete(provider: ProviderMeta) {
     setDeleting(true);
@@ -972,76 +975,68 @@ export default function TeacherSettingsPage() {
 
   return (
     <DashboardShell role="teacher">
-      <PageHeader
-        eyebrow="AI 服务"
-        title="AI 服务设置"
-        description="集中管理 AI 大模型、语音、图像、视频、搜索和 PDF 解析服务。配置保存在服务端，课堂生成与授课流程会直接读取这里的连接信息。"
-      />
+      <div className="mb-5 flex items-center gap-3">
+        <Link
+          href="/teacher"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-stone-200 bg-white text-stone-500 transition hover:bg-stone-50 hover:text-stone-800"
+          title="返回教师首页"
+        >
+          <ArrowLeft size={18} />
+        </Link>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-stone-900">AI 服务设置</h1>
+          <p className="mt-0.5 text-sm text-stone-500">配置大模型、语音、图像、视频、搜索和 PDF 解析服务</p>
+        </div>
+      </div>
 
       <ThemeProvider>
         <I18nProvider>
           <ServerProvidersInit />
 
-          <div className="mb-5 grid gap-3 lg:grid-cols-3">
-            <StatusTile
-              icon={BadgeCheck}
-              label="当前模块"
-              value={currentTab.label}
-              helper={tabCopy.description}
-            />
-            <StatusTile
-              icon={KeyRound}
-              label="已配置服务商"
-              value={`${configuredCount} / ${providers.length}`}
-              helper="以已保存的密钥为准"
-            />
-            <StatusTile
-              icon={Server}
-              label="当前应用默认"
-              value={
-                currentDefaultProvider?.provider.name ||
-                (activeTab === "llm" ? "未指定默认模型" : "未指定")
-              }
-              helper={
-                currentDefaultProvider
-                  ? currentDefaultProvider.saved?.defaultModel ||
-                    currentDefaultProvider.saved?.models?.[0]
-                    ? `默认模型：${
-                        currentDefaultProvider.saved?.defaultModel ||
-                        currentDefaultProvider.saved?.models?.[0]
-                      }`
-                    : "该模态当前只需指定默认服务商"
-                  : "保存某个服务商配置后会设为该模态默认"
-              }
-            />
-          </div>
-
+          {/* Tab 栏 */}
           <div className="mb-5 overflow-x-auto border-b border-stone-200">
             <div className="flex min-w-max gap-1">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key;
+                const tabProviders = getProvidersForTab(tab.key);
+                const tabSection = tab.section;
+                const tabConfigured = tabProviders.filter((p) => {
+                  const saved = savedConfigs[configKey(tabSection, p.id)];
+                  return saved?.hasApiKey || saved?.enabled !== undefined;
+                }).length;
                 return (
                   <button
                     key={tab.key}
                     type="button"
                     onClick={() => handleTabChange(tab.key)}
                     className={cn(
-                      "inline-flex h-12 items-center gap-2 border-b-2 px-4 text-sm font-bold transition",
+                      "inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-bold transition",
                       active
-                        ? "border-blue-600 text-blue-700"
+                        ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]"
                         : "border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-800",
                     )}
                   >
                     <Icon size={16} />
                     {tab.shortLabel}
+                    {tabConfigured > 0 ? (
+                      <span className={cn(
+                        "inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                        active
+                          ? "bg-[var(--pbl-teacher)] text-white"
+                          : "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
+                      )}>
+                        {tabConfigured}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_310px]">
+          {/* 主内容区 - 全宽 */}
+          <div>
             <main className="min-w-0">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -1135,96 +1130,74 @@ export default function TeacherSettingsPage() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {filteredProviders.map((provider) => {
-                    const saved = getSavedConfig(currentTab.section, provider.id);
-                    const expanded = expandedId === provider.id;
-                    return (
-                      <Card key={provider.id} compact className="overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => selectProvider(provider)}
-                          className="flex w-full items-center gap-3 text-left"
-                        >
-                          <ProviderLogo icon={provider.icon} name={provider.name} />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex flex-wrap items-center gap-2">
-                              <span className="font-bold text-stone-900">{provider.name}</span>
-                              <ProviderStateBadge provider={provider} saved={saved} />
-                            </span>
-                            <span className="mt-1 block truncate text-xs text-stone-500">
-                              {provider.defaultBaseUrl || provider.description || provider.id}
-                            </span>
+                <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+                  <ProviderList
+                    providers={filteredProviders}
+                    selectedId={expandedId}
+                    section={currentTab.section}
+                    savedConfigs={savedConfigs}
+                    onSelect={selectProvider}
+                    onDelete={setDeletingProvider}
+                  />
+                  {selectedModalityProvider ? (
+                    <Card>
+                      <SectionTitle
+                        title={selectedModalityProvider.name}
+                        hint={`服务标识：${selectedModalityProvider.id}`}
+                        action={
+                          <span className="flex items-center gap-2">
+                            {getSavedConfig(currentTab.section, selectedModalityProvider.id)?.hasApiKey ? (
+                              <Pill tone="green">已配置</Pill>
+                            ) : (
+                              <Pill tone={selectedModalityProvider.requiresApiKey ? "amber" : "blue"}>
+                                {selectedModalityProvider.requiresApiKey ? "待配置" : "无需密钥"}
+                              </Pill>
+                            )}
+                            {getSavedConfig(currentTab.section, selectedModalityProvider.id)?.hasApiKey ? (
+                              <button
+                                type="button"
+                                onClick={() => setDeletingProvider(selectedModalityProvider)}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]"
+                                title="删除配置"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            ) : null}
                           </span>
-                          <ChevronRight
-                            size={18}
-                            className={cn("shrink-0 text-stone-400 transition", expanded && "rotate-90")}
-                          />
-                        </button>
-
-                        {expanded ? (
-                          <div className="mt-4 border-t border-stone-100 pt-4">
-                            <ModalityConfigForm
-                              provider={provider}
-                              saved={saved}
-                              editApiKey={editApiKey}
-                              editBaseUrl={editBaseUrl}
-                              editModels={editModels}
-                              editDefaultModel={editDefaultModel}
-                              editDefaultVoice={editDefaultVoice}
-                              showApiKey={showApiKey}
-                              saving={savingProviderId === provider.id}
-                              testing={testingProviderId === provider.id}
-                              calibrating={calibratingProviderId === provider.id}
-                              saveResult={saveResult}
-                              testResult={testResult}
-                              onApiKeyChange={setEditApiKey}
-                              onBaseUrlChange={setEditBaseUrl}
-                              onModelsChange={setEditModels}
-                              onDefaultModelChange={setEditDefaultModel}
-                              onDefaultVoiceChange={setEditDefaultVoice}
-                              onShowApiKeyChange={setShowApiKey}
-                              onSave={() => handleSave(provider)}
-                              onTest={() => handleTestConnection(provider)}
-                              onCalibrate={activeTab === "tts" ? () => handleCalibrateTts(provider) : undefined}
-                              onDelete={() => setDeletingProvider(provider)}
-                            />
-                          </div>
-                        ) : null}
-                      </Card>
-                    );
-                  })}
-                  {filteredProviders.length === 0 ? <EmptyPanel text="没有匹配的服务商。" /> : null}
+                        }
+                      />
+                      <ModalityConfigForm
+                        provider={selectedModalityProvider}
+                        saved={getSavedConfig(currentTab.section, selectedModalityProvider.id)}
+                        editApiKey={editApiKey}
+                        editBaseUrl={editBaseUrl}
+                        editModels={editModels}
+                        editDefaultModel={editDefaultModel}
+                        editDefaultVoice={editDefaultVoice}
+                        showApiKey={showApiKey}
+                        saving={savingProviderId === selectedModalityProvider.id}
+                        testing={testingProviderId === selectedModalityProvider.id}
+                        calibrating={calibratingProviderId === selectedModalityProvider.id}
+                        saveResult={saveResult}
+                        testResult={testResult}
+                        onApiKeyChange={setEditApiKey}
+                        onBaseUrlChange={setEditBaseUrl}
+                        onModelsChange={setEditModels}
+                        onDefaultModelChange={setEditDefaultModel}
+                        onDefaultVoiceChange={setEditDefaultVoice}
+                        onShowApiKeyChange={setShowApiKey}
+                        onSave={() => handleSave(selectedModalityProvider)}
+                        onTest={() => handleTestConnection(selectedModalityProvider)}
+                        onCalibrate={activeTab === "tts" ? () => handleCalibrateTts(selectedModalityProvider) : undefined}
+                        onDelete={() => setDeletingProvider(selectedModalityProvider)}
+                      />
+                    </Card>
+                  ) : (
+                    <EmptyPanel text="选择一个服务商后编辑连接信息。" />
+                  )}
                 </div>
               )}
             </main>
-
-            <aside className="min-w-0">
-              <Card className="sticky top-24">
-                <div className="mb-4 flex items-center gap-2">
-                  <SlidersHorizontal size={18} className="text-blue-600" />
-                  <h3 className="text-base font-bold text-stone-900">操作顺序</h3>
-                </div>
-                <div className="space-y-3">
-                  {tabCopy.tips.map((tip, index) => (
-                    <div key={tip} className="flex gap-3 text-sm text-stone-600">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
-                        {index + 1}
-                      </span>
-                      <span className="leading-6">{tip}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-5 rounded-[8px] border border-stone-200 bg-stone-50 p-3">
-                  <div className="text-xs font-bold uppercase tracking-[0.08em] text-stone-400">
-                    连接测试说明
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">
-                    {TEST_EXPLANATIONS[activeTab]}
-                  </p>
-                </div>
-              </Card>
-            </aside>
           </div>
         </I18nProvider>
       </ThemeProvider>
@@ -1296,7 +1269,7 @@ function ProviderList({
             className={cn(
               "group flex w-full items-center gap-3 rounded-[8px] border px-3 py-3 text-left transition",
               selected
-                ? "border-blue-300 bg-blue-50 shadow-sm"
+                ? "border-[var(--pbl-teacher)]/40 bg-[var(--pbl-teacher-soft)] shadow-sm"
                 : "border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50",
             )}
           >
@@ -1401,7 +1374,7 @@ function LlmConfigForm({
           <button
             type="button"
             onClick={() => onBaseUrlChange(provider.defaultBaseUrl || "")}
-            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--pbl-teacher)] hover:text-[var(--pbl-teacher)]"
           >
             <RefreshCw size={13} />
             恢复默认地址
@@ -1436,12 +1409,12 @@ function LlmConfigForm({
                   className={cn(
                     "flex min-h-12 items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-sm transition",
                     selected
-                      ? "border-blue-400 bg-blue-50 text-blue-800 shadow-sm ring-1 ring-blue-200"
+                      ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] shadow-sm ring-1 ring-[var(--pbl-teacher)]/20"
                       : "border-stone-200 bg-white text-stone-600 hover:border-stone-300",
                   )}
                 >
                   {selected ? (
-                    <Zap size={17} className="shrink-0 text-blue-500" />
+                    <Zap size={17} className="shrink-0 text-[var(--pbl-teacher)]" />
                   ) : (
                     <Circle size={17} className="shrink-0 text-stone-300" />
                   )}
@@ -1555,7 +1528,7 @@ function ModalityConfigForm({
             <button
               type="button"
               onClick={() => onBaseUrlChange(provider.defaultBaseUrl || "")}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800"
+              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--pbl-teacher)] hover:text-[var(--pbl-teacher)]"
             >
               <RefreshCw size={13} />
               恢复默认地址
@@ -1582,14 +1555,14 @@ function ModalityConfigForm({
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
                       isActive
-                        ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200"
+                        ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] shadow-sm ring-1 ring-[var(--pbl-teacher)]/20"
                         : isSelected
                           ? "border-stone-300 bg-stone-50 text-stone-700"
                           : "border-stone-200 bg-white text-stone-500 hover:border-stone-300",
                     )}
                   >
                     {isActive ? (
-                      <Zap size={12} className="text-blue-500" />
+                      <Zap size={12} className="text-[var(--pbl-teacher)]" />
                     ) : (
                       <Circle size={12} />
                     )}
@@ -1610,18 +1583,18 @@ function ModalityConfigForm({
             <select
               value={editDefaultVoice}
               onChange={(event) => onDefaultVoiceChange(event.target.value)}
-              className="h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-sm text-stone-800 outline-none focus:border-blue-400"
+              className="h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-sm text-stone-800 outline-none focus:border-[var(--pbl-teacher)]"
             >
               {availableVoices.length > 0 ? availableVoices.map((voice) => (
                 <option key={voice.id} value={voice.id}>{voice.name}</option>
               )) : <option value="default">默认音色</option>}
             </select>
             {activeCalibration ? (
-              <div className="mt-2 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <div className="mt-2 rounded-[8px] border border-[var(--pbl-success-border)] bg-[var(--pbl-success-soft)] px-3 py-2 text-xs text-[var(--pbl-success)]">
                 已建模：约 {activeCalibration.cjkCharsPerMinute.toFixed(1)} 字/分钟，累计 {activeCalibration.sampleCount ?? 1} 次测试
               </div>
             ) : (
-              <div className="mt-2 text-xs text-amber-700">当前模型与音色尚未建模，将暂用内置保守语速。</div>
+              <div className="mt-2 text-xs text-[var(--pbl-warning)]">当前模型与音色尚未建模，将暂用内置保守语速。</div>
             )}
           </Field>
         ) : null}
@@ -1629,7 +1602,7 @@ function ModalityConfigForm({
 
       <div className="flex flex-col justify-between rounded-[8px] border border-stone-200 bg-stone-50 p-3">
         <div className="text-xs leading-5 text-stone-500">
-          <div className="mb-3 rounded-[8px] border border-blue-100 bg-white p-2 text-blue-700">
+          <div className="mb-3 rounded-[8px] border border-stone-200 bg-white p-2 text-[var(--pbl-teacher)]">
             <div className="flex items-center gap-1.5 font-bold">
               {saved?.priority === 0 ? <CheckCircle2 size={13} /> : <Zap size={13} />}
               {saved?.priority === 0 ? "当前应用默认" : "保存后设为默认"}
@@ -1819,7 +1792,7 @@ function ResultNotice({ result, compact = false }: { result: ResultState; compac
         "flex gap-2 rounded-[8px] border text-sm",
         compact ? "mt-2 px-2 py-2 text-xs" : "px-3 py-2",
         result.ok
-          ? "border-emerald-200 bg-emerald-50 text-[var(--pbl-success)]"
+          ? "border-[var(--pbl-success-border)] bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]"
           : "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]",
       )}
     >
@@ -1846,7 +1819,7 @@ function StatusTile({
   return (
     <div className="rounded-[8px] border border-stone-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
       <div className="flex items-start gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-blue-50 text-blue-700">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
           <Icon size={19} />
         </span>
         <span className="min-w-0">
@@ -1862,23 +1835,23 @@ function StatusTile({
 }
 
 function ProviderStateBadge({ provider, saved }: { provider: ProviderMeta; saved?: SavedConfig }) {
-  const defaultBadge =
-    saved?.priority === 0 ? (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-emerald-200">
-        <CheckCircle2 size={10} />
-        当前默认
-      </span>
-    ) : null;
+  const isDefault = saved?.priority === 0;
+  const isConfigured = saved?.hasApiKey || saved?.enabled !== undefined;
+  const activeModel = saved?.defaultModel || saved?.models?.[0];
 
-  if (saved?.hasApiKey || saved?.enabled !== undefined) {
-    const activeModel = saved?.defaultModel || saved?.models?.[0];
+  if (isConfigured) {
     return (
       <span className="flex items-center gap-1.5">
-        <Pill tone="green" className="h-6 px-2 text-xs">{saved.hasApiKey ? "已配置" : "已启用"}</Pill>
-        {defaultBadge}
+        {isDefault ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-success-soft)] px-2 py-0.5 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-success)]/30">
+            <CheckCircle2 size={10} />
+            默认
+          </span>
+        ) : (
+          <Pill tone="green" className="h-5 px-1.5 text-[10px]">已配置</Pill>
+        )}
         {activeModel ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
-            <Zap size={10} className="text-blue-500" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-600">
             {activeModel}
           </span>
         ) : null}
@@ -1888,12 +1861,17 @@ function ProviderStateBadge({ provider, saved }: { provider: ProviderMeta; saved
   if (!provider.requiresApiKey) {
     return (
       <span className="flex items-center gap-1.5">
-        <Pill tone="blue" className="h-6 px-2 text-xs">无需密钥</Pill>
-        {defaultBadge}
+        <Pill tone="blue" className="h-5 px-1.5 text-[10px]">无需密钥</Pill>
+        {isDefault ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-success-soft)] px-2 py-0.5 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-success)]/30">
+            <CheckCircle2 size={10} />
+            默认
+          </span>
+        ) : null}
       </span>
     );
   }
-  return <Pill tone="gray" className="h-6 px-2 text-xs">未配置</Pill>;
+  return <Pill tone="gray" className="h-5 px-1.5 text-[10px]">未配置</Pill>;
 }
 
 function ProviderLogo({ icon, name }: { icon?: string; name: string }) {

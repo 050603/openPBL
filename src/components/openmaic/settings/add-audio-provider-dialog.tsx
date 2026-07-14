@@ -72,7 +72,7 @@ export function AddAudioProviderDialog({
         <div className="space-y-4">
           <div className="pb-3 border-b">
             <h2 className="text-lg font-semibold">{t(titleKey)}</h2>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-stone-500 mt-1">
               {t('settings.addCustomAudioProviderDescription')}
             </p>
           </div>
@@ -105,7 +105,7 @@ export function AddAudioProviderDialog({
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">{t('settings.defaultModelHint')}</p>
+              <p className="text-xs text-stone-500">{t('settings.defaultModelHint')}</p>
             </div>
           )}
 

@@ -194,7 +194,7 @@ export function ProviderConfigPanel({
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                   disabled={!requiresApiKey}
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -243,7 +243,7 @@ export function ProviderConfigPanel({
               />
               <label
                 htmlFor={`requires-api-key-${provider.id}`}
-                className="text-sm cursor-pointer text-muted-foreground"
+                className="text-sm cursor-pointer text-stone-500"
               >
                 {t('settings.requiresApiKey')}
               </label>
@@ -281,8 +281,8 @@ export function ProviderConfigPanel({
                       className={cn(
                         'px-2 py-0.5 text-xs rounded-md border transition-colors',
                         active
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background text-muted-foreground border-border hover:bg-muted',
+                          ? 'bg-[var(--pbl-teacher)] text-white border-[var(--pbl-teacher)]'
+                          : 'bg-white text-stone-500 border-stone-200 hover:bg-stone-50',
                       )}
                     >
                       {t(alt.label)}
@@ -314,7 +314,7 @@ export function ProviderConfigPanel({
               const fullUrl = effectiveBaseUrl + endpointPath;
 
               return (
-                <p className="text-xs text-muted-foreground break-all">
+                <p className="text-xs text-stone-500 break-all">
                   {t('settings.requestUrl')}: {fullUrl}
                 </p>
               );
@@ -329,7 +329,7 @@ export function ProviderConfigPanel({
           <div className="flex items-center gap-2">
             <Label className="text-base">{t('settings.models')}</Label>
             {modelsLocked && (
-              <span className="text-[10px] px-1 py-0 h-4 leading-4 rounded bg-muted text-muted-foreground">
+              <span className="text-[10px] px-1.5 py-0 h-4 leading-4 rounded bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]">
                 {t('settings.serverConfigured')}
               </span>
             )}
@@ -359,11 +359,11 @@ export function ProviderConfigPanel({
             return (
               <div
                 key={model.id}
-                className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-card"
+                className="flex items-center justify-between p-3 rounded-lg border border-stone-200 bg-white"
               >
                 <div className="flex-1">
                   <div className="font-mono text-sm font-medium mb-1.5">{model.name}</div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs text-stone-500">
                     {/* Capabilities */}
                     <div className="flex items-center gap-1">
                       {model.capabilities?.vision && (

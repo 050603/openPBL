@@ -51,14 +51,14 @@ export function AgentSettings({
         {/* Mode Toggle */}
         <div className="space-y-2">
           <Label>{t('settings.agentMode')}</Label>
-          <div className="inline-flex rounded-lg border bg-muted/30 p-0.5">
+          <div className="inline-flex rounded-lg border bg-stone-50 p-0.5">
             <button
               onClick={() => onAgentModeChange('preset')}
               className={cn(
                 'px-4 py-1.5 text-sm font-medium rounded-md transition-all',
                 agentMode === 'preset'
                   ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
+                  : 'text-stone-500 hover:text-foreground',
               )}
             >
               {t('settings.agentModePreset')}
@@ -69,7 +69,7 @@ export function AgentSettings({
                 'px-4 py-1.5 text-sm font-medium rounded-md transition-all flex items-center gap-1.5',
                 agentMode === 'auto'
                   ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
+                  : 'text-stone-500 hover:text-foreground',
               )}
             >
               <Sparkles className="h-3.5 w-3.5" />
@@ -83,18 +83,18 @@ export function AgentSettings({
             {/* Preset mode: existing agent multi-select */}
             <div className="space-y-2">
               <Label>{t('settings.selectAgents')}</Label>
-              <p className="text-sm text-muted-foreground">{t('settings.agentSettingsDesc')}</p>
+              <p className="text-sm text-stone-500">{t('settings.agentSettingsDesc')}</p>
             </div>
 
-            <div className="space-y-2 border rounded-lg p-2 bg-muted/30">
+            <div className="space-y-2 border rounded-lg p-2 bg-stone-50">
               {agents.map((agent) => (
                 <div
                   key={agent.id}
                   className={cn(
                     'flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-pointer',
                     selectedAgentIds.includes(agent.id)
-                      ? 'bg-primary/10 border-primary/50 shadow-sm'
-                      : 'bg-background hover:bg-muted/50 border-transparent',
+                      ? 'bg-[var(--pbl-teacher-soft)] border-primary/50 shadow-sm'
+                      : 'bg-background hover:bg-stone-100 border-transparent',
                   )}
                   onClick={() => onToggleAgent(agent.id)}
                 >
@@ -117,7 +117,7 @@ export function AgentSettings({
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">{getAgentRole(agent)}</div>
+                    <div className="text-xs text-stone-500">{getAgentRole(agent)}</div>
                   </div>
                 </div>
               ))}

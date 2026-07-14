@@ -581,6 +581,8 @@ export type Course = {
   drivingQuestion: string;
   learningObjectives?: string[];
   expectedOutcome?: string;
+  /** Optional teacher-authored learner context; generation fills conservative defaults when omitted. */
+  learnerProfile?: import("@/lib/openmaic/pedagogy/teaching-constraints").LearnerProfileInput;
   status: CourseStatus;
   stages: Stage[];
   currentStageIndex: number;
@@ -670,6 +672,13 @@ export type CourseContent = {
   courseSummaryPresentation?: CourseSummaryPresentation;
   /** 教师授课资源对应的 OpenMAIC classroom ID（用于 PPT 预览播放） */
   teacherClassroomId?: string;
+  /**
+   * 教师在课程核查阶段确认的生成模式开关。
+   * - false（默认）：正常模式，AI 授知以 PPT 形式呈现知识点
+   * - true：互动模式，适合通过互动呈现的知识点将转为互动页面
+   * 该值由 verify 页面编辑，generate 页面读取后传给生成 API。
+   */
+  interactiveMode?: boolean;
 };
 
 /**

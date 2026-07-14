@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
     pblTeachingActivities,
     pblActivityCatalog,
     knowledgePoints,
+    teachingConstraints,
     courseId,
     courseTitle,
     sceneOutlines: rawSceneOutlines,
@@ -85,6 +86,7 @@ export async function POST(request: NextRequest) {
     enableImageGeneration = false,
     enableVideoGeneration = false,
     enableTTS = false,
+    interactiveMode = false,
     ttsProviderId,
     ttsModelId,
     ttsVoice,
@@ -98,6 +100,7 @@ export async function POST(request: NextRequest) {
     pblTeachingActivities?: import('@openmaic/lib/types/generation').UserRequirements['pblTeachingActivities'];
     pblActivityCatalog?: import('@openmaic/lib/types/generation').UserRequirements['pblActivityCatalog'];
     knowledgePoints?: Array<{ id: string; name?: string }>;
+    teachingConstraints?: import('@openmaic/lib/pedagogy/teaching-constraints').TeachingConstraints;
     courseId?: string;
     courseTitle?: string;
     sceneOutlines?: unknown;
@@ -105,6 +108,7 @@ export async function POST(request: NextRequest) {
     enableImageGeneration?: boolean;
     enableVideoGeneration?: boolean;
     enableTTS?: boolean;
+    interactiveMode?: boolean;
     ttsProviderId?: string;
     ttsModelId?: string;
     ttsVoice?: string;
@@ -190,12 +194,14 @@ export async function POST(request: NextRequest) {
     pblTeachingActivities,
     pblActivityCatalog,
     knowledgePoints,
+    teachingConstraints,
     courseTitle,
     sceneOutlines,
     enableWebSearch,
     enableImageGeneration,
     enableVideoGeneration,
     enableTTS,
+    interactiveMode,
     ttsProviderId: typeof ttsProviderId === 'string' ? ttsProviderId : undefined,
     ttsModelId: typeof ttsModelId === 'string' ? ttsModelId : undefined,
     ttsVoice: typeof ttsVoice === 'string' ? ttsVoice : undefined,
@@ -311,6 +317,7 @@ export async function POST(request: NextRequest) {
           teacherClassroomId: splitResult.teacherClassroomId,
           teacherResourceScenes: splitResult.teacherResourceScenes,
           pblCoverage: splitResult.pblCoverage,
+          qualityReport: result.qualityReport,
           stage: { id: result.stage.id, name: result.stage.name },
         });
       } catch (error) {

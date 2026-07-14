@@ -317,7 +317,30 @@ export function buildEvaluationPlanPrompt(
 6. overallRubric 明确两部分独立评分、缺一时最终分待完成。
 7. 评价证据必须优先引用个人项目配置中的 evidenceRequirements；AI 过程评价关注方案选择、修订、测试和 AI 建议采纳/拒绝证据，教师评价关注 artifact 与 presentation，学生 reflection 只评价成长与迁移，不计入计分权重。
 8. 评价维度必须覆盖 foundation/core 理解、application/extension 迁移、项目实践证据、成果表达与反思成长，并标明评价发生在哪个课程模块。
+9. 权重规则：AI 负责的维度权重合计必须为 100，教师负责的维度权重合计也必须为 100。weight 为纯数字（如 20，不要写 "20%"）。
 
-仅返回 JSON：{ "evaluationPlan": { "dimensions": [...], "overallRubric": "string" } }`;
+仅返回 JSON，结构如下（字段名必须完全一致）：
+{
+  "evaluationPlan": {
+    "dimensions": [
+      {
+        "id": "ev-1",
+        "name": "维度名称（必填，字符串）",
+        "weight": 20,
+        "description": "该维度的评价标准说明（字符串）",
+        "responsibleRole": "ai"
+      },
+      {
+        "id": "ev-2",
+        "name": "维度名称（必填，字符串）",
+        "weight": 30,
+        "description": "该维度的评价标准说明（字符串）",
+        "responsibleRole": "teacher"
+      }
+    ],
+    "overallRubric": "整体评价说明字符串"
+  }
+}
+注意：dimensions 数组必须包含 4-6 个对象；每个对象必须包含 name（字符串）、weight（数字）、responsibleRole（"ai" 或 "teacher"）；responsibleRole 为 "ai" 的维度 weight 合计 = 100，responsibleRole 为 "teacher" 的维度 weight 合计 = 100。`;
   return { system: SYSTEM_PREAMBLE, user };
 }

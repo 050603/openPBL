@@ -217,7 +217,7 @@ export function DashboardShell({
       ) : null}
 
       <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
-        <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide && "max-w-none")}>
+        <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide ? "max-w-[1600px]" : "max-w-[1280px]")}>
           {subtitle ? <p className="mb-2 text-sm font-medium text-[var(--pbl-text-muted)]">{subtitle}</p> : null}
           {children}
         </div>

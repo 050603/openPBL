@@ -130,7 +130,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -161,7 +161,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
                 <Label className="text-sm">
                   {t('settings.pdfBaseUrl')}
                   {isCloud && (
-                    <span className="text-muted-foreground ml-1 font-normal">
+                    <span className="text-stone-500 ml-1 font-normal">
                       ({t('settings.optional')})
                     </span>
                   )}
@@ -208,7 +208,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
               <div className="space-y-2">
                 <Label className="text-sm">
                   {t('settings.pdfApiKey')}
-                  <span className="text-muted-foreground ml-1 font-normal">
+                  <span className="text-stone-500 ml-1 font-normal">
                     ({t('settings.optional')})
                   </span>
                 </Label>
@@ -230,7 +230,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                   >
                     {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -263,7 +263,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
             if (isCloud) {
               const base = providerConfig?.baseUrl || 'https://mineru.net/api/v4';
               return (
-                <p className="text-xs text-muted-foreground break-all">
+                <p className="text-xs text-stone-500 break-all">
                   {t('settings.requestUrl')}: {base}/file-urls/batch
                 </p>
               );
@@ -271,7 +271,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
             const effectiveBaseUrl = providerConfig?.baseUrl || '';
             if (!effectiveBaseUrl) return null;
             return (
-              <p className="text-xs text-muted-foreground break-all">
+              <p className="text-xs text-stone-500 break-all">
                 {t('settings.requestUrl')}: {effectiveBaseUrl}/file_parse
               </p>
             );

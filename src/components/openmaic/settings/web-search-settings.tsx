@@ -87,12 +87,12 @@ export function WebSearchSettings({ selectedProviderId }: WebSearchSettingsProps
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground">{t('settings.webSearchApiKeyHint')}</p>
+              <p className="text-xs text-stone-500">{t('settings.webSearchApiKeyHint')}</p>
             </div>
 
             <div className="space-y-2">
@@ -124,7 +124,7 @@ export function WebSearchSettings({ selectedProviderId }: WebSearchSettingsProps
             if (!effectiveBaseUrl) return null;
             const fullUrl = buildRequestUrl(effectiveBaseUrl);
             return (
-              <p className="text-xs text-muted-foreground break-all">
+              <p className="text-xs text-stone-500 break-all">
                 {t('settings.requestUrl')}: {fullUrl}
               </p>
             );
@@ -136,7 +136,7 @@ export function WebSearchSettings({ selectedProviderId }: WebSearchSettingsProps
         <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-sm">{t('settings.baiduSubSources')}</Label>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-stone-500">
               {t('settings.baiduSubSourcesDescription')}
             </p>
           </div>
@@ -155,7 +155,7 @@ export function WebSearchSettings({ selectedProviderId }: WebSearchSettingsProps
                 >
                   <div className="min-w-0 space-y-0.5">
                     <div className="text-sm font-medium">{t(meta.labelKey)}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-stone-500">
                       {t(meta.descriptionKey)}
                       {meta.docsUrl && (
                         <a

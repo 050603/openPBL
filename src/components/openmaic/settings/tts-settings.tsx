@@ -243,7 +243,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
       <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2.5">
         <div className="min-w-0 pr-3">
           <p className="text-sm font-medium">{t('settings.ttsProviderEnabledLabel')}</p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[11px] text-stone-500">
             {providerServerDisabled
               ? t('settings.ttsProviderDisabledByAdmin')
               : !providerConfigured
@@ -275,7 +275,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
           <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5">
             <div className="flex flex-col gap-2 md:flex-row md:items-end">
               <div className="min-w-0 md:w-[150px] md:shrink-0">
-                <Label className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <Label className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-stone-500">
                   <Server className="h-3 w-3" />
                   {t('settings.voxcpmBackend')}
                 </Label>
@@ -304,7 +304,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
               </div>
 
               <div className="min-w-0 md:flex-1">
-                <Label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                <Label className="mb-1 block text-[11px] font-medium text-stone-500">
                   {t('settings.ttsBaseUrl')}
                 </Label>
                 <Input
@@ -326,7 +326,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
 
               {isVoxCPMVLLMOmni && (
                 <div className="min-w-0 md:w-[130px] md:shrink-0">
-                  <Label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  <Label className="mb-1 block text-[11px] font-medium text-stone-500">
                     {t('media.model')}
                   </Label>
                   <Input
@@ -348,7 +348,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
               )}
             </div>
 
-            <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md bg-muted/25 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md bg-muted/25 px-2.5 py-1.5 text-[11px] text-stone-500">
               <span className="inline-flex shrink-0 items-center gap-1.5 font-medium">
                 <Route className="h-3 w-3" />
                 {t('settings.requestUrl')}
@@ -390,7 +390,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                       <button
                         type="button"
                         onClick={() => setShowApiKey(!showApiKey)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                       >
                         {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
@@ -414,7 +414,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                       <button
                         type="button"
                         onClick={() => setShowApiKey(!showApiKey)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                       >
                         {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
@@ -444,7 +444,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -475,7 +475,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
               </div>
             </div>
             {requestUrl && (
-              <p className="break-all text-xs text-muted-foreground">
+              <p className="break-all text-xs text-stone-500">
                 {t('settings.requestUrl')}: {requestUrl}
               </p>
             )}
@@ -535,19 +535,19 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
       {/* Available Models */}
       {ttsProvider?.models?.length > 0 && !isVoxCPM && (
         <div className="space-y-2">
-          <Label className="text-sm text-muted-foreground">{t('settings.availableModels')}</Label>
+          <Label className="text-sm text-stone-500">{t('settings.availableModels')}</Label>
           <div className="flex flex-wrap gap-2">
             {ttsProvider.models.map((model) => (
               <div
                 key={model.id}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border/40 text-xs font-mono text-muted-foreground"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-stone-100 border border-border/40 text-xs font-mono text-stone-500"
               >
                 <span className="size-1.5 rounded-full bg-[var(--pbl-success)]/70" />
                 {model.name}
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground/60">
+          <p className="text-[11px] text-stone-500/60">
             {t('settings.modelSelectedViaVoice')}
           </p>
         </div>
@@ -564,10 +564,10 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
             <div className="rounded-lg border border-border/60 overflow-hidden">
               {/* Column headers */}
               <div className="grid grid-cols-[1fr_1fr_36px] gap-0 bg-muted/40 px-3 py-1.5 border-b border-border/40">
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wider">
                   ID
                 </span>
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wider">
                   {t('settings.voiceNamePlaceholder')}
                 </span>
                 <span />
@@ -605,7 +605,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                         customVoices: voices,
                       });
                     }}
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-stone-500 hover:text-destructive"
                   >
                     <XCircle className="h-3.5 w-3.5" />
                   </Button>
@@ -613,7 +613,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground/50 italic">{t('settings.noVoicesAdded')}</p>
+            <p className="text-sm text-stone-500/50 italic">{t('settings.noVoicesAdded')}</p>
           )}
           <AddVoiceRow
             existingIds={(
@@ -911,14 +911,14 @@ function VoxCPMVoiceManager() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Label className="text-base font-semibold">{t('settings.voxcpmVoicesTitle')}</Label>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-stone-500">
             {t('settings.voxcpmVoicesDescription')}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground/70">
+          <p className="mt-1 text-xs text-stone-500/70">
             {t('settings.voxcpmAutoVoicePrivacyNote')}
           </p>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-xs text-stone-500">
           <span className="rounded-md border border-border/60 px-2 py-1">
             {t('settings.voxcpmPromptCount', { count: promptCount + 1 })}
           </span>
@@ -938,7 +938,7 @@ function VoxCPMVoiceManager() {
           <section className="border-b border-border/60 lg:border-b-0 lg:border-r">
             <div className="flex h-12 items-center justify-between border-b border-border/60 px-4">
               <span className="text-sm font-medium">{t('settings.voxcpmVoicePool')}</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-stone-500">
                 {t('settings.voxcpmVoiceCount', { count: profiles.length + 1 })}
               </span>
             </div>
@@ -994,7 +994,7 @@ function VoxCPMVoiceManager() {
                   );
                 })
               ) : (
-                <div className="px-4 py-8 text-center text-sm text-muted-foreground/60">
+                <div className="px-4 py-8 text-center text-sm text-stone-500/60">
                   {t('settings.voxcpmNoCustomVoices')}
                 </div>
               )}
@@ -1007,7 +1007,7 @@ function VoxCPMVoiceManager() {
               onValueChange={(value) => setCreateMode(value as typeof createMode)}
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <TabsList className="h-9 rounded-md bg-muted p-1">
+                <TabsList className="h-9 rounded-md bg-stone-100 p-1">
                   <TabsTrigger value="prompt" className="gap-1.5 rounded-sm px-3 text-sm">
                     <Wand2 className="h-3.5 w-3.5" />
                     Prompt
@@ -1099,7 +1099,7 @@ function VoxCPMVoiceManager() {
                     )}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground/70">
+                <p className="text-xs text-stone-500/70">
                   {t('settings.voxcpmReferenceAudioLimitHint')}
                 </p>
                 <Textarea
@@ -1172,19 +1172,19 @@ function VoiceProfileRow({
       ? 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300'
       : kind === 'clone'
         ? 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300'
-        : 'bg-muted text-muted-foreground';
+        : 'bg-stone-100 text-stone-500';
   const badgeClassName =
     badgeTone === 'default'
       ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800/70 dark:bg-violet-950/40 dark:text-violet-300'
       : badgeTone === 'warning'
         ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-300'
-        : 'border-border/70 bg-background text-muted-foreground';
+        : 'border-border/70 bg-background text-stone-500';
   const { t } = useI18n();
 
   return (
     <div
       className={cn(
-        'group relative flex min-h-16 items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0',
+        'group relative flex min-h-16 items-center gap-3 border-t border-stone-200/50 px-4 py-3 first:border-t-0',
         muted ? 'opacity-60' : 'hover:bg-muted/35',
       )}
     >
@@ -1208,7 +1208,7 @@ function VoiceProfileRow({
             {badge}
           </span>
         </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
+        <p className="mt-1 truncate text-xs text-stone-500">{detail}</p>
       </div>
       {onPreview && (
         <Button
@@ -1218,7 +1218,7 @@ function VoiceProfileRow({
           aria-label={
             previewing ? t('settings.voxcpmStopPreview') : t('settings.voxcpmPreviewVoice')
           }
-          className="h-8 w-8 text-muted-foreground opacity-70 hover:text-foreground group-hover:opacity-100"
+          className="h-8 w-8 text-stone-500 opacity-70 hover:text-foreground group-hover:opacity-100"
         >
           {previewing ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1233,7 +1233,7 @@ function VoiceProfileRow({
           size="icon"
           onClick={() => void onDelete()}
           aria-label={t('settings.voxcpmDeleteVoice')}
-          className="h-8 w-8 text-muted-foreground opacity-70 hover:text-destructive group-hover:opacity-100"
+          className="h-8 w-8 text-stone-500 opacity-70 hover:text-destructive group-hover:opacity-100"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>

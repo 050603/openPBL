@@ -42,6 +42,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
 import { resolveVocationalActive } from '@openmaic/lib/config/feature-flags';
 import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
+import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import {
   isPblModuleTimingPlanConfirmed,
   type PblModuleTimingPlan,
@@ -335,10 +336,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Build user profile string for language inference context
-    const userProfileText =
+    const legacyUserProfileText =
       requirements.userNickname || requirements.userBio
         ? `## Student Profile\n\nStudent: ${requirements.userNickname || 'Unknown'}${requirements.userBio ? ` — ${requirements.userBio}` : ''}\n\nConsider this student's background when designing the course. Adapt difficulty, examples, and teaching approach accordingly.\n\n---`
         : '';
+    const userProfileText = [
+      formatTeachingConstraintsForPrompt(requirements.teachingConstraints),
+      legacyUserProfileText,
+    ].filter(Boolean).join('\n\n');
 
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;

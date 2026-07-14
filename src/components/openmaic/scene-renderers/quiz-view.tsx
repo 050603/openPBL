@@ -443,13 +443,23 @@ function ShortAnswerQuestion({
     <QuestionCard question={question} index={index} result={result}>
       {!isReview ? (
         <div className="relative">
-          <textarea
-            value={value ?? ''}
-            onChange={(e) => onChange(e.target.value)}
-            disabled={disabled}
-            placeholder={t('quiz.inputPlaceholder')}
-            className="w-full min-h-[100px] p-3 pb-10 rounded-xl border border-gray-200 dark:border-gray-600 text-sm resize-none focus:outline-none focus:border-violet-300 dark:focus:border-violet-600 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-900/50 transition-all disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:bg-gray-800/50 dark:text-gray-200 dark:placeholder:text-gray-500"
-          />
+          {question.format === 'fill_blank' ? (
+            <input
+              value={value ?? ''}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={disabled}
+              placeholder="填写关键概念或关系"
+              className="w-full h-12 px-3 pr-24 rounded-xl border border-gray-200 dark:border-gray-600 text-sm focus:outline-none focus:border-violet-300 dark:focus:border-violet-600 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-900/50 transition-all disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:bg-gray-800/50 dark:text-gray-200 dark:placeholder:text-gray-500"
+            />
+          ) : (
+            <textarea
+              value={value ?? ''}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={disabled}
+              placeholder={question.format === 'scenario_task' ? '写出你的判断、依据和解决思路' : t('quiz.inputPlaceholder')}
+              className="w-full min-h-[100px] p-3 pb-10 rounded-xl border border-gray-200 dark:border-gray-600 text-sm resize-none focus:outline-none focus:border-violet-300 dark:focus:border-violet-600 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-900/50 transition-all disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:bg-gray-800/50 dark:text-gray-200 dark:placeholder:text-gray-500"
+            />
+          )}
           <SpeechButton
             size="sm"
             disabled={disabled}
@@ -562,7 +572,13 @@ function QuestionCard({
               <QuizMathText text={question.question} allowDisplayMode />
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
-              {question.type === 'single'
+              {question.format === 'true_false'
+                ? '判断题'
+                : question.format === 'fill_blank'
+                  ? '填空题'
+                  : question.format === 'scenario_task'
+                    ? '情境任务'
+                    : question.type === 'single'
                 ? t('quiz.singleChoice')
                 : question.type === 'multiple'
                   ? t('quiz.multipleChoice')

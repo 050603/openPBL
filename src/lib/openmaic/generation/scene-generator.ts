@@ -58,6 +58,8 @@ import type { ThinkingConfig } from '@openmaic/lib/types/provider';
 import { createLogger } from '@openmaic/lib/logger';
 import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 import { buildNarrationContext, enforceNarrationContinuity } from './narration-continuity';
+import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
+import { normalizeQuizQuestions, selectQuizFormats } from '@openmaic/lib/quiz/quality';
 const log = createLogger('Generation');
 
 const INTERACTIVE_WIDGET_ACTIONS = [
@@ -107,6 +109,7 @@ export interface SceneActionsOptions {
   languageDirective?: string;
   pblProfile?: PblCourseConfig;
   pblContext?: string;
+  teachingConstraints?: UserRequirements['teachingConstraints'];
   /** One bounded correction pass when the first action script misses its timing budget. */
   timingCorrection?: string;
 }
@@ -401,7 +404,10 @@ export async function generateSceneContent(
     baselineContent,
     signal,
   } = options;
-  const pblContext = formatPblSceneContext(outline, pblProfile ?? userRequirements?.pblProfile);
+  const pblContext = [
+    formatPblSceneContext(outline, pblProfile ?? userRequirements?.pblProfile),
+    formatTeachingConstraintsForPrompt(userRequirements?.teachingConstraints),
+  ].filter(Boolean).join('\n\n');
 
   // Unified path for interactive scenes (both normal and ultra mode)
   if (outline.type === 'interactive') {
@@ -1017,6 +1023,12 @@ async function generateQuizContent(
     difficulty: 'medium',
     questionTypes: ['single'],
   };
+  const questionFormats = selectQuizFormats({
+    objectiveText: [outline.teachingObjective, outline.title, outline.description, ...(outline.keyPoints ?? [])].filter(Boolean).join(' '),
+    difficulty: quizConfig.difficulty,
+    questionCount: quizConfig.questionCount,
+    requested: quizConfig.questionTypes,
+  });
 
   const prompts = buildPrompt(PROMPT_IDS.QUIZ_CONTENT, {
     title: outline.title,
@@ -1024,7 +1036,7 @@ async function generateQuizContent(
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
     questionCount: quizConfig.questionCount,
     difficulty: quizConfig.difficulty,
-    questionTypes: quizConfig.questionTypes.join(', '),
+    questionTypes: questionFormats.join(', '),
     languageDirective: languageDirective || '',
     pblContext: pblContext || '',
   });
@@ -1035,7 +1047,7 @@ async function generateQuizContent(
 
   log.debug(`Generating quiz content for: ${outline.title}`);
   const response = await aiCall(prompts.system, prompts.user);
-  const generatedQuestions = parseJsonResponse<QuizQuestion[]>(response);
+  const generatedQuestions = parseJsonResponse<unknown[]>(response);
 
   if (!generatedQuestions || !Array.isArray(generatedQuestions)) {
     log.error(`Failed to parse AI response for: ${outline.title}`);
@@ -1044,67 +1056,17 @@ async function generateQuizContent(
 
   log.debug(`Got ${generatedQuestions.length} questions for: ${outline.title}`);
 
-  // Ensure each question has an ID and normalize options format
-  const questions: QuizQuestion[] = generatedQuestions.map((q) => {
-    const isText = q.type === 'short_answer';
-    return {
-      ...q,
-      id: q.id || `q_${nanoid(8)}`,
-      options: isText ? undefined : normalizeQuizOptions(q.options),
-      answer: isText ? undefined : normalizeQuizAnswer(q as unknown as Record<string, unknown>),
-      hasAnswer: isText ? false : true,
-    };
-  });
+  const normalized = normalizeQuizQuestions(generatedQuestions);
+  if (normalized.issues.length > 0) {
+    log.warn(`Quiz quality repairs for "${outline.title}": ${normalized.issues.join('; ')}`);
+  }
+  const questions = normalized.questions;
+  if (questions.length === 0) {
+    log.error(`Quiz generation produced no usable questions for: ${outline.title}`);
+    return null;
+  }
 
   return { questions };
-}
-
-/**
- * Normalize quiz options from AI response.
- * AI may generate plain strings ["OptionA", "OptionB"] or QuizOption objects.
- * This normalizes to QuizOption[] format: { value: "A", label: "OptionA" }
- */
-function normalizeQuizOptions(
-  options: unknown[] | undefined,
-): { value: string; label: string }[] | undefined {
-  if (!options || !Array.isArray(options)) return undefined;
-
-  return options.map((opt, index) => {
-    const letter = String.fromCharCode(65 + index); // A, B, C, D...
-
-    if (typeof opt === 'string') {
-      return { value: letter, label: opt };
-    }
-
-    if (typeof opt === 'object' && opt !== null) {
-      const obj = opt as Record<string, unknown>;
-      return {
-        value: typeof obj.value === 'string' ? obj.value : letter,
-        label: typeof obj.label === 'string' ? obj.label : String(obj.value || obj.text || letter),
-      };
-    }
-
-    return { value: letter, label: String(opt) };
-  });
-}
-
-/**
- * Normalize quiz answer from AI response.
- * AI may generate correctAnswer as string or string[], under various field names.
- * This normalizes to string[] format matching option values.
- */
-function normalizeQuizAnswer(question: Record<string, unknown>): string[] | undefined {
-  // AI might use "correctAnswer", "answer", or "correct_answer"
-  const raw =
-    question.answer ??
-    question.correctAnswer ??
-    (question as Record<string, unknown>).correct_answer;
-  if (!raw) return undefined;
-
-  if (Array.isArray(raw)) {
-    return raw.map(String);
-  }
-  return [String(raw)];
 }
 
 /**
@@ -1453,7 +1415,10 @@ export async function generateSceneActions(
 ): Promise<Action[]> {
   const { ctx, agents, userProfile, languageDirective } = options;
   const finalizeActions = (actions: Action[]) => enforceNarrationContinuity(actions, ctx);
-  const pblContext = options.pblContext ?? formatPblSceneContext(outline, options.pblProfile);
+  const pblContext = options.pblContext ?? [
+    formatPblSceneContext(outline, options.pblProfile),
+    formatTeachingConstraintsForPrompt(options.teachingConstraints),
+  ].filter(Boolean).join('\n\n');
   const agentsText = formatAgentsForPrompt(agents);
 
   // Debug: Log content type for interactive scenes

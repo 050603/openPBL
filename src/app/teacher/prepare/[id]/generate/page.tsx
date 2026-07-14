@@ -23,6 +23,7 @@ import type { SceneOutline } from "@/lib/openmaic/types/generation";
 import { buildFacilitationScaffold } from "@/lib/teacher-resources/facilitation-scaffolds";
 import {
   buildPblCourseRequirement,
+  buildCourseTeachingConstraints,
   buildPblActivityCatalog,
   buildTeacherActivityRequirements,
 } from "@/lib/openmaic/pbl/course-request";
@@ -50,6 +51,7 @@ type GenResult = {
   teacherClassroomId?: string;
   teacherResourceScenes?: TeacherResourceScene[];
   pblCoverage?: ReturnType<typeof checkPblStageCoverage>;
+  qualityReport?: { ok: boolean; corrections: string[]; warnings: string[] };
   stage: { id: string; name: string };
 };
 
@@ -72,6 +74,7 @@ type SseEvent =
       teacherClassroomId?: string;
       teacherResourceScenes?: TeacherResourceScene[];
       pblCoverage?: ReturnType<typeof checkPblStageCoverage>;
+      qualityReport?: { ok: boolean; corrections: string[]; warnings: string[] };
       stage: { id: string; name: string };
     }
   | { type: "error"; error?: string; details?: string };
@@ -242,6 +245,8 @@ export default function GenerateCoursePage() {
   const [enableImageGeneration, setEnableImageGeneration] = useState(false);
   const [enableVideoGeneration, setEnableVideoGeneration] = useState(false);
   const [enableTTS, setEnableTTS] = useState(true);
+  // 互动模式：从课程核查阶段读取，不在生成页面修改
+  const interactiveMode = course?.content.interactiveMode ?? false;
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
@@ -301,6 +306,7 @@ export default function GenerateCoursePage() {
           pblTeachingActivities: buildTeacherActivityRequirements(course.content),
           pblActivityCatalog: buildPblActivityCatalog(course.content),
           knowledgePoints: course.content.knowledgePoints,
+          teachingConstraints: buildCourseTeachingConstraints(course, course.content),
           courseId: course.id,
           courseTitle: course.name,
           sceneOutlines,
@@ -308,6 +314,7 @@ export default function GenerateCoursePage() {
           enableImageGeneration,
           enableVideoGeneration,
           enableTTS,
+          interactiveMode,
           ttsProviderId,
           ttsModelId,
           ttsVoice: ttsVoiceId,
@@ -620,6 +627,15 @@ export default function GenerateCoursePage() {
                   </div>
                 </div>
               </label>
+
+              {interactiveMode ? (
+                <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3">
+                  <div className="text-sm font-bold text-stone-800">互动模式 · 已开启</div>
+                  <div className="mt-1 text-xs leading-5 text-stone-500">
+                    AI 授知场景将优先采用互动页面（模拟、图表、代码、游戏）呈现知识点。可在课程核查 → 课程大纲步骤中关闭。
+                  </div>
+                </div>
+              ) : null}
             </div>
             </details>
 
@@ -733,9 +749,20 @@ export default function GenerateCoursePage() {
               </div>
             ) : null}
             {status === "success" && result ? (
-              <div className="mt-5 flex flex-col gap-3 border-t border-[var(--pbl-border)] pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-[var(--pbl-text-muted)]">已保留生成结果，不会自动离开本页。请查看摘要后主动进入预览。</p>
-                <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link>
+              <div className="mt-5 border-t border-[var(--pbl-border)] pt-5">
+                {result.qualityReport && (result.qualityReport.corrections.length > 0 || result.qualityReport.warnings.length > 0) ? (
+                  <details className="mb-4 rounded-[var(--radius-xs)] border border-[var(--pbl-warning)]/30 bg-[var(--pbl-warning)]/5 px-4 py-3">
+                    <summary className="cursor-pointer text-sm font-semibold text-[var(--pbl-text)]">教学质量检查：已自动修复 {result.qualityReport.corrections.length} 项，仍有 {result.qualityReport.warnings.length} 项建议复核</summary>
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-[var(--pbl-text-muted)]">
+                      {result.qualityReport.corrections.map((item) => <li key={`fix-${item}`}>已修复：{item}</li>)}
+                      {result.qualityReport.warnings.map((item) => <li key={`warn-${item}`}>建议：{item}</li>)}
+                    </ul>
+                  </details>
+                ) : null}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-[var(--pbl-text-muted)]">已保留生成结果，不会自动离开本页。请查看摘要后主动进入预览。</p>
+                  <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link>
+                </div>
               </div>
             ) : null}
           </Card>

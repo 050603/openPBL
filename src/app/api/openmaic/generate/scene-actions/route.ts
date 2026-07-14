@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
       previousSpeeches: incomingPreviousSpeeches,
       userProfile,
       languageDirective,
+      requirements,
     } = body as {
       outline: SceneOutline;
       allOutlines: SceneOutline[];
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
       previousSpeeches?: string[];
       userProfile?: string;
       languageDirective?: string;
+      requirements?: import('@openmaic/lib/types/generation').UserRequirements;
     };
 
     // Validate required fields
@@ -151,6 +153,7 @@ export async function POST(req: NextRequest) {
       agents,
       userProfile,
       languageDirective,
+      teachingConstraints: requirements?.teachingConstraints,
     });
 
     log.info(`Generated ${actions.length} actions for: "${outline.title}"`);

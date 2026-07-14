@@ -39,6 +39,9 @@ export default function PrepareNewPage() {
   const [grade, setGrade] = useState("");
   const [hours, setHours] = useState(8);
   const [learningObjectives, setLearningObjectives] = useState("");
+  const [priorKnowledge, setPriorKnowledge] = useState("");
+  const [learningNeeds, setLearningNeeds] = useState("");
+  const [familiarContexts, setFamiliarContexts] = useState("");
   const [summary, setSummary] = useState("");
   const [drivingQuestion, setDrivingQuestion] = useState("");
   const [difficultyLevel, setDifficultyLevel] = useState<"introductory" | "standard" | "advanced">("standard");
@@ -133,6 +136,11 @@ export default function PrepareNewPage() {
         .split(/\n|，|;/)
         .map((item) => item.trim())
         .filter(Boolean),
+      learnerProfile: {
+        priorKnowledge: priorKnowledge.trim() || undefined,
+        learningNeeds: learningNeeds.trim() || undefined,
+        familiarContexts: familiarContexts.trim() || undefined,
+      },
       pblConfig,
     });
     router.push(`/teacher/prepare/${course.id}/verify`);
@@ -224,6 +232,23 @@ export default function PrepareNewPage() {
                   <Textarea aria-describedby={describedBy} id={id} onChange={(event) => setSummary(event.target.value)} placeholder="学生将调查什么、接触哪些真实对象、形成怎样的判断？" value={summary} />
                 )}
               </FormField>
+              <div className="rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white/60 p-4">
+                <h3 className="text-sm font-bold">学生学情与认知边界</h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--pbl-text-muted)]">可选。未填写时系统会根据学段、学科、课程目标和知识图谱采用保守推断，不默认学生掌握专业概念。</p>
+                <div className="mt-4 grid gap-4">
+                  <FormField label="已有基础" optional>
+                    {({ id }) => <Textarea id={id} value={priorKnowledge} onChange={(event) => setPriorKnowledge(event.target.value)} placeholder="例如：理解分类和概率的直观含义，但没有学习过机器学习模型" />}
+                  </FormField>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField label="学习特点或困难" optional>
+                      {({ id }) => <Textarea id={id} value={learningNeeds} onChange={(event) => setLearningNeeds(event.target.value)} placeholder="例如：抽象概念需要图示；容易混淆训练数据与测试数据" />}
+                    </FormField>
+                    <FormField label="熟悉的生活情境" optional>
+                      {({ id }) => <Textarea id={id} value={familiarContexts} onChange={(event) => setFamiliarContexts(event.target.value)} placeholder="例如：校园生活、短视频推荐、聊天软件、运动比赛" />}
+                    </FormField>
+                  </div>
+                </div>
+              </div>
               <FormField description="一个好的驱动问题有真实对象、开放空间和可完成边界。" label="驱动问题">
                 {({ id, describedBy }) => (
                   <Textarea aria-describedby={describedBy} className="min-h-32" id={id} onChange={(event) => setDrivingQuestion(event.target.value)} placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？" value={drivingQuestion} />

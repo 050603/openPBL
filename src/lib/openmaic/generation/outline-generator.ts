@@ -29,6 +29,7 @@ import { parseJsonResponse } from './json-repair';
 import { uniquifyMediaElementIds } from './scene-builder';
 import type { AICallFn, GenerationResult, GenerationCallbacks } from './pipeline-types';
 import { createLogger } from '@openmaic/lib/logger';
+import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 const log = createLogger('Generation');
 
 /**
@@ -109,10 +110,14 @@ export async function generateSceneOutlinesFromRequirements(
   }
 
   // Build user profile string for prompt injection
-  const userProfileText =
+  const legacyUserProfileText =
     requirements.userNickname || requirements.userBio
       ? `## Student Profile\n\nStudent: ${requirements.userNickname || 'Unknown'}${requirements.userBio ? ` — ${requirements.userBio}` : ''}\n\nConsider this student's background when designing the course. Adapt difficulty, examples, and teaching approach accordingly.\n\n---`
       : '';
+  const userProfileText = [
+    formatTeachingConstraintsForPrompt(requirements.teachingConstraints),
+    legacyUserProfileText,
+  ].filter(Boolean).join('\n\n');
 
   // Build media snippet conditions based on enabled flags.
   const imageEnabled = options?.imageGenerationEnabled ?? false;

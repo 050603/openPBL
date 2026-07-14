@@ -239,7 +239,7 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -291,7 +291,7 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
             }
             if (!endpointPath) return null;
             return (
-              <p className="text-xs text-muted-foreground break-all">
+              <p className="text-xs text-stone-500 break-all">
                 {t('settings.requestUrl')}: {effectiveBaseUrl + endpointPath}
               </p>
             );
@@ -307,7 +307,7 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
             value={asrResult}
             readOnly
             placeholder={t('settings.asrResultPlaceholder')}
-            className="flex-1 bg-muted/50"
+            className="flex-1 bg-stone-100"
           />
           <Button
             onClick={handleToggleASRRecording}
@@ -394,10 +394,10 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
                   <div className="rounded-lg border border-border/60 overflow-hidden">
                     <div className="grid grid-cols-[20px_1fr_1fr_36px] gap-0 bg-muted/40 px-3 py-1.5 border-b border-border/40">
                       <span />
-                      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wider">
                         ID
                       </span>
-                      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wider">
                         {t('settings.modelNamePlaceholder')}
                       </span>
                       <span />
@@ -447,7 +447,7 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
                                 modelId: newModelId,
                               });
                             }}
-                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-stone-500 hover:text-destructive"
                           >
                             <XCircle className="h-3.5 w-3.5" />
                           </Button>
@@ -456,7 +456,7 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
                     })}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground/50 italic">
+                  <p className="text-sm text-stone-500/50 italic">
                     {t('settings.noModelsAdded')}
                   </p>
                 )}

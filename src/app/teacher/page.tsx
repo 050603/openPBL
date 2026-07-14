@@ -91,7 +91,7 @@ export default function TeacherHomePage() {
       userName={session.user.name}
       variant="bare"
     >
-      <div className="py-7">
+      <div className="mx-auto max-w-[1280px] py-7">
         {/* 精简头部 */}
         <header className="flex flex-col gap-5 border-b border-[var(--pbl-border)] pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>

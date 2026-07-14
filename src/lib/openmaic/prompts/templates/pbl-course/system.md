@@ -49,7 +49,7 @@ Return only valid JSON. The top-level object must match this shape:
       "resourceTypes": ["ppt", "interactive-demo", "code-interactive", "script"],
       "widgetType": "simulation | diagram | code | game | visualization3d",
       "widgetOutline": { "concept": "string", "language": "python", "keyVariables": ["string"] },
-      "quizConfig": { "questionCount": 3, "difficulty": "medium", "questionTypes": ["single"] },
+      "quizConfig": { "questionCount": 3, "difficulty": "medium", "questionTypes": ["single", "true_false", "short_answer", "scenario_task"] },
       "outcomePart": "artifact | presentation | reflection"
     }
   ]
