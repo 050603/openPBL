@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePblTeachingOutline } from './pbl-outline-normalization';
+import {
+  applyConfirmedPblTimingPlan,
+  assessPblTeachingOutlineStructure,
+  createPblTimingSkeleton,
+  normalizePblTeachingOutline,
+} from './pbl-outline-normalization';
+import { buildPblModuleTimingPlan } from './pbl-time-model';
 
 describe('PBL teaching outline normalization', () => {
   it('does not manufacture canonical modules for an empty draft', () => {
@@ -50,5 +56,63 @@ describe('PBL teaching outline normalization', () => {
     expect(result.find((activity) => activity.stageKey === 'make')?.durationMin).toBeGreaterThan(
       result.find((activity) => activity.stageKey === 'ai-learning')?.durationMin ?? 0,
     );
+  });
+
+  it('creates a timing-only six-stage skeleton after the knowledge graph is ready', () => {
+    const result = createPblTimingSkeleton({
+      totalMinutes: 90,
+      knowledgePoints: [{ id: 'kp-1', name: '证据', description: '' }],
+    });
+
+    expect(result).toHaveLength(6);
+    expect(result.map((activity) => activity.stageKey)).toEqual([
+      'launch',
+      'ai-learning',
+      'proposal',
+      'make',
+      'showcase',
+      'reflection',
+    ]);
+    expect(result.reduce((sum, activity) => sum + activity.durationMin, 0)).toBe(90);
+  });
+
+  it('merges repeated knowledge and practice outputs into the canonical stage', () => {
+    const base = createPblTimingSkeleton({ totalMinutes: 90 });
+    const result = normalizePblTeachingOutline(
+      [
+        ...base,
+        { ...base[1]!, id: 'knowledge-extra', knowledgePointIds: ['kp-2'], teachingGoal: '补充知识二' },
+        { ...base[3]!, id: 'practice-extra', studentActivity: '第二项实践任务' },
+      ],
+      {
+        totalMinutes: 90,
+        applyTimeModel: false,
+        knowledgePoints: [
+          { id: 'kp-1', name: '知识一', description: '' },
+          { id: 'kp-2', name: '知识二', description: '' },
+        ],
+      },
+    );
+
+    expect(result).toHaveLength(6);
+    expect(result.filter((activity) => activity.stageKey === 'ai-learning')).toHaveLength(1);
+    expect(result.filter((activity) => activity.stageKey === 'make')).toHaveLength(1);
+    expect(result[1]?.knowledgePointIds).toEqual(['kp-1', 'kp-2']);
+    expect(result[3]?.studentActivity).toContain('第二项实践任务');
+    expect(assessPblTeachingOutlineStructure(result)).toEqual([]);
+  });
+
+  it('rejects a confirmed generation response that omits a canonical stage', () => {
+    const skeleton = createPblTimingSkeleton({ totalMinutes: 60 });
+    const plan = buildPblModuleTimingPlan(60, skeleton, undefined, {
+      status: 'confirmed',
+      preserveCurrentDurations: true,
+    });
+
+    expect(() => applyConfirmedPblTimingPlan(
+      skeleton.filter((activity) => activity.stageKey !== 'reflection'),
+      plan,
+      { totalMinutes: 60 },
+    )).toThrow('AI 未生成 学习反思与迁移');
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOutlineFallbacks,
+  normalizeSceneOutlinesForDuration,
   enforcePblOutlineContract,
   generateSceneOutlinesFromRequirements,
 } from "./outline-generator";
@@ -22,6 +23,137 @@ const legacyPblOutline: SceneOutline = {
 };
 
 describe("PBL outline fallbacks", () => {
+  it("preserves an AI semantic page plan instead of splitting by fixed seconds", () => {
+    const result = normalizeSceneOutlinesForDuration([
+      {
+        id: "detail-1",
+        type: "slide",
+        title: "核心方法",
+        description: "讲清方法、案例和练习。",
+        keyPoints: ["概念", "方法", "案例", "练习"],
+        order: 0,
+        stageKey: "ai-learning",
+        audience: "student",
+        parentActivityId: "module-ai",
+        targetDurationSec: 300,
+        ttsPolicy: "target-duration",
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "detail-1",
+      targetDurationSec: 300,
+      parentActivityId: "module-ai",
+      ttsPolicy: "target-duration",
+    });
+    expect(result[0]?.segmentCount).toBeUndefined();
+  });
+
+  it.each([1500, 3000])("does not turn %s seconds of teacher facilitation time into extra PPT pages", (targetDurationSec) => {
+    const result = normalizeSceneOutlinesForDuration([
+      {
+        id: "teacher-detail",
+        type: "slide",
+        title: "项目实践教师支架",
+        description: "教师用这张 PPT 组织项目实践、巡视和反馈。",
+        keyPoints: ["任务说明", "巡视反馈", "成果要求"],
+        order: 0,
+        stageKey: "practice",
+        audience: "teacher",
+        generationPurpose: "teacher-resource",
+        targetDurationSec,
+        ttsPolicy: "none",
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "teacher-detail",
+      targetDurationSec,
+      ttsPolicy: "none",
+    });
+    expect(result[0]?.segmentCount).toBeUndefined();
+  });
+
+  it("keeps teacher scaffolds intact when audience metadata is incomplete", () => {
+    const result = normalizeSceneOutlinesForDuration([
+      {
+        id: "practice-scaffold",
+        type: "slide",
+        title: "实践阶段主持提示",
+        description: "教师主持项目实践。",
+        keyPoints: ["时间提醒", "证据检查"],
+        order: 0,
+        stageKey: "practice",
+        generationPurpose: "facilitation-scaffold",
+        targetDurationSec: 1500,
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe("practice-scaffold");
+  });
+
+  it("does not clone interactive activities or short slides", () => {
+    const result = normalizeSceneOutlinesForDuration([
+      {
+        id: "interactive-1",
+        type: "interactive",
+        title: "练习",
+        description: "完成练习。",
+        keyPoints: ["练习"],
+        order: 0,
+        targetDurationSec: 300,
+      },
+      {
+        id: "slide-1",
+        type: "slide",
+        title: "短讲解",
+        description: "短讲解。",
+        keyPoints: ["概念"],
+        order: 1,
+        targetDurationSec: 120,
+      },
+    ]);
+
+    expect(result.map((outline) => outline.id)).toEqual(["interactive-1", "slide-1"]);
+  });
+
+  it("keeps multiple AI-planned semantic details and their target allocation in order", () => {
+    const result = normalizeSceneOutlinesForDuration([
+      {
+        id: "concept",
+        type: "slide",
+        title: "核心概念",
+        description: "先建立概念模型。",
+        keyPoints: ["概念"],
+        order: 2,
+        stageKey: "ai-learning",
+        audience: "student",
+        parentActivityId: "module-ai",
+        targetDurationSec: 80,
+        ttsPolicy: "target-duration",
+      },
+      {
+        id: "practice",
+        type: "interactive",
+        title: "迁移练习",
+        description: "用概念分析新情境。",
+        keyPoints: ["应用"],
+        order: 1,
+        stageKey: "ai-learning",
+        audience: "student",
+        parentActivityId: "module-ai",
+        targetDurationSec: 220,
+        ttsPolicy: "target-duration",
+      },
+    ]);
+
+    expect(result.map((outline) => outline.id)).toEqual(["concept", "practice"]);
+    expect(result.map((outline) => outline.targetDurationSec)).toEqual([80, 220]);
+  });
+
   it("converts legacy group PBL scenes to ordinary scenes in personal mode", () => {
     const result = applyOutlineFallbacks(legacyPblOutline, true, { personalProject: true });
 
@@ -74,6 +206,10 @@ describe("PBL outline fallbacks", () => {
     expect(userPrompt).toContain("personal");
     expect(userPrompt).toContain("evidenceRequirements");
     expect(userPrompt).toContain("companionStagePolicies");
+    expect(systemPrompt).toContain("semantic PPT page");
+    expect(systemPrompt).toContain("fixed seconds-per-page");
+    expect(userPrompt).toContain("fixed seconds-per-page threshold");
+    expect(userPrompt).toContain("assigned knowledge points");
     expect(result.data?.outlines[0]?.companionIds).toEqual(["knowledge", "ideation"]);
   });
 

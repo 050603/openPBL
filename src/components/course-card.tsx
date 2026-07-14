@@ -11,18 +11,18 @@ import { useState } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui";
 
 const STATUS_TONE: Record<CourseStatus, string> = {
-  draft: "bg-stone-100 text-stone-600",
-  preparing: "bg-amber-50 text-[var(--pbl-warning)]",
+  draft: "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)]",
+  preparing: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]",
   ready: "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
   teaching: "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]",
-  finished: "bg-stone-100 text-stone-500",
+  finished: "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-subtle)]",
 };
 
 const STATUS_ACTION: Record<CourseStatus, { label: string; href: (c: Course) => string }> = {
   draft: { label: "继续备课", href: (c) => `/teacher/prepare/${c.id}/verify` },
   preparing: { label: "继续备课", href: (c) => `/teacher/prepare/${c.id}/verify` },
-  ready: { label: "开始授课", href: (c) => `/teacher/teach-setup/${c.id}` },
-  teaching: { label: "进入教室", href: (c) => `/teacher/teach-classroom/${c.id}` },
+  ready: { label: "开始授课", href: (c) => `/teacher/teach/${c.id}/setup` },
+  teaching: { label: "进入教室", href: (c) => `/teacher/teach/${c.id}/classroom` },
   finished: { label: "查看报告", href: (c) => `/teacher/prepare/${c.id}/preview` },
 };
 
@@ -62,7 +62,7 @@ export function CourseCard({ course }: { course: Course }) {
           <h3 className="text-lg font-semibold leading-tight text-[var(--pbl-text-strong)]">
             {course.name}
           </h3>
-          <p className="mt-1 text-sm text-stone-500">
+          <p className="mt-1 text-sm text-[var(--pbl-text-muted)]">
             {course.hours} 课时 · 最近修改 {formatDate(course.updatedAt)}
           </p>
         </div>
@@ -77,14 +77,14 @@ export function CourseCard({ course }: { course: Course }) {
       </header>
 
       {course.summary ? (
-        <p className="mt-3 line-clamp-2 text-sm leading-6 text-stone-600">
+        <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--pbl-text-muted)]">
           {course.summary}
         </p>
       ) : null}
 
       <div className="mt-4 space-y-3">
         <div>
-          <div className="mb-1.5 flex items-center justify-between text-xs text-stone-500">
+          <div className="mb-1.5 flex items-center justify-between text-xs text-[var(--pbl-text-muted)]">
             <span>阶段进度</span>
             <span>
               {Math.min(course.currentStageIndex + 1, course.stages.length)} / {course.stages.length}
@@ -98,7 +98,7 @@ export function CourseCard({ course }: { course: Course }) {
             value={progressPct}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--pbl-text-muted)]">
           <span className="inline-flex items-center gap-1">
             <Clock3 size={13} /> 修改于 {formatDate(course.updatedAt)}
           </span>
@@ -124,7 +124,7 @@ export function CourseCard({ course }: { course: Course }) {
             详情
           </Link>
           <AlertDialog onOpenChange={setDeleteOpen} open={deleteOpen}>
-            <AlertDialogTrigger asChild><button className="inline-flex min-h-11 items-center gap-1 rounded-[6px] border border-stone-200 px-2.5 text-xs font-semibold text-stone-500 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600" type="button"><Trash2 size={13} /> 删除</button></AlertDialogTrigger>
+            <AlertDialogTrigger asChild><button className="inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] px-2.5 text-xs font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-danger-border)] hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]" type="button" aria-label={`删除课程 ${course.name}`}><Trash2 size={13} /> 删除</button></AlertDialogTrigger>
             <AlertDialogContent><AlertDialogTitle>删除“{course.name}”？</AlertDialogTitle><AlertDialogDescription>{course.students.length ? `已有 ${course.students.length} 名学生加入，删除后学生将无法继续访问，所有课堂数据不可恢复。` : "课程和备课数据将被永久删除，此操作不可撤销。"}</AlertDialogDescription><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => deleteCourse(course.id)}>永久删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
           </AlertDialog>
         </div>

@@ -68,14 +68,14 @@ export function TaskEvaluationCard({ evaluation, className }: Props) {
 
       {strengths.length > 0 && (
         <div>
-          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-indigo-700 mb-1.5 font-medium">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--pbl-teacher)] mb-1.5 font-medium">
             <Sparkles className="w-3 h-3" />
             {t('pbl.v2.taskEvalCard.strengths')}
           </div>
           <ul className="space-y-1 text-sm leading-snug text-stone-700">
             {strengths.map((s, i) => (
               <li key={i} className="flex gap-1.5">
-                <span className="shrink-0 text-indigo-600">✓</span>
+                <span className="shrink-0 text-[var(--pbl-teacher)]">✓</span>
                 <span>{s}</span>
               </li>
             ))}

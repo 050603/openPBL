@@ -85,32 +85,21 @@ export class AudioPlayer {
   private muted: boolean = false;
   private volume: number = 1;
   private playbackRate: number = 1;
-  private activeTargetDurationSec: number | undefined;
 
   /**
    * Play audio (from URL or IndexedDB pre-generated cache)
    * @param audioId Audio ID
    * @param audioUrl Optional server-generated audio URL (takes priority over IndexedDB)
-   * @param targetDurationSec Optional target duration for a generated knowledge
-   * narration. The player adjusts playback rate after metadata is available so
-   * the visible classroom timing follows the second-level outline target.
    * @returns true if audio started playing, false if no audio (TTS disabled or not generated)
    */
   public async play(
     audioId: string,
     audioUrl?: string,
-    targetDurationSec?: number,
   ): Promise<boolean> {
     try {
-      const requestedTargetDurationSec =
-        typeof targetDurationSec === 'number' && Number.isFinite(targetDurationSec) && targetDurationSec > 0
-          ? targetDurationSec
-          : undefined;
-      this.activeTargetDurationSec = requestedTargetDurationSec;
       // 1. Try audioUrl first (server-generated TTS)
       if (audioUrl) {
         this.stop();
-        this.activeTargetDurationSec = requestedTargetDurationSec;
         this.audio = new Audio();
         this.audio.src = audioUrl;
         if (this.muted) this.audio.volume = 0;
@@ -122,11 +111,9 @@ export class AudioPlayer {
         });
         try {
           await this.audio.play();
-          await this.applyTargetPlaybackRate(this.activeTargetDurationSec);
           return true;
         } catch (playError) {
           this.stop();
-          this.activeTargetDurationSec = requestedTargetDurationSec;
           const response = await fetch(audioUrl);
           if (!response.ok) throw playError;
           const sourceBlob = await response.blob();
@@ -152,7 +139,6 @@ export class AudioPlayer {
             );
             throw retryError;
           }
-          await this.applyTargetPlaybackRate(this.activeTargetDurationSec);
           return true;
         }
       }
@@ -167,7 +153,6 @@ export class AudioPlayer {
 
       // Stop current playback
       this.stop();
-      this.activeTargetDurationSec = requestedTargetDurationSec;
 
       // Create audio element
       this.audio = new Audio();
@@ -205,7 +190,6 @@ export class AudioPlayer {
         throw playError;
       }
       // Re-apply after play() — some browsers reset during load
-      await this.applyTargetPlaybackRate(this.activeTargetDurationSec);
       return true;
     } catch (error) {
       log.error('Failed to play audio:', error);
@@ -231,7 +215,6 @@ export class AudioPlayer {
       this.audio.currentTime = 0;
       this.audio = null;
     }
-    this.activeTargetDurationSec = undefined;
     // Note: onEndedCallback intentionally NOT cleared here because play()
     // calls stop() internally — clearing would break the callback chain.
     // Stale callbacks are harmless: engine mode check prevents processNext().
@@ -243,7 +226,6 @@ export class AudioPlayer {
   public resume(): void {
     if (this.audio?.paused) {
       this.audio.playbackRate = this.playbackRate;
-      void this.applyTargetPlaybackRate(this.activeTargetDurationSec);
       this.audio.play().catch((error) => {
         log.error('Failed to resume audio:', error);
       });
@@ -314,32 +296,6 @@ export class AudioPlayer {
     if (this.audio) {
       this.audio.playbackRate = this.playbackRate;
     }
-  }
-
-  private async applyTargetPlaybackRate(targetDurationSec?: number): Promise<void> {
-    const audio = this.audio;
-    if (!audio || !targetDurationSec || targetDurationSec <= 0) return;
-
-    if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const settle = () => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timeout);
-          resolve();
-        };
-        const timeout = window.setTimeout(settle, 750);
-        audio.addEventListener('loadedmetadata', settle, { once: true });
-      });
-    }
-
-    if (audio !== this.audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
-    // Playback duration is naturalDuration / playbackRate. Clamp to a safe
-    // browser range; the generated narration text is already sized by the
-    // prompt, while this final adjustment removes provider-specific drift.
-    const targetRate = Math.max(0.5, Math.min(2.5, audio.duration / targetDurationSec));
-    audio.playbackRate = targetRate;
   }
 
   /**

@@ -110,6 +110,10 @@ export type PblSceneMetadata = {
   detailKind?: PblDetailKind;
   knowledgePointIds?: string[];
   targetDurationSec?: number;
+  segmentIndex?: number;
+  segmentCount?: number;
+  segmentRole?: string;
+  segmentGroupId?: string;
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
   resourceTypes?: SceneResourceType[];

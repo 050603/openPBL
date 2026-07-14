@@ -32,6 +32,10 @@ import {
   writeSubmittedResults,
   type SubmittedState,
 } from '@openmaic/lib/quiz/persistence';
+import {
+  dispatchPlaybackActivityComplete,
+  dispatchPlaybackActivityReset,
+} from '@openmaic/lib/playback/activity-events';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -795,7 +799,16 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
     };
   }, [phase, questions, answers, locale, sceneId]);
 
+  // A submitted quiz is the runtime gate completion. This also runs for a
+  // persisted reviewing state after refresh, so playback can resume without
+  // requiring the student to replay the opening narration.
+  useEffect(() => {
+    if (phase !== 'reviewing') return;
+    dispatchPlaybackActivityComplete({ sceneId, purpose: 'quiz' });
+  }, [phase, sceneId]);
+
   const handleRetry = useCallback(() => {
+    dispatchPlaybackActivityReset({ sceneId, purpose: 'quiz' });
     setPhase('not_started');
     setAnswers({});
     setResults([]);

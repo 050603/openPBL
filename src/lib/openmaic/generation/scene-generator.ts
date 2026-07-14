@@ -57,6 +57,7 @@ import type {
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
 import { createLogger } from '@openmaic/lib/logger';
 import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
+import { buildNarrationContext, enforceNarrationContinuity } from './narration-continuity';
 const log = createLogger('Generation');
 
 const INTERACTIVE_WIDGET_ACTIONS = [
@@ -110,6 +111,38 @@ export interface SceneActionsOptions {
   timingCorrection?: string;
 }
 
+function formatPageBudgetInstruction(outline: SceneOutline): string {
+  const isTeacherResource =
+    outline.audience === 'teacher' ||
+    outline.generationPurpose === 'teacher-resource' ||
+    outline.generationPurpose === 'facilitation-scaffold' ||
+    outline.generationPurpose === 'companion-guidance' ||
+    outline.ttsPolicy === 'none';
+  if (isTeacherResource) {
+    return [
+      '## Teacher resource scope (must follow)',
+      '- This is a teacher-facing facilitation resource. The parent module duration describes classroom activity time, not this PPT page or a continuous narration target.',
+      '- Keep this as one concise, coherent PPT page with brief presenter notes or facilitation prompts. Do not split it into pages and do not write a long lecture to fill the module duration.',
+      '- Cover the teacher\'s task, key prompts, evidence checks, and transition cues only; students perform the activity during the allocated classroom time.',
+    ].join('\n');
+  }
+
+  const targetSeconds = Math.max(
+    1,
+    Math.round(Number(outline.targetDurationSec ?? outline.estimatedDuration) || 1),
+  );
+  const segmentInstruction = outline.segmentCount && outline.segmentCount > 1
+    ? `- This is page ${outline.segmentIndex ?? 1} of ${outline.segmentCount} in the same teaching detail; focus on the assigned segment role "${outline.segmentRole ?? 'one coherent subtopic'}" and do not repeat sibling pages.`
+    : '- This scene must remain one coherent PPT page; do not pack multiple independent semantic pages or a whole module into this page.';
+  return [
+    '## Semantic page and narration budget (must follow)',
+    `- This semantic page has an approximate TTS/content target of ${targetSeconds} seconds. The target is a planning budget, not a fixed page-break threshold.`,
+    segmentInstruction,
+    '- Explain only this outline\'s title, description, key points, and assigned knowledge-point IDs. Use a clear visual structure and add depth only through valid explanations, evidence, examples, counterexamples, steps, or guided practice directly tied to those points and the course grade.',
+    '- Never fill time with repeated wording, unrelated knowledge, advanced content outside the confirmed graph, or invented facts. If a separate concept needs its own visual focus, it must be represented as a separate outline detail rather than squeezed into this page.',
+  ].join('\n');
+}
+
 function formatTimingPlanForPrompt(outline: SceneOutline, timingCorrection?: string): string {
   const plan = outline.timingPlan;
   if (!plan) return '';
@@ -121,8 +154,22 @@ function formatTimingPlanForPrompt(outline: SceneOutline, timingCorrection?: str
     `- 内容类型：${plan.contentType}`,
     `- 总活动目标：约 ${activityTarget} 秒；本场景 AI 朗读目标：约 ${plan.targetDurationSec} 秒`,
     `- 讲稿量：${plan.minUnits}-${plan.maxUnits} ${unitLabel}，目标约 ${plan.targetUnits} ${unitLabel}`,
-    '- 讲稿要通过增加有效概念、依据、例子、反例或分步解释达到时长，不得用重复套话或故意放慢语速凑时长。',
+    '- 讲稿要通过增加与当前场景知识点直接相关的有效概念、依据、例子、反例或分步解释达到时长，不得用重复套话、图谱之外的知识或故意放慢语速凑时长。',
     timingCorrection ? `- 上一次生成偏离目标，请优先修正：${timingCorrection}` : '',
+    `- Activity breakdown: natural-speed narration ${plan.narrationSec ?? plan.targetDurationSec}s; silent student operation/thinking ${plan.studentActivitySec ?? 0}s; feedback/analysis within narration ${plan.feedbackSec ?? 0}s; transition ${plan.transitionSec ?? 0}s.`,
+    '- For interactive, code, and quiz pages, speech must stop during the reserved student activity period. Do not narrate continuously through reading, thinking, answering, coding, or manipulation time.',
+    '- Interactive/code/quiz action order must be: one concise guidance speech, the student activity period, then a separate feedback or answer-analysis speech. Produce at least two speech actions so runtime can place the silent period between them.',
+    '- Keep TTS at its natural stable rate. Meet the budget with relevant content depth, semantic pages, and teaching activities; never stretch or compress audio to fill time.',
+  ].filter(Boolean).join('\n');
+}
+
+function formatCombinedTimingBudget(
+  outline: SceneOutline,
+  timingCorrection?: string,
+): string {
+  return [
+    formatPageBudgetInstruction(outline),
+    formatTimingPlanForPrompt(outline, timingCorrection),
   ].filter(Boolean).join('\n');
 }
 
@@ -161,7 +208,13 @@ export async function generateFullScenes(
   const results = await Promise.all(
     sceneOutlines.map(async (outline, index) => {
       try {
-        const sceneId = await generateSingleScene(outline, api, aiCall, languageDirective);
+        const sceneId = await generateSingleScene(
+          outline,
+          api,
+          aiCall,
+          languageDirective,
+          buildNarrationContext(sceneOutlines, index),
+        );
 
         // Update progress (not atomic, but sufficient for UI display)
         completedCount++;
@@ -206,6 +259,7 @@ async function generateSingleScene(
   api: ReturnType<typeof createStageAPI>,
   aiCall: AICallFn,
   languageDirective?: string,
+  ctx?: SceneGenerationContext,
 ): Promise<string | null> {
   // Step 3.1: Generate content
   log.info(`Step 3.1: Generating content for: ${outline.title}`);
@@ -217,7 +271,7 @@ async function generateSingleScene(
 
   // Step 3.2: Generate Actions
   log.info(`Step 3.2: Generating actions for: ${outline.title}`);
-  const actions = await generateSceneActions(outline, content, aiCall, { languageDirective });
+  const actions = await generateSceneActions(outline, content, aiCall, { languageDirective, ctx });
   log.info(`Generated ${actions.length} actions for: ${outline.title}`);
 
   // Create complete Scene
@@ -821,7 +875,7 @@ async function generateSlideContent(
     teacherContext,
     languageDirective: languageDirective || '',
     pblContext: pblContext || '',
-    timingBudget: formatTimingPlanForPrompt(outline),
+    timingBudget: formatCombinedTimingBudget(outline),
     imageElementEnabled,
     generatedImageEnabled,
     generatedVideoEnabled,
@@ -1398,6 +1452,7 @@ export async function generateSceneActions(
   options: SceneActionsOptions = {},
 ): Promise<Action[]> {
   const { ctx, agents, userProfile, languageDirective } = options;
+  const finalizeActions = (actions: Action[]) => enforceNarrationContinuity(actions, ctx);
   const pblContext = options.pblContext ?? formatPblSceneContext(outline, options.pblProfile);
   const agentsText = formatAgentsForPrompt(agents);
 
@@ -1423,13 +1478,13 @@ export async function generateSceneActions(
       userProfile: userProfile || '',
       languageDirective: languageDirective || '',
       pblContext,
-      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
+      timingBudget: formatCombinedTimingBudget(outline, options.timingCorrection),
     });
 
     if (!prompts) {
       const fallback = generateDefaultSlideActions(outline, content.elements);
 
-      return fallback;
+      return finalizeActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1439,12 +1494,12 @@ export async function generateSceneActions(
       // Validate and fill in Action IDs
       const processed = processActions(actions, content.elements, agents);
 
-      return processed;
+      return finalizeActions(processed);
     }
 
     const fallback = generateDefaultSlideActions(outline, content.elements);
 
-    return fallback;
+    return finalizeActions(fallback);
   }
 
   if (outline.type === 'quiz' && 'questions' in content) {
@@ -1460,13 +1515,13 @@ export async function generateSceneActions(
       agents: agentsText,
       languageDirective: languageDirective || '',
       pblContext,
-      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
+      timingBudget: formatCombinedTimingBudget(outline, options.timingCorrection),
     });
 
     if (!prompts) {
       const fallback = generateDefaultQuizActions(outline);
 
-      return fallback;
+      return finalizeActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1475,12 +1530,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       const processed = processActions(actions, [], agents);
 
-      return processed;
+      return finalizeActions(processed);
     }
 
     const fallback = generateDefaultQuizActions(outline);
 
-    return fallback;
+    return finalizeActions(fallback);
   }
 
   if (outline.type === 'interactive' && 'html' in content) {
@@ -1498,13 +1553,13 @@ export async function generateSceneActions(
       agents: agentsText,
       languageDirective: languageDirective || '',
       pblContext,
-      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
+      timingBudget: formatCombinedTimingBudget(outline, options.timingCorrection),
     });
 
     if (!prompts) {
       const fallback = generateDefaultInteractiveActions(outline);
 
-      return fallback;
+      return finalizeActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1517,12 +1572,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       const processed = processActions(actions, [], agents);
 
-      return processed;
+      return finalizeActions(processed);
     }
 
     const fallback = generateDefaultInteractiveActions(outline);
 
-    return fallback;
+    return finalizeActions(fallback);
   }
 
   if (outline.type === 'pbl' && 'projectConfig' in content) {
@@ -1538,13 +1593,13 @@ export async function generateSceneActions(
       agents: agentsText,
       languageDirective: languageDirective || '',
       pblContext,
-      timingBudget: formatTimingPlanForPrompt(outline, options.timingCorrection),
+      timingBudget: formatCombinedTimingBudget(outline, options.timingCorrection),
     });
 
     if (!prompts) {
       const fallback = generateDefaultPBLActions(outline);
 
-      return fallback;
+      return finalizeActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1553,12 +1608,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       const processed = processActions(actions, [], agents);
 
-      return processed;
+      return finalizeActions(processed);
     }
 
     const fallback = generateDefaultPBLActions(outline);
 
-    return fallback;
+    return finalizeActions(fallback);
   }
 
   return [];
@@ -1729,6 +1784,46 @@ function generateDefaultInteractiveActions(_outline: SceneOutline): Action[] {
   ];
 }
 
+type ActivityPauseSpeechAction = Extract<Action, { type: 'speech' }> & {
+  activityPauseSec: number;
+  activityPausePurpose: 'interaction' | 'quiz';
+};
+
+function addStudentActivityPause(outline: SceneOutline, actions: Action[]): Action[] {
+  const activityPauseSec = Math.round(outline.timingPlan?.studentActivitySec ?? 0);
+  if (activityPauseSec <= 0) {
+    return actions;
+  }
+  const normalizedActions = actions.filter((action) => action.type === 'speech').length >= 2
+    ? actions
+    : [
+        ...actions,
+        {
+          id: `activity_feedback_${nanoid(8)}`,
+          type: 'speech' as const,
+          title: outline.type === 'quiz' ? '测验反馈与过渡' : '活动反馈与过渡',
+          text: outline.type === 'quiz'
+            ? '提交后，请对照页面解析检查自己的推理依据，确认需要巩固的步骤，再继续后面的学习。'
+            : '完成阅读或操作后，把观察到的信息和当前知识点联系起来，再带着这个证据进入下一部分。',
+        },
+      ];
+  const pauseAction: ActivityPauseSpeechAction = {
+    id: `activity_pause_${nanoid(8)}`,
+    type: 'speech',
+    title: outline.type === 'quiz' ? '学生读题、思考与作答' : '学生阅读、操作与观察',
+    text: '',
+    activityPauseSec,
+    activityPausePurpose: outline.type === 'quiz' ? 'quiz' : 'interaction',
+  };
+  const firstSpeechIndex = normalizedActions.findIndex((action) => action.type === 'speech');
+  const insertionIndex = firstSpeechIndex >= 0 ? firstSpeechIndex + 1 : 0;
+  return [
+    ...normalizedActions.slice(0, insertionIndex),
+    pauseAction,
+    ...normalizedActions.slice(insertionIndex),
+  ];
+}
+
 /**
  * Create a complete scene with Actions
  */
@@ -1742,6 +1837,7 @@ export function createSceneWithActions(
   actions: Action[],
   api: ReturnType<typeof createStageAPI>,
 ): string | null {
+  const timedActions = addStudentActivityPause(outline, actions);
   const pblMetadata = {
     ...(outline.stageKey ? { stageKey: outline.stageKey } : {}),
     ...(outline.stageLabel ? { stageLabel: outline.stageLabel } : {}),
@@ -1756,6 +1852,10 @@ export function createSceneWithActions(
       ? { knowledgePointIds: [...outline.knowledgePointIds] }
       : {}),
     ...(outline.targetDurationSec ? { targetDurationSec: outline.targetDurationSec } : {}),
+    ...(outline.segmentIndex ? { segmentIndex: outline.segmentIndex } : {}),
+    ...(outline.segmentCount ? { segmentCount: outline.segmentCount } : {}),
+    ...(outline.segmentRole ? { segmentRole: outline.segmentRole } : {}),
+    ...(outline.segmentGroupId ? { segmentGroupId: outline.segmentGroupId } : {}),
     ...(outline.ttsPolicy ? { ttsPolicy: outline.ttsPolicy } : {}),
     ...(outline.timingPlan ? { timingPlan: outline.timingPlan } : {}),
     ...(outline.resourceTypes?.length ? { resourceTypes: [...outline.resourceTypes] } : {}),
@@ -1790,7 +1890,7 @@ export function createSceneWithActions(
         type: 'slide',
         canvas: slide,
       },
-      actions,
+      actions: timedActions,
       outlineId: outline.id,
     });
 
@@ -1807,7 +1907,7 @@ export function createSceneWithActions(
         type: 'quiz',
         questions: content.questions,
       },
-      actions,
+      actions: timedActions,
       outlineId: outline.id,
     });
 
@@ -1828,7 +1928,7 @@ export function createSceneWithActions(
         widgetType: content.widgetType,
         widgetConfig: content.widgetConfig,
       },
-      actions,
+      actions: timedActions,
       outlineId: outline.id,
     });
 
@@ -1846,7 +1946,7 @@ export function createSceneWithActions(
         projectConfig: content.projectConfig,
         ...(content.projectV2 ? { projectV2: content.projectV2 } : {}),
       },
-      actions,
+      actions: timedActions,
       outlineId: outline.id,
     });
 

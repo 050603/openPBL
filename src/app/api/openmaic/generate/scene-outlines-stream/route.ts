@@ -24,7 +24,11 @@ import {
   formatTeacherPersonaForPrompt,
 } from '@openmaic/lib/generation/generation-pipeline';
 import type { AgentInfo } from '@openmaic/lib/generation/generation-pipeline';
-import { DEFAULT_LANGUAGE_DIRECTIVE } from '@openmaic/lib/generation/outline-generator';
+import {
+  DEFAULT_LANGUAGE_DIRECTIVE,
+  enforcePblOutlineContract,
+  normalizeSceneOutlinesForDuration,
+} from '@openmaic/lib/generation/outline-generator';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import { nanoid } from 'nanoid';
 import type {
@@ -411,6 +415,9 @@ export async function POST(req: NextRequest) {
         requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
           ? PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS.join(', ')
           : '',
+      ttsTimingContext: requirements.ttsTimingContext
+        ? JSON.stringify(requirements.ttsTimingContext, null, 2)
+        : 'No explicit calibration; use the conservative natural-speed fallback.',
     });
 
     if (!prompts) {
@@ -626,7 +633,11 @@ export async function POST(req: NextRequest) {
 
           if (parsedOutlines.length > 0) {
             // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-            const uniquifiedOutlines = uniquifyMediaElementIds(parsedOutlines);
+            const contractOutlines = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+              ? enforcePblOutlineContract(parsedOutlines, requirements)
+              : parsedOutlines;
+            const normalizedOutlines = normalizeSceneOutlinesForDuration(contractOutlines);
+            const uniquifiedOutlines = uniquifyMediaElementIds(normalizedOutlines);
             // Send done event with all outlines
             const doneEvent = JSON.stringify({
               type: 'done',

@@ -40,7 +40,7 @@ const ACTION_ICON_ONLY: Record<string, { Icon: typeof Flashlight; style: string 
   widget_setState: {
     Icon: SlidersHorizontal,
     style:
-      'bg-indigo-50 dark:bg-indigo-500/15 border-indigo-300/40 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300',
+      'bg-[var(--pbl-teacher-soft)] dark:bg-indigo-500/15 border-indigo-300/40 dark:border-indigo-500/30 text-[var(--pbl-teacher)] dark:text-indigo-300',
   },
   widget_annotation: {
     Icon: StickyNote,

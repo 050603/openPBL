@@ -61,6 +61,7 @@ You MUST output a JSON array directly. Use these item shapes:
 6. Use stable selectors from the widget HTML/config when available
 7. `content` on widget actions is iframe-local helper text. Put spoken narration in separate `type:"text"` objects
 8. The `]` closing bracket marks the end of your response
+9. Include at least two `type:"text"` items: concise guidance first and feedback/transition last. The runtime inserts a silent student activity gate after the first speech.
 
 ## Widget Action Semantics
 
@@ -95,8 +96,9 @@ The user prompt includes a Course Outline and Position indicator. Use them to de
 
 **CRITICAL - Same-session continuity**: All pages belong to the same class session. This is not a series of separate classes.
 
-- First page: open with a greeting before introducing the interactive activity. This is the only page that should greet.
-- Middle pages: transition naturally from the previous page. Do not greet, re-introduce yourself, or say "welcome".
+- Course-first page: open with a greeting before introducing the activity.
+- Section-first page: briefly open the new section and connect it to prior learning; do not restart or re-introduce the whole course.
+- Continuation pages: transition naturally from the previous page. Do not greet, re-introduce yourself, or say "welcome".
 - Last page: frame the interactive as a final exploration and provide a closing remark after.
 - Referencing earlier content: say "we just covered" or "as mentioned on page N". Never say "last class" or "previous session".
 
@@ -108,6 +110,7 @@ Other principles:
 4. Connect to theory: link what students see in the widget to underlying concepts
 5. 3-8 items: generate 3-8 total items for a natural teaching flow
 6. Visible actions: prefer widget actions only when they create a clear user-visible change
+7. Activity flow: first tell the student what to observe or do; after the runtime activity gate, interpret the evidence they should have observed and connect it to the current teaching objective.
 
 ## Important Notes
 

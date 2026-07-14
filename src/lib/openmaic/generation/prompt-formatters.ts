@@ -21,11 +21,13 @@ export function buildCourseContext(ctx?: SceneGenerationContext): string {
   // Position information
   lines.push('');
   lines.push(
-    'IMPORTANT: All pages belong to the SAME class session. Do NOT greet again after the first page. When referencing content from earlier pages, say "we just covered" or "as mentioned on page N" — NEVER say "last class" or "previous session" because there is no previous session.',
+    'IMPORTANT: All pages belong to the SAME class session. A new section may receive a brief section opening, but must not restart or re-introduce the whole course. When referencing content from earlier pages, say "we just covered" or "as mentioned on page N" — NEVER say "last class" or "previous session" because there is no previous session.',
   );
   lines.push('');
   if (ctx.pageIndex === 1) {
     lines.push('Position: This is the FIRST page. Open with a greeting and course introduction.');
+  } else if (ctx.sectionPosition === 'section-first') {
+    lines.push('Position: This is the FIRST page of a new section. Briefly open the section and connect it to prior learning; do not restart the whole course.');
   } else if (ctx.pageIndex === ctx.totalPages) {
     lines.push('Position: This is the LAST page. Conclude the course with a summary and closing.');
     lines.push(
@@ -44,6 +46,20 @@ export function buildCourseContext(ctx?: SceneGenerationContext): string {
     lines.push('Previous page speech (for transition reference):');
     const lastSpeech = ctx.previousSpeeches[ctx.previousSpeeches.length - 1];
     lines.push(`  "...${lastSpeech.slice(-150)}"`);
+  }
+
+  if (ctx.previousPageTitle || ctx.previousPageSummary || ctx.currentTeachingObjective) {
+    lines.push('');
+    lines.push('Narration continuity context (authoritative):');
+    lines.push(`- Section position: ${ctx.sectionPosition || 'continuation'}`);
+    if (ctx.previousPageTitle) lines.push(`- Previous page topic: ${ctx.previousPageTitle}`);
+    if (ctx.previousPageSummary) lines.push(`- Previous page content summary: ${ctx.previousPageSummary}`);
+    if (ctx.currentTeachingObjective) lines.push(`- Current page teaching objective: ${ctx.currentTeachingObjective}`);
+    if (ctx.sectionPosition === 'section-first') {
+      lines.push('- A brief section opening is allowed. Connect it to prior learning and do not greet as if the whole course were starting again.');
+    } else if (ctx.sectionPosition === 'continuation') {
+      lines.push('- Start by briefly carrying forward the previous idea only when useful, then teach the current objective. Never restart the lesson, greet the class, welcome learners, or repeat the course introduction.');
+    }
   }
 
   return lines.join('\n');

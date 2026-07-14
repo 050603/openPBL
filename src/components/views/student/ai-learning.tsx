@@ -14,11 +14,11 @@ export function AiLearningView({ course }: { course?: Course }) {
   const { studentId, studentName, user } = useSession();
   const [graphCollapsed, setGraphCollapsed] = useState(false);
 
-  const knowledgePoints = course?.content.knowledgePoints ?? [];
-  const graph = course?.content.knowledgeGraph;
+  const knowledgePoints = course?.content?.knowledgePoints ?? [];
+  const graph = course?.content?.knowledgeGraph;
   const progress = course?.students.find((student) => student.id === studentId)?.stageProgress["ai-learning"] ?? 0;
   const aiProgress = studentId ? course?.aiLearningProgress?.[studentId] : undefined;
-  const goals = aiProgress?.currentGoals?.length ? aiProgress.currentGoals : (course?.learningObjectives ?? course?.content.lessonOutline.flatMap((section) => section.objectives).slice(0, 4) ?? []);
+  const goals = aiProgress?.currentGoals?.length ? aiProgress.currentGoals : (course?.learningObjectives ?? course?.content?.lessonOutline?.flatMap((section) => section.objectives ?? []).slice(0, 4) ?? []);
 
   // ===== OpenMAIC 场景-知识点联动 =====
   // 订阅 useStageStore 的 currentSceneId 变化，匹配当前讲解的知识点

@@ -47,13 +47,12 @@ export function TeacherStageView({
       return withCompanionMonitor(
         <WorkspaceTeacherView
           course={course}
-          onSelectGroup={onSelectGroup}
         />
       );
     case "proposal-review":
       return withCompanionMonitor(<ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />);
     case "project-making":
-      return withCompanionMonitor(<ProjectMakingTeacherView course={course} onSelectGroup={onSelectGroup} />);
+      return withCompanionMonitor(<ProjectMakingTeacherView course={course} />);
     case "showcase":
       return withCompanionMonitor(
         <ShowcaseTeacherView

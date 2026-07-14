@@ -13,12 +13,33 @@ export type TtsTimingProfile = {
   id: string;
   providerId: string;
   modelId: string;
+  voiceId?: string;
   label: string;
   cjkCharsPerMinute: number;
   latinWordsPerMinute: number;
   punctuationPauseSec: number;
   defaultSpeed: number;
   source: 'seed' | 'configured';
+};
+
+export type TtsVoiceTimingCalibration = {
+  providerId: string;
+  modelId: string;
+  voiceId: string;
+  language: string;
+  cjkCharsPerMinute: number;
+  latinWordsPerMinute: number;
+  sampleUnits: number;
+  measuredDurationSec: number;
+  /** Natural playback speed used for this profile. Currently calibration is performed at 1.0. */
+  speed?: number;
+  /** Number of independent samples represented by this aggregate. */
+  sampleCount?: number;
+  /** Aggregate speech units used to compute the shared weighted rate. */
+  totalSampleUnits?: number;
+  /** Aggregate decoded audio duration used to compute the shared weighted rate. */
+  totalMeasuredDurationSec?: number;
+  calibratedAt: string;
 };
 
 export type TtsContentBudget = {
@@ -34,10 +55,18 @@ export type TtsContentBudget = {
 export type TtsTimingPlan = {
   providerId: string;
   modelId: string;
+  voiceId?: string;
   profileId: string;
   language: string;
   speed: number;
   contentType: string;
+  /** Natural-speed speech guidance and explanation. */
+  narrationSec?: number;
+  /** Silent time reserved for reading, thinking, answering, coding, or manipulating a widget. */
+  studentActivitySec?: number;
+  /** Feedback or answer-analysis time included in narrationSec. */
+  feedbackSec?: number;
+  transitionSec?: number;
   /** Total activity budget; targetDurationSec is the narration budget. */
   activityTargetDurationSec?: number;
   targetDurationSec: number;
@@ -113,7 +142,7 @@ export function registerTtsTimingProfile(
     defaultSpeed: clamp(profile.defaultSpeed || 1, 0.25, 4),
     source: profile.source ?? 'configured',
   };
-  runtimeProfiles.set(`${normalized.providerId}:${normalized.modelId}`, normalized);
+  runtimeProfiles.set(`${normalized.providerId}:${normalized.modelId}:${normalized.voiceId ?? ''}`, normalized);
   return normalized;
 }
 
@@ -125,12 +154,15 @@ function normalizeModelId(modelId?: string): string {
   return modelId?.trim() || '';
 }
 
-export function getTtsTimingProfile(providerId?: string, modelId?: string): TtsTimingProfile {
+export function getTtsTimingProfile(providerId?: string, modelId?: string, voiceId?: string): TtsTimingProfile {
   const provider = providerId?.trim() || DEFAULT_PROFILE.providerId;
   const model = normalizeModelId(modelId);
-  const runtimeExact = runtimeProfiles.get(`${provider}:${model}`);
+  const voice = voiceId?.trim() || '';
+  const runtimeExact = runtimeProfiles.get(`${provider}:${model}:${voice}`)
+    ?? runtimeProfiles.get(`${provider}:${model}:`);
   if (runtimeExact) return runtimeExact;
-  const runtimeDefault = runtimeProfiles.get(`${provider}:`);
+  const runtimeDefault = runtimeProfiles.get(`${provider}::${voice}`)
+    ?? runtimeProfiles.get(`${provider}::`);
   if (runtimeDefault && !model) return runtimeDefault;
   const exact = TTS_TIMING_PROFILES.find(
     (profile) => profile.providerId === provider && profile.modelId === model,
@@ -164,7 +196,7 @@ export function getTtsTimingProfile(providerId?: string, modelId?: string): TtsT
   return DEFAULT_PROFILE;
 }
 
-function countSpeechUnits(text: string): {
+export function countSpeechUnits(text: string): {
   cjkChars: number;
   latinWords: number;
   otherChars: number;
@@ -178,17 +210,112 @@ function countSpeechUnits(text: string): {
   return { cjkChars, latinWords, otherChars, punctuation };
 }
 
+/** Build an explicit provider/model/voice profile from one normal-speed sample. */
+export function createTtsVoiceTimingCalibration(options: {
+  providerId: string;
+  modelId?: string;
+  voiceId?: string;
+  language?: string;
+  text: string;
+  measuredDurationSec: number;
+  speed?: number;
+  calibratedAt?: string;
+}): TtsVoiceTimingCalibration {
+  const duration = Math.max(0.1, Number(options.measuredDurationSec) || 0.1);
+  const units = countSpeechUnits(options.text);
+  const seed = getTtsTimingProfile(options.providerId, options.modelId);
+  const cjkUnits = units.cjkChars + units.otherChars;
+  const measuredCjk = cjkUnits > 0 ? (cjkUnits * 60) / duration : seed.cjkCharsPerMinute;
+  const measuredLatin = units.latinWords > 0 && cjkUnits === 0
+    ? (units.latinWords * 60) / duration
+    : measuredCjk * (seed.latinWordsPerMinute / seed.cjkCharsPerMinute);
+  return {
+    providerId: options.providerId.trim(),
+    modelId: options.modelId?.trim() || '',
+    voiceId: options.voiceId?.trim() || 'default',
+    language: options.language || 'zh-CN',
+    cjkCharsPerMinute: Math.round(Math.max(1, measuredCjk) * 10) / 10,
+    latinWordsPerMinute: Math.round(Math.max(1, measuredLatin) * 10) / 10,
+    sampleUnits: Math.max(1, cjkUnits || units.latinWords),
+    measuredDurationSec: Math.round(duration * 100) / 100,
+    speed: clamp(Number(options.speed ?? 1) || 1, 0.25, 4),
+    sampleCount: 1,
+    totalSampleUnits: Math.max(1, cjkUnits || units.latinWords),
+    totalMeasuredDurationSec: Math.round(duration * 100) / 100,
+    calibratedAt: options.calibratedAt || new Date().toISOString(),
+  };
+}
+
+export function getTtsCalibrationKey(
+  calibration: Pick<TtsVoiceTimingCalibration, 'providerId' | 'modelId' | 'voiceId' | 'language' | 'speed'>,
+): string {
+  return [
+    calibration.providerId.trim(),
+    calibration.modelId.trim(),
+    calibration.voiceId.trim() || 'default',
+    calibration.language.trim().toLowerCase() || 'zh-cn',
+    String(clamp(Number(calibration.speed ?? 1) || 1, 0.25, 4)),
+  ].join('::');
+}
+
+/** Merge repeated measurements into one duration-weighted shared profile. */
+export function mergeTtsVoiceTimingCalibrations(
+  current: TtsVoiceTimingCalibration | undefined,
+  sample: TtsVoiceTimingCalibration,
+): TtsVoiceTimingCalibration {
+  if (!current || getTtsCalibrationKey(current) !== getTtsCalibrationKey(sample)) return sample;
+  const currentUnits = Math.max(1, current.totalSampleUnits ?? current.sampleUnits);
+  const sampleUnits = Math.max(1, sample.totalSampleUnits ?? sample.sampleUnits);
+  const currentDuration = Math.max(0.1, current.totalMeasuredDurationSec ?? current.measuredDurationSec);
+  const sampleDuration = Math.max(0.1, sample.totalMeasuredDurationSec ?? sample.measuredDurationSec);
+  const totalUnits = currentUnits + sampleUnits;
+  const totalDuration = currentDuration + sampleDuration;
+  const cjkCharsPerMinute = (totalUnits * 60) / totalDuration;
+  const latinRatio = sample.cjkCharsPerMinute > 0
+    ? sample.latinWordsPerMinute / sample.cjkCharsPerMinute
+    : 1;
+  return {
+    ...sample,
+    cjkCharsPerMinute: Math.round(cjkCharsPerMinute * 10) / 10,
+    latinWordsPerMinute: Math.round(cjkCharsPerMinute * latinRatio * 10) / 10,
+    sampleUnits: totalUnits,
+    measuredDurationSec: Math.round((totalDuration / ((current.sampleCount ?? 1) + (sample.sampleCount ?? 1))) * 100) / 100,
+    sampleCount: (current.sampleCount ?? 1) + (sample.sampleCount ?? 1),
+    totalSampleUnits: totalUnits,
+    totalMeasuredDurationSec: Math.round(totalDuration * 100) / 100,
+  };
+}
+
+export function registerTtsVoiceTimingCalibration(
+  calibration: TtsVoiceTimingCalibration,
+): TtsTimingProfile {
+  return registerTtsTimingProfile({
+    id: `${calibration.providerId}:${calibration.modelId || 'default'}:${calibration.voiceId}`,
+    providerId: calibration.providerId,
+    modelId: calibration.modelId,
+    voiceId: calibration.voiceId,
+    label: `${calibration.providerId}/${calibration.modelId || 'default'}/${calibration.voiceId}`,
+    cjkCharsPerMinute: calibration.cjkCharsPerMinute,
+    latinWordsPerMinute: calibration.latinWordsPerMinute,
+    // The measured effective rate already includes pauses in the sample.
+    punctuationPauseSec: 0,
+    defaultSpeed: 1,
+    source: 'configured',
+  });
+}
+
 export function estimateSpeechDurationSec(
   text: string,
   options: {
     profile?: TtsTimingProfile;
     providerId?: string;
     modelId?: string;
+    voiceId?: string;
     speed?: number;
     minSeconds?: number;
   } = {},
 ): number {
-  const profile = options.profile ?? getTtsTimingProfile(options.providerId, options.modelId);
+  const profile = options.profile ?? getTtsTimingProfile(options.providerId, options.modelId, options.voiceId);
   const speed = clamp(Number(options.speed ?? profile.defaultSpeed) || profile.defaultSpeed, 0.25, 4);
   const units = countSpeechUnits(text);
   if (units.cjkChars + units.latinWords + units.otherChars === 0) return options.minSeconds ?? 1;
@@ -268,11 +395,15 @@ export function buildTtsTimingPlan(options: {
   activityTargetDurationSec?: number;
   providerId?: string;
   modelId?: string;
+  voiceId?: string;
   speed?: number;
   language?: string;
   contentType?: string;
+  studentActivitySec?: number;
+  feedbackSec?: number;
+  transitionSec?: number;
 }): TtsTimingPlan {
-  const profile = getTtsTimingProfile(options.providerId, options.modelId);
+  const profile = getTtsTimingProfile(options.providerId, options.modelId, options.voiceId);
   const language = options.language || 'zh-CN';
   const budget = calculateTtsContentBudget(options.targetDurationSec, {
     profile,
@@ -283,10 +414,15 @@ export function buildTtsTimingPlan(options: {
   return {
     providerId: profile.providerId,
     modelId: profile.modelId,
+    voiceId: options.voiceId || profile.voiceId,
     profileId: profile.id,
     language,
     speed,
     contentType: options.contentType || 'other',
+    narrationSec: budget.targetDurationSec,
+    studentActivitySec: Math.max(0, Math.round(options.studentActivitySec ?? 0)),
+    feedbackSec: Math.max(0, Math.round(options.feedbackSec ?? 0)),
+    transitionSec: Math.max(0, Math.round(options.transitionSec ?? 0)),
     ...(options.activityTargetDurationSec !== undefined
       ? { activityTargetDurationSec: Math.max(1, Math.round(options.activityTargetDurationSec)) }
       : {}),

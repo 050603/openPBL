@@ -107,7 +107,7 @@ export default function PreviewCoursePage() {
 
   function startTeaching() {
     if (!course) return;
-    router.push(`/teacher/teach-setup/${course.id}`);
+    router.push(`/teacher/teach/${course.id}/setup`);
   }
 
   return (
@@ -145,7 +145,7 @@ export default function PreviewCoursePage() {
           </Link>
           {course.teacherClassroomId ? (
             <Link
-              className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-indigo-200 bg-indigo-50 px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+              className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-4 text-sm font-semibold text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]"
               href={`/teacher/prepare/${course.id}/resources`}
               title="查看课程引入与 PBL 题目讲解资源"
             >
@@ -215,7 +215,7 @@ export default function PreviewCoursePage() {
                         {item.durationMin} 分钟
                       </span>
                       {item.openMaicUse ? (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        <span className="rounded-full bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--pbl-warning)]">
                           {item.openMaicUse === "student-ai-learning"
                             ? "学生 AI 授知"
                             : "普通课堂活动"}

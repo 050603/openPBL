@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -246,7 +246,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                           {
                             studentId: identity.studentId!,
                             name: identity.studentName!,
-                            role: identity.joinedGroupRole ?? "鎴愬憳",
+                            role: identity.joinedGroupRole ?? "成员",
                           },
                         ],
                       }
@@ -263,7 +263,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function refresh() {
-    // Skip polling refresh while commits are in-flight 鈥?the server file
+    // Skip polling refresh while commits are in-flight — the server file
     // may not yet reflect those actions (they're queued), and HYDRATEing
     // would overwrite local optimistic state, causing the same
     // "course disappears" symptom as the commit race condition.
@@ -317,14 +317,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!action) return;
     setSaveState("saving");
     setSaveError(undefined);
+    // Route retry through the same pendingCommitsRef serialization as commit():
+    // bump the in-flight counter so polling refresh is suppressed while the
+    // retry is in flight, and only HYDRATE from the response when this is the
+    // last pending commit. Otherwise a concurrent commit's response could be
+    // overwritten by the (older) retry response.
+    pendingCommitsRef.current++;
     try {
       const next = await postSessionAction(action);
-      dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
-      setLastSavedAt(new Date().toISOString());
-      setSaveState("saved");
-      lastFailedActionRef.current = null;
-      toast.success("已重新保存");
+      pendingCommitsRef.current--;
+      if (pendingCommitsRef.current === 0) {
+        dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
+        setLastSavedAt(new Date().toISOString());
+        setSaveState("saved");
+        lastFailedActionRef.current = null;
+        toast.success("已重新保存");
+      }
     } catch (error) {
+      pendingCommitsRef.current--;
       console.error("[session] Retry failed:", error);
       setSaveState("error");
       setSaveError("重试失败，请确认服务器可用。");
@@ -487,7 +497,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!target) {
           return { ok: false, reason: "邀请码无效，或教师尚未开始授课" };
         }
-        const trimmedName = name?.trim() || "瀛︾敓";
+        const trimmedName = name?.trim() || "学生";
 
         // ===== Same-name account merge =====
         // If a student with the same name already exists in this course,
@@ -525,11 +535,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         saveJSON(IDENTITY_KEY, identity);
         commit({ type: "SET_USER", payload: studentUser });
         commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student } });
-        if (existing) {
-          console.log(
-            `[session] merged same-name student "${trimmedName}" into existing account ${existing.id}`,
-          );
-        }
         return { ok: true, course: target };
       },
       leaveClass() {
@@ -568,12 +573,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Remove stale history entry
           const history = loadJSON<LeftClassRecord[]>(LEFT_CLASS_HISTORY_KEY, []);
           saveJSON(LEFT_CLASS_HISTORY_KEY, history.filter((r) => r.courseId !== record.courseId));
-          return { ok: false as const, reason: "璇惧爞宸茬粨鏉熸垨涓嶅瓨鍦紝鏃犳硶閲嶆柊鍔犲叆" };
+          return { ok: false as const, reason: "课堂已结束或不存在，无法重新加入" };
         }
         // Check if student is still in the course's student list
         const existingStudent = target.students.find((s) => s.id === record.studentId);
         if (existingStudent) {
-          // Student record still exists (teacher may not have removed them) 鈥?just restore identity
+          // Student record still exists (teacher may not have removed them) — just restore identity
           const studentUser = { role: "student" as const, name: record.studentName };
           const identity: IdentityState = {
             user: studentUser,
@@ -587,7 +592,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           commit({ type: "SET_USER", payload: studentUser });
           commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student: existingStudent } });
         } else {
-          // Student was removed from the course 鈥?re-add them
+          // Student was removed from the course — re-add them
           const student: Student = {
             id: record.studentId,
             name: record.studentName,

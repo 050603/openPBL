@@ -9,5 +9,5 @@ Description: {{description}}
 
 **Language Directive**: {{languageDirective}}
 
-Output as a JSON array directly (no explanation, no code fences, 1-2 short text segments). No discussion or other action types — text only:
-[{"type":"text","content":"Let's test your understanding"}]
+Output exactly two short text segments as a JSON array. The runtime inserts the quiz activity gate between them. Segment 1 must not reveal or hint at answers; segment 2 is post-submission concept-level feedback and transition. No discussion or action objects:
+[{"type":"text","content":"Try the questions independently, then submit."},{"type":"text","content":"Now compare your reasoning with the explanation and note the step to review before we continue."}]

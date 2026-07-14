@@ -37,6 +37,7 @@ export type LlmCallRequest = {
       | "knowledgePoints"
       | "knowledgeGraph"
       | "projectMainline"
+      | "moduleTimingPlan"
       | "teachingOutline"
       | "lessonOutline"
     >

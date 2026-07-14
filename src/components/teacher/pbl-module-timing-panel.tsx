@@ -75,7 +75,7 @@ export function PblModuleTimingPanel({
           <p className="text-xs font-bold uppercase tracking-[0.12em]">课程模块时间安排</p>
         </div>
         <p className="mt-2 text-sm leading-6 text-stone-500">
-          课程模块尚未生成。生成模块后，系统会根据课程难度、知识点复杂度、年级和总课时给出六个模块的时间建议。
+          时间安排尚未生成。点击“生成时间安排”后，系统会根据课程难度、知识点复杂度、年级和总课时给出六个阶段的时间建议。
         </p>
       </section>
     );

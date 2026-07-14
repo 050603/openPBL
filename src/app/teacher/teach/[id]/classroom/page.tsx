@@ -65,7 +65,7 @@ export default function TeachClassroomPage() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (course && course.status !== "teaching") router.replace(`/teacher/teach-setup/${course.id}`);
+    if (course && course.status !== "teaching") router.replace(`/teacher/teach/${course.id}/setup`);
   }, [course, hydrated, router]);
 
   useEffect(() => {
@@ -229,7 +229,7 @@ export default function TeachClassroomPage() {
           >
             <UserRoundCheck size={14} />
             <span>{onlineCount}/{course.students.length}</span>
-            {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success-soft)]0" /> : null}
+            {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success)]" /> : null}
           </button>
           <div className="mx-0.5 h-5 w-px bg-stone-200" />
           <button aria-label={focusMode ? "退出专注授课" : "进入专注授课"} className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setFocusMode((value) => !value)} type="button"><PanelRightClose size={14} /></button>
@@ -665,7 +665,7 @@ function StudentsPanel({
           <p className="mt-0.5 text-[13px] text-stone-500">{online} 在线 / {total} 总数</p>
         </div>
         <span className="inline-flex h-6 items-center gap-1 rounded-full bg-[var(--pbl-success-soft)] px-2 text-[11px] font-bold text-[var(--pbl-success)] ring-1 ring-green-200">
-          <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success-soft)]0" />
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success)]" />
           {online} / {total}
         </span>
       </div>
@@ -698,7 +698,7 @@ function StudentsPanel({
                   <span
                     className={cn(
                       "h-1.5 w-1.5 shrink-0 rounded-full",
-                      sOnline ? "bg-[var(--pbl-success-soft)]0" : "bg-stone-300",
+                      sOnline ? "bg-[var(--pbl-success)]" : "bg-stone-300",
                     )}
                     title={sOnline ? "在线" : "离线"}
                   />

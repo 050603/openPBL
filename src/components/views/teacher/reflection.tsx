@@ -305,8 +305,8 @@ export function ReflectionTeacherView({
         <div
           className={`flex items-start gap-2 rounded-[8px] border px-4 py-3 text-sm font-semibold ${
             message.tone === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              ? "border-emerald-200 bg-emerald-50 text-[var(--pbl-success)]"
+              : "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]"
           }`}
         >
           {message.tone === "ok" ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : null}
@@ -329,21 +329,21 @@ export function ReflectionTeacherView({
             <div className="text-sm text-stone-500">优秀（≥90）</div>
             <Award className="text-emerald-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-bold text-emerald-700">{excellentCount}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--pbl-success)]">{excellentCount}</div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-stone-500">合格（75-89）</div>
-            <Star className="text-amber-600" size={20} />
+            <Star className="text-[var(--pbl-warning)]" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-bold text-amber-700">{passCount}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--pbl-warning)]">{passCount}</div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
             <div className="text-sm text-stone-500">待改进（&lt;75）</div>
-            <Lightbulb className="text-rose-600" size={20} />
+            <Lightbulb className="text-[var(--pbl-danger)]" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-bold text-rose-700">{needImproveCount}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--pbl-danger)]">{needImproveCount}</div>
         </Card>
       </div>
 
@@ -352,7 +352,7 @@ export function ReflectionTeacherView({
           <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 班级综合评价汇总
             {!anyScored ? (
-              <span className="ml-2 rounded-[6px] bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+              <span className="ml-2 rounded-[6px] bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--pbl-warning)]">
                 暂无评分
               </span>
             ) : null}
@@ -379,9 +379,9 @@ export function ReflectionTeacherView({
 
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Lightbulb className="text-amber-600" size={20} /> AI 班级整体点评
+            <Lightbulb className="text-[var(--pbl-warning)]" size={20} /> AI 班级整体点评
           </h2>
-          <div className="rounded-[8px] border border-amber-200 bg-amber-50/60 p-4 text-sm leading-7 text-stone-700">
+          <div className="rounded-[8px] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/60 p-4 text-sm leading-7 text-stone-700">
             {aiClassComment}
           </div>
         </Card>
@@ -391,7 +391,7 @@ export function ReflectionTeacherView({
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold">
-              <ClipboardCheck className="text-amber-600" size={20} /> AI 过程性评价报告
+              <ClipboardCheck className="text-[var(--pbl-warning)]" size={20} /> AI 过程性评价报告
             </h2>
             <p className="mt-1 text-sm text-stone-500">
               基于学生过程数据（活动记录、AI 支架采纳率、上传材料、提交记录）生成全班过程评价；总结可编辑后发送给学生。
@@ -399,7 +399,7 @@ export function ReflectionTeacherView({
           </div>
           <div className="flex items-center gap-2">
             {processEval ? (
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${processEval.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-600"}`}>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${processEval.source === "llm" ? "bg-emerald-50 text-[var(--pbl-success)]" : "bg-stone-100 text-stone-600"}`}>
                 {processEval.source === "llm" ? "AI 生成" : "已记录"}
               </span>
             ) : null}
@@ -415,7 +415,7 @@ export function ReflectionTeacherView({
           </div>
         </div>
         {evalError ? (
-          <div className="rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          <div className="rounded-[6px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-3 py-2 text-sm font-semibold text-[var(--pbl-danger)]">
             {evalError}
           </div>
         ) : null}
@@ -477,13 +477,13 @@ export function ReflectionTeacherView({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-[6px] border border-emerald-200 bg-emerald-50/60 p-3">
-                <div className="mb-1 text-xs font-bold text-emerald-700">过程亮点</div>
+                <div className="mb-1 text-xs font-bold text-[var(--pbl-success)]">过程亮点</div>
                 <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
                   {processEval.highlights.map((h, i) => <li key={i}>{h}</li>)}
                 </ul>
               </div>
-              <div className="rounded-[6px] border border-amber-200 bg-amber-50/60 p-3">
-                <div className="mb-1 text-xs font-bold text-amber-700">改进建议</div>
+              <div className="rounded-[6px] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/60 p-3">
+                <div className="mb-1 text-xs font-bold text-[var(--pbl-warning)]">改进建议</div>
                 <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
                   {processEval.improvements.map((h, i) => <li key={i}>{h}</li>)}
                 </ul>
@@ -508,7 +508,7 @@ export function ReflectionTeacherView({
       <Card>
         <div className="flex flex-col gap-3 border-b border-stone-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold"><Wand2 className="text-indigo-700" size={20} />课程总结演示</h2>
+            <h2 className="flex items-center gap-2 text-lg font-bold"><Wand2 className="text-[var(--pbl-teacher)]" size={20} />课程总结演示</h2>
             <p className="mt-1 text-sm leading-6 text-stone-500">生成不预设学生结论的总结 PPT 与教师讲稿；生成后可根据真实班级证据编辑并确认。</p>
           </div>
           <div className="flex items-center gap-2">
@@ -519,9 +519,9 @@ export function ReflectionTeacherView({
         {summaryDeck ? (
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,.75fr)]">
             <div className="grid gap-3 sm:grid-cols-2">
-              {summaryDeck.slides.map((slide, index) => <article className="aspect-[16/10] rounded-lg border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-4 shadow-sm" key={slide.id}><div className="flex items-center justify-between text-[11px] font-bold text-indigo-500"><span>SLIDE {String(index + 1).padStart(2, "0")}</span><span>{slide.evidenceIds.length ? `${slide.evidenceIds.length} 条证据` : "课程框架"}</span></div><h3 className="mt-5 text-base font-black text-stone-900">{slide.title}</h3><ul className="mt-3 space-y-1.5 text-sm leading-5 text-stone-700">{slide.bullets.map((bullet) => <li className="flex gap-2" key={bullet}><span className="text-indigo-500">•</span><span>{bullet}</span></li>)}</ul></article>)}
+              {summaryDeck.slides.map((slide, index) => <article className="aspect-[16/10] rounded-lg border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-4 shadow-sm" key={slide.id}><div className="flex items-center justify-between text-[11px] font-bold text-[var(--pbl-teacher-border)]"><span>SLIDE {String(index + 1).padStart(2, "0")}</span><span>{slide.evidenceIds.length ? `${slide.evidenceIds.length} 条证据` : "课程框架"}</span></div><h3 className="mt-5 text-base font-black text-stone-900">{slide.title}</h3><ul className="mt-3 space-y-1.5 text-sm leading-5 text-stone-700">{slide.bullets.map((bullet) => <li className="flex gap-2" key={bullet}><span className="text-[var(--pbl-teacher-border)]">•</span><span>{bullet}</span></li>)}</ul></article>)}
             </div>
-            <aside className="rounded-lg border border-amber-100 bg-amber-50/60 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-amber-900">教师讲稿</h3><span className="text-xs text-amber-700">{summaryDeck.script.length} 字</span></div><div className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-stone-700">{summaryDeck.script}</div>{summaryDeck.status !== "teacher-confirmed" ? <PrimaryButton className="mt-4 w-full" onClick={confirmSummaryDeck} type="button"><CheckCircle2 size={16} />确认总结演示</PrimaryButton> : <p className="mt-4 rounded-md bg-white/70 px-3 py-2 text-xs font-semibold text-emerald-700">已确认，可在课程总结环节使用。</p>}</aside>
+            <aside className="rounded-lg border border-amber-100 bg-[var(--pbl-warning-soft)]/60 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-[var(--pbl-warning)]">教师讲稿</h3><span className="text-xs text-[var(--pbl-warning)]">{summaryDeck.script.length} 字</span></div><div className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-stone-700">{summaryDeck.script}</div>{summaryDeck.status !== "teacher-confirmed" ? <PrimaryButton className="mt-4 w-full" onClick={confirmSummaryDeck} type="button"><CheckCircle2 size={16} />确认总结演示</PrimaryButton> : <p className="mt-4 rounded-md bg-white/70 px-3 py-2 text-xs font-semibold text-[var(--pbl-success)]">已确认，可在课程总结环节使用。</p>}</aside>
           </div>
         ) : <div className="mt-4 rounded-lg border border-dashed border-stone-200 bg-stone-50 py-10 text-center text-sm text-stone-500">尚未生成课程总结演示。点击右上角生成一个可编辑的 PPT 结构和讲稿。</div>}
       </Card>

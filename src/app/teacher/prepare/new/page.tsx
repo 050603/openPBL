@@ -168,7 +168,7 @@ export default function PrepareNewPage() {
             课程会按六阶段生成一套可授课的课堂剧本。每名学生独立完成个人项目，AI 伴学小组负责解释、质疑、建议与记忆过程证据。
           </p>
           {error ? (
-            <div className="mt-5 rounded-[var(--radius-sm)] border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">
+            <div className="mt-5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-4 py-3 text-sm font-semibold text-[var(--pbl-danger)]" role="alert">
               {error}
             </div>
           ) : null}

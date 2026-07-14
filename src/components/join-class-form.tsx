@@ -37,43 +37,45 @@ export function JoinClassForm({
 
   return (
     <form
-      className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-[var(--radius-md)] border border-stone-200/80 bg-white p-8 shadow-[var(--shadow-raised)]"
+      className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-8 shadow-[var(--shadow-raised)]"
       onSubmit={submit}
     >
       <div className="text-center">
-        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-teal-50 text-teal-600">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]">
           <KeyRound size={26} />
         </div>
-        <h2 className="mt-4 text-[26px] font-bold text-stone-900">加入课堂</h2>
-        <p className="mt-1 text-sm text-stone-500">
+        <h2 className="mt-4 text-[26px] font-bold text-[var(--pbl-text-strong)]">加入课堂</h2>
+        <p className="mt-1 text-sm text-[var(--pbl-text-muted)]">
           输入教师提供的邀请码与你的姓名，即可进入课堂
         </p>
       </div>
 
       <label className="block">
-        <span className="mb-2 block text-sm font-semibold text-stone-700">邀请码</span>
+        <span className="mb-2 block text-sm font-semibold text-[var(--pbl-text)]">邀请码</span>
         <input
-          className="h-12 w-full rounded-[var(--radius-xs)] border border-stone-300 px-4 text-center text-xl font-bold tracking-[0.4em] text-stone-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          className="h-12 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border-strong)] px-4 text-center text-xl font-bold tracking-[0.4em] text-[var(--pbl-text-strong)] outline-none transition focus:border-[var(--pbl-student)] focus:ring-2 focus:ring-[var(--pbl-student-soft)]"
           maxLength={6}
           onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
           placeholder="A2K9QP"
           value={code}
+          aria-label="邀请码"
         />
       </label>
 
       <label className="block">
-        <span className="mb-2 block text-sm font-semibold text-stone-700">姓名</span>
+        <span className="mb-2 block text-sm font-semibold text-[var(--pbl-text)]">姓名</span>
         <input
-          className="h-12 w-full rounded-[var(--radius-xs)] border border-stone-300 px-4 text-base outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          className="h-12 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border-strong)] px-4 text-base outline-none transition focus:border-[var(--pbl-student)] focus:ring-2 focus:ring-[var(--pbl-student-soft)]"
           maxLength={20}
           onChange={(e) => setName(e.target.value)}
           placeholder="如：张同学"
           value={name}
+          aria-label="姓名"
         />
       </label>
 
       {error ? (
-        <div className="rounded-[var(--radius-xs)] border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+        <div className="rounded-[var(--radius-xs)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-4 py-3 text-sm font-semibold text-[var(--pbl-danger)]">
           {error}
         </div>
       ) : null}

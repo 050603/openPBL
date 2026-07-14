@@ -41,8 +41,8 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard title="到课情况" value={`${joined} / ${totalSeats}`} sub={`出勤率 ${rate}%`} icon={<Users className="text-blue-600" size={22} />} progress={rate} />
         <StatCard title="个人项目空间" value={`${projectSpaces}`} sub={`${joined} 名学生独立完成`} icon={<Sparkles className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((projectSpaces / Math.max(1, joined)) * 100))} tone="emerald" />
-        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、理解任务、确认成果" icon={<HelpCircle className="text-amber-600" size={22} />} progress={66} tone="amber" />
-        <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-rose-600" size={22} />} progress={announcementRead} tone="rose" />
+        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、理解任务、确认成果" icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={66} tone="amber" />
+        <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={announcementRead} tone="rose" />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
@@ -69,7 +69,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 
         <Card>
           <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-            <Megaphone className="text-amber-600" size={20} /> 发布课堂公告
+            <Megaphone className="text-[var(--pbl-warning)]" size={20} /> 发布课堂公告
           </h2>
           <div className="space-y-3">
             <TextInput placeholder="公告标题" value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -98,7 +98,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
                     </div>
                   </div>
                   <button
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-red-100 text-red-500 hover:bg-red-50"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-[var(--pbl-danger-border)] text-[var(--pbl-danger)] hover:bg-[var(--pbl-danger-soft)]"
                     onClick={() => session.deleteAnnouncement(course.id, announcement.id)}
                     type="button"
                     aria-label="删除公告"
@@ -161,8 +161,8 @@ function StatCard({ title, value, sub, icon, progress, tone = "blue" }: { title:
   const toneColor = {
     blue: "bg-blue-50",
     emerald: "bg-emerald-50",
-    amber: "bg-amber-50",
-    rose: "bg-rose-50",
+    amber: "bg-[var(--pbl-warning-soft)]",
+    rose: "bg-[var(--pbl-danger-soft)]",
   }[tone];
   return (
     <Card>

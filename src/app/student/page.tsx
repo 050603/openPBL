@@ -13,7 +13,6 @@ import {
   Presentation,
   RotateCcw,
   Target,
-  Users,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { JoinClassForm } from "@/components/join-class-form";
@@ -81,10 +80,10 @@ export default function StudentEntryPage() {
             <Lightbulb size={12} /> 学生工作台
           </div>
           <h1 className="mt-3 text-[30px] font-bold leading-tight tracking-tight text-stone-900">
-            AI 探知 · 项目共创
+            项目式学习课堂
           </h1>
           <p className="mt-1.5 max-w-2xl text-sm leading-6 text-stone-500">
-            输入教师提供的 6 位邀请码加入课堂，开启你的项目式学习之旅。加入后你将看到当前学习任务、阶段进度与 AI 学习伙伴。
+            输入教师提供的 6 位邀请码加入课堂，在 AI 伴学小组支持下完成独立项目。
           </p>
         </div>
 
@@ -158,49 +157,43 @@ export default function StudentEntryPage() {
                   step="01"
                   title="项目启动"
                   desc="理解真实问题、明确成果要求，完成入组准备"
-                  tone="indigo"
+                  tone="teacher"
                 />
                 <TaskPreviewItem
                   icon={<BookOpen size={15} />}
                   step="02"
                   title="AI 授知"
-                  desc="AI 辅助知识学习，完成基础概念建构与小测"
-                  tone="blue"
+                  desc="AI 多角色讲解核心知识，完成基础概念建构"
+                  tone="ai"
                 />
                 <TaskPreviewItem
                   icon={<Lightbulb size={15} />}
                   step="03"
-                  title="方案构思与校准"
-                  desc="独立形成项目方案，并与角色化 AI 伙伴讨论、质疑和完善"
-                  tone="teal"
+                  title="方案构思"
+                  desc="独立形成项目方案，与 AI 伴学小组讨论、质疑和完善"
+                  tone="student"
                 />
                 <TaskPreviewItem
                   icon={<Target size={15} />}
                   step="04"
-                  title="方案汇报与制作"
-                  desc="中期方案汇报、教师纠偏，迭代作品并提交过程证据"
-                  tone="amber"
+                  title="项目实践"
+                  desc="制作项目作品，提交过程证据，教师按需介入"
+                  tone="warning"
                 />
                 <TaskPreviewItem
                   icon={<Presentation size={15} />}
                   step="05"
-                  title="最终展示与反思"
-                  desc="成果展示、现场汇报，完成综合评价与成长反思"
-                  tone="green"
+                  title="成果汇报"
+                  desc="展示项目成果，接受教师与 AI 协同评价"
+                  tone="success"
                 />
-              </div>
-
-              {/* 学习承诺 */}
-              <div className="mt-5 rounded-[var(--radius-sm)] border border-[var(--pbl-student-border)] bg-[var(--pbl-student-soft)]/50 p-3.5">
-                <div className="flex items-start gap-2.5">
-                  <Users size={16} className="mt-0.5 shrink-0 text-[var(--pbl-student)]" />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-bold text-stone-900">协作 · 探究 · 迭代</div>
-                    <p className="mt-1 text-xs leading-5 text-stone-700/80">
-                      你将独立承担一个完整项目，AI 伴学伙伴提供解释、启发、质疑与反馈。每一次选择、修改和作品迭代都会成为过程评价证据。
-                    </p>
-                  </div>
-                </div>
+                <TaskPreviewItem
+                  icon={<RotateCcw size={15} />}
+                  step="06"
+                  title="学习反思"
+                  desc="回顾学习过程，形成可迁移的方法与证据"
+                  tone="student"
+                />
               </div>
             </div>
           </div>
@@ -236,14 +229,14 @@ function TaskPreviewItem({
   step: string;
   title: string;
   desc: string;
-  tone: "indigo" | "blue" | "teal" | "amber" | "green";
+  tone: "teacher" | "student" | "ai" | "warning" | "success";
 }) {
   const toneMap = {
-    indigo: "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
-    blue: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-blue-100",
-    teal: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-[var(--pbl-student-border)]",
-    amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-[var(--pbl-warning-soft)]",
-    green: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    teacher: "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] ring-[var(--pbl-teacher-border)]",
+    student: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-[var(--pbl-student-border)]",
+    ai: "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
+    warning: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-[var(--pbl-warning-soft)]",
+    success: "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-[var(--pbl-student-border)]",
   };
   return (
     <div className="flex items-start gap-3 rounded-[var(--radius-sm)] border border-stone-100 bg-stone-50/50 p-3 transition hover:border-stone-200 hover:bg-white">

@@ -1,0 +1,41 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  getClassroomSceneConcurrency,
+  getTtsConcurrencyLimit,
+} from '@openmaic/lib/server/provider-config';
+
+describe('server generation concurrency configuration', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults the teacher scene pipeline to four workers', () => {
+    vi.stubEnv('PARALLEL_SCENE_CONCURRENCY', '');
+    expect(getClassroomSceneConcurrency()).toBe(4);
+  });
+
+  it('clamps the classroom scene override to one through five', () => {
+    vi.stubEnv('PARALLEL_SCENE_CONCURRENCY', '1');
+    expect(getClassroomSceneConcurrency()).toBe(1);
+
+    vi.stubEnv('PARALLEL_SCENE_CONCURRENCY', '9');
+    expect(getClassroomSceneConcurrency()).toBe(5);
+  });
+
+  it('uses provider metadata and supports global/provider-specific TTS overrides', () => {
+    vi.stubEnv('TTS_CONCURRENCY', '3');
+    expect(getTtsConcurrencyLimit('glm-tts')).toBe(3);
+
+    vi.stubEnv('TTS_GLM_TTS_CONCURRENCY', '4');
+    expect(getTtsConcurrencyLimit('glm-tts')).toBe(4);
+
+    vi.stubEnv('TTS_GLM_TTS_CONCURRENCY', '20');
+    expect(getTtsConcurrencyLimit('glm-tts')).toBe(4);
+  });
+
+  it('falls back to the provider default for invalid TTS overrides', () => {
+    vi.stubEnv('TTS_GLM_TTS_CONCURRENCY', 'not-a-number');
+    expect(getTtsConcurrencyLimit('glm-tts')).toBe(2);
+  });
+});
+

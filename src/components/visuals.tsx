@@ -70,7 +70,7 @@ export function ProjectCoverImage({
   const displayImageUrl = course.coverImageUrl ?? imageUrl;
   if (displayImageUrl) {
     return (
-      <div className={cn("group relative overflow-hidden rounded-[8px]", className)}>
+      <div className={cn("group relative overflow-hidden rounded-[var(--radius-sm)]", className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={displayImageUrl}
@@ -79,9 +79,10 @@ export function ProjectCoverImage({
         />
         {allowGenerate ? (
           <button
-            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/40 text-white opacity-0 transition hover:bg-black/60 group-hover:opacity-100"
+            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/40 text-white opacity-0 transition hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
             onClick={() => void generate()}
             title="重新生成封面"
+            aria-label="重新生成封面"
             type="button"
           >
             <RefreshCw size={15} />
@@ -96,11 +97,11 @@ export function ProjectCoverImage({
     return (
       <div
         className={cn(
-          "relative flex items-center justify-center overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+          "relative flex items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--pbl-teacher-soft)] via-[var(--pbl-surface-soft)] to-[var(--pbl-student-soft)]",
           className,
         )}
       >
-        <div className="flex flex-col items-center gap-2 text-stone-400">
+        <div className="flex flex-col items-center gap-2 text-[var(--pbl-text-muted)]">
           <Loader2 size={28} className="animate-spin" />
           <span className="text-xs font-medium">正在生成课程封面…</span>
         </div>
@@ -113,16 +114,17 @@ export function ProjectCoverImage({
     return (
       <div
         className={cn(
-          "group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+          "group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--pbl-teacher-soft)] via-[var(--pbl-surface-soft)] to-[var(--pbl-student-soft)]",
           className,
         )}
         onClick={() => error ? void generate() : void generate()}
         role="button"
         tabIndex={0}
+        aria-label="生成课程封面图"
         onKeyDown={(e) => { if (e.key === "Enter") void generate(); }}
       >
-        <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-40" />
-        <div className="relative flex flex-col items-center gap-2 text-stone-600">
+        <div className="absolute inset-0 bg-[linear-gradient(110deg,var(--pbl-student-soft)_0%,var(--pbl-success-soft)_32%,var(--pbl-teacher-soft)_33%,var(--pbl-ai-soft)_54%,var(--pbl-student-soft)_55%,var(--pbl-success-soft)_100%)] opacity-40" />
+        <div className="relative flex flex-col items-center gap-2 text-[var(--pbl-text)]">
           {error ? <RefreshCw size={24} /> : <Sparkles size={24} />}
           <span className="text-xs font-semibold">
             {error ? "点击重新生成" : "生成课程封面图"}
@@ -136,11 +138,11 @@ export function ProjectCoverImage({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[8px] bg-gradient-to-br from-blue-50 via-slate-50 to-emerald-50",
+        "relative overflow-hidden rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--pbl-teacher-soft)] via-[var(--pbl-surface-soft)] to-[var(--pbl-student-soft)]",
         className,
       )}
     >
-      <div className="absolute inset-0 bg-[linear-gradient(110deg,#a7f3d0_0%,#dcfce7_32%,#bfdbfe_33%,#e0f2fe_54%,#86efac_55%,#bbf7d0_100%)] opacity-30" />
+      <div className="absolute inset-0 bg-[linear-gradient(110deg,var(--pbl-student-soft)_0%,var(--pbl-success-soft)_32%,var(--pbl-teacher-soft)_33%,var(--pbl-ai-soft)_54%,var(--pbl-student-soft)_55%,var(--pbl-success-soft)_100%)] opacity-30" />
     </div>
   );
 }

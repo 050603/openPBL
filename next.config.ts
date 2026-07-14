@@ -33,14 +33,6 @@ const nextConfig: NextConfig = {
         destination: "/api/openmaic/classroom-media/:path*",
       },
       {
-        source: "/teacher/teach/:id/setup",
-        destination: "/teacher/teach-setup/:id",
-      },
-      {
-        source: "/teacher/teach/:id/classroom",
-        destination: "/teacher/teach-classroom/:id",
-      },
-      {
         source: "/logos/:path*",
         destination: "/openmaic/logos/:path*",
       },

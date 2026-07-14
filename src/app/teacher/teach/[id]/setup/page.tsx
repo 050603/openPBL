@@ -76,7 +76,7 @@ export default function TeachSetupPage() {
       perGroup: 1,
       crossClass: false,
     });
-    router.push(`/teacher/teach-classroom/${course.id}`);
+    router.push(`/teacher/teach/${course.id}/classroom`);
     return code;
   }
 
@@ -228,7 +228,7 @@ export default function TeachSetupPage() {
             {isTeaching ? (
               <PrimaryButton
                 className="h-12 w-full text-base"
-                onClick={() => router.push(`/teacher/teach-classroom/${course.id}`)}
+                onClick={() => router.push(`/teacher/teach/${course.id}/classroom`)}
                 type="button"
               >
                 <PlayCircle size={18} /> 进入教室

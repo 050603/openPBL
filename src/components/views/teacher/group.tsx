@@ -222,7 +222,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
           )}
 
           {joinedButUngrouped.length > 0 ? (
-            <div className="mt-3 rounded-[var(--radius-sm)] border border-rose-200 bg-[var(--pbl-danger-soft)]/60 p-3 text-sm text-rose-700">
+            <div className="mt-3 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3 text-sm text-[var(--pbl-danger)]">
               还有 <strong>{joinedButUngrouped.length}</strong> 位学生未加入任何小组：{joinedButUngrouped.map((student) => student.name).join("、")}
             </div>
           ) : null}
@@ -272,8 +272,8 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
               </div>
 
               {activeSignal ? (
-                <div className="rounded-[var(--radius-sm)] border border-amber-200 bg-amber-50/70 p-3">
-                  <div className="mb-1 flex items-center gap-1.5 text-xs font-bold text-amber-800">
+                <div className="rounded-[var(--radius-sm)] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70 p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-xs font-bold text-[var(--pbl-warning)]">
                     <AlertTriangle size={13} /> 风险线索
                   </div>
                   <p className="text-sm leading-6 text-stone-700">{activeSignal.supportCard}</p>
@@ -304,9 +304,9 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-bold">
-                <Lightbulb className="text-amber-600" size={20} /> 风险队列
+                <Lightbulb className="text-[var(--pbl-warning)]" size={20} /> 风险队列
                 {aiAnalysisPending ? (
-                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--pbl-warning)]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--pbl-warning)]" />
                     学生有新更新
                   </span>
@@ -512,7 +512,7 @@ function Metric({ title, value, sub, tone = "blue" }: { title: string; value: st
   return (
     <Card>
       <div className="text-sm text-stone-500">{title}</div>
-      <div className={`mt-2 text-2xl font-bold ${tone === "green" ? "text-emerald-700" : tone === "orange" ? "text-orange-700" : "text-blue-700"}`}>{value}</div>
+      <div className={`mt-2 text-2xl font-bold ${tone === "green" ? "text-[var(--pbl-success)]" : tone === "orange" ? "text-[var(--pbl-accent)]" : "text-blue-700"}`}>{value}</div>
       {sub ? <div className="mt-1 text-xs text-stone-500">{sub}</div> : null}
     </Card>
   );
@@ -549,9 +549,9 @@ function groupNodePosition(
 }
 
 function groupNodeTone(progress: number, signal?: TeacherInterventionSignal) {
-  if (signal?.riskLevel === "high") return "border-rose-200/70 bg-[var(--pbl-danger)]";
-  if (signal?.riskLevel === "medium") return "border-amber-200/70 bg-[var(--pbl-warning)]";
+  if (signal?.riskLevel === "high") return "border-[var(--pbl-danger-border)]/70 bg-[var(--pbl-danger)]";
+  if (signal?.riskLevel === "medium") return "border-[var(--pbl-warning-soft)]/70 bg-[var(--pbl-warning)]";
   if (progress >= 80) return "border-emerald-200/70 bg-[var(--pbl-success)]";
   if (progress >= 45) return "border-cyan-200/70 bg-cyan-500";
-  return "border-orange-200/70 bg-[var(--pbl-accent)]";
+  return "border-[var(--pbl-accent-border)]/70 bg-[var(--pbl-accent)]";
 }

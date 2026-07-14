@@ -6,7 +6,6 @@ import {
   AlertCircle,
   ArrowRight,
   Clock3,
-  Library,
   Plus,
   Search,
 } from "lucide-react";
@@ -140,12 +139,6 @@ export default function TeacherHomePage() {
               </span>
             ) : null}
           </TabButton>
-          <Link
-            className="ml-auto inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-semibold text-[var(--pbl-text-muted)] transition hover:text-[var(--pbl-teacher)]"
-            href="/teacher/prepare/new"
-          >
-            <Library size={16} /> 课程库
-          </Link>
         </nav>
 
         {/* 我的课程标签页 */}
@@ -277,19 +270,6 @@ export default function TeacherHomePage() {
           </div>
         ) : null}
 
-        <footer className="mt-10 flex items-center justify-between border-t border-[var(--pbl-border)] pt-5 text-sm text-[var(--pbl-text-muted)]">
-          <span>当前身份：{session.user.name}（教师）</span>
-          <button
-            className="min-h-11 font-semibold text-[var(--pbl-teacher)]"
-            onClick={() => {
-              setNameDraft(session.user.name);
-              setNameOpen(true);
-            }}
-            type="button"
-          >
-            修改姓名
-          </button>
-        </footer>
       </div>
       <Dialog onOpenChange={setNameOpen} open={nameOpen}>
         <DialogContent>

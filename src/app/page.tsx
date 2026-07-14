@@ -186,7 +186,7 @@ function Entry({
   const teacher = tone === "teacher";
   return (
     <Link
-      className="group border-t-2 bg-[var(--pbl-surface)] p-6 transition-colors hover:bg-[var(--pbl-surface-soft)] hover:shadow-[var(--shadow-soft)] md:p-8"
+      className="group rounded-[var(--radius-sm)] border-t-2 bg-[var(--pbl-surface)] p-6 transition-colors hover:bg-[var(--pbl-surface-soft)] hover:shadow-[var(--shadow-soft)] md:p-8"
       href={href}
       style={{ borderColor: teacher ? "var(--pbl-teacher)" : "var(--pbl-student)" }}
     >

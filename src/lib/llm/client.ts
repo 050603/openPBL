@@ -21,8 +21,13 @@ import type {
 } from "../session/types";
 import { getActiveAiSettings } from "./settings";
 import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
-import { normalizePblTeachingOutline } from "@/lib/pbl-outline-normalization";
 import {
+  applyConfirmedPblTimingPlan,
+  assessPblTeachingOutlineStructure,
+  normalizePblTeachingOutline,
+} from "@/lib/pbl-outline-normalization";
+import {
+  isPblModuleTimingPlanConfirmed,
   normalizePblStageKey,
   rescalePblDetailDurations,
 } from "@/lib/pbl-time-model";
@@ -641,7 +646,7 @@ function normalizeTeachingActivityKind(value: unknown): TeachingOutlineSection["
 export function normalizeTeachingOutlineResponse(
   raw: unknown,
   input: GenerateInput,
-  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">>,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "moduleTimingPlan">>,
 ): TeachingOutlineSection[] {
   const payload = unwrapTeachingOutlinePayload(raw);
   if (!Array.isArray(payload) || payload.length === 0) {
@@ -747,7 +752,7 @@ export function normalizeTeachingOutlineResponse(
   }
 
   if (input.pblConfig?.generationTemplate !== "pbl-six-stage") return parsed;
-  return normalizePblTeachingOutline(parsed, {
+  const options = {
     totalMinutes: Math.max(0, Math.round(input.hours * 60)),
     topic: input.name,
     subject: input.subject,
@@ -756,7 +761,16 @@ export function normalizeTeachingOutlineResponse(
     difficulty: input.pblConfig.difficultyLevel,
     knowledgePoints: context?.knowledgePoints,
     knowledgeGraph: context?.knowledgeGraph,
-  });
+  };
+  const normalized = context?.moduleTimingPlan
+    && isPblModuleTimingPlanConfirmed(context.moduleTimingPlan)
+    ? applyConfirmedPblTimingPlan(parsed, context.moduleTimingPlan, options)
+    : normalizePblTeachingOutline(parsed, options);
+  const structureIssues = assessPblTeachingOutlineStructure(normalized);
+  if (structureIssues.length > 0) {
+    throw new Error(`授课大纲结构校验失败：${structureIssues.map((issue) => issue.message).join("；")}`);
+  }
+  return normalized;
 }
 
 function validateTeachingOutline(

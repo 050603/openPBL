@@ -3,8 +3,12 @@ import {
   assessTtsDurationError,
   buildTtsTimingPlan,
   calculateTtsContentBudget,
+  createTtsVoiceTimingCalibration,
+  getTtsCalibrationKey,
+  mergeTtsVoiceTimingCalibrations,
   estimateSpeechDurationSec,
   getTtsTimingProfile,
+  registerTtsVoiceTimingCalibration,
 } from './tts-timing';
 
 describe('TTS timing model', () => {
@@ -75,5 +79,80 @@ describe('TTS timing model', () => {
     expect(plan.contentType).toBe('theory');
     expect(plan).not.toHaveProperty('calibration');
     expect(plan).not.toHaveProperty('expectedNaturalDurationSec');
+  });
+
+  it('calibrates and resolves an exact provider/model/voice at natural speed', () => {
+    const text = '这是用于自然语速建模的一段标准课程讲解文本。';
+    const calibration = createTtsVoiceTimingCalibration({
+      providerId: 'qwen-tts',
+      modelId: 'qwen3-tts-flash',
+      voiceId: 'Cherry',
+      text,
+      measuredDurationSec: 6,
+    });
+    registerTtsVoiceTimingCalibration(calibration);
+
+    const exact = getTtsTimingProfile('qwen-tts', 'qwen3-tts-flash', 'Cherry');
+    const otherVoice = getTtsTimingProfile('qwen-tts', 'qwen3-tts-flash', 'Serena');
+
+    expect(exact.source).toBe('configured');
+    expect(exact.voiceId).toBe('Cherry');
+    expect(exact.punctuationPauseSec).toBe(0);
+    expect(otherVoice.source).toBe('seed');
+  });
+
+  it('records narration and silent student activity as separate budgets', () => {
+    const plan = buildTtsTimingPlan({
+      targetDurationSec: 55,
+      activityTargetDurationSec: 180,
+      studentActivitySec: 115,
+      feedbackSec: 25,
+      transitionSec: 10,
+      providerId: 'qwen-tts',
+      modelId: 'qwen3-tts-flash',
+      voiceId: 'Serena',
+      contentType: 'quiz',
+    });
+
+    expect(plan.speed).toBe(1);
+    expect(plan.narrationSec).toBe(55);
+    expect(plan.studentActivitySec).toBe(115);
+    expect(plan.feedbackSec).toBe(25);
+    expect(plan.transitionSec).toBe(10);
+  });
+
+  it('binds calibration identity to provider, model, voice, language, and speed', () => {
+    const base = createTtsVoiceTimingCalibration({
+      providerId: 'qwen-tts',
+      modelId: 'qwen3-tts-flash',
+      voiceId: 'Cherry',
+      language: 'zh-CN',
+      speed: 1,
+      text: '这是测试文本。',
+      measuredDurationSec: 2,
+    });
+    expect(getTtsCalibrationKey(base)).not.toBe(getTtsCalibrationKey({ ...base, voiceId: 'Serena' }));
+    expect(getTtsCalibrationKey(base)).not.toBe(getTtsCalibrationKey({ ...base, language: 'en-US' }));
+    expect(getTtsCalibrationKey(base)).not.toBe(getTtsCalibrationKey({ ...base, speed: 1.2 }));
+  });
+
+  it('aggregates repeated samples by total units and decoded duration', () => {
+    const first = createTtsVoiceTimingCalibration({
+      providerId: 'qwen-tts', modelId: 'qwen3-tts-flash', voiceId: 'Cherry',
+      text: '这是第一段标准测试文本。', measuredDurationSec: 3,
+    });
+    const second = createTtsVoiceTimingCalibration({
+      providerId: 'qwen-tts', modelId: 'qwen3-tts-flash', voiceId: 'Cherry',
+      text: '这是第二段标准测试文本。', measuredDurationSec: 5,
+    });
+    const aggregate = mergeTtsVoiceTimingCalibrations(first, second);
+
+    expect(aggregate.sampleCount).toBe(2);
+    expect(aggregate.totalSampleUnits).toBe(first.sampleUnits + second.sampleUnits);
+    expect(aggregate.totalMeasuredDurationSec).toBe(8);
+    expect(aggregate.cjkCharsPerMinute).toBeCloseTo(
+      ((first.sampleUnits + second.sampleUnits) * 60) / 8,
+      1,
+    );
   });
 });

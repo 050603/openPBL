@@ -207,9 +207,9 @@ export function ProposalReviewView({ course }: { course: Course }) {
       <Card>
         <div className="flex items-center gap-2 font-bold text-emerald-800"><ShieldCheck size={19} />项目所有权检查</div>
         <ul className="mt-3 space-y-2 text-sm leading-6 text-stone-600">
-          <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-emerald-600" size={16} />由我提出问题并选择最终方向</li>
-          <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-emerald-600" size={16} />由我完成核心制作与判断</li>
-          <li className="flex gap-2"><Sparkles className="mt-1 shrink-0 text-violet-600" size={16} />AI 只提供解释、启发、质疑与反馈</li>
+          <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-[var(--pbl-success)]" size={16} />由我提出问题并选择最终方向</li>
+          <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-[var(--pbl-success)]" size={16} />由我完成核心制作与判断</li>
+          <li className="flex gap-2"><Sparkles className="mt-1 shrink-0 text-[var(--pbl-ai)]" size={16} />AI 只提供解释、启发、质疑与反馈</li>
         </ul>
       </Card>
       <Card>

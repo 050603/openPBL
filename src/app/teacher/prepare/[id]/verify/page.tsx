@@ -55,8 +55,15 @@ import {
   type PblTimeActivity,
 } from "@/lib/pbl-time-model";
 import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
-import { normalizePblTeachingOutline } from "@/lib/pbl-outline-normalization";
+import {
+  applyConfirmedPblTimingPlan,
+  assessPblTeachingOutlineStructure,
+  createPblTimingSkeleton,
+  normalizePblTeachingOutline,
+} from "@/lib/pbl-outline-normalization";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
+import { useSettingsStore } from "@/lib/openmaic/store/settings";
+import { getTtsTimingProfile } from "@/lib/openmaic/audio/tts-timing";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -82,6 +89,10 @@ function sceneOutlineToLessonSection(
     knowledgePointIds: outline.knowledgePointIds ?? [],
     resourceTypes: outline.resourceTypes,
     targetDurationSec: outline.targetDurationSec,
+    segmentIndex: outline.segmentIndex,
+    segmentCount: outline.segmentCount,
+    segmentRole: outline.segmentRole,
+    segmentGroupId: outline.segmentGroupId,
     ttsPolicy: outline.ttsPolicy,
     timingPlan: outline.timingPlan,
   };
@@ -104,6 +115,10 @@ function lessonSectionToSceneOutline(
     knowledgePointIds: section.knowledgePointIds,
     resourceTypes: section.resourceTypes,
     targetDurationSec: section.targetDurationSec ?? section.durationMin * 60,
+    segmentIndex: section.segmentIndex,
+    segmentCount: section.segmentCount,
+    segmentRole: section.segmentRole,
+    segmentGroupId: section.segmentGroupId,
     ttsPolicy: section.ttsPolicy,
     timingPlan: section.timingPlan,
     order: index,
@@ -165,6 +180,22 @@ function normalizeSceneOutlineSnapshot(outline: unknown, index: number): SceneOu
     targetDurationSec:
       typeof raw.targetDurationSec === "number" && Number.isFinite(raw.targetDurationSec)
         ? Math.max(0, Math.round(raw.targetDurationSec))
+        : undefined,
+    segmentIndex:
+      typeof raw.segmentIndex === "number" && Number.isFinite(raw.segmentIndex)
+        ? Math.max(1, Math.round(raw.segmentIndex))
+        : undefined,
+    segmentCount:
+      typeof raw.segmentCount === "number" && Number.isFinite(raw.segmentCount)
+        ? Math.max(1, Math.round(raw.segmentCount))
+        : undefined,
+    segmentRole:
+      typeof raw.segmentRole === "string" && raw.segmentRole.trim()
+        ? raw.segmentRole.trim()
+        : undefined,
+    segmentGroupId:
+      typeof raw.segmentGroupId === "string" && raw.segmentGroupId.trim()
+        ? raw.segmentGroupId.trim()
         : undefined,
     ttsPolicy:
       raw.ttsPolicy === "none" || raw.ttsPolicy === "target-duration"
@@ -256,6 +287,13 @@ export default function VerifyCoursePage() {
   const { user, setCourseContent, updateCourse } = useSession();
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
+  const ttsProviderId = useSettingsStore((state) => state.ttsProviderId);
+  const ttsVoice = useSettingsStore((state) => state.ttsVoice);
+  const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
+  const ttsProviderConfig = ttsProvidersConfig[ttsProviderId];
+  const ttsModelId = ttsProviderConfig?.modelId || "";
+  const ttsVoiceId = ttsProviderConfig?.defaultVoice || ttsVoice || "default";
+  const ttsTimingProfile = getTtsTimingProfile(ttsProviderId, ttsModelId, ttsVoiceId);
   const [content, setContent] = useState<CourseContent | undefined>();
   const [open, setOpen] = useState<Record<Section, boolean>>({
     knowledgePoints: true,
@@ -395,8 +433,10 @@ export default function VerifyCoursePage() {
     [applyTeachingOutlineChange, content?.teachingOutline, course?.hours, pblTimeContext],
   );
 
-  const confirmModuleTiming = useCallback(() => {
-    const activities = content?.teachingOutline ?? [];
+  const confirmModuleTiming = useCallback(async () => {
+    if (!course) return;
+    const currentContent = content ?? course.content;
+    const activities = currentContent.teachingOutline ?? [];
     const totalMinutes = Math.max(0, Math.round((course?.hours ?? 0) * 60));
     const moduleTimingPlan = buildPblModuleTimingPlan(
       totalMinutes,
@@ -410,21 +450,103 @@ export default function VerifyCoursePage() {
       toast.error("课程时间尚未确认", { description: message });
       return;
     }
-    const projectMainline = {
-      ...buildPblProjectMainline(totalMinutes, activities),
-      generatedAt: new Date().toISOString(),
-    };
+
     setContent((current) => current
       ? {
           ...current,
           moduleTimingPlan,
-          projectMainline,
-          pblOutline: formatPblProjectMainline(projectMainline),
+          projectMainline: undefined,
+          pblOutline: "",
+          lessonOutline: [],
+          _openmaicSceneOutlines: undefined,
         }
       : current);
-    setInfo("六个模块的时间已确认，项目主线已生成。现在可以继续生成课程大纲。 ");
+    setSceneOutlines([]);
+    setBusy("teachingOutline");
     setError(undefined);
-  }, [content?.teachingOutline, course?.hours, pblTimeContext]);
+    setInfo("时间安排已确认，正在按最终时间生成 PBL 项目主线和课程模块…");
+
+    try {
+      const timingSpine = {
+        ...buildPblProjectMainline(totalMinutes, moduleTimingPlan.allocations),
+        generatedAt: moduleTimingPlan.confirmedAt ?? new Date().toISOString(),
+      };
+      const res = await fetch("/api/llm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "teachingOutline",
+          input: {
+            name: course.name,
+            subject: course.subject,
+            grade: course.grade,
+            hours: course.hours,
+            summary: course.summary,
+            drivingQuestion: course.drivingQuestion,
+            stages: course.stages.map((stage) => ({
+              key: stage.key,
+              label: stage.label,
+              description: stage.description,
+            })),
+            pblConfig: course.pblConfig,
+          },
+          context: {
+            pblOutline: currentContent.pblOutline,
+            knowledgePoints: currentContent.knowledgePoints,
+            knowledgeGraph: currentContent.knowledgeGraph,
+            projectMainline: timingSpine,
+            moduleTimingPlan,
+          },
+        }),
+      });
+      if (!res.ok) {
+        let detail = `课程模块生成失败（HTTP ${res.status}）`;
+        try {
+          const body = (await res.json()) as { detail?: string; error?: string };
+          detail = body.detail || body.error || detail;
+        } catch {
+          // 响应非 JSON，保留默认错误。
+        }
+        throw new Error(detail);
+      }
+      const data = (await res.json()) as { content: CourseContent; source: "llm" };
+      const generatedModules = applyConfirmedPblTimingPlan(
+        data.content.teachingOutline ?? [],
+        moduleTimingPlan,
+        { totalMinutes, ...pblTimeContext },
+      );
+      const structureIssues = assessPblTeachingOutlineStructure(generatedModules);
+      if (structureIssues.length > 0) {
+        throw new Error(`课程模块结构校验失败：${structureIssues.map((issue) => issue.message).join("；")}`);
+      }
+      const projectMainline = {
+        ...buildPblProjectMainline(totalMinutes, generatedModules),
+        generatedAt: new Date().toISOString(),
+      };
+      if (projectMainline.allocatedMinutes !== totalMinutes) {
+        throw new Error(`课程模块时间校验失败：模块合计 ${projectMainline.allocatedMinutes} 分钟，课程总时长 ${totalMinutes} 分钟。`);
+      }
+      setContent((current) => current
+        ? {
+            ...current,
+            pblOutline: data.content.pblOutline?.trim() || formatPblProjectMainline(projectMainline),
+            teachingOutline: generatedModules,
+            moduleTimingPlan,
+            projectMainline,
+            lessonOutline: [],
+            _openmaicSceneOutlines: undefined,
+          }
+        : current);
+      setInfo("已按教师确认的时间安排生成 PBL 项目主线和六个课程模块。");
+    } catch (e) {
+      const message = (e as Error).message || "PBL 项目主线和课程模块生成失败";
+      setError(message);
+      setInfo(undefined);
+      toast.error("课程模块生成失败", { description: message });
+    } finally {
+      setBusy(null);
+    }
+  }, [content, course, pblTimeContext]);
 
   // Initialize content from course when loaded
   useEffect(() => {
@@ -477,10 +599,7 @@ export default function VerifyCoursePage() {
       ? isPblModuleTimingPlanConfirmed(initialTimingPlan)
       : false;
     const projectMainline = initialPlanIsConfirmed
-      ? {
-          ...buildPblProjectMainline(totalMinutes, plannedTeachingOutline),
-          generatedAt: course.content.projectMainline?.generatedAt ?? new Date().toISOString(),
-        }
+      ? course.content.projectMainline
       : undefined;
     const initialContent: CourseContent = {
       ...course.content,
@@ -505,6 +624,34 @@ export default function VerifyCoursePage() {
       setError(undefined);
       setInfo(undefined);
       try {
+        if (
+          section === "teachingOutline"
+          && course.pblConfig?.generationTemplate === "pbl-six-stage"
+        ) {
+          const totalMinutes = Math.max(0, Math.round(course.hours * 60));
+          const timingSkeleton = createPblTimingSkeleton({
+            totalMinutes,
+            ...pblTimeContext,
+          });
+          const moduleTimingPlan = buildPblModuleTimingPlan(
+            totalMinutes,
+            timingSkeleton,
+            pblTimeContext,
+            { status: "suggested", preserveCurrentDurations: true },
+          );
+          setContent((current) => ({
+            ...(current ?? course.content),
+            pblOutline: "",
+            teachingOutline: timingSkeleton,
+            projectMainline: undefined,
+            moduleTimingPlan,
+            lessonOutline: [],
+            _openmaicSceneOutlines: undefined,
+          }));
+          setSceneOutlines([]);
+          setInfo("已根据课程信息生成六阶段时间建议。请调整并确认时间后，再生成 PBL 项目主线和课程模块。");
+          return;
+        }
         const action =
           section === "knowledgePoints"
             ? "knowledgeGraph"
@@ -690,7 +837,7 @@ export default function VerifyCoursePage() {
         setBusy(null);
       }
     },
-    [course, content, syncLessonOutline],
+    [course, content, pblTimeContext, syncLessonOutline],
   );
 
   // ===== 课程大纲 AI 生成 =====
@@ -706,6 +853,17 @@ export default function VerifyCoursePage() {
       const message = "请先确认六个模块的时间，再生成课程大纲。";
       setError(message);
       toast.error("课程时间尚未确认", { description: message });
+      return;
+    }
+    const structureIssues = assessPblTeachingOutlineStructure(
+      currentContent.teachingOutline ?? [],
+    );
+    if (!currentContent.projectMainline || structureIssues.length > 0) {
+      const message = structureIssues[0]?.message
+        ? `课程模块结构无效：${structureIssues[0].message}`
+        : "请先根据已确认的时间安排生成 PBL 项目主线和课程模块。";
+      setError(message);
+      toast.error("PBL 项目主线尚未就绪", { description: message });
       return;
     }
     // 中止上一次流式生成
@@ -777,6 +935,14 @@ export default function VerifyCoursePage() {
             userBio,
             webSearch: false,
             taskEngineMode: false,
+            ttsTimingContext: {
+              providerId: ttsProviderId,
+              modelId: ttsModelId,
+              voiceId: ttsVoiceId,
+              cjkCharsPerMinute: ttsTimingProfile.cjkCharsPerMinute,
+              latinWordsPerMinute: ttsTimingProfile.latinWordsPerMinute,
+              calibrated: ttsTimingProfile.source === "configured",
+            },
           },
           agents,
         }),
@@ -833,7 +999,8 @@ export default function VerifyCoursePage() {
           } else if (evt.type === "done") {
             // 若流式未推送单条事件，从 done 批量加载
             const outlines = (evt.outlines as SceneOutline[]) ?? [];
-            if (outlines.length > 0 && collected.length === 0) {
+            if (outlines.length > 0) {
+              collected.splice(0, collected.length);
               for (let i = 0; i < outlines.length; i++) {
                 const outline = normalizeSceneOutlineSnapshot(outlines[i], i);
                 outline.order = i;
@@ -841,6 +1008,7 @@ export default function VerifyCoursePage() {
               }
               setSceneOutlines([...collected]);
               syncLessonOutline(collected);
+              setStreamingCount(collected.length);
             }
             setInfo(`课程大纲已生成（共 ${collected.length} 个资源）`);
           } else if (evt.type === "error") {
@@ -864,7 +1032,17 @@ export default function VerifyCoursePage() {
       setBusy(null);
       abortRef.current = null;
     }
-  }, [course, user, syncLessonOutline, content, sceneOutlines]);
+  }, [
+    course,
+    user,
+    syncLessonOutline,
+    content,
+    sceneOutlines,
+    ttsProviderId,
+    ttsModelId,
+    ttsVoiceId,
+    ttsTimingProfile,
+  ]);
 
   // 组件卸载时中止流式生成
   useEffect(() => {
@@ -896,10 +1074,7 @@ export default function VerifyCoursePage() {
         })
       : undefined;
     const projectMainline = moduleTimingPlan && confirmed
-      ? content.projectMainline ?? {
-          ...buildPblProjectMainline(totalMinutes, teachingOutline),
-          generatedAt: new Date().toISOString(),
-        }
+      ? content.projectMainline
       : undefined;
     const nextContent: CourseContent = {
       ...content,
@@ -936,10 +1111,23 @@ export default function VerifyCoursePage() {
     if (!section) return true;
     if (section === "knowledgePoints") return content.knowledgePoints.length > 0;
     if (section === "teachingOutline") {
+      const structureIssues = assessPblTeachingOutlineStructure(content.teachingOutline ?? []);
+      const mainline = content.projectMainline;
+      const mainlineValid = Boolean(
+        mainline
+        && mainline.totalMinutes === Math.max(0, Math.round((course?.hours ?? 0) * 60))
+        && mainline.allocatedMinutes === mainline.totalMinutes
+        && mainline.modules.length === PBL_MODULE_DEFINITIONS.length
+        && mainline.modules.every(
+          (module, index) => module.stageKey === PBL_MODULE_DEFINITIONS[index]?.stageKey,
+        ),
+      );
       return Boolean(
-        content.teachingOutline?.length
+        content.teachingOutline?.length === PBL_MODULE_DEFINITIONS.length
+        && structureIssues.length === 0
         && content.moduleTimingPlan?.status === "confirmed"
-        && isPblModuleTimingPlanConfirmed(content.moduleTimingPlan),
+        && isPblModuleTimingPlanConfirmed(content.moduleTimingPlan)
+        && mainlineValid,
       );
     }
     if (section === "lessonOutline") return sceneOutlines.length > 0 || content.lessonOutline.length > 0;
@@ -1021,6 +1209,7 @@ export default function VerifyCoursePage() {
             totalMinutes={Math.max(0, Math.round((course?.hours ?? 0) * 60))}
             timeContext={pblTimeContext}
             timingPlan={content?.moduleTimingPlan}
+            readOnly={busy === "teachingOutline"}
             onChangeModuleDuration={applyPblStageDurationChange}
             onApplyRecommendation={(allocations) => {
               const activities = content?.teachingOutline ?? [];
@@ -1031,12 +1220,13 @@ export default function VerifyCoursePage() {
                 })),
               );
             }}
-            onConfirm={confirmModuleTiming}
+            onConfirm={() => void confirmModuleTiming()}
           />
+          {content?.projectMainline ? (
+            <>
           <div>
             <div className="mb-2 text-sm font-bold text-stone-800">PBL 项目主线说明</div>
-            <p className="mb-2 text-xs leading-5 text-stone-500">下方时间轴由课程模块的最终分配自动重算；修改模块时，课程大纲中已有资源的目标时长也会同步更新。</p>
-            {content?.projectMainline ? (
+            <p className="mb-2 text-xs leading-5 text-stone-500">下方项目节奏和课程模块均由教师最终确认的时间安排生成。</p>
               <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {content.projectMainline.modules.map((module) => (
                   <div className="rounded-[6px] border border-stone-200 bg-stone-50 px-3 py-2 text-xs" key={module.stageKey}>
@@ -1048,7 +1238,6 @@ export default function VerifyCoursePage() {
                   </div>
                 ))}
               </div>
-            ) : null}
             <textarea
               className="min-h-[100px] w-full rounded-[6px] border border-stone-300 px-4 py-3 text-[15px] leading-7 outline-none focus:border-[var(--pbl-teacher)]"
               onChange={(e) =>
@@ -1097,7 +1286,7 @@ export default function VerifyCoursePage() {
                   </select>
                   {index >= PBL_MODULE_DEFINITIONS.length ? (
                     <button
-                      className="text-sm font-semibold text-stone-400 hover:text-red-600"
+                      className="text-sm font-semibold text-stone-400 hover:text-[var(--pbl-danger)]"
                       onClick={() =>
                         applyTeachingOutlineChange(
                           (content?.teachingOutline ?? []).filter(
@@ -1163,18 +1352,14 @@ export default function VerifyCoursePage() {
             ))}
           </div>
 
-          <button
-            className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
-            onClick={() =>
-              applyTeachingOutlineChange([
-                ...(content?.teachingOutline ?? []),
-                createEmptyTeachingOutlineItem(content?.teachingOutline?.length ?? 0),
-              ])
-            }
-            type="button"
-          >
-            + 添加授课活动
-          </button>
+            </>
+          ) : (
+            <div className="rounded-[8px] border border-dashed border-stone-300 bg-stone-50 px-4 py-5 text-sm leading-6 text-stone-600">
+              {content?.moduleTimingPlan?.status === "confirmed"
+                ? "时间安排已确认。正在生成或等待重新生成 PBL 项目主线与六个课程模块。"
+                : "先生成并调整六阶段时间安排；确认后，系统才会根据最终时间和知识图谱生成 PBL 项目主线与课程模块。"}
+            </div>
+          )}
         </div>
       ),
     },
@@ -1342,7 +1527,7 @@ export default function VerifyCoursePage() {
                                     />
                                     <button
                                       type="button"
-                                      className="ml-auto text-stone-300 hover:text-red-500"
+                                      className="ml-auto text-stone-300 hover:text-[var(--pbl-danger)]"
                                       title="删除此关系"
                                       onClick={() => setContent((c) => {
                                         if (!c) return c;
@@ -1380,7 +1565,7 @@ export default function VerifyCoursePage() {
                                     <span className="font-semibold text-[var(--pbl-success)]">{targetPoint?.name ?? edge.target}</span>
                                     <button
                                       type="button"
-                                      className="ml-auto text-stone-300 hover:text-red-500"
+                                      className="ml-auto text-stone-300 hover:text-[var(--pbl-danger)]"
                                       title="删除此关系"
                                       onClick={() => setContent((c) => {
                                         if (!c) return c;
@@ -1400,7 +1585,7 @@ export default function VerifyCoursePage() {
                         <div className="border-t border-stone-100 pt-3">
                           <button
                             type="button"
-                            className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-600 hover:bg-red-100"
+                            className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-3 text-xs font-semibold text-[var(--pbl-danger)] hover:bg-[var(--pbl-danger-soft)]"
                             onClick={() => {
                               setContent((c) => {
                                 if (!c) return c;
@@ -1536,7 +1721,7 @@ export default function VerifyCoursePage() {
                           value={kp.keyInfo ?? ""}
                         />
                         <button
-                          className="shrink-0 text-sm font-semibold text-stone-400 hover:text-red-600"
+                          className="shrink-0 text-sm font-semibold text-stone-400 hover:text-[var(--pbl-danger)]"
                           onClick={() =>
                             setContent((c) => {
                               if (!c) return c;
@@ -1665,7 +1850,7 @@ export default function VerifyCoursePage() {
                           value={edge.label}
                         />
                         <button
-                          className="text-sm font-semibold text-stone-400 hover:text-red-600"
+                          className="text-sm font-semibold text-stone-400 hover:text-[var(--pbl-danger)]"
                           onClick={() =>
                             setContent((c) =>
                               c
@@ -1928,7 +2113,7 @@ export default function VerifyCoursePage() {
                       </td>
                       <td className="p-3 text-right">
                         <button
-                          className="text-sm font-semibold text-stone-400 hover:text-red-600"
+                          className="text-sm font-semibold text-stone-400 hover:text-[var(--pbl-danger)]"
                           onClick={() =>
                             setContent((c) =>
                               c
@@ -2177,6 +2362,7 @@ export default function VerifyCoursePage() {
                   <button
                     type="button"
                     className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50"
+                    disabled={busy === key}
                     onClick={(e) => {
                       e.stopPropagation();
                       void generateSection(key);
@@ -2187,7 +2373,13 @@ export default function VerifyCoursePage() {
                     ) : (
                       <RotateCw size={14} />
                     )}
-                    {isStepReady(key) ? "重新生成" : "生成"}
+                    {key === "teachingOutline"
+                      ? content?.moduleTimingPlan
+                        ? "重新规划时间"
+                        : "生成时间安排"
+                      : isStepReady(key)
+                        ? "重新生成"
+                        : "生成"}
                   </button>
                 )}
                 {open[key] ? (
@@ -2293,11 +2485,11 @@ function PblDetailHierarchySummary({
           );
         })}
         {(detailsByParent.get("__orphan__") ?? []).length > 0 ? (
-          <p className="text-xs font-semibold text-rose-700">有 {(detailsByParent.get("__orphan__") ?? []).length} 个课程大纲资源尚未关联课程模块。</p>
+          <p className="text-xs font-semibold text-[var(--pbl-danger)]">有 {(detailsByParent.get("__orphan__") ?? []).length} 个课程大纲资源尚未关联课程模块。</p>
         ) : null}
       </div>
       {knowledgeValidation.issues.length > 0 ? (
-        <div className="mt-3 space-y-1 text-xs leading-5 text-amber-800">
+        <div className="mt-3 space-y-1 text-xs leading-5 text-[var(--pbl-warning)]">
           {knowledgeValidation.issues.slice(0, 3).map((issue) => <p key={`${issue.code}-${issue.outlineId}`}>⚠ {issue.message}</p>)}
         </div>
       ) : null}
@@ -2339,7 +2531,7 @@ function PblCoverageSummary({
         {Object.values(coverage.entries).map((entry) => (
           <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}>
             <span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span>
-            <span className={entry.total ? "text-[var(--pbl-ai)]" : "text-rose-500"}>{entry.total ? `${entry.total} 场` : "缺少"}</span>
+            <span className={entry.total ? "text-[var(--pbl-ai)]" : "text-[var(--pbl-danger)]"}>{entry.total ? `${entry.total} 场` : "缺少"}</span>
           </div>
         ))}
       </div> : null}
@@ -2347,7 +2539,7 @@ function PblCoverageSummary({
         <p className="mt-3 text-xs leading-5 text-stone-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}</p>
       ) : null}
       {hasOutlines && !coverage.ok ? (
-        <div className="mt-3 space-y-1 text-xs leading-5 text-amber-800">
+        <div className="mt-3 space-y-1 text-xs leading-5 text-[var(--pbl-warning)]">
           {coverage.missingStageKeys.length ? <p>缺少阶段：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}</p> : null}
           {coverage.missingStudentLearningStageKeys.length ? <p>需要学生学习场景：AI 授知</p> : null}
           {coverage.missingTeacherResourceStageKeys.length ? <p>需要普通课堂活动支撑：{coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? key).join("、")}</p> : null}
@@ -2357,25 +2549,6 @@ function PblCoverageSummary({
       {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-stone-500">元数据提醒：{coverage.metadataWarnings.join("；")}</p> : null}
     </section>
   );
-}
-
-function createEmptyTeachingOutlineItem(index: number): TeachingOutlineSection {
-  return {
-    id: `to-${index + 1}`,
-    stageKey: "launch",
-    title: "新授课活动",
-    durationMin: 10,
-    teachingGoal: "",
-    teacherRole: "",
-    platformRole: "",
-    aiRole: "无",
-    studentActivity: "",
-    activityKind: "launch",
-    knowledgePointIds: [],
-    openMaicUse: "none",
-    resourceTypes: [],
-    notes: "",
-  };
 }
 
 function updateTeachingOutlineItem(

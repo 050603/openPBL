@@ -161,6 +161,7 @@ export function buildTeachingOutlinePrompt(
     knowledgeGraph?: unknown;
     knowledgePoints?: unknown;
     projectMainline?: unknown;
+    moduleTimingPlan?: unknown;
   },
 ): {
   system: string;
@@ -181,6 +182,8 @@ export function buildTeachingOutlinePrompt(
 个人项目配置：${personalProjectConfigText(input)}
 已确认 PBL 项目说明：${context?.pblOutline || "（尚未生成，可根据课程信息推断）"}
 已确认项目主线：${JSON.stringify(context?.projectMainline ?? null)}
+教师最终确认的时间安排（最高优先级）：${JSON.stringify(context?.moduleTimingPlan ?? null)}
+每个顶级阶段必须严格使用时间安排中对应阶段的 durationMin、顺序和模块身份。多个知识点必须合并进唯一的 ai-learning 顶级阶段，不得为不同知识点重复创建 AI 授知或项目实践；reflection 必须是最后一个顶级阶段。
 已确认知识点与图谱：${JSON.stringify({
     knowledgePoints: context?.knowledgePoints ?? [],
     knowledgeGraph: context?.knowledgeGraph ?? null,
@@ -205,7 +208,7 @@ ${stageList}
 6. 大纲要有课堂可执行性，避免空泛口号。
 7. 只为可提前确定的内容生成具体结论：项目导入、任务流程、评价规则、确定知识、案例演示、操作说明、课后延伸、价值升华和迁移问题。
 8. 方案点评、作品点评、班级共性问题和汇报总结只能生成不含结论的主持支架（点评框架、追问清单、总结结构），不得预设学生表现；课堂获得真实产物、对话和观察后再动态填充。
-9. 按 PBL 标准时间模型给出合理起点：项目启动约 10%、AI 授知约 20%、方案构思约 10%、项目实践约 40%、成果汇报约 15%、反思迁移约 5%。根据 ${input.pblConfig?.difficultyLevel ?? "standard"} 难度和 ${input.grade || "目标年级"} 的学习成熟度做小幅调整，但项目实践必须是最长模块，知识讲授不得超过项目实践，且每个模块至少 1 分钟。
+9. 若已提供“教师最终确认的时间安排”，必须逐项原样采用，禁止按比例重新分配；仅在没有确认时间时，才按项目启动约 10%、AI 授知约 20%、方案构思约 10%、项目实践约 40%、成果汇报约 15%、反思迁移约 5% 给出建议起点。每个模块至少 1 分钟。
 10. 所有已确认知识点 ID 必须至少出现在 AI 授知模块的 knowledgePointIds 中，并按照 foundation/core/application/extension 分级，不得新增或改写 ID。
 11. 每个课程模块必须显式返回 title、durationMin、teachingGoal、teacherRole、platformRole、aiRole、studentActivity 这七个字段；字段值必须是非空字符串（durationMin 为正数）。某角色在该模块没有具体工作时也必须填写“无”，不得省略、填写 null 或空字符串。字段名必须使用示例中的英文名称。
 
@@ -268,8 +271,8 @@ ${stageList}
 1. 为六个课程模块中需要细化的每个活动生成一个或多个二级条目，必须使用 parentActivityId 指向真实的课程模块 id；不能按数组位置推断父子关系。每个父模块的 targetDurationSec 合计必须等于父级 durationMin×60。
 2. AI 授知阶段（stageKey=ai-learning）只生成学生学习资源：知识讲解使用 slide，互动/代码练习使用 interactive，测验使用 quiz；每个知识细化必须关联已确认 knowledgePointIds。
 3. 引入、项目启动、方案构思、项目实践、成果汇报与评价、学习反思及迁移等普通课堂活动只生成教师可用的 PPT/讲稿资源或主持支架，audience 必须为 teacher，resourceTypes 只能是 ppt、script，ttsPolicy 必须是 none。
-4. 每个二级条目必须填写 detailKind、knowledgePointIds、targetDurationSec 与 ttsPolicy。AI 授知条目的 targetDurationSec 应由父模块 durationMin 按知识点难度拆分；不要使用固定的“4.5 字/秒”公式，服务端会根据实际选定的 TTS provider/model 注入内容量预算，生成时必须通过增删有效解释、案例、反例和分步说明让讲稿贴近模型预算。
-5. 必须先覆盖 foundation/core 节点，再安排 application/extension 节点；不得创造知识点 ID 或偏离已确认知识点。
+4. 每个二级条目必须填写 detailKind、knowledgePointIds、targetDurationSec 与 ttsPolicy。AI 授知条目的 targetDurationSec 应由父模块 durationMin 按知识点难度和教学任务拆分。页面边界由你根据概念依赖、示例、方法、对比、练习、证据检查和认知负荷动态决定：相关内容可以合并为一个清晰页面，需要独立视觉焦点的内容才拆成多个条目，不得按固定秒数或固定页数机械切分。不要使用固定的“4.5 字/秒”公式，服务端会根据实际选定的 TTS provider/model 注入内容量预算，生成时必须通过增删与当前 knowledgePointIds 直接相关的有效解释、案例、反例和分步说明让讲稿贴近模型预算；不得为了填满时长引入图谱之外的知识。
+5. 必须先覆盖 foundation/core 节点，再安排 application/extension 节点；不得创造知识点 ID、改变已确认知识点含义，或超出课程年级的知识边界。每个 AI 授知条目必须能说明其内容如何服务于所列 knowledgePointIds。
 6. objectives 必须明确写出将学习或应用的知识节点，activities 要说明学生如何通过案例、测验或小任务验证节点间关系。
 
 仅返回 JSON：{ "lessonOutline": [{ "id": "lo-1", "stageKey": "ai-learning", "title": "string", "objectives": ["string"], "activities": ["string"], "durationMin": 10, "parentActivityId": "to-1", "detailKind": "knowledge-explanation", "knowledgePointIds": ["kp-1"], "resourceTypes": ["ppt"], "targetDurationSec": 600, "ttsPolicy": "target-duration" }] }`;

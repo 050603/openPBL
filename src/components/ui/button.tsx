@@ -26,10 +26,10 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] border font-semibold transition-colors",
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-sm)] border font-bold transition-colors",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pbl-teacher)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        variant === "primary" && "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher)] text-white hover:bg-[var(--pbl-teacher-hover)]",
+        variant === "primary" && "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher)] text-white shadow-sm hover:bg-[var(--pbl-teacher-hover)]",
         variant === "secondary" && "border-[var(--pbl-border-strong)] bg-[var(--pbl-surface)] text-[var(--pbl-text)] hover:bg-[var(--pbl-surface-soft)]",
         variant === "text" && "border-transparent bg-transparent text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]",
         variant === "danger" && "border-[var(--pbl-danger)] bg-[var(--pbl-danger)] text-white hover:brightness-90",

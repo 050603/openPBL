@@ -131,14 +131,14 @@ export function AiLearningTeacherView({
 
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-indigo-700" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">达到全班 30% 或至少 5 人时显示，适合转为全班补充教学。</p></div>
+          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-[var(--pbl-teacher)]" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">达到全班 30% 或至少 5 人时显示，适合转为全班补充教学。</p></div>
           <Pill tone={commonIssues.length ? "red" : "green"}>{commonIssues.length ? `${commonIssues.length} 项` : "暂无"}</Pill>
         </div>
         {commonIssues.length ? (
           <ul className="mt-4 divide-y divide-[var(--pbl-danger-border)] border-y border-[var(--pbl-danger-border)]">
             {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-[var(--pbl-danger)]">{issue.title}</p><p className="mt-1 text-sm text-stone-600">{issue.summary}</p></div><span className="text-sm font-bold text-[var(--pbl-danger)]">影响 {issue.studentIds.length} 人</span></li>)}
           </ul>
-        ) : <div className="mt-4 flex items-center gap-2 border-y border-stone-100 py-5 text-sm text-stone-500"><CircleCheck className="text-emerald-600" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
+        ) : <div className="mt-4 flex items-center gap-2 border-y border-stone-100 py-5 text-sm text-stone-500"><CircleCheck className="text-[var(--pbl-success)]" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
       </Card>
 
       <Card>

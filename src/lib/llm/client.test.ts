@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import type { GenerateInput } from "./types";
 import { normalizeTeachingOutlineResponse } from "./client";
+import { buildTeachingOutlinePrompt } from "./prompts";
+import { createPblTimingSkeleton } from "@/lib/pbl-outline-normalization";
+import { buildPblModuleTimingPlan } from "@/lib/pbl-time-model";
 
 const stages = [
   { key: "launch", label: "项目启动", description: "明确情境与驱动问题" },
@@ -123,5 +126,60 @@ describe("normalizeTeachingOutlineResponse", () => {
     expect(() => normalizeTeachingOutlineResponse({ modules: [null, "not-a-module"] }, input)).toThrow(
       "授课大纲生成失败：AI 未返回可用课程模块。",
     );
+  });
+
+  it("merges duplicate top-level stages and preserves teacher-confirmed durations", () => {
+    const pblInput = { ...input, pblConfig: DEFAULT_PBL_COURSE_CONFIG };
+    const skeleton = createPblTimingSkeleton({ totalMinutes: 60 });
+    const confirmedDurations = [5, 12, 8, 25, 7, 3];
+    const timedSkeleton = skeleton.map((module, index) => ({
+      ...module,
+      durationMin: confirmedDurations[index]!,
+    }));
+    const moduleTimingPlan = buildPblModuleTimingPlan(60, timedSkeleton, undefined, {
+      status: "confirmed",
+      preserveCurrentDurations: true,
+    });
+    const result = normalizeTeachingOutlineResponse(
+      {
+        modules: [
+          ...timedSkeleton,
+          { ...timedSkeleton[1]!, id: "duplicate-knowledge", title: "第二知识点讲解" },
+          { ...timedSkeleton[3]!, id: "duplicate-practice", title: "第二知识点实践" },
+        ],
+      },
+      pblInput,
+      { moduleTimingPlan },
+    );
+
+    expect(result).toHaveLength(6);
+    expect(result.map((module) => module.stageKey)).toEqual([
+      "launch",
+      "ai-learning",
+      "proposal",
+      "make",
+      "showcase",
+      "reflection",
+    ]);
+    expect(result.map((module) => module.durationMin)).toEqual(confirmedDurations);
+    expect(result[1]?.teachingGoal).toContain(timedSkeleton[1]!.teachingGoal);
+  });
+});
+
+describe("buildTeachingOutlinePrompt", () => {
+  it("treats the confirmed timing plan as an authoritative generation input", () => {
+    const skeleton = createPblTimingSkeleton({ totalMinutes: 60 });
+    const moduleTimingPlan = buildPblModuleTimingPlan(60, skeleton, undefined, {
+      status: "confirmed",
+      preserveCurrentDurations: true,
+    });
+    const prompt = buildTeachingOutlinePrompt(
+      { ...input, pblConfig: DEFAULT_PBL_COURSE_CONFIG },
+      { moduleTimingPlan },
+    ).user;
+
+    expect(prompt).toContain("教师最终确认的时间安排（最高优先级）");
+    expect(prompt).toContain(JSON.stringify(moduleTimingPlan));
+    expect(prompt).toContain("多个知识点必须合并进唯一的 ai-learning 顶级阶段");
   });
 });

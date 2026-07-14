@@ -27,6 +27,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
 import { llmApiError } from '@openmaic/lib/server/llm-error-response';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
+import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 
 const log = createLogger('Scene Actions API');
 
@@ -136,12 +137,9 @@ export async function POST(req: NextRequest) {
     };
 
     // ── Build cross-scene context ──
-    const allTitles = allOutlines.map((o) => o.title);
     const pageIndex = allOutlines.findIndex((o) => o.id === outline.id);
     const ctx: SceneGenerationContext = {
-      pageIndex: (pageIndex >= 0 ? pageIndex : 0) + 1,
-      totalPages: allOutlines.length,
-      allTitles,
+      ...buildNarrationContext(allOutlines, pageIndex >= 0 ? pageIndex : 0),
       previousSpeeches: incomingPreviousSpeeches ?? [],
     };
 

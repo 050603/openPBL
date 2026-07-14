@@ -43,6 +43,12 @@ import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { getStageExperienceCapabilities } from '@openmaic/components/stage-experience';
 import type { PlaybackSyncState, StageExperience } from '@openmaic/components/stage-experience';
+import {
+  PLAYBACK_ACTIVITY_COMPLETE_EVENT,
+  PLAYBACK_ACTIVITY_RESET_EVENT,
+  isPlaybackActivityComplete,
+  type PlaybackActivityEventDetail,
+} from '@openmaic/lib/playback/activity-events';
 
 /**
  * Imperative handle exposed via `ref` so the parent (`Stage`) can tear
@@ -234,8 +240,29 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const sceneEpochRef = useRef(0);
     // When true, the next engine init will auto-start playback (for auto-play scene advance)
     const autoStartRef = useRef(false);
+    const completedActivitySceneIdsRef = useRef(new Set<string>());
     // Discussion buffer-level pause state (distinct from soft-pause which aborts SSE)
     const [isDiscussionPaused, setIsDiscussionPaused] = useState(false);
+
+    useEffect(() => {
+      const onComplete = (event: Event) => {
+        const detail = (event as CustomEvent<PlaybackActivityEventDetail>).detail;
+        if (!detail?.sceneId) return;
+        completedActivitySceneIdsRef.current.add(detail.sceneId);
+        engineRef.current?.completeActivity(detail.sceneId, detail.purpose);
+      };
+      const onReset = (event: Event) => {
+        const detail = (event as CustomEvent<PlaybackActivityEventDetail>).detail;
+        if (!detail?.sceneId) return;
+        completedActivitySceneIdsRef.current.delete(detail.sceneId);
+      };
+      window.addEventListener(PLAYBACK_ACTIVITY_COMPLETE_EVENT, onComplete);
+      window.addEventListener(PLAYBACK_ACTIVITY_RESET_EVENT, onReset);
+      return () => {
+        window.removeEventListener(PLAYBACK_ACTIVITY_COMPLETE_EVENT, onComplete);
+        window.removeEventListener(PLAYBACK_ACTIVITY_RESET_EVENT, onReset);
+      };
+    }, []);
 
     /**
      * Resume a soft-paused topic: re-call /chat with existing session messages.
@@ -559,6 +586,18 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             );
           }
         },
+        onActivityStart: (activity) => {
+          if (
+            completedActivitySceneIdsRef.current.has(activity.sceneId) ||
+            isPlaybackActivityComplete(activity)
+          ) {
+            completedActivitySceneIdsRef.current.add(activity.sceneId);
+            queueMicrotask(() => engine.completeActivity(activity.sceneId, activity.purpose));
+          }
+        },
+        onActivityComplete: (activity) => {
+          completedActivitySceneIdsRef.current.add(activity.sceneId);
+        },
         onProactiveShow: (trigger) => {
           if (!trigger.agentId) {
             // Mutate in-place so engine.currentTrigger also gets the agentId
@@ -635,9 +674,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               if (idx >= 0 && idx < allScenes.length - 1) {
                 const currentScene = allScenes[idx];
                 if (
-                  currentScene.type === 'quiz' ||
-                  currentScene.type === 'interactive' ||
-                  currentScene.type === 'pbl'
+                  currentScene.type === 'pbl' ||
+                  ((currentScene.type === 'quiz' || currentScene.type === 'interactive') &&
+                    !completedActivitySceneIdsRef.current.has(currentScene.id))
                 ) {
                   return;
                 }
@@ -647,9 +686,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 // Last scene exhausted but next is still generating — go to pending page
                 const currentScene = allScenes[idx];
                 if (
-                  currentScene.type === 'quiz' ||
-                  currentScene.type === 'interactive' ||
-                  currentScene.type === 'pbl'
+                  currentScene.type === 'pbl' ||
+                  ((currentScene.type === 'quiz' || currentScene.type === 'interactive') &&
+                    !completedActivitySceneIdsRef.current.has(currentScene.id))
                 ) {
                   return;
                 }

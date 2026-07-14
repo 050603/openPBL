@@ -45,7 +45,7 @@ const TYPE_ACCENT: Record<QuizQuestionType, { badge: string; rail: string }> = {
     rail: 'from-violet-400 to-violet-600',
   },
   multiple: {
-    badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+    badge: 'bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] dark:bg-indigo-500/15 dark:text-indigo-300',
     rail: 'from-indigo-400 to-indigo-600',
   },
   short_answer: {

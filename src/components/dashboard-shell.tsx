@@ -127,7 +127,7 @@ export function DashboardShell({
                   <span className="block truncate text-xs font-normal text-[var(--pbl-text-muted)]">{[leadRole ? `${leadRole}主导` : null, currentTask ?? courseName].filter(Boolean).join(" · ")}</span>
                 </span>
                 {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
-                <ChevronDown size={14} className={cn("shrink-0 text-stone-400 transition", openPanel === "courses" && "rotate-180")} />
+                <ChevronDown size={14} className={cn("shrink-0 text-[var(--pbl-text-subtle)] transition", openPanel === "courses" && "rotate-180")} />
               </button>
             ) : null}
             {headerSlot}
@@ -146,7 +146,7 @@ export function DashboardShell({
               </Link>
             ) : null}
             <button
-              className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-stone-600 transition hover:border-stone-200 hover:bg-white"
+              className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-border)] hover:bg-[var(--pbl-surface)]"
               onClick={() => toggle("notifications")}
               type="button"
               aria-label="通知中心"
@@ -167,7 +167,7 @@ export function DashboardShell({
               <span className="hidden max-w-[100px] truncate text-[13px] font-semibold md:inline">
                 {displayName || "未加入课堂"}
               </span>
-              <ChevronDown size={14} className={cn("text-stone-400 transition", openPanel === "profile" && "rotate-180")} />
+              <ChevronDown size={14} className={cn("text-[var(--pbl-text-subtle)] transition", openPanel === "profile" && "rotate-180")} />
             </button>
           </div>
         </div>
@@ -187,17 +187,17 @@ export function DashboardShell({
           {openPanel === "profile" ? (
             <div className="space-y-3.5">
               <div>
-                <div className="text-base font-bold text-stone-900">个人信息</div>
-                <p className="mt-0.5 text-[13px] text-stone-500">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
+                <div className="text-base font-bold text-[var(--pbl-text-strong)]">个人信息</div>
+                <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
               </div>
-              <label className="block text-[13px] font-semibold text-stone-700">
+              <label className="block text-[13px] font-semibold text-[var(--pbl-text)]">
                 显示姓名
                 <TextInput className="mt-1.5 h-10" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} />
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton>
                 <Link
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-stone-200 bg-white text-[13px] font-semibold text-stone-600 transition hover:bg-stone-50"
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:bg-[var(--pbl-surface-soft)]"
                   href={isTeacher ? "/teacher/settings" : "/student"}
                   onClick={() => setOpenPanel(null)}
                 >
@@ -218,7 +218,7 @@ export function DashboardShell({
 
       <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
         <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide && "max-w-none")}>
-          {subtitle ? <p className="mb-2 text-sm font-medium text-stone-500">{subtitle}</p> : null}
+          {subtitle ? <p className="mb-2 text-sm font-medium text-[var(--pbl-text-muted)]">{subtitle}</p> : null}
           {children}
         </div>
       </main>
@@ -231,11 +231,11 @@ function StatusPill({ status }: { status: CourseStatus }) {
     <span
       className={cn(
         "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-semibold ring-1",
-        status === "ready" && "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-green-200",
+        status === "ready" && "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-[var(--pbl-success)]/30",
         status === "teaching" && "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
-        status === "preparing" && "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-orange-200",
-        status === "draft" && "bg-stone-100 text-stone-600 ring-stone-200",
-        status === "finished" && "bg-stone-100 text-stone-500 ring-stone-200",
+        status === "preparing" && "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-[var(--pbl-accent-border)]",
+        status === "draft" && "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)] ring-[var(--pbl-border)]",
+        status === "finished" && "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-subtle)] ring-[var(--pbl-border)]",
       )}
     >
       {COURSE_STATUS_LABEL[status]}
@@ -247,7 +247,7 @@ function TopPopover({ children, onClose }: { children: ReactNode; onClose: () =>
   return (
     <div className="pbl-glass fixed right-4 top-[84px] z-40 w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-md)] p-4 md:right-8">
       <button
-        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-stone-400 transition hover:bg-white hover:text-stone-700"
+        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-[var(--pbl-text-subtle)] transition hover:bg-[var(--pbl-surface)] hover:text-[var(--pbl-text-muted)]"
         onClick={onClose}
         type="button"
         aria-label="关闭"
@@ -264,14 +264,14 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
   return (
     <div>
       <div className="mb-3 pr-8">
-        <div className="text-base font-bold text-stone-900">课堂切换</div>
-        <p className="mt-0.5 text-[13px] text-stone-500">选择要进入的课堂或项目页面。</p>
+        <div className="text-base font-bold text-[var(--pbl-text-strong)]">课堂切换</div>
+        <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">选择要进入的课堂或项目页面。</p>
       </div>
       <div className="max-h-[360px] space-y-1.5 overflow-auto pr-1">
         {courses.map((item) => {
           const href = isTeacher
             ? item.status === "teaching"
-              ? `/teacher/teach-classroom/${item.id}`
+              ? `/teacher/teach/${item.id}/classroom`
               : `/teacher/prepare/${item.id}/preview`
             : item.status === "teaching"
               ? `/student/classroom/${item.id}`
@@ -287,10 +287,10 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
               onClick={onClose}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-[13px] font-bold text-stone-900">{item.name}</span>
+                <span className="truncate text-[13px] font-bold text-[var(--pbl-text-strong)]">{item.name}</span>
                 <StatusPill status={item.status} />
               </div>
-              <div className="mt-0.5 text-[11px] text-stone-500">
+              <div className="mt-0.5 text-[11px] text-[var(--pbl-text-muted)]">
                 {item.subject} · {item.grade} · 阶段 {item.currentStageIndex + 1}/{item.stages.length}
               </div>
             </Link>
@@ -305,23 +305,23 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
   return (
     <div>
       <div className="mb-3 pr-8">
-        <div className="text-base font-bold text-stone-900">通知中心</div>
-        <p className="mt-0.5 text-[13px] text-stone-500">课堂最近活动与反馈会显示在这里。</p>
+        <div className="text-base font-bold text-[var(--pbl-text-strong)]">通知中心</div>
+        <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">课堂最近活动与反馈会显示在这里。</p>
       </div>
       {items.length ? (
         <div className="space-y-1.5">
           {items.map((item) => (
-            <div className="rounded-[var(--radius-sm)] border border-stone-200 bg-white/80 p-2.5" key={item.id}>
-              <div className="text-[13px] font-semibold text-stone-900">
+            <div className="rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]/80 p-2.5" key={item.id}>
+              <div className="text-[13px] font-semibold text-[var(--pbl-text-strong)]">
                 {item.actor} · {item.action}
               </div>
-              {item.detail ? <div className="mt-0.5 text-[13px] text-stone-500">{item.detail}</div> : null}
-              <div className="mt-1.5 text-[11px] text-stone-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+              {item.detail ? <div className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">{item.detail}</div> : null}
+              <div className="mt-1.5 text-[11px] text-[var(--pbl-text-subtle)]">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-stone-300 bg-stone-50/40 py-8 text-center text-[13px] text-stone-500">
+        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-[var(--pbl-border-strong)] bg-[var(--pbl-surface-soft)]/40 py-8 text-center text-[13px] text-[var(--pbl-text-muted)]">
           暂无通知，课堂活动会在这里出现。
         </div>
       )}
@@ -362,7 +362,7 @@ export function AvatarStack({ names }: { names: string[] }) {
         </div>
       ))}
       {names.length > 4 ? (
-        <div className="-ml-1 grid h-8 w-8 place-items-center rounded-full bg-stone-100 text-xs font-bold text-stone-500">
+        <div className="-ml-1 grid h-8 w-8 place-items-center rounded-full bg-[var(--pbl-surface-soft)] text-xs font-bold text-[var(--pbl-text-muted)]">
           +{names.length - 4}
         </div>
       ) : null}
@@ -372,31 +372,47 @@ export function AvatarStack({ names }: { names: string[] }) {
 
 export function Toolbar() {
   const icons = [ClipboardList, FileText, CalendarDays, Database, Star];
+  const formatButtons: Array<{ label: string; name: string }> = [
+    { label: "B", name: "加粗" },
+    { label: "I", name: "斜体" },
+    { label: "U", name: "下划线" },
+    { label: "S", name: "删除线" },
+  ];
   return (
-    <div className="flex h-11 items-center gap-1 border-b border-stone-200 bg-stone-50 px-3">
-      <select className="h-8 rounded-[6px] border border-stone-200 bg-white px-3 text-sm text-stone-600">
+    <div className="flex h-11 items-center gap-1 border-b border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] px-3">
+      <select className="h-8 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 text-sm text-[var(--pbl-text-muted)]">
         <option>正文</option>
       </select>
-      <select className="h-8 rounded-[6px] border border-stone-200 bg-white px-3 text-sm text-stone-600">
+      <select className="h-8 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 text-sm text-[var(--pbl-text-muted)]">
         <option>系统字体</option>
       </select>
-      <select className="h-8 rounded-[6px] border border-stone-200 bg-white px-3 text-sm text-stone-600">
+      <select className="h-8 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 text-sm text-[var(--pbl-text-muted)]">
         <option>14</option>
       </select>
-      <span className="mx-2 h-6 w-px bg-stone-200" />
-      {["B", "I", "U", "S"].map((item) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-base font-bold hover:bg-white" key={item} type="button">
-          {item}
+      <span className="mx-2 h-6 w-px bg-[var(--pbl-border)]" />
+      {formatButtons.map((item) => (
+        <button
+          aria-label={item.name}
+          className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] text-base font-bold text-[var(--pbl-text)] transition hover:bg-[var(--pbl-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--pbl-teacher)]"
+          key={item.label}
+          type="button"
+        >
+          {item.label}
         </button>
       ))}
-      <span className="mx-2 h-6 w-px bg-stone-200" />
+      <span className="mx-2 h-6 w-px bg-[var(--pbl-border)]" />
       {icons.map((Icon, index) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-stone-700 hover:bg-white" key={index} type="button">
+        <button
+          aria-label="格式按钮"
+          className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] text-[var(--pbl-text)] transition hover:bg-[var(--pbl-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--pbl-teacher)]"
+          key={index}
+          type="button"
+        >
           <Icon size={17} />
         </button>
       ))}
-      <span className="ml-auto text-stone-400">撤销</span>
-      <span className="text-stone-400">重做</span>
+      <span className="ml-auto text-[var(--pbl-text-subtle)]">撤销</span>
+      <span className="text-[var(--pbl-text-subtle)]">重做</span>
     </div>
   );
 }

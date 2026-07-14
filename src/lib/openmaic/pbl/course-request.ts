@@ -7,7 +7,6 @@ import type {
 } from "@openmaic/lib/types/generation";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import {
-  buildPblProjectMainline,
   isPblModuleTimingPlanConfirmed,
 } from "@/lib/pbl-time-model";
 
@@ -67,9 +66,7 @@ export function buildPblCourseRequirement(
     ) ?? 0,
     recommendedStageTotals: moduleTimingPlan?.recommendedStageTotals ?? {},
   };
-  const projectMainline = timingConfirmed && content?.teachingOutline?.length
-    ? content.projectMainline ?? buildPblProjectMainline(totalMinutes, content.teachingOutline)
-    : undefined;
+  const projectMainline = timingConfirmed ? content?.projectMainline : undefined;
   return [
     "课程事实：",
     JSON.stringify(

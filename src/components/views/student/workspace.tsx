@@ -149,7 +149,7 @@ export function WorkspaceView({ course }: { course: Course }) {
                 ].map(([title, text], index) => (
                   <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3" key={title}>
                     <div className="flex items-center gap-2 font-bold text-stone-900">
-                      {index === 0 ? <ListChecks size={17} className="text-[var(--pbl-student)]" /> : index === 1 ? <Clock3 size={17} className="text-[var(--pbl-student)]" /> : <ClipboardCheck size={17} className="text-emerald-700" />}
+                      {index === 0 ? <ListChecks size={17} className="text-[var(--pbl-student)]" /> : index === 1 ? <Clock3 size={17} className="text-[var(--pbl-student)]" /> : <ClipboardCheck size={17} className="text-[var(--pbl-success)]" />}
                       {title}
                     </div>
                     <p className="mt-1 text-xs leading-5 text-stone-500">{text}</p>
@@ -168,7 +168,7 @@ export function WorkspaceView({ course }: { course: Course }) {
             </div>
             <div className="flex h-10 items-center justify-between border-t border-stone-100 px-5 text-sm text-stone-500">
               <span>字数：{plainTextLength(documentText)}{group?.keywords?.length ? ` · 主题词：${group.keywords.join("、")}` : ""}</span>
-              <span className="inline-flex items-center gap-1 text-emerald-600">本地可保存 <Check size={16} /></span>
+              <span className="inline-flex items-center gap-1 text-[var(--pbl-success)]">本地可保存 <Check size={16} /></span>
             </div>
           </Card>
 

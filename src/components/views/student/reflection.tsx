@@ -316,7 +316,7 @@ export function ReflectionView({ course }: { course?: Course }) {
               AI过程评价 <span className="text-stone-400">ⓘ</span>
             </h2>
             {latestRubric ? (
-              <span className="rounded-[6px] bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+              <span className="rounded-[6px] bg-[var(--pbl-success-soft)] px-3 py-1 text-xs font-bold text-[var(--pbl-success)]">
                 已收到评分
               </span>
             ) : myGroup ? (
@@ -377,7 +377,7 @@ export function ReflectionView({ course }: { course?: Course }) {
                   <div className="truncate font-bold">{session.user?.name ?? "教师"}</div>
                   <div className="text-sm text-stone-500">{formatDate(teacherFeedback.createdAt)}</div>
                 </div>
-                <span className="ml-auto shrink-0 rounded-[6px] bg-emerald-50 px-3 py-2 font-bold text-emerald-700">
+                <span className="ml-auto shrink-0 rounded-[6px] bg-[var(--pbl-success-soft)] px-3 py-2 font-bold text-[var(--pbl-success)]">
                   {teacherFeedback.kind === "praise"
                     ? "优秀"
                     : teacherFeedback.kind === "revision"

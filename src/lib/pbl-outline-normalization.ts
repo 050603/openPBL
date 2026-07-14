@@ -8,6 +8,7 @@ import {
   PBL_MODULE_DEFINITIONS,
   normalizePblStageKey,
   suggestPblTimeAllocation,
+  type PblModuleTimingPlan,
   type PblTimeModelContext,
 } from '@/lib/pbl-time-model';
 
@@ -16,6 +17,12 @@ type NormalizePblTeachingOutlineOptions = Omit<PblTimeModelContext, 'knowledgePo
   applyTimeModel?: boolean;
   knowledgePoints?: ReadonlyArray<KnowledgePoint>;
   knowledgeGraph?: KnowledgeGraph;
+};
+
+export type PblOutlineStructureIssue = {
+  code: 'missing-stage' | 'duplicate-stage' | 'invalid-order' | 'unexpected-stage';
+  stageKey?: string;
+  message: string;
 };
 
 const KIND_TO_DEFINITION = new Map(
@@ -72,10 +79,139 @@ function knowledgeContext(
   };
 }
 
+function uniqueText(values: Array<string | undefined>): string {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean))).join('；');
+}
+
+function mergeStageActivities(
+  definition: (typeof PBL_MODULE_DEFINITIONS)[number],
+  activities: TeachingOutlineSection[],
+  index: number,
+  allKnowledgePointIds: string[],
+): TeachingOutlineSection {
+  const fallback = defaultTeachingActivity(
+    definition,
+    index,
+    definition.kind === 'knowledge' ? allKnowledgePointIds : [],
+  );
+  if (activities.length === 0) return fallback;
+  const first = activities[0]!;
+  const isKnowledge = definition.kind === 'knowledge';
+  return {
+    ...fallback,
+    ...first,
+    id: first.id || fallback.id,
+    stageKey: definition.stageKey,
+    activityKind: definition.kind,
+    durationMin: activities.reduce(
+      (sum, activity) => sum + Math.max(1, Math.round(Number(activity.durationMin) || 1)),
+      0,
+    ),
+    title: first.title?.trim() || fallback.title,
+    teachingGoal: uniqueText(activities.map((activity) => activity.teachingGoal)) || fallback.teachingGoal,
+    teacherRole: uniqueText(activities.map((activity) => activity.teacherRole)) || fallback.teacherRole,
+    platformRole: uniqueText(activities.map((activity) => activity.platformRole)) || fallback.platformRole,
+    aiRole: uniqueText(activities.map((activity) => activity.aiRole)) || fallback.aiRole,
+    studentActivity: uniqueText(activities.map((activity) => activity.studentActivity)) || fallback.studentActivity,
+    knowledgePointIds: isKnowledge
+      ? Array.from(new Set([
+          ...allKnowledgePointIds,
+          ...activities.flatMap((activity) => activity.knowledgePointIds ?? []),
+        ]))
+      : Array.from(new Set(activities.flatMap((activity) => activity.knowledgePointIds ?? []))),
+    openMaicUse: isKnowledge ? 'student-ai-learning' : 'none',
+    resourceTypes: isKnowledge
+      ? Array.from(new Set(activities.flatMap((activity) => activity.resourceTypes ?? ['ppt'])))
+      : ['ppt', 'script'],
+    notes: uniqueText(activities.map((activity) => activity.notes)) || fallback.notes,
+  };
+}
+
+/** Create the six neutral modules used only for the teacher's timing decision. */
+export function createPblTimingSkeleton(
+  options: NormalizePblTeachingOutlineOptions,
+): TeachingOutlineSection[] {
+  const knowledgePointIds = (options.knowledgePoints ?? []).map((point) => point.id).filter(Boolean);
+  const skeleton = PBL_MODULE_DEFINITIONS.map((definition, index) =>
+    defaultTeachingActivity(definition, index, definition.kind === 'knowledge' ? knowledgePointIds : []),
+  );
+  const suggestions = suggestPblTimeAllocation(
+    options.totalMinutes,
+    skeleton,
+    knowledgeContext(options),
+  );
+  return skeleton.map((activity) => ({
+    ...activity,
+    durationMin: suggestions[activity.id] ?? activity.durationMin,
+  }));
+}
+
+export function assessPblTeachingOutlineStructure(
+  activities: ReadonlyArray<TeachingOutlineSection>,
+): PblOutlineStructureIssue[] {
+  const issues: PblOutlineStructureIssue[] = [];
+  const normalizedKeys = activities.map((activity) => normalizePblStageKey(activity.stageKey));
+  PBL_MODULE_DEFINITIONS.forEach((definition, expectedIndex) => {
+    const matches = normalizedKeys.flatMap((key, index) => key === definition.stageKey ? [index] : []);
+    if (matches.length === 0) {
+      issues.push({ code: 'missing-stage', stageKey: definition.stageKey, message: `缺少顶级阶段 ${definition.label}` });
+    } else if (matches.length > 1) {
+      issues.push({ code: 'duplicate-stage', stageKey: definition.stageKey, message: `顶级阶段 ${definition.label} 重复出现` });
+    }
+    if (matches.length === 1 && matches[0] !== expectedIndex) {
+      issues.push({ code: 'invalid-order', stageKey: definition.stageKey, message: `顶级阶段 ${definition.label} 顺序错误` });
+    }
+  });
+  normalizedKeys.forEach((key, index) => {
+    if (!key) issues.push({ code: 'unexpected-stage', stageKey: activities[index]?.stageKey, message: '存在无法识别的顶级阶段' });
+  });
+  return issues;
+}
+
+/** Overlay the teacher-confirmed identity and duration onto generated content. */
+export function applyConfirmedPblTimingPlan(
+  activities: ReadonlyArray<TeachingOutlineSection>,
+  timingPlan: PblModuleTimingPlan,
+  options: NormalizePblTeachingOutlineOptions,
+): TeachingOutlineSection[] {
+  const sourceKinds = activities.map((activity) => classifyPblActivityKind(activity));
+  const missingDefinition = PBL_MODULE_DEFINITIONS.find(
+    (definition) => !sourceKinds.includes(definition.kind),
+  );
+  if (missingDefinition) {
+    throw new Error(`课程模块结构不完整：AI 未生成 ${missingDefinition.label}`);
+  }
+  if (sourceKinds.includes('other')) {
+    throw new Error('课程模块结构不完整：AI 返回了无法归入六阶段的顶级模块');
+  }
+  const normalized = normalizePblTeachingOutline(activities, {
+    ...options,
+    applyTimeModel: false,
+  });
+  return PBL_MODULE_DEFINITIONS.map((definition) => {
+    const generated = normalized.find(
+      (activity) => classifyPblActivityKind(activity) === definition.kind,
+    );
+    const confirmed = timingPlan.allocations.find(
+      (activity) => classifyPblActivityKind(activity) === definition.kind,
+    );
+    if (!generated || !confirmed) {
+      throw new Error(`课程模块结构不完整：缺少 ${definition.label}`);
+    }
+    return {
+      ...generated,
+      id: confirmed.id,
+      stageKey: definition.stageKey,
+      activityKind: definition.kind,
+      durationMin: confirmed.durationMin,
+    };
+  });
+}
+
 /**
  * Normalize a generated first-level outline into a six-module timeline.
- * Additional activities are retained (for example three separate knowledge
- * explanations), while the six canonical modules are always present first.
+ * Model variations are merged into the matching canonical stage. Top-level
+ * output is always exactly six modules; detail variation belongs downstream.
  */
 export function normalizePblTeachingOutline(
   activities: ReadonlyArray<TeachingOutlineSection>,
@@ -120,33 +256,14 @@ export function normalizePblTeachingOutline(
     byKind.set(kind, group);
   }
 
-  const canonical: TeachingOutlineSection[] = [];
-  const primaryIds = new Set<string>();
-  PBL_MODULE_DEFINITIONS.forEach((definition, index) => {
-    const existing = byKind.get(definition.kind)?.[0];
-    const next = existing
-      ? existing
-      : defaultTeachingActivity(
-          definition,
-          index,
-          definition.kind === 'knowledge' ? Array.from(knownIds) : [],
-        );
-    canonical.push({
-      ...next,
-      stageKey: definition.stageKey,
-      activityKind: definition.kind,
-      knowledgePointIds:
-        definition.kind === 'knowledge' && knownIds.size > 0
-          ? Array.from(new Set([...(next.knowledgePointIds ?? []), ...knownIds]))
-          : next.knowledgePointIds ?? [],
-      openMaicUse: definition.kind === 'knowledge' ? 'student-ai-learning' : 'none',
-      resourceTypes: definition.kind === 'knowledge' ? next.resourceTypes ?? ['ppt'] : ['ppt', 'script'],
-    });
-    primaryIds.add(next.id);
-  });
-
-  const extras = source.filter((activity) => !primaryIds.has(activity.id));
-  const normalized = [...canonical, ...extras];
+  const normalized = PBL_MODULE_DEFINITIONS.map((definition, index) =>
+    mergeStageActivities(
+      definition,
+      byKind.get(definition.kind) ?? [],
+      index,
+      Array.from(knownIds),
+    ),
+  );
   const suggestions = options.applyTimeModel === false
     ? {}
     : suggestPblTimeAllocation(

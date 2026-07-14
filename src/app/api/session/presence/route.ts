@@ -74,11 +74,6 @@ export async function POST(req: Request) {
   const student = course?.students.find((s) => s.id === studentId);
   const online = Boolean(student?.lastSeenAt);
 
-  // Log for debugging presence issues.
-  console.log(
-    `[presence] heartbeat courseId=${courseId} studentId=${studentId} online=${online}`,
-  );
-
   return Response.json({ ok: true, online, lastSeenAt: now });
 }
 
@@ -102,10 +97,6 @@ async function markStudentOffline(courseId: string, studentId: string) {
     payload: { courseId, studentIds: [studentId] },
   };
   await dispatchSessionAction(markOfflineAction);
-
-  console.log(
-    `[presence] offline courseId=${courseId} studentId=${studentId}`,
-  );
 
   return Response.json({ ok: true });
 }

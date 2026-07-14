@@ -492,6 +492,10 @@ export type OpenMaicSceneOutlineSnapshot = {
   detailKind?: PblDetailKind;
   knowledgePointIds?: string[];
   targetDurationSec?: number;
+  segmentIndex?: number;
+  segmentCount?: number;
+  segmentRole?: string;
+  segmentGroupId?: string;
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
   resourceTypes?: SceneResourceType[];
@@ -725,6 +729,10 @@ export type TeacherResourceScene = {
   parentActivityId?: string;
   detailKind?: PblDetailKind;
   targetDurationSec?: number;
+  segmentIndex?: number;
+  segmentCount?: number;
+  segmentRole?: string;
+  segmentGroupId?: string;
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
   resourceTypes?: Array<
@@ -799,6 +807,10 @@ export type LessonOutlineSection = {
   knowledgePointIds?: string[];
   resourceTypes?: SceneResourceType[];
   targetDurationSec?: number;
+  segmentIndex?: number;
+  segmentCount?: number;
+  segmentRole?: string;
+  segmentGroupId?: string;
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
 };

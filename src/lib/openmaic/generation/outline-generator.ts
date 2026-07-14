@@ -41,6 +41,23 @@ export const DEFAULT_LANGUAGE_DIRECTIVE =
   'Teach in the language that matches the user requirement.';
 
 /**
+ * Preserve the semantic page plan produced by the outline model.
+ *
+ * Page boundaries are a curriculum decision, not a fixed seconds-per-page
+ * calculation. The outline model may return one or many details for a parent
+ * activity; each detail is already one semantic PPT/interaction resource. In
+ * particular, a teacher resource's module duration describes time for students
+ * to perform the classroom activity and must never manufacture extra pages or
+ * narration. Keep this normalizer at the existing call sites so ordering is
+ * deterministic without changing the model's content plan.
+ */
+export function normalizeSceneOutlinesForDuration(
+  outlines: ReadonlyArray<SceneOutline>,
+): SceneOutline[] {
+  return outlines.map((outline, index) => ({ ...outline, order: index }));
+}
+
+/**
  * Generate scene outlines from user requirements
  * Now uses simplified UserRequirements with just requirement text and language
  */
@@ -125,6 +142,9 @@ export async function generateSceneOutlinesFromRequirements(
       ? formatPblCourseConfigForPrompt(requirements.pblProfile)
       : '',
     pblStages: isPblCourse ? formatPblStageDefinitionsForPrompt() : '',
+    ttsTimingContext: requirements.ttsTimingContext
+      ? JSON.stringify(requirements.ttsTimingContext, null, 2)
+      : 'No explicit calibration; use the conservative natural-speed fallback.',
     requiredTeacherResourceStages: isPblCourse
       ? PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS.join(', ')
       : '',
@@ -183,7 +203,9 @@ export async function generateSceneOutlinesFromRequirements(
 
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
     const result = uniquifyMediaElementIds(
-      enforcePblOutlineContract(enriched, requirements),
+      normalizeSceneOutlinesForDuration(
+        enforcePblOutlineContract(enriched, requirements),
+      ),
     );
 
     callbacks?.onProgress?.({

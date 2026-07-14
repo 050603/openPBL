@@ -2,8 +2,9 @@
 // 调用 OpenMAIC 原生 generateClassroom()，通过 SSE 把生成进度推送给客户端
 // 参数验证失败仍返回 JSON 错误（保持兼容），验证通过后返回 text/event-stream
 
-import { type NextRequest } from 'next/server';
+import { after, type NextRequest } from 'next/server';
 import { generateClassroom } from '@openmaic/lib/server/classroom-generation';
+import { generateClassroomAssets } from '@openmaic/lib/server/classroom-asset-generation';
 import {
   apiError,
   API_ERROR_CODES,
@@ -55,8 +56,7 @@ function normalizeSceneOutlines(input: unknown): SceneOutline[] | undefined {
           typeof raw.estimatedDuration === 'number' ? raw.estimatedDuration : 300,
         order: index,
       } as SceneOutline;
-    })
-    .filter((outline) => outline.title);
+    });
 }
 
 function normalizeAgentMode(input: unknown): 'default' | 'generate' {
@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
     enableTTS = false,
     ttsProviderId,
     ttsModelId,
+    ttsVoice,
     ttsSpeed,
     ttsLanguage,
     agentMode = 'default',
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
     enableTTS?: boolean;
     ttsProviderId?: string;
     ttsModelId?: string;
+    ttsVoice?: string;
     ttsSpeed?: number;
     ttsLanguage?: string;
     agentMode?: unknown;
@@ -148,6 +150,60 @@ export async function POST(request: NextRequest) {
   }
   const signal = generationController.signal;
 
+  type BackgroundAssetTask = () => Promise<void>;
+  let resolveBackgroundTask!: (task: BackgroundAssetTask | null) => void;
+  let backgroundTaskResolved = false;
+  const backgroundTaskReady = new Promise<BackgroundAssetTask | null>((resolve) => {
+    resolveBackgroundTask = resolve;
+  });
+  const setBackgroundTask = (task: BackgroundAssetTask | null) => {
+    if (backgroundTaskResolved) return;
+    backgroundTaskResolved = true;
+    resolveBackgroundTask(task);
+  };
+  const runBackgroundTaskAfterResponse = async () => {
+    const task = await backgroundTaskReady;
+    if (!task) return;
+    try {
+      await task();
+    } catch (error) {
+      log.error('Background classroom asset generation failed:', error);
+    }
+  };
+
+  // Register before returning the streaming response. The deferred promise
+  // lets the task capture the split classroom IDs only after body generation
+  // and course linking finish, while `after()` keeps it alive independently of
+  // the client connection.
+  try {
+    after(runBackgroundTaskAfterResponse);
+  } catch (error) {
+    // Node deployments outside a Next request context still get a best-effort
+    // background task rather than losing media generation altogether.
+    log.warn('Next after() unavailable; using detached background task:', error);
+    void runBackgroundTaskAfterResponse();
+  }
+
+  const generationInput = {
+    requirement,
+    pblProfile,
+    pblTeachingActivities,
+    pblActivityCatalog,
+    knowledgePoints,
+    courseTitle,
+    sceneOutlines,
+    enableWebSearch,
+    enableImageGeneration,
+    enableVideoGeneration,
+    enableTTS,
+    ttsProviderId: typeof ttsProviderId === 'string' ? ttsProviderId : undefined,
+    ttsModelId: typeof ttsModelId === 'string' ? ttsModelId : undefined,
+    ttsVoice: typeof ttsVoice === 'string' ? ttsVoice : undefined,
+    ttsSpeed: typeof ttsSpeed === 'number' ? ttsSpeed : undefined,
+    ttsLanguage: typeof ttsLanguage === 'string' ? ttsLanguage : undefined,
+    agentMode: normalizeAgentMode(agentMode),
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       // 心跳：防止代理/浏览器在长时间无数据时关闭连接
@@ -182,24 +238,7 @@ export async function POST(request: NextRequest) {
         );
 
         const result = await generateClassroom(
-          {
-            requirement,
-            pblProfile,
-            pblTeachingActivities,
-            pblActivityCatalog,
-            knowledgePoints,
-            courseTitle,
-            sceneOutlines,
-            enableWebSearch,
-            enableImageGeneration,
-            enableVideoGeneration,
-            enableTTS,
-            ttsProviderId: typeof ttsProviderId === 'string' ? ttsProviderId : undefined,
-            ttsModelId: typeof ttsModelId === 'string' ? ttsModelId : undefined,
-            ttsSpeed: typeof ttsSpeed === 'number' ? ttsSpeed : undefined,
-            ttsLanguage: typeof ttsLanguage === 'string' ? ttsLanguage : undefined,
-            agentMode: normalizeAgentMode(agentMode),
-          },
+          generationInput,
           {
             baseUrl,
             signal,
@@ -242,6 +281,21 @@ export async function POST(request: NextRequest) {
           }, { signal });
         }
 
+        setBackgroundTask(async () => {
+          await generateClassroomAssets({
+            ...result.assetContext,
+            baseUrl,
+            studentClassroomId: splitResult.studentClassroomId,
+            studentScenes: splitResult.studentScenes,
+            teacherClassroomId: splitResult.teacherClassroomId || undefined,
+            teacherScenes: splitResult.teacherScenes,
+            // The request signal is intentionally not reused. Once the body
+            // is ready, assets are an independent server task and should keep
+            // running even if the browser closes the SSE connection.
+            signal: new AbortController().signal,
+          });
+        });
+
         throwIfAborted(signal);
         log.info(
           `Classroom generation completed [id=${result.id}, scenes=${result.scenesCount}]`,
@@ -270,6 +324,7 @@ export async function POST(request: NextRequest) {
           details: error instanceof Error ? error.message : String(error),
         });
       } finally {
+        setBackgroundTask(null);
         clearInterval(heartbeatTimer);
         request.signal.removeEventListener('abort', onRequestAbort);
         try {

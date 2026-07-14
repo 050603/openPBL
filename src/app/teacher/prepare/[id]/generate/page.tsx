@@ -13,6 +13,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { ServerProvidersInit } from "@/components/openmaic/server-providers-init";
 import { WizardStepper } from "@/components/wizard-stepper";
 import { Button, Card, FlowActionBar, PrimaryButton, SaveStatus, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
@@ -138,6 +139,22 @@ function normalizeSceneOutline(outline: unknown, index: number): SceneOutline {
       typeof raw.targetDurationSec === "number" && Number.isFinite(raw.targetDurationSec)
         ? Math.max(0, Math.round(raw.targetDurationSec))
         : undefined,
+    segmentIndex:
+      typeof raw.segmentIndex === "number" && Number.isFinite(raw.segmentIndex)
+        ? Math.max(1, Math.round(raw.segmentIndex))
+        : undefined,
+    segmentCount:
+      typeof raw.segmentCount === "number" && Number.isFinite(raw.segmentCount)
+        ? Math.max(1, Math.round(raw.segmentCount))
+        : undefined,
+    segmentRole:
+      typeof raw.segmentRole === "string" && raw.segmentRole.trim()
+        ? raw.segmentRole.trim()
+        : undefined,
+    segmentGroupId:
+      typeof raw.segmentGroupId === "string" && raw.segmentGroupId.trim()
+        ? raw.segmentGroupId.trim()
+        : undefined,
     ttsPolicy:
       raw.ttsPolicy === "none" || raw.ttsPolicy === "target-duration"
         ? raw.ttsPolicy
@@ -163,13 +180,13 @@ function GenerationCoverage({
     <section className="mb-6 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--pbl-ai)]">生成前覆盖检查</p><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">检查六阶段是否都有支撑，不要求每阶段都生成固定课堂资源。</p></div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${coverage.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{coverage.ok ? "可直接生成" : "生成后请复核"}</span>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${coverage.ok ? "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]" : "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]"}`}>{coverage.ok ? "可直接生成" : "生成后请复核"}</span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {Object.values(coverage.entries).map((entry) => <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}><span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span><span className={entry.total ? "text-[var(--pbl-ai)]" : "text-rose-500"}>{entry.total ? `${entry.total} 场` : "缺少"}</span></div>)}
+        {Object.values(coverage.entries).map((entry) => <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}><span className="font-semibold">{labels[entry.stageKey] ?? entry.stageKey}</span><span className={entry.total ? "text-[var(--pbl-ai)]" : "text-[var(--pbl-danger)]"}>{entry.total ? `${entry.total} 场` : "缺少"}</span></div>)}
       </div>
       {coverage.missingStageKeys.length ? <p className="mt-3 text-xs leading-5 text-stone-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。</p> : null}
-      {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-amber-800">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " AI 授知需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
+      {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-[var(--pbl-warning)]">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? key).join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " AI 授知需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
       {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-stone-500">元数据提醒：{coverage.metadataWarnings.join("；")}。</p> : null}
     </section>
   );
@@ -192,6 +209,10 @@ function lessonSectionToSceneOutline(
     knowledgePointIds: section.knowledgePointIds,
     resourceTypes: section.resourceTypes,
     targetDurationSec: section.targetDurationSec ?? section.durationMin * 60,
+    segmentIndex: section.segmentIndex,
+    segmentCount: section.segmentCount,
+    segmentRole: section.segmentRole,
+    segmentGroupId: section.segmentGroupId,
     ttsPolicy: section.ttsPolicy,
     timingPlan: section.timingPlan,
     order: index,
@@ -206,8 +227,10 @@ export default function GenerateCoursePage() {
   const hydrated = useHydrated();
   const ttsProviderId = useSettingsStore((state) => state.ttsProviderId);
   const ttsSpeed = useSettingsStore((state) => state.ttsSpeed);
+  const ttsVoice = useSettingsStore((state) => state.ttsVoice);
   const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
   const ttsModelId = ttsProvidersConfig[ttsProviderId]?.modelId;
+  const ttsVoiceId = ttsProvidersConfig[ttsProviderId]?.defaultVoice || ttsVoice;
 
   const [status, setStatus] = useState<GenStatus>("loading");
   const [result, setResult] = useState<GenResult | null>(null);
@@ -255,7 +278,7 @@ export default function GenerateCoursePage() {
     // Cover generation is part of the course-generation workflow. It runs in
     // parallel with scene generation and is best-effort, so a provider outage
     // never prevents the classroom itself from being created.
-    if (!course.coverImageUrl && coverGenerationCourseRef.current !== course.id) {
+    if (enableImageGeneration && !course.coverImageUrl && coverGenerationCourseRef.current !== course.id) {
       coverGenerationCourseRef.current = course.id;
       void requestCourseCoverImage(course)
         .then((coverImageUrl) => {
@@ -287,6 +310,7 @@ export default function GenerateCoursePage() {
           enableTTS,
           ttsProviderId,
           ttsModelId,
+          ttsVoice: ttsVoiceId,
           ttsSpeed,
           ttsLanguage: "zh-CN",
           agentMode: "default",
@@ -499,6 +523,7 @@ export default function GenerateCoursePage() {
         </div>
       }
     >
+      <ServerProvidersInit />
       <div className="mb-5 flex items-center gap-3">
         <Link
           className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
@@ -627,7 +652,7 @@ export default function GenerateCoursePage() {
                   "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
                   status === "loading" && "bg-blue-600 text-white",
                   status === "success" && "bg-[var(--pbl-success)] text-white",
-                  status === "error" && "bg-red-500 text-white",
+                  status === "error" && "bg-[var(--pbl-danger)] text-white",
                 )}
               >
                 {status === "loading" ? (
@@ -643,8 +668,8 @@ export default function GenerateCoursePage() {
                   className={cn(
                     "text-sm font-bold",
                     status === "loading" && "text-blue-700",
-                    status === "success" && "text-emerald-700",
-                    status === "error" && "text-red-700",
+                    status === "success" && "text-[var(--pbl-success)]",
+                    status === "error" && "text-[var(--pbl-danger)]",
                   )}
                 >
                   {status === "loading"

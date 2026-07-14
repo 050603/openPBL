@@ -203,6 +203,9 @@ export function formatPblSceneContext(
     | "detailKind"
     | "knowledgePointIds"
     | "targetDurationSec"
+    | "segmentIndex"
+    | "segmentCount"
+    | "segmentRole"
     | "ttsPolicy"
     | "timingPlan"
     | "resourceTypes"
@@ -247,10 +250,13 @@ export function formatPblSceneContext(
     companionDetails.length ? `伴学职责：${companionDetails.join("；")}` : "",
     stageKey ? `阶段伴学服务契约：\n${buildStagePolicyPrompt(stageKey)}` : "",
     `本阶段过程证据：${evidence.length ? evidence.join("、") : "按课程配置记录自然产生的过程证据。"}`,
+    outline.segmentCount && outline.segmentCount > 1
+      ? `Page segment ${outline.segmentIndex ?? 1}/${outline.segmentCount}; focus on ${outline.segmentRole || "one coherent subtopic"} and do not repeat sibling pages.`
+      : "",
     outline.ttsPolicy === "target-duration" && outline.targetDurationSec
       ? outline.timingPlan
-        ? `学生 TTS 模型：${outline.timingPlan.providerId}/${outline.timingPlan.modelId || "default"}；AI 朗读目标：${outline.timingPlan.targetDurationSec} 秒；内容量控制在 ${outline.timingPlan.minUnits}-${outline.timingPlan.maxUnits} ${outline.timingPlan.unit === "latin-word" ? "英文词" : "中文字符/混合文本单位"}，必须通过有效概念、依据、案例、反例和分步解释贴近目标，不得使用固定的 4.5 字/秒公式。`
-        : `学生 TTS 目标：${outline.targetDurationSec} 秒；服务端会按实际 TTS 模型参数计算所需内容量，必须通过有效概念、依据、案例、反例和分步解释贴近目标，不得使用固定的 4.5 字/秒公式。`
+        ? `学生 TTS 模型：${outline.timingPlan.providerId}/${outline.timingPlan.modelId || "default"}；AI 朗读目标：${outline.timingPlan.targetDurationSec} 秒；内容量控制在 ${outline.timingPlan.minUnits}-${outline.timingPlan.maxUnits} ${outline.timingPlan.unit === "latin-word" ? "英文词" : "中文字符/混合文本单位"}，必须通过与当前知识点直接相关的有效概念、依据、案例、反例和分步解释贴近目标，不得使用固定的 4.5 字/秒公式或引入图谱之外的知识。`
+        : `学生 TTS 目标：${outline.targetDurationSec} 秒；服务端会按实际 TTS 模型参数计算所需内容量，必须通过与当前知识点直接相关的有效概念、依据、案例、反例和分步解释贴近目标，不得使用固定的 4.5 字/秒公式或引入图谱之外的知识。`
       : outline.ttsPolicy === "none"
         ? "TTS 规则：本课程大纲资源是教师普通课堂资源，不生成 TTS。"
         : "",

@@ -49,10 +49,10 @@ export function SectionTitle({
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-[18px] font-bold leading-tight text-stone-900">
+        <h2 className="text-[18px] font-bold leading-tight text-[var(--pbl-text-strong)]">
           {title}
         </h2>
-        {hint ? <p className="mt-1 text-[13px] text-stone-500">{hint}</p> : null}
+        {hint ? <p className="mt-1 text-[13px] text-[var(--pbl-text-muted)]">{hint}</p> : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
@@ -75,12 +75,12 @@ export function Pill({
   const tones: Record<PillTone, string> = {
     blue: "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] ring-[var(--pbl-teacher-border)]",
     violet: "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
-    green: "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-green-200",
+    green: "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-[var(--pbl-success-border)]",
     teal: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-[var(--pbl-student-border)]",
     orange: "bg-[var(--pbl-accent-soft)] text-[var(--pbl-accent)] ring-[var(--pbl-accent-border)]",
-    amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-orange-200",
-    gray: "bg-stone-100 text-stone-600 ring-stone-200",
-    red: "bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)] ring-rose-200",
+    amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-[var(--pbl-warning-border)]",
+    gray: "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)] ring-[var(--pbl-border)]",
+    red: "bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)] ring-[var(--pbl-danger-border)]",
   };
   const sizes = {
     sm: "h-6 px-2.5 text-xs",
@@ -146,11 +146,11 @@ export function PrimaryButton({
 }) {
   const solid: Record<ButtonTone, string> = {
     blue: "bg-[var(--pbl-teacher)] text-white hover:bg-[var(--pbl-teacher-hover)]",
-    violet: "bg-[var(--pbl-ai)] text-white hover:bg-violet-700",
+    violet: "bg-[var(--pbl-ai)] text-white hover:bg-[var(--pbl-ai-hover)]",
     teal: "bg-[var(--pbl-student)] text-white hover:bg-[var(--pbl-student-hover)]",
-    green: "bg-[var(--pbl-success)] text-white hover:bg-green-700",
+    green: "bg-[var(--pbl-success)] text-white hover:bg-[var(--pbl-success-hover)]",
     orange: "bg-[var(--pbl-accent)] text-white hover:bg-[var(--pbl-accent-hover)]",
-    red: "bg-[var(--pbl-danger)] text-white hover:bg-red-700",
+    red: "bg-[var(--pbl-danger)] text-white hover:bg-[var(--pbl-danger-hover)]",
     slate: "bg-stone-800 text-white hover:bg-stone-900",
   };
   const outline: Record<ButtonTone, string> = {
@@ -160,7 +160,7 @@ export function PrimaryButton({
     green: "border-[var(--pbl-success)] text-[var(--pbl-success)] hover:bg-[var(--pbl-success-soft)]",
     orange: "border-[var(--pbl-accent)] text-[var(--pbl-accent)] hover:bg-[var(--pbl-accent-soft)]",
     red: "border-[var(--pbl-danger)] text-[var(--pbl-danger)] hover:bg-[var(--pbl-danger-soft)]",
-    slate: "border-stone-400 text-stone-700 hover:bg-stone-100",
+    slate: "border-[var(--pbl-border-strong)] text-[var(--pbl-text)] hover:bg-[var(--pbl-surface-soft)]",
   };
   const sizes = {
     sm: "h-9 px-3.5 text-[13px]",
@@ -173,8 +173,8 @@ export function PrimaryButton({
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-semibold transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-55",
         variant === "solid" && solid[tone],
-        variant === "outline" && "border bg-white " + outline[tone],
-        variant === "ghost" && "text-stone-600 hover:bg-stone-100",
+        variant === "outline" && "border bg-[var(--pbl-surface)] " + outline[tone],
+        variant === "ghost" && "text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]",
         sizes[size],
         className,
       )}
@@ -194,7 +194,7 @@ export function TextInput({
   return (
     <input
       className={cn(
-        "h-11 w-full rounded-[var(--radius-sm)] border border-stone-300 bg-white px-3 text-sm outline-none transition placeholder:text-stone-400 focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
+        "h-11 w-full rounded-[var(--radius-sm)] border border-[var(--pbl-border-strong)] bg-[var(--pbl-surface)] px-3 text-sm outline-none transition placeholder:text-[var(--pbl-text-subtle)] focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
         className,
       )}
       {...props}
@@ -209,7 +209,7 @@ export function TextArea({
   return (
     <textarea
       className={cn(
-        "w-full resize-none rounded-[var(--radius-sm)] border border-stone-300 bg-white p-3 text-sm leading-7 outline-none transition placeholder:text-stone-400 focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
+        "w-full resize-none rounded-[var(--radius-sm)] border border-[var(--pbl-border-strong)] bg-[var(--pbl-surface)] p-3 text-sm leading-7 outline-none transition placeholder:text-[var(--pbl-text-subtle)] focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
         className,
       )}
       {...props}
@@ -224,7 +224,7 @@ export function Select({
   return (
     <select
       className={cn(
-        "h-11 w-full rounded-[var(--radius-sm)] border border-stone-300 bg-white px-3 text-sm outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
+        "h-11 w-full rounded-[var(--radius-sm)] border border-[var(--pbl-border-strong)] bg-[var(--pbl-surface)] px-3 text-sm outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]",
         className,
       )}
       {...props}
@@ -247,15 +247,15 @@ export function PageHeader({
     <div className="mb-6 flex items-end justify-between gap-5">
       <div className="min-w-0">
         {eyebrow ? (
-          <div className="mb-2 text-[13px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+          <div className="mb-2 text-[13px] font-semibold uppercase tracking-[0.14em] text-[var(--pbl-text-muted)]">
             {eyebrow}
           </div>
         ) : null}
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-stone-900">
+        <h1 className="text-[28px] font-bold leading-tight tracking-tight text-[var(--pbl-text-strong)]">
           {title}
         </h1>
         {description ? (
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--pbl-text-muted)]">
             {description}
           </p>
         ) : null}
@@ -284,7 +284,7 @@ export function StageTimeline({
                 <div
                   className={cn(
                     "absolute left-0 right-1/2 top-[17px] h-1 -translate-x-1/2 rounded-full",
-                    done || active ? "bg-[var(--pbl-teacher)]" : "bg-stone-200",
+                    done || active ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-border)]",
                   )}
                 />
               ) : null}
@@ -292,7 +292,7 @@ export function StageTimeline({
                 <div
                   className={cn(
                     "absolute left-1/2 right-0 top-[17px] h-1 translate-x-1/2 rounded-full",
-                    done ? "bg-[var(--pbl-teacher)]" : "bg-stone-200",
+                    done ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-border)]",
                   )}
                 />
               ) : null}
@@ -301,14 +301,14 @@ export function StageTimeline({
                   "relative z-10 mx-auto grid h-9 w-9 place-items-center rounded-full text-sm font-bold",
                   done && "bg-[var(--pbl-teacher)] text-white",
                   active && "bg-[var(--pbl-teacher)] text-white ring-4 ring-[var(--pbl-teacher-soft)]",
-                  !done && !active && "bg-stone-300 text-white",
+                  !done && !active && "bg-[var(--pbl-border-strong)] text-white",
                 )}
               >
                 {done ? <CheckCircle2 size={18} /> : index + 1}
               </div>
-              <div className="mt-3 text-sm font-bold text-stone-900">{item.label}</div>
+              <div className="mt-3 text-sm font-bold text-[var(--pbl-text-strong)]">{item.label}</div>
               {item.description ? (
-                <div className="mt-1 text-xs text-stone-500">{item.description}</div>
+                <div className="mt-1 text-xs text-[var(--pbl-text-muted)]">{item.description}</div>
               ) : null}
             </div>
           );
@@ -341,7 +341,7 @@ export function AIAdvicePanel({
             <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--pbl-ai-soft)] text-[11px] font-bold text-[var(--pbl-ai)] ring-1 ring-[var(--pbl-ai-border)]">
               {index + 1}
             </span>
-            <p className="text-stone-700">{item}</p>
+            <p className="text-[var(--pbl-text)]">{item}</p>
           </div>
         ))}
       </div>
@@ -363,13 +363,13 @@ export function UploadRow({
   status?: string;
 }) {
   return (
-    <div className="grid grid-cols-[52px_1fr_1fr_96px] items-center gap-3 border-b border-stone-100 px-5 py-4 last:border-b-0">
+    <div className="grid grid-cols-[52px_1fr_1fr_96px] items-center gap-3 border-b border-[var(--pbl-border)] px-5 py-4 last:border-b-0">
       <FileBadge type={type} />
       <div>
-        <div className="font-bold text-stone-900">{title}</div>
-        <div className="mt-1 text-[13px] text-stone-500">{rule}</div>
+        <div className="font-bold text-[var(--pbl-text-strong)]">{title}</div>
+        <div className="mt-1 text-[13px] text-[var(--pbl-text-muted)]">{rule}</div>
       </div>
-      <div className="truncate text-[13px] font-medium text-stone-700">
+      <div className="truncate text-[13px] font-medium text-[var(--pbl-text)]">
         {file ?? "点击上传或拖拽文件"}
       </div>
       <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-[var(--pbl-success)]">
@@ -391,18 +391,18 @@ export function ActivityFeed({
           <span
             className={cn(
               "mt-1.5 h-2.5 w-2.5 rounded-full",
-              index === 0 ? "bg-[var(--pbl-success)]" : "bg-stone-300",
+              index === 0 ? "bg-[var(--pbl-success)]" : "bg-[var(--pbl-border-strong)]",
             )}
           />
           {index < items.length - 1 ? (
-            <div className="absolute left-[4px] top-6 h-8 w-px bg-stone-200" />
+            <div className="absolute left-[4px] top-6 h-8 w-px bg-[var(--pbl-border)]" />
           ) : null}
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-stone-900">
+            <div className="text-[13px] font-semibold text-[var(--pbl-text-strong)]">
               {item.time ? `${item.time}　` : null}
               {item.actor} {item.action}
             </div>
-            {item.detail ? <div className="mt-1 text-[13px] text-stone-500">{item.detail}</div> : null}
+            {item.detail ? <div className="mt-1 text-[13px] text-[var(--pbl-text-muted)]">{item.detail}</div> : null}
           </div>
         </div>
       ))}
@@ -419,16 +419,16 @@ export function ResourceList({
     <div className="space-y-2">
       {resources.map((resource) => (
         <button
-          className="flex w-full items-center gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-3 py-2.5 text-left transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]"
+          className="flex w-full items-center gap-3 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 py-2.5 text-left transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]"
           key={resource.title}
           type="button"
         >
           <FileBadge type={resource.type} />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-stone-900">
+            <span className="block truncate text-sm font-semibold text-[var(--pbl-text-strong)]">
               {resource.title}
             </span>
-            <span className="mt-0.5 block text-xs text-stone-500">{resource.meta}</span>
+            <span className="mt-0.5 block text-xs text-[var(--pbl-text-muted)]">{resource.meta}</span>
           </span>
         </button>
       ))}
@@ -438,8 +438,8 @@ export function ResourceList({
 
 export function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="pbl-dot-grid grid place-items-center rounded-[var(--radius-sm)] border border-dashed border-stone-300 bg-stone-50/40 py-10 text-center text-sm text-stone-500">
-      <Bot className="mb-2 text-stone-400" size={22} />
+    <div className="pbl-dot-grid grid place-items-center rounded-[var(--radius-sm)] border border-dashed border-[var(--pbl-border-strong)] bg-[var(--pbl-surface-soft)]/40 py-10 text-center text-sm text-[var(--pbl-text-muted)]">
+      <Bot className="mb-2 text-[var(--pbl-text-subtle)]" size={22} />
       {text}
     </div>
   );
@@ -452,7 +452,7 @@ export function RubricScoreTable({
 }) {
   return (
     <table className="w-full border-collapse text-left text-sm">
-      <thead className="bg-stone-50 text-stone-500">
+      <thead className="bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)]">
         <tr>
           <th className="p-3 font-semibold">评分维度</th>
           <th className="p-3 font-semibold">权重</th>
@@ -461,9 +461,9 @@ export function RubricScoreTable({
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr className="border-b border-stone-100 last:border-b-0" key={row.name}>
-            <td className="p-3 font-semibold text-stone-800">{row.name}</td>
-            <td className="p-3 text-stone-500">{row.weight}%</td>
+          <tr className="border-b border-[var(--pbl-border)] last:border-b-0" key={row.name}>
+            <td className="p-3 font-semibold text-[var(--pbl-text)]">{row.name}</td>
+            <td className="p-3 text-[var(--pbl-text-muted)]">{row.weight}%</td>
             <td className="p-3 font-bold text-[var(--pbl-teacher)]">{row.score}</td>
           </tr>
         ))}
@@ -490,11 +490,10 @@ export function ProgressBar({
     green: "bg-[var(--pbl-success)]",
     orange: "bg-[var(--pbl-accent)]",
     red: "bg-[var(--pbl-danger)]",
-    slate: "bg-stone-400",
+    slate: "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)]",
   };
-
   return (
-    <div className={cn("h-2 rounded-full bg-stone-200", className)}>
+    <div className={cn("h-2 rounded-full bg-[var(--pbl-surface-soft)]", className)}>
       <div
         className={cn("h-full rounded-full transition-all", colors[tone])}
         style={{ width: `${Math.max(0, Math.min(value, 100))}%` }}
@@ -507,7 +506,7 @@ export function CircularProgress({
   value,
   label,
   size = 128,
-  tone = "#2563eb",
+  tone = "#1d4ed8",
 }: {
   value: number;
   label?: string;
@@ -523,16 +522,16 @@ export function CircularProgress({
 
   return (
     <div
-      className="grid place-items-center rounded-full bg-[conic-gradient(var(--tone)_var(--progress),#e7e5e4_0)] p-1.5"
+      className="grid place-items-center rounded-full bg-[conic-gradient(var(--tone)_var(--progress),var(--pbl-surface-soft)_0)] p-1.5"
       style={style}
     >
-      <div className="grid h-full w-full place-items-center rounded-full bg-white text-center">
+      <div className="grid h-full w-full place-items-center rounded-full bg-[var(--pbl-surface)] text-center">
         <div>
-          <div className="text-[28px] font-bold leading-none text-stone-900">
+          <div className="text-2xl font-bold leading-none text-[var(--pbl-text-strong)]">
             {value}%
           </div>
           {label ? (
-            <div className="mt-1.5 text-[13px] font-medium text-stone-500">
+            <div className="mt-1.5 text-[13px] font-medium text-[var(--pbl-text-muted)]">
               {label}
             </div>
           ) : null}
@@ -561,7 +560,7 @@ export function Metric({
     teal: "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]",
     amber: "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]",
     rose: "bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]",
-    slate: "bg-stone-100 text-stone-700",
+    slate: "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text)]",
   };
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -571,9 +570,9 @@ export function Metric({
         </div>
       ) : null}
       <div className="min-w-0">
-        <div className="text-[13px] text-stone-500">{label}</div>
-        <div className="mt-0.5 text-xl font-bold text-stone-900">{value}</div>
-        {helper ? <div className="text-xs text-stone-400">{helper}</div> : null}
+        <div className="text-[13px] text-[var(--pbl-text-muted)]">{label}</div>
+        <div className="mt-0.5 text-xl font-bold text-[var(--pbl-text-strong)]">{value}</div>
+        {helper ? <div className="text-xs text-[var(--pbl-text-subtle)]">{helper}</div> : null}
       </div>
     </div>
   );

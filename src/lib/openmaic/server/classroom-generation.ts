@@ -4,6 +4,7 @@ import { createStageAPI } from '@openmaic/lib/api/stage-api';
 import type { StageStore } from '@openmaic/lib/api/stage-api-types';
 import {
   applyOutlineFallbacks,
+  normalizeSceneOutlinesForDuration,
   enforcePblOutlineContract,
   generateSceneOutlinesFromRequirements,
 } from '@openmaic/lib/generation/outline-generator';
@@ -26,9 +27,6 @@ import { formatSearchResultsAsContext, searchWeb } from '@openmaic/lib/web-searc
 import type { BaiduSubSources, WebSearchProviderId } from '@openmaic/lib/web-search/types';
 import { persistClassroom } from '@openmaic/lib/server/classroom-storage';
 import {
-  generateMediaForClassroom,
-  replaceMediaPlaceholders,
-  generateTTSForClassroom,
   resolveServerTtsTimingSelection,
   type ServerTtsTimingSelection,
 } from '@openmaic/lib/server/classroom-media-generation';
@@ -47,13 +45,16 @@ import {
   throwIfAborted,
   withGenerationRetry,
 } from '@openmaic/lib/generation/generation-retry';
+import { mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
+import { getClassroomSceneConcurrency } from '@openmaic/lib/server/provider-config';
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
+import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-planner';
+import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
 import type { Action } from '@openmaic/lib/types/action';
 import { validatePblKnowledgeAlignment } from '@/lib/pbl-outline-validation';
 import type { Scene, Stage } from '@openmaic/lib/types/stage';
 import { AGENT_COLOR_PALETTE, AGENT_DEFAULT_AVATARS } from '@openmaic/lib/constants/agent-defaults';
-import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('Classroom');
 
@@ -85,6 +86,7 @@ export interface GenerateClassroomInput {
   enableTTS?: boolean;
   ttsProviderId?: string;
   ttsModelId?: string;
+  ttsVoice?: string;
   ttsSpeed?: number;
   ttsLanguage?: string;
   agentMode?: 'default' | 'generate';
@@ -115,6 +117,15 @@ export interface GenerateClassroomResult {
   scenes: Scene[];
   scenesCount: number;
   createdAt: string;
+  /** Server-only context consumed by the post-response media task. */
+  assetContext: {
+    outlines: SceneOutline[];
+    enableImageGeneration: boolean;
+    enableVideoGeneration: boolean;
+    enableTTS: boolean;
+    isPblCourse: boolean;
+    ttsTimingSelection: ServerTtsTimingSelection;
+  };
 }
 
 function createInMemoryStore(stage: Stage): StageStore {
@@ -275,18 +286,27 @@ export function attachTtsTimingPlans(
       interaction,
       quiz,
     });
-    const speechTargetSec = contentType === 'quiz'
-      ? Math.max(15, Math.min(60, Math.round(activityTargetSec * 0.2)))
-      : interaction || quiz
-        ? Math.max(
-            15,
-            Math.min(
-              activityTargetSec,
-              activityTargetSec - activityEstimate.interactionSec - activityEstimate.quizSec
-                - activityEstimate.teacherSec - activityEstimate.transitionSec,
-            ),
-          )
-        : activityTargetSec;
+    const isQuiz = contentType === 'quiz' || Boolean(quiz);
+    const isInteractive = Boolean(interaction);
+    const transitionSec = isQuiz || isInteractive
+      ? Math.min(15, Math.max(5, Math.round(activityTargetSec * 0.05)))
+      : 0;
+    const desiredStudentActivitySec = isQuiz
+      ? Math.max(activityEstimate.quizSec, Math.round(activityTargetSec * 0.45))
+      : isInteractive
+        ? Math.max(activityEstimate.interactionSec, Math.round(activityTargetSec * 0.4))
+        : 0;
+    const maxStudentActivitySec = Math.max(0, activityTargetSec - transitionSec - 15);
+    const studentActivitySec = Math.min(desiredStudentActivitySec, maxStudentActivitySec);
+    const speechTargetSec = Math.max(
+      1,
+      activityTargetSec - transitionSec - studentActivitySec,
+    );
+    const feedbackSec = isQuiz
+      ? Math.min(speechTargetSec, Math.max(10, Math.round(speechTargetSec * 0.55)))
+      : isInteractive
+        ? Math.min(speechTargetSec, Math.max(8, Math.round(speechTargetSec * 0.3)))
+        : 0;
     return {
       ...outline,
       timingPlan: buildTtsTimingPlan({
@@ -294,9 +314,15 @@ export function attachTtsTimingPlans(
         activityTargetDurationSec: activityTargetSec,
         providerId: selection.providerId,
         modelId: selection.modelId,
-        speed: selection.speed,
+        voiceId: selection.voiceId,
+        // Course audio is generated at the provider's natural rate. Duration
+        // is controlled by content and activity budgets, never rate fitting.
+        speed: 1,
         language: selection.language,
         contentType,
+        studentActivitySec,
+        feedbackSec,
+        transitionSec,
       }),
     };
   });
@@ -584,6 +610,9 @@ export async function generateClassroom(
       log.warn('enableWebSearch is true but no web search API key configured, skipping web search');
     }
   }
+  if (researchContext) {
+    requirements.requirement = `${requirements.requirement}\n\n已联网核验的资料上下文（只能据此补充事实并保留来源名称，不得覆盖教师确认的知识图谱）：\n${researchContext}`;
+  }
 
   await reportProgress({
     step: 'generating_outlines',
@@ -630,17 +659,45 @@ export async function generateClassroom(
   }
   const languageDirective = input.languageDirective || generatedLanguageDirective;
   const courseTitle = input.courseTitle || generatedCourseTitle;
-  const baseOutlines = enforcePblOutlineContract(
+  let baseOutlines = enforcePblOutlineContract(
     confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
     requirements,
   );
+  if (
+    confirmedOutlines.length > 0
+    && (input.enableImageGeneration || input.enableVideoGeneration)
+  ) {
+    try {
+      baseOutlines = await withGenerationRetry(
+        () => planMediaForConfirmedOutlines(baseOutlines, aiCall, {
+          imageEnabled: Boolean(input.enableImageGeneration),
+          videoEnabled: Boolean(input.enableVideoGeneration),
+          researchContext,
+        }),
+        {
+          label: 'confirmed-outline media planning',
+          signal: options.signal,
+        },
+      );
+      log.info(
+        `Planned ${baseOutlines.flatMap((outline) => outline.mediaGenerations ?? []).length} optional media assets for confirmed outlines`,
+      );
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      log.warn('Media planning failed; continuing with confirmed course content:', error);
+    }
+  }
   const ttsTimingSelection = resolveServerTtsTimingSelection({
     providerId: input.ttsProviderId,
     modelId: input.ttsModelId,
+    voiceId: input.ttsVoice,
     speed: input.ttsSpeed,
     language: input.ttsLanguage,
   });
-  const outlines = attachTtsTimingPlans(baseOutlines, ttsTimingSelection);
+  const outlines = attachTtsTimingPlans(
+    normalizeSceneOutlinesForDuration(baseOutlines),
+    ttsTimingSelection,
+  );
   throwIfAborted(options.signal);
   validateConfirmedPblDetails(outlines, input);
   log.info(
@@ -708,127 +765,148 @@ export async function generateClassroom(
   const api = createStageAPI(store);
 
   log.info('Stage 2: Generating scene content and actions...');
-  let generatedScenes = 0;
+  const sceneConcurrency = getClassroomSceneConcurrency();
+  log.info(`Generating scenes with bounded concurrency: ${sceneConcurrency}`);
 
-  for (const [index, outline] of outlines.entries()) {
-    throwIfAborted(options.signal);
-    const safeOutline = applyOutlineFallbacks(outline, true, {
-      allowProceduralSkill: vocationalActive,
-      personalProject: requirements.pblProfile?.projectMode === 'personal',
-    });
-    const progressStart = 30 + Math.floor((index / Math.max(outlines.length, 1)) * 60);
-
-    await reportProgress({
-      step: 'generating_scenes',
-      progress: Math.max(progressStart, 31),
-      message: `Generating scene ${index + 1}/${outlines.length}: ${safeOutline.title}`,
-      scenesGenerated: generatedScenes,
-      totalScenes: outlines.length,
-    });
-
-    const reportSceneRetry = async (
-      phase: 'content' | 'actions',
-      event: { attempt: number; maxAttempts: number; reason: string },
-    ) => {
-      const nextAttempt = Math.min(event.attempt + 1, event.maxAttempts);
-      const message = `Retrying scene ${index + 1}/${outlines.length} ${phase} (${nextAttempt}/${event.maxAttempts}): ${safeOutline.title}`;
-      log.warn(`${message} — ${event.reason}`);
+  // Each worker keeps content -> actions (and the bounded timing correction)
+  // sequential. Only independent scenes run concurrently; drafts are
+  // assembled into the stage below in the original outline order.
+  const sceneDrafts = await mapWithConcurrency(
+    outlines,
+    sceneConcurrency,
+    async (outline, index) => {
+      throwIfAborted(options.signal);
+      const safeOutline = applyOutlineFallbacks(outline, true, {
+        allowProceduralSkill: vocationalActive,
+        personalProject: requirements.pblProfile?.projectMode === 'personal',
+      });
       await reportProgress({
         step: 'generating_scenes',
-        progress: Math.max(progressStart, 31),
-        message,
-        scenesGenerated: generatedScenes,
+        // Worker-start events can arrive out of order; keep them at the
+        // phase floor so ordered assembly below remains monotonic.
+        progress: 31,
+        message: `Generating scene ${index + 1}/${outlines.length}: ${safeOutline.title}`,
+        scenesGenerated: 0,
         totalScenes: outlines.length,
       });
-    };
 
-    const content = await withGenerationRetry(
-      () =>
-        generateSceneContent(safeOutline, sceneAiCall, {
-          agents,
-          languageDirective,
-          userRequirements: requirements,
-          pblProfile: requirements.pblProfile,
-          allowProceduralSkill: vocationalActive,
-          signal: options.signal,
-        }),
-      {
-        label: `scene ${index + 1}/${outlines.length} content`,
-        signal: options.signal,
-        shouldRetryResult: (result) => result === null,
-        onRetry: (event) => reportSceneRetry('content', event),
-      },
-    );
-    if (!content) {
-      log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);
-      continue;
-    }
-    throwIfAborted(options.signal);
-
-    let actions = await withGenerationRetry(
-      () =>
-        generateSceneActions(safeOutline, content, sceneAiCall, {
-          agents,
-          languageDirective,
-          pblProfile: requirements.pblProfile,
-        }),
-      {
-        label: `scene ${index + 1}/${outlines.length} actions`,
-        signal: options.signal,
-        onRetry: (event) => reportSceneRetry('actions', event),
-      },
-    );
-    throwIfAborted(options.signal);
-
-    // A single bounded correction pass keeps the generated script close to the
-    // model-specific narration budget without creating an unbounded LLM loop.
-    const timingPlan = safeOutline.timingPlan;
-    const firstSpeechText = getSpeechActionText(actions);
-    if (timingPlan && firstSpeechText) {
-      const firstEstimatedSec = estimateSpeechDurationSec(firstSpeechText, {
-        providerId: timingPlan.providerId,
-        modelId: timingPlan.modelId,
-        speed: timingPlan.speed,
-      });
-      const firstAssessment = assessTtsDurationError({
-        targetSec: timingPlan.targetDurationSec,
-        actualSec: firstEstimatedSec,
-      });
-      if (!firstAssessment.withinTolerance && timingPlan.targetDurationSec >= 30) {
-        const correctedActions = await generateSceneActions(safeOutline, content, sceneAiCall, {
-          agents,
-          languageDirective,
-          pblProfile: requirements.pblProfile,
-          timingCorrection: firstAssessment.suggestions.join('；'),
+      const reportSceneRetry = async (
+        phase: 'content' | 'actions',
+        event: { attempt: number; maxAttempts: number; reason: string },
+      ) => {
+        const nextAttempt = Math.min(event.attempt + 1, event.maxAttempts);
+        const message = `Retrying scene ${index + 1}/${outlines.length} ${phase} (${nextAttempt}/${event.maxAttempts}): ${safeOutline.title}`;
+        log.warn(`${message} — ${event.reason}`);
+        await reportProgress({
+          step: 'generating_scenes',
+          progress: 31,
+          message,
+          scenesGenerated: 0,
+          totalScenes: outlines.length,
         });
-        const correctedText = getSpeechActionText(correctedActions);
-        const correctedEstimatedSec = correctedText
-          ? estimateSpeechDurationSec(correctedText, {
-              providerId: timingPlan.providerId,
-              modelId: timingPlan.modelId,
-              speed: timingPlan.speed,
-            })
-          : 0;
-        const correctedError = Math.abs(correctedEstimatedSec - timingPlan.targetDurationSec);
-        const firstError = Math.abs(firstEstimatedSec - timingPlan.targetDurationSec);
-        if (correctedText && correctedError < firstError) {
-          actions = correctedActions;
-        }
-        log.warn(
-          `Scene timing correction ${safeOutline.title}: target=${timingPlan.targetDurationSec}s estimate=${firstEstimatedSec}s correctedEstimate=${correctedEstimatedSec}s`,
-        );
-      }
-    }
-    log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
+      };
 
-    const sceneId = createSceneWithActions(safeOutline, content, actions, api);
+      const content = await withGenerationRetry(
+        () =>
+          generateSceneContent(safeOutline, sceneAiCall, {
+            agents,
+            languageDirective,
+            userRequirements: requirements,
+            pblProfile: requirements.pblProfile,
+            allowProceduralSkill: vocationalActive,
+            signal: options.signal,
+          }),
+        {
+          label: `scene ${index + 1}/${outlines.length} content`,
+          signal: options.signal,
+          shouldRetryResult: (result) => result === null,
+          onRetry: (event) => reportSceneRetry('content', event),
+        },
+      );
+      if (!content) {
+        log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);
+        return null;
+      }
+      throwIfAborted(options.signal);
+
+      let actions = await withGenerationRetry(
+        () =>
+          generateSceneActions(safeOutline, content, sceneAiCall, {
+            ctx: buildNarrationContext(outlines, index),
+            agents,
+            languageDirective,
+            pblProfile: requirements.pblProfile,
+          }),
+        {
+          label: `scene ${index + 1}/${outlines.length} actions`,
+          signal: options.signal,
+          onRetry: (event) => reportSceneRetry('actions', event),
+        },
+      );
+      throwIfAborted(options.signal);
+
+      // A single bounded correction pass keeps the generated script close to
+      // the model-specific narration budget without creating an unbounded loop.
+      const timingPlan = safeOutline.timingPlan;
+      const firstSpeechText = getSpeechActionText(actions);
+      if (timingPlan && firstSpeechText) {
+        const firstEstimatedSec = estimateSpeechDurationSec(firstSpeechText, {
+          providerId: timingPlan.providerId,
+          modelId: timingPlan.modelId,
+          voiceId: timingPlan.voiceId,
+          speed: timingPlan.speed,
+        });
+        const reservedActivitySec = (timingPlan.studentActivitySec ?? 0) + (timingPlan.transitionSec ?? 0);
+        const firstAssessment = assessTtsDurationError({
+          targetSec: timingPlan.activityTargetDurationSec ?? timingPlan.targetDurationSec,
+          actualSec: firstEstimatedSec + reservedActivitySec,
+        });
+        if (!firstAssessment.withinTolerance && timingPlan.targetDurationSec >= 30) {
+          const correctedActions = await generateSceneActions(safeOutline, content, sceneAiCall, {
+            ctx: buildNarrationContext(outlines, index),
+            agents,
+            languageDirective,
+            pblProfile: requirements.pblProfile,
+            timingCorrection: firstAssessment.suggestions.join('；'),
+          });
+          const correctedText = getSpeechActionText(correctedActions);
+          const correctedEstimatedSec = correctedText
+            ? estimateSpeechDurationSec(correctedText, {
+                providerId: timingPlan.providerId,
+                modelId: timingPlan.modelId,
+                voiceId: timingPlan.voiceId,
+                speed: timingPlan.speed,
+              })
+            : 0;
+          const correctedError = Math.abs(correctedEstimatedSec - timingPlan.targetDurationSec);
+          const firstError = Math.abs(firstEstimatedSec - timingPlan.targetDurationSec);
+          if (correctedText && correctedError < firstError) {
+            actions = correctedActions;
+          }
+          log.warn(
+            `Scene timing correction ${safeOutline.title}: activityTarget=${timingPlan.activityTargetDurationSec ?? timingPlan.targetDurationSec}s narrationTarget=${timingPlan.targetDurationSec}s firstTotal=${firstEstimatedSec + reservedActivitySec}s correctedTotal=${correctedEstimatedSec + reservedActivitySec}s`,
+          );
+        }
+      }
+
+      log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
+      return { outline: safeOutline, content, actions, index };
+    },
+    { shouldContinue: () => !options.signal?.aborted },
+  );
+
+  throwIfAborted(options.signal);
+  let generatedScenes = 0;
+  for (const draft of sceneDrafts) {
+    if (!draft) continue;
+    const sceneId = createSceneWithActions(draft.outline, draft.content, draft.actions, api);
     if (!sceneId) {
-      log.warn(`Skipping scene "${safeOutline.title}" — scene creation failed`);
+      log.warn(`Skipping scene "${draft.outline.title}" — scene creation failed`);
       continue;
     }
 
     generatedScenes += 1;
-    const progressEnd = 30 + Math.floor(((index + 1) / Math.max(outlines.length, 1)) * 60);
+    const progressEnd = 30 + Math.floor(((draft.index + 1) / Math.max(outlines.length, 1)) * 60);
     await reportProgress({
       step: 'generating_scenes',
       progress: Math.min(progressEnd, 90),
@@ -845,72 +923,10 @@ export async function generateClassroom(
     throw new Error('No scenes were generated');
   }
 
-  // Phase: Media generation (after all scenes generated)
-  if (input.enableImageGeneration || input.enableVideoGeneration) {
-    await reportProgress({
-      step: 'generating_media',
-      progress: 90,
-      message: 'Generating media files',
-      scenesGenerated: scenes.length,
-      totalScenes: outlines.length,
-    });
-
-    try {
-      const mediaMap = await generateMediaForClassroom(
-        outlines,
-        stageId,
-        options.baseUrl,
-        options.signal,
-      );
-      replaceMediaPlaceholders(scenes, mediaMap);
-      log.info(`Media generation complete: ${Object.keys(mediaMap).length} files`);
-    } catch (err) {
-      if (options.signal?.aborted) throw err;
-      log.warn('Media generation phase failed, continuing:', err);
-    }
-  }
-
-  // Phase: TTS generation
-  if (input.enableTTS) {
-    const isPblCourse =
-      input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
-      Boolean(input.pblTeachingActivities?.length);
-    const ttsScenes = isPblCourse
-      ? scenes.filter(isStudentAiLearningScene)
-      : scenes;
-    const skippedScenes = scenes.length - ttsScenes.length;
-
-    await reportProgress({
-      step: 'generating_tts',
-      progress: 94,
-      message: isPblCourse
-        ? `Generating TTS audio for ${ttsScenes.length} student AI-learning scenes`
-        : 'Generating TTS audio',
-      scenesGenerated: ttsScenes.length,
-      totalScenes: outlines.length,
-    });
-
-    try {
-      await generateTTSForClassroom(
-        ttsScenes,
-        stageId,
-        options.baseUrl,
-        options.signal,
-        ttsTimingSelection,
-      );
-      log.info(
-        `TTS generation complete [studentScenes=${ttsScenes.length}, skippedTeacherScenes=${skippedScenes}]`,
-      );
-    } catch (err) {
-      if (options.signal?.aborted) throw err;
-      log.warn('TTS generation phase failed, continuing:', err);
-    }
-  }
-
   await reportProgress({
     step: 'persisting',
     progress: 98,
-    message: 'Persisting classroom data',
+    message: 'Persisting classroom content',
     scenesGenerated: scenes.length,
     totalScenes: outlines.length,
   });
@@ -931,7 +947,7 @@ export async function generateClassroom(
   await reportProgress({
     step: 'completed',
     progress: 100,
-    message: 'Classroom generation completed',
+    message: 'Classroom content ready; media continues in background',
     scenesGenerated: scenes.length,
     totalScenes: outlines.length,
   });
@@ -943,5 +959,15 @@ export async function generateClassroom(
     scenes,
     scenesCount: scenes.length,
     createdAt: persisted.createdAt,
+    assetContext: {
+      outlines,
+      enableImageGeneration: Boolean(input.enableImageGeneration),
+      enableVideoGeneration: Boolean(input.enableVideoGeneration),
+      enableTTS: Boolean(input.enableTTS),
+      isPblCourse:
+        input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
+        Boolean(input.pblTeachingActivities?.length),
+      ttsTimingSelection,
+    },
   };
 }

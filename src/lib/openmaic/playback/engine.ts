@@ -32,6 +32,9 @@ import type {
   PlaybackSnapshot,
   TriggerEvent,
   Effect,
+  ActivityGate,
+  ActivityPurpose,
+  ActivityCompletionReason,
 } from './types';
 import type { AudioPlayer } from '@openmaic/lib/utils/audio-player';
 import { ActionEngine } from '@openmaic/lib/action/engine';
@@ -42,22 +45,6 @@ import { isTTSProviderEnabled } from '@openmaic/lib/audio/provider-enablement';
 import { createLogger } from '@openmaic/lib/logger';
 
 const log = createLogger('PlaybackEngine');
-
-function getSpeechTargetDurationSec(scene: Scene | undefined, speechAction: SpeechAction): number | undefined {
-  if (!scene) return undefined;
-  const sceneTarget = scene.timingPlan?.targetDurationSec ?? scene.targetDurationSec;
-  if (typeof sceneTarget !== 'number' || !Number.isFinite(sceneTarget) || sceneTarget <= 0) {
-    return undefined;
-  }
-  const speechActions = (scene.actions ?? []).filter(
-    (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text?.trim()),
-  );
-  if (speechActions.length <= 1) return sceneTarget;
-  const totalTextLength = speechActions.reduce((sum, action) => sum + action.text.length, 0);
-  return totalTextLength > 0
-    ? Math.max(1, Math.round(sceneTarget * (speechAction.text.length / totalTextLength)))
-    : Math.max(1, Math.round(sceneTarget / speechActions.length));
-}
 
 /**
  * If more than 30% of characters are CJK, treat the text as Chinese.
@@ -99,8 +86,9 @@ export class PlaybackEngine {
   private browserTTSChunks: string[] = []; // sentence-level chunks for sequential playback
   private browserTTSChunkIndex: number = 0; // current chunk being spoken
   private browserTTSPausedChunks: string[] = []; // remaining chunks saved on pause (for cancel+re-speak)
-  private browserTTSTargetDurationSec: number | undefined;
   private speechTimerRemaining: number = 0; // remaining ms (set on pause)
+  private speechTimerIsActivityPause: boolean = false;
+  private activeActivity: ActivityGate | null = null;
 
   constructor(
     scenes: Scene[],
@@ -120,6 +108,14 @@ export class PlaybackEngine {
   /** Get the current engine mode */
   getMode(): EngineMode {
     return this.mode;
+  }
+
+  /** Complete the current student activity early. Duplicate/stale events are ignored. */
+  completeActivity(sceneId: string, purpose?: ActivityPurpose): boolean {
+    const activity = this.activeActivity;
+    if (!activity || activity.sceneId !== sceneId) return false;
+    if (purpose && activity.purpose !== purpose) return false;
+    return this.finishActivity('user');
   }
 
   /** Export a serializable playback snapshot */
@@ -233,10 +229,14 @@ export class PlaybackEngine {
         // Reading timer was paused — reschedule with remaining time
         this.speechTimerStart = Date.now();
         this.speechTimer = setTimeout(() => {
-          this.speechTimer = null;
-          this.speechTimerRemaining = 0;
-          this.callbacks.onSpeechEnd?.();
-          if (this.mode === 'playing') this.processNext();
+          if (this.speechTimerIsActivityPause) {
+            this.finishActivity('timeout');
+          } else {
+            this.speechTimer = null;
+            this.speechTimerRemaining = 0;
+            this.callbacks.onSpeechEnd?.();
+            if (this.mode === 'playing') this.processNext();
+          }
         }, this.speechTimerRemaining);
       } else {
         // TTS finished while paused, continue to next event
@@ -262,6 +262,8 @@ export class PlaybackEngine {
       this.speechTimer = null;
     }
     this.speechTimerRemaining = 0;
+    this.speechTimerIsActivityPause = false;
+    this.activeActivity = null;
     this.sceneIndex = 0;
     this.actionIndex = 0;
     this.savedSceneIndex = null;
@@ -383,6 +385,7 @@ export class PlaybackEngine {
 
   /** Whether all remaining actions have been consumed (no speech left to play) */
   isExhausted(): boolean {
+    if (this.activeActivity) return false;
     let si = this.sceneIndex;
     let ai = this.actionIndex;
     while (si < this.scenes.length) {
@@ -417,6 +420,22 @@ export class PlaybackEngine {
     }
     this.savedSceneIndex = null;
     this.savedActionIndex = null;
+  }
+
+  private finishActivity(reason: ActivityCompletionReason): boolean {
+    const activity = this.activeActivity;
+    if (!activity) return false;
+
+    this.activeActivity = null;
+    if (this.speechTimer) {
+      clearTimeout(this.speechTimer);
+      this.speechTimer = null;
+    }
+    this.speechTimerRemaining = 0;
+    this.speechTimerIsActivityPause = false;
+    this.callbacks.onActivityComplete?.(activity, reason);
+    if (this.mode === 'playing') queueMicrotask(() => this.processNext());
+    return true;
   }
 
   /**
@@ -456,7 +475,7 @@ export class PlaybackEngine {
       return;
     }
 
-    const { action } = current;
+    const { action, sceneId } = current;
 
     // Notify progress BEFORE advancing the cursor so the snapshot points at
     // the current action.  On restore the same action will be replayed — this
@@ -468,10 +487,31 @@ export class PlaybackEngine {
     switch (action.type) {
       case 'speech': {
         const speechAction = action as SpeechAction;
-        const currentScene = this.scenes.find((scene) => scene.id === current.sceneId);
-        const targetDurationSec =
-          (speechAction as SpeechAction & { targetDurationSec?: number }).targetDurationSec
-          ?? getSpeechTargetDurationSec(currentScene, speechAction);
+        const activityPauseSec = Number(
+          (speechAction as SpeechAction & { activityPauseSec?: number }).activityPauseSec,
+        );
+        if (Number.isFinite(activityPauseSec) && activityPauseSec > 0) {
+          const configuredPurpose = (speechAction as SpeechAction & {
+            activityPausePurpose?: ActivityPurpose;
+          }).activityPausePurpose;
+          const sceneType = this.scenes[this.sceneIndex]?.type;
+          const purpose: ActivityPurpose =
+            configuredPurpose === 'quiz' || configuredPurpose === 'interaction'
+              ? configuredPurpose
+              : sceneType === 'quiz'
+                ? 'quiz'
+                : 'interaction';
+          const pauseMs = activityPauseSec * 1000;
+          this.activeActivity = { sceneId, purpose, durationSec: activityPauseSec };
+          this.speechTimerStart = Date.now();
+          this.speechTimerRemaining = pauseMs;
+          this.speechTimerIsActivityPause = true;
+          this.speechTimer = setTimeout(() => {
+            this.finishActivity('timeout');
+          }, pauseMs);
+          this.callbacks.onActivityStart?.(this.activeActivity);
+          break;
+        }
         this.callbacks.onSpeechStart?.(speechAction.text);
 
         // onEnded → processNext; if paused, resume() will call processNext
@@ -496,11 +536,10 @@ export class PlaybackEngine {
           const rawMs = isCJK
             ? Math.max(2000, text.length * 150)
             : Math.max(2000, text.split(/\s+/).filter(Boolean).length * 240);
-          const readingMs = targetDurationSec
-            ? Math.max(2000, (targetDurationSec * 1000) / speed)
-            : rawMs / speed;
+          const readingMs = rawMs / speed;
           this.speechTimerStart = Date.now();
           this.speechTimerRemaining = readingMs;
+          this.speechTimerIsActivityPause = false;
           this.speechTimer = setTimeout(() => {
             this.speechTimer = null;
             this.speechTimerRemaining = 0;
@@ -517,7 +556,7 @@ export class PlaybackEngine {
         const hasText = !!speechAction.text.trim();
 
         this.audioPlayer
-          .play(speechAction.audioId || '', speechAction.audioUrl, targetDurationSec)
+          .play(speechAction.audioId || '', speechAction.audioUrl)
           .then((audioStarted) => {
             if (!audioStarted) {
               // No pre-generated audio — try browser-native TTS only when it is
@@ -534,7 +573,7 @@ export class PlaybackEngine {
                 typeof window !== 'undefined' &&
                 window.speechSynthesis
               ) {
-                this.playBrowserTTS(speechAction, targetDurationSec);
+                this.playBrowserTTS(speechAction);
               } else {
                 scheduleReadingTimer();
               }
@@ -655,11 +694,10 @@ export class PlaybackEngine {
    * Splits text into sentence-level chunks to avoid Chrome's ~15s cutoff.
    * Uses cancel+re-speak for pause/resume (Firefox compatibility).
    */
-  private playBrowserTTS(speechAction: SpeechAction, targetDurationSec?: number): void {
+  private playBrowserTTS(speechAction: SpeechAction): void {
     this.browserTTSChunks = this.splitIntoChunks(speechAction.text);
     this.browserTTSChunkIndex = 0;
     this.browserTTSPausedChunks = [];
-    this.browserTTSTargetDurationSec = targetDurationSec;
     this.browserTTSActive = true;
     this.playBrowserTTSChunk();
   }
@@ -670,7 +708,6 @@ export class PlaybackEngine {
       // All chunks done
       this.browserTTSActive = false;
       this.browserTTSChunks = [];
-      this.browserTTSTargetDurationSec = undefined;
       this.callbacks.onSpeechEnd?.();
       if (this.mode === 'playing') this.processNext();
       return;
@@ -682,23 +719,10 @@ export class PlaybackEngine {
 
     // Apply settings
     const speed = this.callbacks.getPlaybackSpeed?.() ?? 1;
-    const baseRate = (settings.ttsSpeed ?? 1) * speed;
-    const totalTextLength = Math.max(
-      1,
-      this.browserTTSChunks.reduce((sum, chunk) => sum + chunk.length, 0),
-    );
-    const chunkTargetSec = this.browserTTSTargetDurationSec
-      ? this.browserTTSTargetDurationSec * (chunkText.length / totalTextLength)
-      : undefined;
-    if (chunkTargetSec && chunkTargetSec > 0) {
-      const cjkCount = (chunkText.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
-      const naturalSec = cjkCount > chunkText.length * 0.3
-        ? Math.max(1, chunkText.length * 0.15)
-        : Math.max(1, chunkText.split(/\s+/).filter(Boolean).length * 0.24);
-      utterance.rate = Math.max(0.5, Math.min(2.5, naturalSec / chunkTargetSec));
-    } else {
-      utterance.rate = baseRate;
-    }
+    // The course planner sizes narration for the provider's normal rate.
+    // Only the student's explicit playback-speed control may alter it here.
+    const baseRate = speed;
+    utterance.rate = baseRate;
     utterance.volume = settings.ttsMuted ? 0 : (settings.ttsVolume ?? 1);
 
     // Ensure voices are loaded (Chrome loads them asynchronously)
@@ -792,7 +816,6 @@ export class PlaybackEngine {
       this.browserTTSChunks = [];
       this.browserTTSChunkIndex = 0;
       this.browserTTSPausedChunks = [];
-      this.browserTTSTargetDurationSec = undefined;
       window.speechSynthesis?.cancel();
     }
   }

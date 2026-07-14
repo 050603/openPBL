@@ -62,6 +62,15 @@ export interface UserRequirements {
   pblActivityCatalog?: PblActivityCatalogEntry[];
   /** Confirmed knowledge catalog used to keep second-level coverage deterministic. */
   knowledgePoints?: Array<{ id: string; name?: string; level?: string }>;
+  /** Natural-speed TTS facts available before semantic page planning. */
+  ttsTimingContext?: {
+    providerId: string;
+    modelId: string;
+    voiceId: string;
+    cjkCharsPerMinute: number;
+    latinWordsPerMinute: number;
+    calibrated: boolean;
+  };
 }
 
 // ==================== Stage 1 Output: Scene Outlines (Simplified) ====================
@@ -175,6 +184,14 @@ export interface SceneOutline {
   knowledgePointIds?: string[];
   /** Target narration/content duration for this detail, in seconds. */
   targetDurationSec?: number;
+  /** 1-based page segment position when one detail is expanded into multiple pages. */
+  segmentIndex?: number;
+  /** Total page segments generated for the same parent detail. */
+  segmentCount?: number;
+  /** Short semantic cue used to keep sibling pages complementary. */
+  segmentRole?: string;
+  /** Stable group key shared by page segments derived from one detail. */
+  segmentGroupId?: string;
   /** Explicit TTS policy; target-duration is only used for student knowledge scenes. */
   ttsPolicy?: PblTtsPolicy;
   /** Model-specific narration budget used by generation and playback verification. */

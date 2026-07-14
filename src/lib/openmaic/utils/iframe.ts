@@ -124,6 +124,9 @@ const ERROR_CAPTURE_SHIM = `<script data-iframe-error-shim>
 const INTERACTION_SYNC_SHIM = `<script data-iframe-interaction-sync>
 (function () {
   var lastApplied = '';
+  function postActivity(kind) {
+    try { window.parent.postMessage({ __maicInteractive: true, kind: kind }, '*'); } catch (e) {}
+  }
   function collectState() {
     var state = {};
     var nodes = document.querySelectorAll('[data-sync], [data-sync-region] [name], [data-sync-region] input, [data-sync-region] select, [data-sync-region] textarea');
@@ -163,6 +166,17 @@ const INTERACTION_SYNC_SHIM = `<script data-iframe-interaction-sync>
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (t && t.closest && t.closest('[data-sync],[data-sync-region]')) scheduleBroadcast();
+    if (!t || !t.closest) return;
+    if (t.closest('[data-activity-reset],button[type="reset"],input[type="reset"],#reset-btn')) {
+      setTimeout(function () { postActivity('activity-reset'); }, 0);
+      return;
+    }
+    if (t.closest('[data-activity-complete],[data-complete],button[type="submit"],input[type="submit"],#submit-btn,#finish-btn,#check-answer')) {
+      setTimeout(function () { postActivity('activity-complete'); }, 0);
+    }
+  }, true);
+  document.addEventListener('submit', function () {
+    setTimeout(function () { postActivity('activity-complete'); }, 0);
   }, true);
   // Initial broadcast once the DOM is ready so late-loading viewers get current state
   if (document.readyState === 'complete') broadcast();

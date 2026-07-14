@@ -8,6 +8,9 @@ import type { Scene, Stage } from "@openmaic/lib/types/stage";
 export interface ServerClassroomSplitResult {
   studentClassroomId: string;
   teacherClassroomId: string;
+  /** In-memory scene arrays used by the post-response asset task. */
+  studentScenes: Scene[];
+  teacherScenes: Scene[];
   teacherResourceScenes: TeacherResourceScene[];
   studentSceneCount: number;
   teacherSceneCount: number;
@@ -62,6 +65,7 @@ export async function splitGeneratedClassroom(input: {
 
   throwIfAborted(input.signal);
   let teacherClassroomId = "";
+  let normalizedTeacherScenes: Scene[] = [];
   if (teacherScenes.length > 0) {
     throwIfAborted(input.signal);
     teacherClassroomId = `${input.stage.id}-teacher`;
@@ -70,7 +74,7 @@ export async function splitGeneratedClassroom(input: {
       id: teacherClassroomId,
       name: `${input.courseName || input.stage.name} - 普通课堂活动`,
     };
-    const normalizedTeacherScenes = teacherScenes.map((scene, index) => ({
+    normalizedTeacherScenes = teacherScenes.map((scene, index) => ({
       ...scene,
       stageId: teacherStage.id,
       order: index,
@@ -89,6 +93,8 @@ export async function splitGeneratedClassroom(input: {
   return {
     studentClassroomId: input.stage.id,
     teacherClassroomId,
+    studentScenes,
+    teacherScenes: normalizedTeacherScenes,
     teacherResourceScenes: teacherResourceMeta,
     studentSceneCount: studentScenes.length,
     teacherSceneCount: teacherScenes.length,

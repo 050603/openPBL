@@ -9,6 +9,10 @@ import {
 } from '@openmaic/lib/store/interactive-iframe-pool';
 import { useSceneRuntimeErrors } from '@openmaic/lib/store/scene-runtime-errors';
 import { useInteractionSyncStore } from '@openmaic/lib/store/interaction-sync';
+import {
+  dispatchPlaybackActivityComplete,
+  dispatchPlaybackActivityReset,
+} from '@openmaic/lib/playback/activity-events';
 
 /**
  * Stable host for interactive scene iframes (#619).
@@ -133,6 +137,14 @@ function PooledIframe({ sceneId, entry, visible, elevatedZIndex }: PooledIframeP
         | { __maicInteractive?: boolean; kind?: string; errorKind?: string; message?: unknown; state?: unknown }
         | undefined;
       if (!d || d.__maicInteractive !== true) return;
+      if (d.kind === 'activity-complete' && visible) {
+        dispatchPlaybackActivityComplete({ sceneId, purpose: 'interaction' });
+        return;
+      }
+      if (d.kind === 'activity-reset' && visible) {
+        dispatchPlaybackActivityReset({ sceneId, purpose: 'interaction' });
+        return;
+      }
       if (d.kind === 'runtime-error') {
         const kind = typeof d.errorKind === 'string' ? d.errorKind : 'error';
         const msg = typeof d.message === 'string' ? d.message : String(d.message ?? '');

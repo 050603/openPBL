@@ -198,6 +198,10 @@ export function classifyScenes(
           parentActivityId: scene.parentActivityId,
           detailKind: scene.detailKind,
           targetDurationSec: scene.targetDurationSec,
+          segmentIndex: scene.segmentIndex,
+          segmentCount: scene.segmentCount,
+          segmentRole: scene.segmentRole,
+          segmentGroupId: scene.segmentGroupId,
           ttsPolicy: scene.ttsPolicy,
           generationMode:
             scene.generationPurpose === "facilitation-scaffold" ||
@@ -245,6 +249,10 @@ export function classifyScenes(
         parentActivityId: scene.parentActivityId,
         detailKind: scene.detailKind,
         targetDurationSec: scene.targetDurationSec,
+        segmentIndex: scene.segmentIndex,
+        segmentCount: scene.segmentCount,
+        segmentRole: scene.segmentRole,
+        segmentGroupId: scene.segmentGroupId,
         ttsPolicy: scene.ttsPolicy,
         generationMode:
           scene.generationPurpose === "facilitation-scaffold" ||

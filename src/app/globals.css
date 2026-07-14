@@ -31,35 +31,45 @@
   --pbl-border-soft: #f5f4f1;
 
   /* —— 身份色：教师端（深蓝 Blue + 暖橙强调）—— */
-  --pbl-teacher: #2563eb;
-  --pbl-teacher-hover: #1d4ed8;
+  /* 颜色加深到 blue-700，确保白色文字对比度 ≥ 4.5:1 (WCAG AA) */
+  --pbl-teacher: #1d4ed8;
+  --pbl-teacher-hover: #1e40af;
   --pbl-teacher-soft: #eff6ff;
   --pbl-teacher-border: #bfdbfe;
-  --pbl-accent: #ea580c;
-  --pbl-accent-hover: #c2410c;
+  --pbl-accent: #c2410c;
+  --pbl-accent-hover: #9a3412;
   --pbl-accent-soft: #fff7ed;
   --pbl-accent-border: #fed7aa;
 
   /* —— 身份色：学生端（森林绿 Green）—— */
-  --pbl-student: #15803d;
-  --pbl-student-hover: #166534;
+  /* 加深到 green-800，确保白色文字对比度 ≥ 4.5:1 */
+  --pbl-student: #166534;
+  --pbl-student-hover: #14532d;
   --pbl-student-soft: #f0fdf4;
   --pbl-student-border: #bbf7d0;
 
-  /* —— AI 辅助色（暖紫 Violet）—— */
-  --pbl-ai: #7c3aed;
+  /* —— AI 辅助色（暖紫 Violet，violet-700）—— */
+  --pbl-ai: #6d28d9;
+  --pbl-ai-hover: #5b21b6;
   --pbl-ai-soft: #f5f3ff;
   --pbl-ai-border: #ddd6fe;
 
   /* —— 状态色 —— */
-  --pbl-success: #15803d;
+  /* 全部加深一档确保与白字对比度达标 */
+  --pbl-success: #166534;
+  --pbl-success-hover: #14532d;
   --pbl-success-soft: #f0fdf4;
-  --pbl-warning: #c2410c;
+  --pbl-success-border: #bbf7d0;
+  --pbl-warning: #9a3412;
+  --pbl-warning-hover: #7c2d12;
   --pbl-warning-soft: #fff7ed;
-  --pbl-danger: #dc2626;
+  --pbl-warning-border: #fed7aa;
+  --pbl-danger: #b91c1c;
+  --pbl-danger-hover: #991b1b;
   --pbl-danger-soft: #fef2f2;
   --pbl-danger-border: #fecaca;
-  --pbl-achievement: #9333ea;
+  --pbl-achievement: #7e22ce;
+  --pbl-achievement-hover: #6b21a8;
   --pbl-achievement-soft: #faf5ff;
 
   /* —— 中性墨色 —— */
@@ -151,7 +161,6 @@ input,
 textarea,
 select {
   font: inherit;
-  color: inherit;
 }
 
 button,

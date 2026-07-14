@@ -115,7 +115,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
             const displayDescription = todo.id.includes("group") ? "系统已为你建立个人项目与 AI 伴学小组" : todo.description;
             return (
               <div className="mb-3 flex items-center gap-4 rounded-[8px] border border-stone-200 p-3 last:mb-0" key={todo.id}>
-                <div className={`grid h-10 w-10 place-items-center rounded-[6px] ${done ? "bg-emerald-50 text-emerald-600" : "bg-[var(--pbl-student-soft)] text-blue-600"}`}>
+                <div className={`grid h-10 w-10 place-items-center rounded-[6px] ${done ? "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]" : "bg-[var(--pbl-student-soft)] text-blue-600"}`}>
                   {done ? <CheckCircle2 size={22} /> : <Icon size={23} />}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -123,7 +123,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                   <div className="text-sm text-stone-500">{displayDescription}</div>
                 </div>
                 <button
-                  className={`h-9 rounded-[5px] border px-3 text-sm font-semibold ${done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-400 text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]"}`}
+                  className={`h-9 rounded-[5px] border px-3 text-sm font-semibold ${done ? "border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]" : "border-[var(--pbl-student-border)] text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]"}`}
                   onClick={() => completeTodo(todo.id)}
                   type="button"
                   disabled={done}
@@ -217,7 +217,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
           </div>
         </Card>
 
-        <div className="flex min-h-14 items-center gap-3 rounded-[8px] border border-emerald-200 bg-emerald-50 px-4 text-emerald-800"><UserRoundCheck size={24} /><span><span className="block font-bold">个人项目空间已准备</span><span className="text-sm">{project?.name ?? "进入方案阶段后即可开始独立构思"}</span></span></div>
+        <div className="flex min-h-14 items-center gap-3 rounded-[8px] border border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] px-4 text-[var(--pbl-success)]"><UserRoundCheck size={24} /><span><span className="block font-bold">个人项目空间已准备</span><span className="text-sm">{project?.name ?? "进入方案阶段后即可开始独立构思"}</span></span></div>
       </aside>
     </div>
   );

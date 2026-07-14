@@ -47,7 +47,10 @@ import type { ProviderSection } from "@/lib/openmaic-bridge/provider-config-edit
 import { qualifyModelForProvider, splitModelIds } from "@/lib/openmaic-bridge/model-id";
 
 import { PROVIDERS } from "@openmaic/lib/ai/providers";
-import { ASR_PROVIDERS, DEFAULT_TTS_VOICES, TTS_PROVIDERS } from "@openmaic/lib/audio/constants";
+import { ASR_PROVIDERS, DEFAULT_TTS_VOICES, TTS_PROVIDERS, getTTSVoices } from "@openmaic/lib/audio/constants";
+import {
+  type TtsVoiceTimingCalibration,
+} from "@openmaic/lib/audio/tts-timing";
 import { getEnabledProvidersWithVoices } from "@openmaic/lib/audio/voice-resolver";
 import { useSettingsStore } from "@openmaic/lib/store/settings";
 import { AI_COMPANIONS } from "@/lib/ai-companions";
@@ -79,12 +82,42 @@ type SavedConfig = {
   enabled?: boolean;
   defaultModel?: string;
   priority?: number;
+  defaultVoice?: string;
+  timingCalibrations?: TtsVoiceTimingCalibration[];
 };
+
+const TTS_CALIBRATION_TEXT =
+  "在项目学习中，我们先观察现象，再提出可以验证的问题。接着收集证据、比较不同解释，并用清楚的语言说明判断依据。遇到复杂概念时，可以借助一个贴近生活的例子，逐步连接已有经验与新知识。最后，请停下来检查结论是否符合证据，并思考还有哪些条件可能影响结果。";
+
+async function measureBase64AudioDuration(base64: string, format = "mp3"): Promise<number> {
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const blob = new Blob([bytes], { type: `audio/${format}` });
+  const url = URL.createObjectURL(blob);
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      const audio = new Audio(url);
+      const timeout = window.setTimeout(() => reject(new Error("无法读取标定音频时长。")), 15000);
+      audio.addEventListener("loadedmetadata", () => {
+        window.clearTimeout(timeout);
+        if (Number.isFinite(audio.duration) && audio.duration > 0) resolve(audio.duration);
+        else reject(new Error("标定音频时长无效。"));
+      }, { once: true });
+      audio.addEventListener("error", () => {
+        window.clearTimeout(timeout);
+        reject(new Error("标定音频无法解码。"));
+      }, { once: true });
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 type ResultState = {
   ok: boolean;
   message: string;
   detail?: string;
+  audioUrl?: string;
+  previewUrl?: string;
 } | null;
 
 const TABS: Array<{
@@ -145,6 +178,17 @@ const TAB_COPY: Record<TabKey, { title: string; description: string; tips: strin
     description: "为每个 AI 伙伴选择符合性格的朗读音色，让课堂对话更生动。",
     tips: ["确认语音服务商已配置", "为每个智能体选择音色", "可一键应用推荐配置", "点击试听效果"],
   },
+};
+
+const TEST_EXPLANATIONS: Record<TabKey, string> = {
+  llm: "发送最小对话请求，验证完整模型标识、服务地址、鉴权和响应格式。",
+  tts: "生成固定测试文本并提供试听，同时按音频实际时长更新当前模型、音色、语言和自然语速的共享建模数据。",
+  asr: "上传一段标准 WAV 测试样本，验证识别接口、鉴权、模型和音频参数。",
+  image: "实际生成一张低分辨率测试图，验证接口地址、鉴权、模型、请求参数和图片返回格式。",
+  video: "调用对应视频供应商的专用连通性检查，返回供应商提供的具体错误信息。",
+  "web-search": "执行一次仅返回少量结果的真实搜索，验证密钥、地址和结果解析。",
+  pdf: "上传一页最小测试 PDF 并执行真实解析，验证服务地址、鉴权和返回结构。",
+  "agent-voice": "试听使用当前已保存的 TTS 服务与音色配置，不会调用其他类型的模型。",
 };
 
 function getProvidersForTab(tab: TabKey): ProviderMeta[] {
@@ -237,10 +281,14 @@ function getInitialDefaultModel(provider: ProviderMeta, saved?: SavedConfig) {
 function getReadableError(data: unknown, fallback: string) {
   if (!data || typeof data !== "object") return fallback;
   const record = data as { error?: unknown; message?: unknown; details?: unknown };
-  if (typeof record.error === "string") return record.error;
-  if (typeof record.message === "string") return record.message;
-  if (typeof record.details === "string") return record.details;
-  return fallback;
+  const primary = typeof record.error === "string"
+    ? record.error
+    : typeof record.message === "string"
+      ? record.message
+      : fallback;
+  return typeof record.details === "string" && record.details !== primary
+    ? `${primary}\n${record.details}`
+    : primary;
 }
 
 /**
@@ -495,10 +543,12 @@ export default function TeacherSettingsPage() {
   const [editBaseUrl, setEditBaseUrl] = useState("");
   const [editModels, setEditModels] = useState("");
   const [editDefaultModel, setEditDefaultModel] = useState("");
+  const [editDefaultVoice, setEditDefaultVoice] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
 
   const [savingProviderId, setSavingProviderId] = useState<string | null>(null);
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [calibratingProviderId, setCalibratingProviderId] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<ResultState>(null);
   const [testResult, setTestResult] = useState<ResultState>(null);
   const [deletingProvider, setDeletingProvider] = useState<ProviderMeta | null>(null);
@@ -542,6 +592,11 @@ export default function TeacherSettingsPage() {
       setEditBaseUrl(saved?.baseUrl || provider.defaultBaseUrl || "");
       setEditModels(modelsToText(saved?.models, provider));
       setEditDefaultModel(getInitialDefaultModel(provider, saved));
+      setEditDefaultVoice(
+        saved?.defaultVoice ||
+          DEFAULT_TTS_VOICES[provider.id as keyof typeof DEFAULT_TTS_VOICES] ||
+          "default",
+      );
       setShowApiKey(false);
       setSaveResult(null);
       setTestResult(null);
@@ -636,6 +691,7 @@ export default function TeacherSettingsPage() {
           enabled: true,
           models: modelIds.length > 0 ? modelIds : undefined,
           defaultModel: editDefaultModel || modelIds[0] || undefined,
+          ...(activeTab === "tts" ? { defaultVoice: editDefaultVoice || "default" } : {}),
           ...(makeDefault ? { priority: 0 } : {}),
         }),
       });
@@ -671,6 +727,12 @@ export default function TeacherSettingsPage() {
                     item.defaultModelId ||
                     undefined,
                   priority: 100,
+                  ...(activeTab === "tts"
+                    ? {
+                        defaultVoice: otherSaved?.defaultVoice,
+                        timingCalibrations: otherSaved?.timingCalibrations,
+                      }
+                    : {}),
                 }),
               });
             }),
@@ -702,7 +764,7 @@ export default function TeacherSettingsPage() {
     const saved = getSavedConfig(currentTab.section, provider.id);
     const modelId = editDefaultModel || splitModelIds(editModels)[0] || "";
 
-    if (!modelId && activeTab !== "tts") {
+    if (!modelId && activeTab !== "tts" && provider.models.length > 0) {
       setTestResult({ ok: false, message: "请先选择或填写一个模型 ID。" });
       return;
     }
@@ -720,16 +782,35 @@ export default function TeacherSettingsPage() {
         return;
       }
 
-      const voice =
+      const voice = editDefaultVoice ||
         DEFAULT_TTS_VOICES[provider.id as keyof typeof DEFAULT_TTS_VOICES] || "default";
       setTestingProviderId(provider.id);
       setTestResult(null);
       try {
+        const configResponse = await fetch("/api/openmaic/provider-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            section: "tts",
+            providerId: provider.id,
+            apiKey: editApiKey.trim(),
+            baseUrl: editBaseUrl.trim() || undefined,
+            enabled: true,
+            models: splitModelIds(editModels).length ? splitModelIds(editModels) : undefined,
+            defaultModel: modelId || undefined,
+            defaultVoice: voice,
+            priority: saved?.priority,
+          }),
+        });
+        if (!configResponse.ok) {
+          const configError = await configResponse.json().catch(() => null);
+          throw new Error(getReadableError(configError, "语音配置保存失败，未开始测试。"));
+        }
         const response = await fetch("/api/openmaic/generate/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text: "这是一段课程语音合成测试，用于确认当前 TTS 配置可以生成课堂讲解音频。",
+            text: TTS_CALIBRATION_TEXT,
             audioId: `settings_test_${provider.id}`,
             ttsProviderId: provider.id,
             ttsModelId: modelId || undefined,
@@ -741,16 +822,44 @@ export default function TeacherSettingsPage() {
         });
         const data = await response.json().catch(() => null);
         const audioBase64 = data?.base64 ?? data?.data?.base64;
+        const format = data?.format ?? data?.data?.format ?? "mp3";
 
         if (!response.ok || data?.success === false || !audioBase64) {
           throw new Error(getReadableError(data, "语音测试失败，请检查密钥、服务地址、模型和音色。"));
         }
 
+        const measuredDurationSec = await measureBase64AudioDuration(audioBase64, format);
+        const calibrationResponse = await fetch("/api/openmaic/tts-calibration", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            providerId: provider.id,
+            modelId,
+            voiceId: voice,
+            language: "zh-CN",
+            speed: 1,
+            text: TTS_CALIBRATION_TEXT,
+            measuredDurationSec,
+            apiKey: editApiKey.trim(),
+            baseUrl: editBaseUrl.trim() || undefined,
+            models: splitModelIds(editModels),
+          }),
+        });
+        const calibrationData = await calibrationResponse.json().catch(() => null);
+        if (!calibrationResponse.ok || calibrationData?.success === false) {
+          throw new Error(getReadableError(calibrationData, "音频生成成功，但语速建模保存失败。"));
+        }
+        const calibration = calibrationData?.calibration ?? calibrationData?.data?.calibration;
+        const audioUrl = `data:audio/${format};base64,${audioBase64}`;
+        const audio = new Audio(audioUrl);
+        void audio.play().catch(() => undefined);
         setTestResult({
           ok: true,
-          message: "语音测试成功，已生成可用音频。",
-          detail: `测试模型：${modelId || "默认"}；音色：${voice}`,
+          message: "语音测试成功，已自动试听并完成自然语速建模。",
+          detail: `模型：${modelId || "默认"}；音色：${voice}；实测 ${measuredDurationSec.toFixed(2)} 秒；共享平均约 ${Number(calibration?.cjkCharsPerMinute ?? 0).toFixed(1)} 字/分钟（${calibration?.sampleCount ?? 1} 次样本）`,
+          audioUrl,
         });
+        await fetchConfigs("tts");
       } catch (error) {
         setTestResult({
           ok: false,
@@ -764,15 +873,21 @@ export default function TeacherSettingsPage() {
     }
 
     const qualifiedModel = qualifyModelForProvider(modelId, provider.id);
+    const isCapabilityTest = activeTab === "asr"
+      || activeTab === "image"
+      || activeTab === "video"
+      || activeTab === "web-search"
+      || activeTab === "pdf";
     setTestingProviderId(provider.id);
     setTestResult(null);
 
     try {
-      const response = await fetch("/api/openmaic/verify-model", {
+      const response = await fetch(isCapabilityTest ? "/api/openmaic/test-provider" : "/api/openmaic/verify-model", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: qualifiedModel,
+          model: isCapabilityTest ? modelId : qualifiedModel,
+          section: currentTab.section,
           providerId: provider.id,
           apiKey: editApiKey.trim() || undefined,
           baseUrl: editBaseUrl.trim() || undefined,
@@ -787,16 +902,26 @@ export default function TeacherSettingsPage() {
       setTestResult({
         ok: true,
         message: data?.message || "连接成功。",
-        detail: `测试模型：${qualifiedModel}`,
+        detail: data?.detail || `测试模型：${isCapabilityTest ? modelId : qualifiedModel}`,
+        previewUrl: typeof data?.previewUrl === "string" ? data.previewUrl : undefined,
       });
     } catch (error) {
       setTestResult({
         ok: false,
         message: error instanceof Error ? error.message : "连接失败，请稍后重试。",
-        detail: `测试模型：${qualifiedModel}`,
+        detail: `服务：${provider.name}；模型：${isCapabilityTest ? modelId : qualifiedModel}`,
       });
     } finally {
       setTestingProviderId(null);
+    }
+  }
+
+  async function handleCalibrateTts(provider: ProviderMeta) {
+    setCalibratingProviderId(provider.id);
+    try {
+      await handleTestConnection(provider);
+    } finally {
+      setCalibratingProviderId(null);
     }
   }
 
@@ -975,7 +1100,7 @@ export default function TeacherSettingsPage() {
                               <button
                                 type="button"
                                 onClick={() => setDeletingProvider(selectedLlmProvider)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-red-50 hover:text-red-600"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]"
                                 title="删除配置"
                               >
                                 <Trash2 size={14} />
@@ -1046,18 +1171,22 @@ export default function TeacherSettingsPage() {
                               editBaseUrl={editBaseUrl}
                               editModels={editModels}
                               editDefaultModel={editDefaultModel}
+                              editDefaultVoice={editDefaultVoice}
                               showApiKey={showApiKey}
                               saving={savingProviderId === provider.id}
                               testing={testingProviderId === provider.id}
+                              calibrating={calibratingProviderId === provider.id}
                               saveResult={saveResult}
                               testResult={testResult}
                               onApiKeyChange={setEditApiKey}
                               onBaseUrlChange={setEditBaseUrl}
                               onModelsChange={setEditModels}
                               onDefaultModelChange={setEditDefaultModel}
+                              onDefaultVoiceChange={setEditDefaultVoice}
                               onShowApiKeyChange={setShowApiKey}
                               onSave={() => handleSave(provider)}
                               onTest={() => handleTestConnection(provider)}
+                              onCalibrate={activeTab === "tts" ? () => handleCalibrateTts(provider) : undefined}
                               onDelete={() => setDeletingProvider(provider)}
                             />
                           </div>
@@ -1091,9 +1220,7 @@ export default function TeacherSettingsPage() {
                     连接测试说明
                   </div>
                   <p className="mt-2 text-sm leading-6 text-stone-600">
-                    AI 模型测试会向服务端发送完整模型标识，例如
-                    <span className="font-semibold text-stone-900"> deepseek:deepseek-v4-flash</span>，
-                    确保模型能被正确识别和调用。
+                    {TEST_EXPLANATIONS[activeTab]}
                   </p>
                 </div>
               </Card>
@@ -1124,7 +1251,7 @@ export default function TeacherSettingsPage() {
                 type="button"
                 onClick={() => handleDelete(deletingProvider)}
                 disabled={deleting}
-                className="inline-flex h-9 items-center gap-2 rounded-[8px] bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-60"
+                className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-danger)] px-4 text-sm font-medium text-white transition hover:bg-[var(--pbl-danger-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pbl-danger)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                 确认删除
@@ -1196,7 +1323,7 @@ function ProviderList({
                     onDelete(provider);
                   }
                 }}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-stone-300 opacity-0 transition group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-stone-300 opacity-0 transition group-hover:opacity-100 hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]"
                 title="删除配置"
               >
                 <Trash2 size={13} />
@@ -1348,18 +1475,22 @@ function ModalityConfigForm({
   editBaseUrl,
   editModels,
   editDefaultModel,
+  editDefaultVoice,
   showApiKey,
   saving,
   testing,
+  calibrating,
   saveResult,
   testResult,
   onApiKeyChange,
   onBaseUrlChange,
   onModelsChange,
   onDefaultModelChange,
+  onDefaultVoiceChange,
   onShowApiKeyChange,
   onSave,
   onTest,
+  onCalibrate,
   onDelete,
 }: {
   provider: ProviderMeta;
@@ -1368,22 +1499,33 @@ function ModalityConfigForm({
   editBaseUrl: string;
   editModels: string;
   editDefaultModel: string;
+  editDefaultVoice: string;
   showApiKey: boolean;
   saving: boolean;
   testing: boolean;
+  calibrating: boolean;
   saveResult: ResultState;
   testResult: ResultState;
   onApiKeyChange: (value: string) => void;
   onBaseUrlChange: (value: string) => void;
   onModelsChange: (value: string) => void;
   onDefaultModelChange: (value: string) => void;
+  onDefaultVoiceChange: (value: string) => void;
   onShowApiKeyChange: (value: boolean) => void;
   onSave: () => void;
   onTest: () => void;
+  onCalibrate?: () => void;
   onDelete: () => void;
 }) {
   const availableModels = provider.models ?? [];
   const modelIds = splitModelIds(editModels);
+  const availableVoices = getTTSVoices(provider.id as keyof typeof TTS_PROVIDERS);
+  const activeCalibration = saved?.timingCalibrations?.find(
+    (item) => item.modelId === editDefaultModel
+      && item.voiceId === editDefaultVoice
+      && (item.language || "zh-CN").toLowerCase() === "zh-cn"
+      && (item.speed ?? 1) === 1,
+  );
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_180px]">
@@ -1458,6 +1600,31 @@ function ModalityConfigForm({
             </div>
           </Field>
         ) : null}
+
+        {onCalibrate ? (
+          <Field
+            label="默认音色与自然语速"
+            helper="语速建模会以 1.0 倍自然语速生成标准文本，并用实际音频时长计算该模型与音色的内容预算。"
+            icon={Volume2}
+          >
+            <select
+              value={editDefaultVoice}
+              onChange={(event) => onDefaultVoiceChange(event.target.value)}
+              className="h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-sm text-stone-800 outline-none focus:border-blue-400"
+            >
+              {availableVoices.length > 0 ? availableVoices.map((voice) => (
+                <option key={voice.id} value={voice.id}>{voice.name}</option>
+              )) : <option value="default">默认音色</option>}
+            </select>
+            {activeCalibration ? (
+              <div className="mt-2 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                已建模：约 {activeCalibration.cjkCharsPerMinute.toFixed(1)} 字/分钟，累计 {activeCalibration.sampleCount ?? 1} 次测试
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-amber-700">当前模型与音色尚未建模，将暂用内置保守语速。</div>
+            )}
+          </Field>
+        ) : null}
       </div>
 
       <div className="flex flex-col justify-between rounded-[8px] border border-stone-200 bg-stone-50 p-3">
@@ -1488,11 +1655,22 @@ function ModalityConfigForm({
             {testing ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
             测试
           </PrimaryButton>
+          {onCalibrate ? (
+            <PrimaryButton
+              variant="outline"
+              onClick={onCalibrate}
+              disabled={saving || testing || calibrating}
+              className="h-9 w-full px-3 text-sm"
+            >
+              {calibrating ? <Loader2 size={14} className="animate-spin" /> : <SlidersHorizontal size={14} />}
+              语速建模
+            </PrimaryButton>
+          ) : null}
           {saved?.hasApiKey ? (
             <button
               type="button"
               onClick={onDelete}
-              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[8px] border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
+              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[8px] border border-[var(--pbl-danger-border)] bg-white px-3 text-sm font-medium text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
             >
               <Trash2 size={14} />
               删除
@@ -1500,6 +1678,19 @@ function ModalityConfigForm({
           ) : null}
           <ResultNotice result={saveResult} compact />
           <ResultNotice result={testResult} compact />
+          {testResult?.audioUrl ? (
+            <audio className="mt-2 w-full" controls preload="metadata" src={testResult.audioUrl} />
+          ) : null}
+          {testResult?.previewUrl ? (
+            <Image
+              alt="图像模型测试结果"
+              className="mt-2 h-auto w-full rounded-[8px] border border-stone-200 object-cover"
+              height={180}
+              src={testResult.previewUrl}
+              unoptimized
+              width={180}
+            />
+          ) : null}
         </div>
       </div>
     </div>
@@ -1628,8 +1819,8 @@ function ResultNotice({ result, compact = false }: { result: ResultState; compac
         "flex gap-2 rounded-[8px] border text-sm",
         compact ? "mt-2 px-2 py-2 text-xs" : "px-3 py-2",
         result.ok
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-red-200 bg-red-50 text-red-700",
+          ? "border-emerald-200 bg-emerald-50 text-[var(--pbl-success)]"
+          : "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]",
       )}
     >
       {result.ok ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : <X size={16} className="mt-0.5 shrink-0" />}
@@ -1673,7 +1864,7 @@ function StatusTile({
 function ProviderStateBadge({ provider, saved }: { provider: ProviderMeta; saved?: SavedConfig }) {
   const defaultBadge =
     saved?.priority === 0 ? (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-emerald-200">
         <CheckCircle2 size={10} />
         当前默认
       </span>

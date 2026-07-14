@@ -12,8 +12,8 @@ import { CompanionRoundtable } from "./companion-roundtable";
 
 const forms = [
   { label: "方案报告", icon: FileText, color: "bg-[var(--pbl-student)]" },
-  { label: "海报手册", icon: ImageIcon, color: "bg-emerald-600" },
-  { label: "短视频", icon: Video, color: "bg-violet-600" },
+  { label: "海报手册", icon: ImageIcon, color: "bg-[var(--pbl-success)]" },
+  { label: "短视频", icon: Video, color: "bg-[var(--pbl-ai)]" },
   { label: "数据看板", icon: BarChart3, color: "bg-[var(--pbl-accent)]" },
 ];
 // 通用构思引导问题：与具体主题无关，用于在没有 LLM 接入时
@@ -174,7 +174,7 @@ export function GroupView({ course }: { course: Course }) {
         <button className="grid h-10 w-10 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-600 hover:bg-stone-50" onClick={() => window.history.back()} type="button">
           <ArrowLeft size={18} />
         </button>
-        <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-600"><Lightbulb size={27} /></div>
+        <div className="grid h-12 w-12 place-items-center rounded-full bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]"><Lightbulb size={27} /></div>
         <div className="min-w-0">
           <h1 className="truncate text-3xl font-black leading-tight md:text-4xl">{group.name}</h1>
           <p className="text-sm text-stone-500">{group.members.length} 名成员 · {group.topic}</p>

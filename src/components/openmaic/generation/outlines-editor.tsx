@@ -504,6 +504,10 @@ function SceneRow({
 }: SceneRowProps) {
   const { t } = useI18n();
   const theme = TYPE_THEME[outline.type] ?? TYPE_THEME.slide;
+  const pageTargetSec = Math.max(
+    0,
+    Math.round(outline.targetDurationSec ?? outline.estimatedDuration ?? 0),
+  );
   const [keyPointDraft, setKeyPointDraft] = useState('');
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
@@ -650,6 +654,11 @@ function SceneRow({
               )}
             />
             <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+              {outline.segmentCount && outline.segmentCount > 1 && (
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium tabular-nums text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                  第 {outline.segmentIndex ?? 1}/{outline.segmentCount} 页 · 约 {pageTargetSec} 秒
+                </span>
+              )}
               {/* Cascading control: type-specific config (left) joined to the type selector (right) */}
               <div className="inline-flex items-center overflow-hidden rounded-full">
                 {!disabled && outline.type === 'quiz' && (
