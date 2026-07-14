@@ -41,6 +41,14 @@ import {
 } from '@openmaic/components/ui/alert-dialog';
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
+import { getStageExperienceCapabilities } from '@openmaic/components/stage-experience';
+import type { PlaybackSyncState, StageExperience } from '@openmaic/components/stage-experience';
+import {
+  PLAYBACK_ACTIVITY_COMPLETE_EVENT,
+  PLAYBACK_ACTIVITY_RESET_EVENT,
+  isPlaybackActivityComplete,
+  type PlaybackActivityEventDetail,
+} from '@openmaic/lib/playback/activity-events';
 
 /**
  * Imperative handle exposed via `ref` so the parent (`Stage`) can tear
@@ -60,6 +68,16 @@ interface PlaybackChromeRootProps {
   readonly canEnterProMode?: boolean;
   /** Pro Switch click handler — parent coordinates editLock + teardown. */
   readonly onEnterProMode?: () => void;
+  readonly experience?: StageExperience;
+  readonly playbackState?: PlaybackSyncState;
+  readonly onPlaybackStateChange?: (state: Omit<PlaybackSyncState, 'version'>) => void;
+  /**
+   * Teacher-side interaction state for projected-readonly experience.
+   * When this changes, the root posts `apply-state` into the active
+   * scene's interactive iframe so students see the teacher's
+   * manipulations replayed. No-op for other experiences.
+   */
+  readonly interactionState?: Record<string, unknown> | null;
 }
 
 /**
@@ -70,7 +88,15 @@ interface PlaybackChromeRootProps {
  * the engine wind down cleanly.
  */
 export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackChromeRootProps>(
-  function PlaybackChromeRoot({ onRetryOutline, canEnterProMode, onEnterProMode }, ref) {
+  function PlaybackChromeRoot({
+    onRetryOutline,
+    canEnterProMode,
+    onEnterProMode,
+    experience = 'student-course',
+    playbackState,
+    onPlaybackStateChange,
+    interactionState,
+  }, ref) {
     const { t } = useI18n();
     const {
       mode,
@@ -85,6 +111,14 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const generationComplete = useStageStore.use.generationComplete();
 
     const currentScene = getCurrentScene();
+    const capabilities = getStageExperienceCapabilities(experience);
+    const isStudentCourse = capabilities.showRoundtable;
+    const isTeacherResource = capabilities.showMinimalControls;
+    const isProjectedReadonly = capabilities.readOnly;
+    const onPlaybackStateChangeRef = useRef(onPlaybackStateChange);
+    useEffect(() => {
+      onPlaybackStateChangeRef.current = onPlaybackStateChange;
+    }, [onPlaybackStateChange]);
 
     // Layout state from settings store (persisted via localStorage)
     const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
@@ -206,8 +240,29 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const sceneEpochRef = useRef(0);
     // When true, the next engine init will auto-start playback (for auto-play scene advance)
     const autoStartRef = useRef(false);
+    const completedActivitySceneIdsRef = useRef(new Set<string>());
     // Discussion buffer-level pause state (distinct from soft-pause which aborts SSE)
     const [isDiscussionPaused, setIsDiscussionPaused] = useState(false);
+
+    useEffect(() => {
+      const onComplete = (event: Event) => {
+        const detail = (event as CustomEvent<PlaybackActivityEventDetail>).detail;
+        if (!detail?.sceneId) return;
+        completedActivitySceneIdsRef.current.add(detail.sceneId);
+        engineRef.current?.completeActivity(detail.sceneId, detail.purpose);
+      };
+      const onReset = (event: Event) => {
+        const detail = (event as CustomEvent<PlaybackActivityEventDetail>).detail;
+        if (!detail?.sceneId) return;
+        completedActivitySceneIdsRef.current.delete(detail.sceneId);
+      };
+      window.addEventListener(PLAYBACK_ACTIVITY_COMPLETE_EVENT, onComplete);
+      window.addEventListener(PLAYBACK_ACTIVITY_RESET_EVENT, onReset);
+      return () => {
+        window.removeEventListener(PLAYBACK_ACTIVITY_COMPLETE_EVENT, onComplete);
+        window.removeEventListener(PLAYBACK_ACTIVITY_RESET_EVENT, onReset);
+      };
+    }, []);
 
     /**
      * Resume a soft-paused topic: re-call /chat with existing session messages.
@@ -428,6 +483,15 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       // Reset all roundtable/live state so scenes are fully isolated
       resetSceneState();
 
+      // Teacher resources are a lightweight visual reader: render the scene
+      // content and script, but never create a playback engine (which would
+      // expose Play controls or synthesize AI narration).
+      if (isTeacherResource) {
+        engineRef.current = null;
+        setEngineMode('idle');
+        return;
+      }
+
       // A slide scene with no actions is still playable: the engine dwells on it
       // (see resolvePlaybackCursor) so a freshly inserted / emptied blank slide
       // shows for a beat and auto-play advances past it. Non-slide scenes
@@ -471,6 +535,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       const engine = new PlaybackEngine([currentScene], actionEngine, audioPlayerRef.current, {
         onModeChange: (mode) => {
           setEngineMode(mode);
+          queueMicrotask(() => {
+            const activeEngine = engineRef.current;
+            if (activeEngine) {
+              onPlaybackStateChangeRef.current?.({ engineMode: mode, snapshot: activeEngine.getSnapshot() });
+            }
+          });
         },
         onSceneChange: (_sceneId) => {
           // Scene change handled by engine
@@ -515,6 +585,18 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               idx,
             );
           }
+        },
+        onActivityStart: (activity) => {
+          if (
+            completedActivitySceneIdsRef.current.has(activity.sceneId) ||
+            isPlaybackActivityComplete(activity)
+          ) {
+            completedActivitySceneIdsRef.current.add(activity.sceneId);
+            queueMicrotask(() => engine.completeActivity(activity.sceneId, activity.purpose));
+          }
+        },
+        onActivityComplete: (activity) => {
+          completedActivitySceneIdsRef.current.add(activity.sceneId);
         },
         onProactiveShow: (trigger) => {
           if (!trigger.agentId) {
@@ -563,6 +645,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           return ids.includes(agentId);
         },
         getPlaybackSpeed: () => useSettingsStore.getState().playbackSpeed || 1,
+        onProgress: (snapshot) => {
+          onPlaybackStateChangeRef.current?.({
+            engineMode: engineRef.current?.getMode() ?? 'idle',
+            snapshot,
+          });
+        },
         onComplete: () => {
           // lectureSpeech intentionally NOT cleared — last sentence stays visible
           // until scene transition (auto-play) or user restarts. Scene change
@@ -586,9 +674,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               if (idx >= 0 && idx < allScenes.length - 1) {
                 const currentScene = allScenes[idx];
                 if (
-                  currentScene.type === 'quiz' ||
-                  currentScene.type === 'interactive' ||
-                  currentScene.type === 'pbl'
+                  currentScene.type === 'pbl' ||
+                  ((currentScene.type === 'quiz' || currentScene.type === 'interactive') &&
+                    !completedActivitySceneIdsRef.current.has(currentScene.id))
                 ) {
                   return;
                 }
@@ -598,9 +686,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 // Last scene exhausted but next is still generating — go to pending page
                 const currentScene = allScenes[idx];
                 if (
-                  currentScene.type === 'quiz' ||
-                  currentScene.type === 'interactive' ||
-                  currentScene.type === 'pbl'
+                  currentScene.type === 'pbl' ||
+                  ((currentScene.type === 'quiz' || currentScene.type === 'interactive') &&
+                    !completedActivitySceneIdsRef.current.has(currentScene.id))
                 ) {
                   return;
                 }
@@ -613,6 +701,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       });
 
       engineRef.current = engine;
+      onPlaybackStateChangeRef.current?.({ engineMode: engine.getMode(), snapshot: engine.getSnapshot() });
 
       // Auto-start if triggered by auto-play scene advance
       if (autoStartRef.current) {
@@ -629,7 +718,45 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         // Load saved playback state and restore position (but never auto-play).
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when scene changes, functions are stable refs
-    }, [currentScene]);
+    }, [currentScene, isTeacherResource]);
+
+    useEffect(() => {
+      if (!isProjectedReadonly || !playbackState || !engineRef.current) return;
+      const engine = engineRef.current;
+      engine.restoreFromSnapshot(playbackState.snapshot);
+      if (playbackState.engineMode === 'playing') {
+        if (engine.getMode() === 'paused') engine.resume();
+        else if (engine.getMode() === 'idle') engine.continuePlayback();
+      } else if (playbackState.engineMode === 'paused') {
+        if (engine.getMode() === 'idle') engine.continuePlayback();
+        engine.pause();
+      } else if (engine.getMode() !== 'idle') {
+        engine.stop();
+      }
+    }, [isProjectedReadonly, playbackState]);
+
+    // Apply teacher-side interaction state to the student's interactive iframe.
+    // The bridge script injected by patchHtmlForIframe listens for these
+    // apply-state messages and restores element values/checked/active-classes.
+    // We send a short delay after scene changes so the iframe document has time
+    // to register its message listener before we post.
+    useEffect(() => {
+      if (!isProjectedReadonly || !interactionState || !currentScene) return;
+      const sceneId = currentScene.id;
+      const send = useWidgetIframeStore.getState().getSendMessage(sceneId);
+      if (!send) return;
+      const timer = window.setTimeout(() => {
+        const liveSend = useWidgetIframeStore.getState().getSendMessage(sceneId);
+        if (liveSend) {
+          liveSend('apply-state', {
+            __maicInteractive: true,
+            kind: 'apply-state',
+            state: interactionState,
+          });
+        }
+      }, 80);
+      return () => window.clearTimeout(timer);
+    }, [isProjectedReadonly, interactionState, currentScene]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -889,6 +1016,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
 
     useEffect(() => {
       const onKeyDown = (event: KeyboardEvent) => {
+        if (isProjectedReadonly) return;
         if (event.defaultPrevented) return;
         // Let modifier-key combos (Ctrl+C, Ctrl+S, etc.) pass through to the browser
         if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -977,6 +1105,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       togglePresentation,
       ttsMuted,
       ttsVolume,
+      isProjectedReadonly,
     ]);
 
     // Intercept F11 to use our presentation fullscreen instead of browser fullscreen
@@ -1022,8 +1151,8 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     // non-'edit' here since the parent Stage unmounts this component
     // when entering Pro mode.
     const sceneViewerHeight = (() => {
-      const headerHeight = isPresenting ? 0 : 80;
-      const roundtableHeight = mode === 'playback' && !isPresenting ? 192 : 0;
+      const headerHeight = isStudentCourse && !isPresenting ? 80 : 0;
+      const roundtableHeight = isStudentCourse && mode === 'playback' && !isPresenting ? 192 : 0;
       return `calc(100% - ${headerHeight + roundtableHeight}px)`;
     })();
 
@@ -1035,13 +1164,13 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           isPresenting && !controlsVisible && 'cursor-none',
         )}
       >
-        <SceneSidebar
+        {isStudentCourse ? <SceneSidebar
           collapsed={sidebarCollapsed}
           onCollapseChange={setSidebarCollapsed}
           onSceneSelect={gatedSceneSwitch}
           onRetryOutline={onRetryOutline}
           isCourseComplete={isCourseComplete}
-        />
+        /> : null}
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
@@ -1049,7 +1178,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             (passed by the parent Stage) which acquires the cross-tab
             edit lock and then awaits our `teardown()` before flipping
             mode to 'edit'. */}
-          {!isPresenting && (
+          {isStudentCourse && !isPresenting && (
             <Header
               currentSceneTitle={
                 currentScene?.title ||
@@ -1084,11 +1213,11 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               sidebarCollapsed={sidebarCollapsed}
               chatCollapsed={chatAreaCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-              onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}
+              onToggleChat={isStudentCourse ? () => setChatAreaCollapsed(!chatAreaCollapsed) : undefined}
               onPrevSlide={handlePreviousScene}
               onNextSlide={handleNextScene}
               onPlayPause={handlePlayPause}
-              onWhiteboardClose={handleWhiteboardToggle}
+              onWhiteboardClose={isStudentCourse ? handleWhiteboardToggle : () => undefined}
               isPresenting={isPresenting}
               onTogglePresentation={togglePresentation}
               showStopDiscussion={
@@ -1096,9 +1225,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 (chatIsStreaming && (chatSessionType === 'qa' || chatSessionType === 'discussion'))
               }
               onStopDiscussion={handleStopDiscussion}
-              hideToolbar={mode === 'playback' || (isPresenting && !controlsVisible)}
+              hideToolbar={isStudentCourse || isTeacherResource || isProjectedReadonly || (isPresenting && !controlsVisible)}
+              minimalToolbar={isTeacherResource}
+              readOnly={isProjectedReadonly}
+              showCourseComplete={isStudentCourse}
               isPendingScene={isPendingScene}
-              isCourseComplete={isCourseComplete}
+              isCourseComplete={isStudentCourse && isCourseComplete}
               isGenerationFailed={
                 isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
               }
@@ -1111,7 +1243,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           </div>
 
           {/* Roundtable Area */}
-          {mode === 'playback' && (
+          {isStudentCourse && mode === 'playback' && (
             <div
               className={cn(
                 'transition-opacity duration-300',
@@ -1255,7 +1387,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         {/* Chat Area — playback / autonomous always renders it here; Pro
           (edit) mode unmounts this whole PlaybackChromeRoot, so the
           edit branch has no chat. */}
-        <div className="flex shrink-0">
+        {isStudentCourse ? <div className="flex shrink-0">
           <ChatArea
             ref={chatAreaRef}
             width={chatAreaWidth}
@@ -1309,7 +1441,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             onSegmentSealed={discussionTTS.handleSegmentSealed}
             shouldHoldAfterReveal={discussionTTS.shouldHold}
           />
-        </div>
+        </div> : null}
 
         {/* Scene switch confirmation dialog */}
         <AlertDialog

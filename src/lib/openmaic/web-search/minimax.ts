@@ -7,6 +7,7 @@
 
 import { proxyFetch } from '@openmaic/lib/server/proxy-fetch';
 import type { WebSearchResult, WebSearchSource } from '@openmaic/lib/types/web-search';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 const MINIMAX_DEFAULT_BASE_URL = 'https://api.minimaxi.com';
 
@@ -63,8 +64,10 @@ export async function searchWithMiniMax(params: {
   apiKey: string;
   maxResults?: number;
   baseUrl?: string;
+  signal?: AbortSignal;
 }): Promise<WebSearchResult> {
-  const { query, apiKey, maxResults = 10, baseUrl } = params;
+  const { query, apiKey, maxResults = 10, baseUrl, signal } = params;
+  throwIfAborted(signal);
   const startedAt = Date.now();
 
   const res = await proxyFetch(buildMiniMaxWebSearchUrl(baseUrl), {
@@ -75,6 +78,7 @@ export async function searchWithMiniMax(params: {
       'MM-API-Source': 'OpenMAIC',
     },
     body: JSON.stringify({ q: query }),
+    signal,
   });
 
   if (!res.ok) {
@@ -83,6 +87,7 @@ export async function searchWithMiniMax(params: {
   }
 
   const raw = (await res.json()) as MiniMaxSearchResponse;
+  throwIfAborted(signal);
   const baseResp = getMiniMaxBaseResp(raw);
   if (baseResp?.status_code !== undefined && String(baseResp.status_code) !== '0') {
     throw new Error(

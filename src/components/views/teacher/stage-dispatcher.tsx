@@ -1,10 +1,12 @@
 import type { Course, StageViewKey } from "@/lib/session/types";
 import { ProjectLaunchTeacherView } from "./project-launch";
 import { AiLearningTeacherView } from "./ai-learning";
-import { GroupTeacherView } from "./group";
 import { WorkspaceTeacherView } from "./workspace";
 import { ShowcaseTeacherView } from "./showcase";
 import { ReflectionTeacherView } from "./reflection";
+import { ProposalReviewTeacherView } from "./proposal-review";
+import { ProjectMakingTeacherView } from "./project-making";
+import { CompanionMonitor } from "./companion-monitor";
 
 /**
  * Teacher-side stage view dispatcher.
@@ -25,6 +27,10 @@ export function TeacherStageView({
   onSelectStudent?: (studentId: string) => void;
   onSelectGroup?: (groupId: string) => void;
 }) {
+  const stageKey = course.stages[course.currentStageIndex]?.key ?? "launch";
+  const withCompanionMonitor = (content: React.ReactNode) => (
+    <>{content}{["proposal", "make", "showcase", "reflection"].includes(stageKey) ? <CompanionMonitor course={course} stageKey={stageKey} /> : null}</>
+  );
   switch (view) {
     case "project-launch":
       return <ProjectLaunchTeacherView course={course} />;
@@ -36,23 +42,26 @@ export function TeacherStageView({
         />
       );
     case "group":
-      return <GroupTeacherView course={course} onSelectGroup={onSelectGroup} />;
+      return withCompanionMonitor(<ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />);
     case "workspace":
-      return (
+      return withCompanionMonitor(
         <WorkspaceTeacherView
           course={course}
-          onSelectGroup={onSelectGroup}
         />
       );
+    case "proposal-review":
+      return withCompanionMonitor(<ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />);
+    case "project-making":
+      return withCompanionMonitor(<ProjectMakingTeacherView course={course} />);
     case "showcase":
-      return (
+      return withCompanionMonitor(
         <ShowcaseTeacherView
           course={course}
           onSelectGroup={onSelectGroup}
         />
       );
     case "reflection":
-      return (
+      return withCompanionMonitor(
         <ReflectionTeacherView
           course={course}
           onSelectStudent={onSelectStudent}

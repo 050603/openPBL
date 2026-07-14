@@ -24,7 +24,11 @@ import {
   formatTeacherPersonaForPrompt,
 } from '@openmaic/lib/generation/generation-pipeline';
 import type { AgentInfo } from '@openmaic/lib/generation/generation-pipeline';
-import { DEFAULT_LANGUAGE_DIRECTIVE } from '@openmaic/lib/generation/outline-generator';
+import {
+  DEFAULT_LANGUAGE_DIRECTIVE,
+  enforcePblOutlineContract,
+  normalizeSceneOutlinesForDuration,
+} from '@openmaic/lib/generation/outline-generator';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import { nanoid } from 'nanoid';
 import type {
@@ -37,6 +41,15 @@ import { apiError } from '@openmaic/lib/server/api-response';
 import { createLogger } from '@openmaic/lib/logger';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
 import { resolveVocationalActive } from '@openmaic/lib/config/feature-flags';
+import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
+import {
+  isPblModuleTimingPlanConfirmed,
+  type PblModuleTimingPlan,
+} from '@/lib/pbl-time-model';
+import {
+  formatPblStageDefinitionsForPrompt,
+  PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS,
+} from '@/lib/openmaic/pbl/course-template';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
@@ -301,7 +314,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { requirements, pdfText, pdfImages, imageMapping, researchContext, agents } = body as {
-      requirements: UserRequirements;
+      requirements: UserRequirements & { moduleTimingPlan?: PblModuleTimingPlan };
       pdfText?: string;
       pdfImages?: PdfImage[];
       imageMapping?: ImageMapping;
@@ -309,6 +322,17 @@ export async function POST(req: NextRequest) {
       agents?: AgentInfo[];
     };
     requirementSnippet = requirements?.requirement?.substring(0, 60);
+
+    if (
+      requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+      && !isPblModuleTimingPlanConfirmed(requirements.moduleTimingPlan)
+    ) {
+      return apiError(
+        'INVALID_REQUEST',
+        400,
+        'PBL module timing must be confirmed before outline generation',
+      );
+    }
 
     // Build user profile string for language inference context
     const userProfileText =
@@ -361,7 +385,9 @@ export async function POST(req: NextRequest) {
     // Check if Interactive Mode or server-enabled Task Engine mode is enabled.
     const interactiveMode = requirements.interactiveMode ?? false;
     const taskEngineMode = resolveVocationalActive(requirements);
-    const promptId = taskEngineMode
+    const promptId = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+      ? PROMPT_IDS.PBL_COURSE
+      : taskEngineMode
       ? PROMPT_IDS.TASK_ENGINE_OUTLINES
       : interactiveMode
         ? PROMPT_IDS.INTERACTIVE_OUTLINES
@@ -378,6 +404,20 @@ export async function POST(req: NextRequest) {
       mediaEnabled: mediaGenerationEnabled,
       teacherContext,
       userProfile: userProfileText,
+      pblProfile: requirements.pblProfile
+        ? formatPblCourseConfigForPrompt(requirements.pblProfile)
+        : '',
+      pblStages:
+        requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+          ? formatPblStageDefinitionsForPrompt()
+          : '',
+      requiredTeacherResourceStages:
+        requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+          ? PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS.join(', ')
+          : '',
+      ttsTimingContext: requirements.ttsTimingContext
+        ? JSON.stringify(requirements.ttsTimingContext, null, 2)
+        : 'No explicit calibration; use the conservative natural-speed fallback.',
     });
 
     if (!prompts) {
@@ -593,7 +633,11 @@ export async function POST(req: NextRequest) {
 
           if (parsedOutlines.length > 0) {
             // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-            const uniquifiedOutlines = uniquifyMediaElementIds(parsedOutlines);
+            const contractOutlines = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
+              ? enforcePblOutlineContract(parsedOutlines, requirements)
+              : parsedOutlines;
+            const normalizedOutlines = normalizeSceneOutlinesForDuration(contractOutlines);
+            const uniquifiedOutlines = uniquifyMediaElementIds(normalizedOutlines);
             // Send done event with all outlines
             const doneEvent = JSON.stringify({
               type: 'done',

@@ -14,9 +14,11 @@ export function AiLearningView({ course }: { course?: Course }) {
   const { studentId, studentName, user } = useSession();
   const [graphCollapsed, setGraphCollapsed] = useState(false);
 
-  const knowledgePoints = course?.content.knowledgePoints ?? [];
-  const graph = course?.content.knowledgeGraph;
+  const knowledgePoints = course?.content?.knowledgePoints ?? [];
+  const graph = course?.content?.knowledgeGraph;
   const progress = course?.students.find((student) => student.id === studentId)?.stageProgress["ai-learning"] ?? 0;
+  const aiProgress = studentId ? course?.aiLearningProgress?.[studentId] : undefined;
+  const goals = aiProgress?.currentGoals?.length ? aiProgress.currentGoals : (course?.learningObjectives ?? course?.content?.lessonOutline?.flatMap((section) => section.objectives ?? []).slice(0, 4) ?? []);
 
   // ===== OpenMAIC 场景-知识点联动 =====
   // 订阅 useStageStore 的 currentSceneId 变化，匹配当前讲解的知识点
@@ -60,15 +62,15 @@ export function AiLearningView({ course }: { course?: Course }) {
     return (
       <div className="space-y-5">
         <div>
-          <h1 className="text-3xl font-black leading-tight text-slate-950 md:text-4xl">AI 授知</h1>
-          <p className="mt-1 text-base text-slate-600 md:text-xl">进入 AI 课堂，完成核心概念学习。</p>
+          <h1 className="text-3xl font-bold leading-tight text-stone-900 md:text-4xl">AI 授知</h1>
+          <p className="mt-1 text-base text-stone-600 md:text-xl">进入 AI 课堂，完成核心概念学习。</p>
         </div>
         <Card className="text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-50 text-amber-600">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]">
             <Bot size={32} />
           </div>
-          <h2 className="mt-4 text-2xl font-black">AI 课堂尚未生成</h2>
-          <p className="mt-2 text-sm text-slate-500">
+          <h2 className="mt-4 text-2xl font-bold">AI 课堂尚未生成</h2>
+          <p className="mt-2 text-sm text-stone-500">
             请等待教师生成 AI 授知内容。生成完成后，本阶段会直接显示 AI 学习课堂。
           </p>
           <PrimaryButton className="mx-auto mt-6" variant="outline" disabled>
@@ -82,24 +84,24 @@ export function AiLearningView({ course }: { course?: Course }) {
   if (!studentId) {
     return (
       <Card className="text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-blue-50 text-blue-700">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]">
           <Bot size={32} />
         </div>
-        <h2 className="mt-4 text-2xl font-black">正在初始化学习身份</h2>
-        <p className="mt-2 text-sm text-slate-500">请从学生端重新进入课堂，以便记录学习进度。</p>
+        <h2 className="mt-4 text-2xl font-bold">正在初始化学习身份</h2>
+        <p className="mt-2 text-sm text-stone-500">请从学生端重新进入课堂，以便记录学习进度。</p>
       </Card>
     );
   }
 
   return (
     <div className="space-y-3">
-      <section className="overflow-hidden rounded-[var(--radius-lg)] border border-slate-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-[var(--radius-lg)] border border-stone-200 bg-white shadow-sm">
         {/* 集成工具条 */}
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-3 py-2">
+        <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/80 px-3 py-2">
           <button
             type="button"
             onClick={() => setGraphCollapsed((v) => !v)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-slate-600 transition hover:bg-white hover:text-blue-700"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-stone-600 transition hover:bg-white hover:text-[var(--pbl-student)]"
             aria-expanded={!graphCollapsed}
           >
             <Map size={15} />
@@ -108,7 +110,7 @@ export function AiLearningView({ course }: { course?: Course }) {
           </button>
           <Link
             href={`/student/ai-learning/${classroomId}?courseId=${encodeURIComponent(course?.id ?? "")}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-slate-500 transition hover:bg-white hover:text-blue-700"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-stone-500 transition hover:bg-white hover:text-[var(--pbl-student)]"
           >
             <ExternalLink size={14} /> 全屏学习
           </Link>
@@ -127,22 +129,22 @@ export function AiLearningView({ course }: { course?: Course }) {
 
         {/* 底部独立知识图谱展示区 */}
         {!graphCollapsed ? (
-          <div className="border-t border-slate-200 bg-slate-50/50">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5">
+          <div className="border-t border-stone-200 bg-stone-50/50">
+            <div className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-2.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <div className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-blue-50 text-blue-700">
+                <div className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]">
                   <Network size={15} />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[13px] font-bold text-slate-900">知识图谱联动</div>
-                  <p className="truncate text-xs text-slate-500">
+                  <div className="text-[13px] font-bold text-stone-900">知识图谱联动</div>
+                  <p className="truncate text-xs text-stone-500">
                     {activeSceneTitle
                       ? `当前讲解：${activeSceneTitle}`
                       : "随课堂讲解自动高亮当前知识点"}
                   </p>
                 </div>
               </div>
-              <div className="shrink-0 text-xs font-semibold text-slate-400">
+              <div className="shrink-0 text-xs font-semibold text-stone-400">
                 {knowledgePoints.length} 节点
               </div>
             </div>
@@ -155,7 +157,7 @@ export function AiLearningView({ course }: { course?: Course }) {
                   height={320}
                 />
               ) : (
-                <div className="grid h-full place-items-center text-sm text-slate-400">
+                <div className="grid h-full place-items-center text-sm text-stone-400">
                   按课堂内容推进即可。
                 </div>
               )}
@@ -165,10 +167,10 @@ export function AiLearningView({ course }: { course?: Course }) {
       </section>
 
       {/* 简洁进度条 */}
-      <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-4 py-2.5">
-        <span className="shrink-0 text-[13px] font-semibold text-slate-600">学习进度</span>
+      <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-4 py-2.5">
+        <span className="shrink-0 text-[13px] font-semibold text-stone-600">学习进度</span>
         <ProgressBar value={progress} className="flex-1" />
-        <span className="shrink-0 text-[13px] font-bold text-blue-700">{progress}%</span>
+        <span className="shrink-0 text-[13px] font-bold text-[var(--pbl-student)]">{progress}%</span>
       </div>
     </div>
   );

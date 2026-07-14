@@ -79,7 +79,7 @@ export class AISdkLangGraphAdapter extends BaseChatModel {
 
   async _generate(
     messages: BaseMessage[],
-    _options?: this['ParsedCallOptions'],
+    options?: this['ParsedCallOptions'],
     _runManager?: CallbackManagerForLLMRun,
   ): Promise<ChatResult> {
     const aiMessages = this.convertMessages(messages);
@@ -89,6 +89,7 @@ export class AISdkLangGraphAdapter extends BaseChatModel {
         {
           model: this.languageModel,
           messages: aiMessages,
+          abortSignal: options?.signal,
         },
         'chat-adapter',
         undefined,

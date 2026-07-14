@@ -32,6 +32,10 @@ import {
   writeSubmittedResults,
   type SubmittedState,
 } from '@openmaic/lib/quiz/persistence';
+import {
+  dispatchPlaybackActivityComplete,
+  dispatchPlaybackActivityReset,
+} from '@openmaic/lib/playback/activity-events';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -277,7 +281,7 @@ function SingleChoiceQuestion({
                     !selected &&
                     'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
                   !isReview && selected && 'bg-violet-500 text-white',
-                  isReview && isCorrectOpt && 'bg-emerald-500 text-white',
+                  isReview && isCorrectOpt && 'bg-[var(--pbl-success)] text-white',
                   isReview && isWrong && !isCorrectOpt && 'bg-red-400 text-white',
                   isReview &&
                     !isCorrectOpt &&
@@ -382,7 +386,7 @@ function MultipleChoiceQuestion({
                     !isSelected &&
                     'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
                   !isReview && isSelected && 'bg-violet-500 text-white',
-                  isReview && isCorrectOpt && 'bg-emerald-500 text-white',
+                  isReview && isCorrectOpt && 'bg-[var(--pbl-success)] text-white',
                   isReview && isWrong && 'bg-red-400 text-white',
                   isReview &&
                     !isCorrectOpt &&
@@ -637,7 +641,7 @@ function ScoreBanner({
         <div>
           <p className="text-white/80 text-sm font-medium">{c.text}</p>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-4xl font-black">{score}</span>
+            <span className="text-4xl font-bold">{score}</span>
             <span className="text-white/60 text-lg">/ {total}</span>
           </div>
           <div className="flex gap-3 mt-3 text-xs">
@@ -676,7 +680,7 @@ function ScoreBanner({
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-lg font-black">{pct}%</span>
+            <span className="text-lg font-bold">{pct}%</span>
           </div>
         </div>
       </div>
@@ -795,7 +799,16 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
     };
   }, [phase, questions, answers, locale, sceneId]);
 
+  // A submitted quiz is the runtime gate completion. This also runs for a
+  // persisted reviewing state after refresh, so playback can resume without
+  // requiring the student to replay the opening narration.
+  useEffect(() => {
+    if (phase !== 'reviewing') return;
+    dispatchPlaybackActivityComplete({ sceneId, purpose: 'quiz' });
+  }, [phase, sceneId]);
+
   const handleRetry = useCallback(() => {
+    dispatchPlaybackActivityReset({ sceneId, purpose: 'quiz' });
     setPhase('not_started');
     setAnswers({});
     setResults([]);

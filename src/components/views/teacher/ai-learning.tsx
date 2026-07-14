@@ -1,46 +1,70 @@
-﻿import {
+"use client";
+
+import { useMemo, useState } from "react";
+import {
   AlertTriangle,
-  BookOpen,
   Bot,
+  CircleAlert,
   CircleCheck,
   Clock3,
-  Lightbulb,
-  Target,
+  Eye,
+  Repeat2,
   Users,
 } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
-import {
-  Card,
-  CircularProgress,
-  Metric,
-  Pill,
-  ProgressBar,
-} from "@/components/ui";
-import type { Course, StudentAiProgress } from "@/lib/session/types";
+import { Card, Pill, ProgressBar } from "@/components/ui";
+import type { Course, LearningEvent, Student, StudentAiProgress } from "@/lib/session/types";
+import { AiLearningTeacherPreview } from "./ai-learning-preview";
+import { StudentLearningDetail } from "./student-learning-detail";
 
-// 计算学生进度百分比：
-// - 无记录：0
-// - 已完成 / 已精通：100
-// - 其它：round(currentSceneIndex / totalScenes * 100)，封顶 99
 function computeProgress(entry?: StudentAiProgress): number {
   if (!entry) return 0;
-  if (entry.masteryLevel === "completed" || entry.masteryLevel === "mastered") {
-    return 100;
+  if (entry.masteryLevel === "completed" || entry.masteryLevel === "mastered") return 100;
+  return Math.min(99, Math.round((entry.currentSceneIndex / Math.max(1, entry.totalScenes)) * 100));
+}
+
+function summarizeStudent(course: Course, student: Student) {
+  const events = (course.learningEvents ?? [])
+    .filter((event) => event.studentId === student.id && event.stageKey === "ai-learning")
+    .sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
+  const effectiveDurationMs = events.reduce(
+    (sum, event) => event.type === "heartbeat" && event.visible !== false
+      ? sum + Math.max(0, event.durationMs ?? 0)
+      : sum,
+    0,
+  );
+  const expectedByScene = new Map<string, number>();
+  for (const event of events) {
+    if (event.sceneId && typeof event.expectedDurationSec === "number") {
+      expectedByScene.set(event.sceneId, event.expectedDurationSec * 1_000);
+    }
   }
-  const total = entry.totalScenes > 0 ? entry.totalScenes : 1;
-  return Math.min(99, Math.round((entry.currentSceneIndex / total) * 100));
+  const expectedDurationMs = [...expectedByScene.values()].reduce((sum, value) => sum + value, 0);
+  const replayCount = events.filter((event) => event.type === "scene-replay").length;
+  const lastEvent = events.at(-1);
+  const signals = (course.learningSignals ?? []).filter(
+    (signal) => signal.studentId === student.id && signal.stageKey === "ai-learning" && signal.status === "open",
+  );
+  return {
+    student,
+    events,
+    progress: computeProgress(course.aiLearningProgress?.[student.id]),
+    effectiveDurationMs,
+    expectedDurationMs,
+    replayCount,
+    lastEvent,
+    signals,
+    hasEvidence: events.length > 0,
+  };
 }
 
-function progressTone(p: number): "green" | "amber" | "red" {
-  if (p >= 90) return "green";
-  if (p >= 50) return "amber";
-  return "red";
+function minutes(ms: number): string {
+  return ms < 60_000 ? "<1 分钟" : `${Math.round(ms / 60_000)} 分钟`;
 }
 
-function progressLabel(p: number): string {
-  if (p >= 90) return "已掌握";
-  if (p >= 50) return "进行中";
-  return "需关注";
+function currentScene(events: LearningEvent[]): string {
+  const latest = [...events].reverse().find((event) => event.sceneId);
+  return latest?.metadata?.sceneTitle?.toString() || latest?.sceneId || "尚未开始";
 }
 
 export function AiLearningTeacherView({
@@ -50,285 +74,97 @@ export function AiLearningTeacherView({
   course: Course;
   onSelectStudent?: (id: string) => void;
 }) {
-  const students = course.students;
-  const total = students.length;
-  const progressMap = course.aiLearningProgress ?? {};
+  const [selectedStudentId, setSelectedStudentId] = useState<string>();
   const hasClassroom = Boolean(course.aiLearningClassroomId);
+  const summaries = useMemo(
+    () => course.students.map((student) => summarizeStudent(course, student)),
+    [course],
+  );
+  const evidenceStudents = summaries.filter((summary) => summary.hasEvidence);
+  const avgProgress = summaries.length
+    ? Math.round(summaries.reduce((sum, item) => sum + item.progress, 0) / summaries.length)
+    : 0;
+  const avgVariance = evidenceStudents.length
+    ? Math.round(
+        evidenceStudents.reduce((sum, item) => {
+          if (!item.expectedDurationMs) return sum;
+          return sum + ((item.effectiveDurationMs - item.expectedDurationMs) / item.expectedDurationMs) * 100;
+        }, 0) / evidenceStudents.length,
+      )
+    : undefined;
+  const repeatLearners = summaries.filter((summary) => summary.replayCount >= 2).length;
+  const unresolvedSignals = (course.learningSignals ?? []).filter(
+    (signal) => signal.stageKey === "ai-learning" && signal.status === "open",
+  );
+  const commonIssues = (course.classCommonIssues ?? []).filter(
+    (issue) => issue.stageKey === "ai-learning" && issue.status === "open",
+  );
 
-  // 计算每个学生的进度
-  const studentProgress = students.map((s) => ({
-    student: s,
-    entry: progressMap[s.id],
-    progress: computeProgress(progressMap[s.id]),
-  }));
-
-  const finished = studentProgress.filter(
-    (sp) =>
-      sp.entry?.masteryLevel === "completed" ||
-      sp.entry?.masteryLevel === "mastered" ||
-      sp.progress >= 90,
-  ).length;
-  const onTrack = studentProgress.filter((sp) => sp.progress >= 50 && sp.progress < 90).length;
-  const needFocusList = studentProgress
-    .filter((sp) => sp.progress < 50)
-    .sort((a, b) => a.progress - b.progress);
-  const avg =
-    total > 0
-      ? Math.round(studentProgress.reduce((sum, sp) => sum + sp.progress, 0) / total)
-      : 0;
+  function openStudent(studentId: string) {
+    setSelectedStudentId(studentId);
+    onSelectStudent?.(studentId);
+  }
 
   return (
     <div className="space-y-5">
+      <header className="flex flex-col gap-3 border-b border-[var(--pbl-border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-teacher)]">AI 授知 · 教师观察台</p>
+          <h2 className="mt-1 text-2xl font-black text-stone-950">用学习证据决定何时现场介入</h2>
+          <p className="mt-1 text-sm text-stone-500">本阶段不控制伴学 Agent；风险用于教师巡视、个别辅导和全班补充教学。</p>
+        </div>
+        {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
+      </header>
+
       {!hasClassroom ? (
-        <Card className="border-amber-200 bg-amber-50/70">
-          <div className="flex items-start gap-3">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
-              <AlertTriangle size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-amber-800">AI 课堂尚未生成</h2>
-              <p className="mt-1 text-sm text-amber-700">
-                请先在备课流程中生成 AI 授知内容，生成后学生的 AI 学习进度将在此展示。
-              </p>
-            </div>
-          </div>
+        <Card className="border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70">
+          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-black text-[var(--pbl-warning)]">AI 课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">班级平均进度</div>
-            <Bot className="text-blue-600" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-black">{avg}%</div>
-          <ProgressBar className="mt-2 h-2" value={avg} />
-        </Card>
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">已完成（≥90%）</div>
-            <CircleCheck className="text-emerald-600" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-black text-emerald-700">
-            {finished}
-            <span className="ml-1 text-base text-slate-500">/ {total}</span>
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">进行中（50-89%）</div>
-            <Lightbulb className="text-amber-600" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-black text-amber-700">
-            {onTrack}
-            <span className="ml-1 text-base text-slate-500">/ {total}</span>
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">需重点关注（&lt;50%）</div>
-            <AlertTriangle className="text-rose-600" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-black text-rose-700">
-            {needFocusList.length}
-            <span className="ml-1 text-base text-slate-500">/ {total}</span>
-          </div>
-        </Card>
-      </div>
+      <section aria-label="AI 授知班级指标" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard icon={<Bot size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
+        <MetricCard icon={<Clock3 size={19} />} label="有效时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对课程设计播放时长"} />
+        <MetricCard icon={<Repeat2 size={19} />} label="重复学习学生" value={evidenceStudents.length ? `${repeatLearners} 人` : "—"} helper={evidenceStudents.length ? "同一内容重复至少 2 次" : "暂无足够证据"} />
+        <MetricCard icon={<CircleAlert size={19} />} label="未解决风险" value={evidenceStudents.length ? `${unresolvedSignals.length} 条` : "—"} helper={evidenceStudents.length ? "需要教师观察或介入" : "暂无足够证据"} tone={unresolvedSignals.length ? "danger" : "default"} />
+      </section>
 
-      <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-        <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
-            <Users className="text-blue-700" size={20} /> 全班学习进度
-          </h2>
-          {total > 0 ? (
-            <ul className="space-y-2">
-              {studentProgress
-                .slice()
-                .sort((a, b) => b.progress - a.progress)
-                .map((sp) => {
-                  const { student: s, progress: p } = sp;
-                  const tone = progressTone(p);
-                  return (
-                    <li
-                      className="flex items-center gap-3 rounded-[6px] border border-slate-200 bg-white px-3 py-2"
-                      key={s.id}
-                    >
-                      <Avatar name={s.name} size={32} />
-                      <span
-                        className="w-20 cursor-pointer text-sm font-semibold"
-                        onClick={() => onSelectStudent?.(s.id)}
-                      >
-                        {s.name}
-                      </span>
-                      <div className="flex-1">
-                        <ProgressBar
-                          className="h-2"
-                          tone={tone === "green" ? "green" : tone === "amber" ? "slate" : "red"}
-                          value={p}
-                        />
-                      </div>
-                      <span className="w-10 text-right text-sm font-bold">
-                        {p}%
-                      </span>
-                      <Pill tone={tone === "green" ? "green" : tone === "amber" ? "orange" : "red"}>
-                        {progressLabel(p)}
-                      </Pill>
-                    </li>
-                  );
-                })}
-            </ul>
-          ) : (
-            <div className="rounded-[6px] border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500">
-              暂无学生数据
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
-            <AlertTriangle className="text-rose-600" size={20} /> 需重点关注学生
-          </h2>
-          {needFocusList.length > 0 ? (
-            <ul className="space-y-3">
-              {needFocusList.slice(0, 5).map((sp) => {
-                const { student: s, progress: p, entry } = sp;
-                const lastActive = entry?.lastActiveAt
-                  ? new Date(entry.lastActiveAt).toLocaleString("zh-CN")
-                  : "暂无记录";
-                return (
-                  <li
-                    className="rounded-[6px] border border-rose-200 bg-rose-50/50 p-3"
-                    key={s.id}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Avatar name={s.name} size={32} />
-                      <div className="flex-1">
-                        <div className="font-semibold">{s.name}</div>
-                        <div className="text-xs text-slate-500">
-                          进度 {p}% · 最近活跃 {lastActive}
-                        </div>
-                      </div>
-                      <Pill tone="red">需关注</Pill>
-                    </div>
-                    <div className="mt-2 text-xs text-rose-700">
-                      建议：推送预习材料 / 发起一对一答疑
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="rounded-[6px] border border-emerald-200 bg-emerald-50/60 py-8 text-center text-sm text-emerald-700">
-              <CircleCheck className="mx-auto mb-2" size={22} />
-              {total > 0
-                ? "全班学习状况良好，无落后学生"
-                : "暂无学生学习记录"}
-            </div>
-          )}
-
-          <h2 className="mb-3 mt-6 flex items-center gap-2 text-lg font-black">
-            <Target className="text-blue-700" size={20} /> 知识点掌握分布
-          </h2>
-          <ul className="space-y-2">
-            {(course.content.knowledgePoints ?? []).map((kp) => {
-              // 按 knowledgePoint 关联的 stageProgress 简化估算
-              const value = total > 0
-                ? Math.round(
-                    studentProgress
-                      .filter((sp) => sp.progress >= 50)
-                      .length / total * 100,
-                  )
-                : 0;
-              return (
-                <li className="flex items-center gap-3 text-sm" key={kp.id}>
-                  <span className="w-32 truncate text-slate-600" title={kp.name}>{kp.name}</span>
-                  <div className="flex-1">
-                    <ProgressBar className="h-2" value={value} />
-                  </div>
-                  <span className="w-10 text-right font-semibold">{value}%</span>
-                </li>
-              );
-            })}
-            {(course.content.knowledgePoints ?? []).length === 0 ? (
-              <li className="rounded-[6px] border border-dashed border-slate-200 py-6 text-center text-sm text-slate-500">
-                课程尚未配置知识点
-              </li>
-            ) : null}
+      <Card>
+        <div className="flex items-center justify-between gap-3">
+          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-[var(--pbl-teacher)]" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">达到全班 30% 或至少 5 人时显示，适合转为全班补充教学。</p></div>
+          <Pill tone={commonIssues.length ? "red" : "green"}>{commonIssues.length ? `${commonIssues.length} 项` : "暂无"}</Pill>
+        </div>
+        {commonIssues.length ? (
+          <ul className="mt-4 divide-y divide-[var(--pbl-danger-border)] border-y border-[var(--pbl-danger-border)]">
+            {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-[var(--pbl-danger)]">{issue.title}</p><p className="mt-1 text-sm text-stone-600">{issue.summary}</p></div><span className="text-sm font-bold text-[var(--pbl-danger)]">影响 {issue.studentIds.length} 人</span></li>)}
           </ul>
-          <p className="mt-2 text-xs text-slate-400">
-            数据基于学生当前学习进度估算，完整测验分析将在真实测验场景接入后细化。
-          </p>
-        </Card>
-      </div>
-
-      <Card>
-        <h2 className="mb-3 text-lg font-black">本阶段学习指标（班级）</h2>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200">
-          <Metric
-            icon={<Clock3 size={27} />}
-            label="已开始学习的学生数"
-            value={`${studentProgress.filter((sp) => sp.entry).length} / ${total}`}
-            helper="有 AI 学习记录的学生"
-          />
-          <Metric
-            icon={<BookOpen size={27} />}
-            label="已完成学生数"
-            value={`${finished} / ${total}`}
-          />
-          <Metric
-            icon={<Lightbulb size={27} />}
-            label="提问数（班级）"
-            value={(course.feedback ?? []).filter((f) => f.kind === "question").length}
-            helper="来自教师/学生提问"
-          />
-          <Metric
-            icon={<Target size={27} />}
-            label="平均学习进度"
-            value={total > 0
-              ? `${Math.round(studentProgress.reduce((sum, sp) => sum + sp.progress, 0) / total)}%`
-              : "—"
-            }
-            helper="基于 scene 进度"
-          />
-        </div>
+        ) : <div className="mt-4 flex items-center gap-2 border-y border-stone-100 py-5 text-sm text-stone-500"><CircleCheck className="text-[var(--pbl-success)]" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
       </Card>
 
-      {total === 0 ? (
-        <Card className="text-center">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-slate-400">
-            <Users size={28} />
-          </div>
-          <h2 className="mt-4 text-xl font-black">暂无学生加入</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            学生加入课堂并开始 AI 学习后，进度将在此实时展示。
-          </p>
-        </Card>
-      ) : null}
-
       <Card>
-        <div className="flex items-center gap-6">
-          <CircularProgress label="班级完成率" value={avg} />
-          <div className="space-y-3">
-            <div>
-              <div className="text-sm text-slate-500">AI 课堂状态</div>
-              <div className="mt-1 text-lg font-bold">
-                {hasClassroom ? "已生成" : "未生成"}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-slate-500">参与学生</div>
-              <div className="mt-1 text-lg font-bold">{total} 人</div>
-            </div>
-            <div>
-              <div className="text-sm text-slate-500">有学习记录的学生</div>
-              <div className="mt-1 text-lg font-bold">
-                {studentProgress.filter((sp) => sp.entry).length} 人
-              </div>
-            </div>
-          </div>
-        </div>
+        <div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-black">学生学习状态</h3><p className="mt-1 text-sm text-stone-500">红色叹号表示存在未解决干预信号；点击学生查看证据与处理记录。</p></div><span className="text-sm text-stone-500">{course.students.length} 人</span></div>
+        {summaries.length ? (
+          <ul className="divide-y divide-stone-100 border-y border-stone-100">
+            {[...summaries].sort((a, b) => b.signals.length - a.signals.length || a.progress - b.progress).map((summary) => (
+              <li key={summary.student.id}>
+                <button className="grid w-full gap-3 py-3 text-left transition hover:bg-stone-50 md:grid-cols-[220px_minmax(150px,1fr)_140px_120px_160px] md:items-center md:px-2" onClick={() => openStudent(summary.student.id)} type="button">
+                  <span className="flex items-center gap-3"><span className="relative"><Avatar name={summary.student.name} size={36} />{summary.signals.length ? <CircleAlert aria-label="有干预信号" className="absolute -right-2 -top-2 fill-white text-[var(--pbl-danger)]" size={19} /> : null}</span><span><span className="block font-bold text-stone-900">{summary.student.name}</span><span className="text-xs text-stone-500">{summary.signals.length ? `${summary.signals.length} 条待处理` : "暂无风险"}</span></span></span>
+                  <span><span className="mb-1 flex justify-between text-xs text-stone-500"><span>进度</span><strong>{summary.progress}%</strong></span><ProgressBar className="h-2" tone={summary.signals.length ? "red" : summary.progress >= 90 ? "green" : "slate"} value={summary.progress} /></span>
+                  <span className="text-sm"><span className="block text-xs text-stone-400">当前内容</span><span className="line-clamp-1 font-semibold text-stone-700">{currentScene(summary.events)}</span></span>
+                  <span className="text-sm"><span className="block text-xs text-stone-400">有效学习</span><span className="font-semibold text-stone-700">{summary.hasEvidence ? minutes(summary.effectiveDurationMs) : "暂无证据"}</span></span>
+                  <span className="text-sm"><span className="block text-xs text-stone-400">最近活动</span><span className="font-semibold text-stone-700">{summary.lastEvent ? new Date(summary.lastEvent.occurredAt).toLocaleString("zh-CN") : "尚未开始"}</span></span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : <div className="py-12 text-center text-sm text-stone-500"><Eye className="mx-auto mb-2 text-stone-300" size={24} />暂无学生加入课堂</div>}
       </Card>
+
+      <StudentLearningDetail course={course} onOpenChange={(open) => { if (!open) setSelectedStudentId(undefined); }} open={Boolean(selectedStudentId)} studentId={selectedStudentId} />
     </div>
   );
+}
+
+function MetricCard({ icon, label, value, helper, tone = "default" }: { icon: React.ReactNode; label: string; value: string; helper: string; tone?: "default" | "danger" }) {
+  return <Card className={tone === "danger" ? "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/40" : undefined}><div className="flex items-center justify-between text-sm text-stone-500"><span>{label}</span><span className={tone === "danger" ? "text-[var(--pbl-danger)]" : "text-[var(--pbl-teacher)]"}>{icon}</span></div><div className={`mt-2 text-2xl font-black ${tone === "danger" ? "text-[var(--pbl-danger)]" : "text-stone-950"}`}>{value}</div><p className="mt-1 text-xs text-stone-400">{helper}</p></Card>;
 }

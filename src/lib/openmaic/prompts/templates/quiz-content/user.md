@@ -2,6 +2,7 @@ Title: {{title}}
 Description: {{description}}
 Test Points: {{keyPoints}}
 Question Count: {{questionCount}}, Difficulty: {{difficulty}}, Question Types: {{questionTypes}}
+{{pblContext}}
 
 ## Language Directive
 {{languageDirective}}

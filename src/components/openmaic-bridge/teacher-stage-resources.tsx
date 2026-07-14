@@ -14,11 +14,15 @@ import {
 import { OpenMaicResourcePlayer } from "./openmaic-resource-player";
 import { useSession } from "@/lib/session/store";
 import type { Course, TeacherResourceScene, TeacherResourceProjection } from "@/lib/session/types";
+import type { ProjectionMode } from "@/lib/session/types";
+import type { PlaybackSyncState } from "@openmaic/components/stage-experience";
 import {
   getTeacherResourcesForStage,
   teacherResourceTypeLabel,
 } from "@/lib/openmaic-bridge/teacher-resources";
+import { useInteractionSyncStore } from "@openmaic/lib/store/interaction-sync";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui";
 
 function ResourceIcon({ type }: { type: TeacherResourceScene["type"] }) {
   if (type === "interactive") return <MousePointerClick size={16} />;
@@ -33,20 +37,20 @@ export function TeacherStageResources({
   course: Course;
   stageKey: string;
 }) {
-  const { setUiState, addActivity } = useSession();
+  const { setUiState, addActivity, refresh } = useSession();
   const resources = useMemo(
     () => getTeacherResourcesForStage(course, stageKey),
     [course, stageKey],
   );
-  const [selectedId, setSelectedId] = useState(resources[0]?.id ?? "");
+  const [requestedId, setRequestedId] = useState(resources[0]?.id ?? "");
+  const [projectionMode, setProjectionMode] = useState<ProjectionMode>("forced");
+  const [scaffoldLoading, setScaffoldLoading] = useState(false);
   const classroomId = course.teacherClassroomId ?? course.content.teacherClassroomId;
   const projection = course.uiState?.teacherResourceProjection;
 
-  useEffect(() => {
-    if (!resources.some((resource) => resource.id === selectedId)) {
-      setSelectedId(resources[0]?.id ?? "");
-    }
-  }, [resources, selectedId]);
+  const selectedId = resources.some((resource) => resource.id === requestedId)
+    ? requestedId
+    : (resources[0]?.id ?? "");
 
   const selected = resources.find((resource) => resource.id === selectedId) ?? resources[0];
   const selectedIndex = selected
@@ -54,6 +58,9 @@ export function TeacherStageResources({
     : -1;
   const isSelectedProjected = Boolean(
     selected && projection?.sceneId === selected.id && projection.stageKey === stageKey,
+  );
+  const selectedScaffold = course.dynamicFacilitationScaffolds?.find(
+    (item) => item.stageKey === stageKey && item.kind === selected?.scaffoldKind,
   );
 
   function buildProjection(resource: TeacherResourceScene): TeacherResourceProjection | null {
@@ -65,11 +72,18 @@ export function TeacherStageResources({
       title: resource.title,
       sceneType: resource.type,
       startedAt: new Date().toISOString(),
+      mode: projectionMode,
+      version: (projection?.version ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+      engineMode: "idle",
+      playback: { sceneIndex: 0, actionIndex: 0, consumedDiscussions: [], sceneId: resource.id },
+      // 互动状态在新投屏或切换资源时重置；后续由 effect 从同步 store 填充
+      interactionState: null,
     };
   }
 
   function selectResource(resource: TeacherResourceScene) {
-    setSelectedId(resource.id);
+    setRequestedId(resource.id);
     if (projection?.stageKey === stageKey) {
       const nextProjection = buildProjection(resource);
       if (nextProjection) {
@@ -80,12 +94,12 @@ export function TeacherStageResources({
 
   function projectResource() {
     if (!selected) {
-      window.alert("授课资源数据不完整，请重新生成课程资源后再投屏。");
+      toast.error("授课资源数据不完整", { description: "请重新生成课程资源后再投屏。" });
       return;
     }
     const nextProjection = buildProjection(selected);
     if (!nextProjection) {
-      window.alert("授课资源课堂未关联，请重新生成课程资源后再投屏。");
+      toast.error("授课资源课堂未关联", { description: "请重新生成课程资源后再投屏。" });
       return;
     }
     setUiState(course.id, { teacherResourceProjection: nextProjection });
@@ -97,21 +111,87 @@ export function TeacherStageResources({
     addActivity(course.id, "停止资源投屏", projection?.title);
   }
 
+  function syncProjection(state: Omit<PlaybackSyncState, "version">) {
+    if (!selected || !projection || projection.sceneId !== selected.id) return;
+    setUiState(course.id, {
+      teacherResourceProjection: {
+        ...projection,
+        version: (projection.version ?? 0) + 1,
+        updatedAt: new Date().toISOString(),
+        engineMode: state.engineMode,
+        playback: state.snapshot,
+      },
+    });
+  }
+
+  // ===== 互动场景状态同步 =====
+  // 当投屏中的资源是 interactive 类型时，订阅互动同步 store 中该 sceneId
+  // 的最新状态。bridge 脚本在教师 iframe 内捕获用户操作并广播 →
+  // InteractiveIframeHost 写入 store → 此 effect 检测到版本变化 →
+  // 将状态写入 projection.interactionState，学生端再通过 apply-state
+  // postMessage 应用到自己的 iframe。
+  const projectedSceneId = projection?.sceneId ?? null;
+  const interactionVersion = useInteractionSyncStore(
+    (s) => (projectedSceneId ? s.versions[projectedSceneId] ?? 0 : 0),
+  );
+  const interactionState = useInteractionSyncStore(
+    (s) => (projectedSceneId ? s.states[projectedSceneId] ?? null : null),
+  );
+
+  useEffect(() => {
+    if (!projection || !selected) return;
+    if (projection.sceneId !== selected.id) return;
+    if (selected.type !== "interactive") return;
+    // Avoid redundant updates: skip if state hasn't meaningfully changed
+    const current = projection.interactionState ?? null;
+    if (interactionState === null && current === null) return;
+    const nextStamp = interactionState ? JSON.stringify(interactionState) : "";
+    const curStamp = current ? JSON.stringify(current) : "";
+    if (nextStamp === curStamp) return;
+    setUiState(course.id, {
+      teacherResourceProjection: {
+        ...projection,
+        version: (projection.version ?? 0) + 1,
+        updatedAt: new Date().toISOString(),
+        interactionState: interactionState ?? null,
+      },
+    });
+  }, [interactionVersion, interactionState, projection, selected, course.id, setUiState]);
+
+  async function fillScaffold() {
+    if (!selectedScaffold) return;
+    setScaffoldLoading(true);
+    try {
+      const response = await fetch("/api/teaching-ai/facilitation-scaffold", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ courseId: course.id, scaffoldId: selectedScaffold.id }) });
+      if (!response.ok) throw new Error(response.status === 409 ? "当前还没有足够的真实学生证据" : "主持支架生成失败");
+      await refresh();
+      toast.success("已基于真实课堂证据填充主持支架");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "主持支架生成失败");
+    } finally { setScaffoldLoading(false); }
+  }
+
+  async function confirmScaffold() {
+    if (!selectedScaffold) return;
+    await fetch("/api/teaching-ai/facilitation-scaffold", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ courseId: course.id, scaffoldId: selectedScaffold.id }) });
+    await refresh();
+  }
+
   return (
-    <section className="overflow-hidden rounded-[var(--radius-lg)] border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+    <section data-openpbl-embed className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/80 px-4 py-3">
         <div>
-          <h2 className="flex items-center gap-2 text-base font-black text-slate-900">
-            <Presentation className="text-indigo-600" size={18} /> 本阶段授课资源
+          <h2 className="flex items-center gap-2 text-base font-bold text-stone-900">
+            <Presentation className="text-[var(--pbl-teacher)]" size={18} /> 本阶段授课资源
           </h2>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-0.5 text-xs text-stone-500">
             AI 生成的 PPT、互动演示与教师讲稿
           </p>
         </div>
         {projection ? (
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--pbl-success-soft)] px-3 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-student-border)]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--pbl-success)]" />
               正在投屏：{projection.title}
             </span>
             <button
@@ -125,36 +205,30 @@ export function TeacherStageResources({
         ) : null}
       </div>
 
-      {resources.length === 0 ? (
-        <div className="px-5 py-8 text-center">
-          <Presentation className="mx-auto text-slate-300" size={28} />
-          <p className="mt-3 text-sm font-semibold text-slate-600">本阶段暂无生成的授课资源</p>
-          <p className="mt-1 text-xs text-slate-400">资源只按已确认课程大纲中的阶段标记显示。</p>
-        </div>
-      ) : (
+      {resources.length === 0 ? null : (
         <div className="grid min-h-[560px] xl:grid-cols-[230px_minmax(0,1fr)_300px]">
-          <div className="border-b border-slate-200 bg-slate-50/60 p-3 xl:border-b-0 xl:border-r">
-            <div className="mb-2 px-2 text-[11px] font-black uppercase text-slate-400">资源列表</div>
+          <div className="border-b border-stone-200 bg-stone-50/60 p-3 xl:border-b-0 xl:border-r">
+            <div className="mb-2 px-2 text-[11px] font-bold uppercase text-stone-400">资源列表</div>
             <div className="space-y-1.5">
               {resources.map((resource, index) => (
                 <button
                   className={cn(
                     "flex w-full items-start gap-2.5 rounded-[6px] border px-3 py-2.5 text-left transition",
                     selected?.id === resource.id
-                      ? "border-indigo-200 bg-white text-indigo-800 shadow-sm"
-                      : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white",
+                      ? "border-[var(--pbl-teacher-border)] bg-white text-[var(--pbl-teacher)] shadow-sm"
+                      : "border-transparent text-stone-600 hover:border-stone-200 hover:bg-white",
                   )}
                   key={resource.id}
                   onClick={() => selectResource(resource)}
                   type="button"
                 >
-                  <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-[5px] bg-indigo-50 text-indigo-600">
+                  <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-[5px] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
                     <ResourceIcon type={resource.type} />
                   </span>
                   <span className="min-w-0">
                     <span className="line-clamp-2 block text-xs font-bold leading-5">{resource.title}</span>
-                    <span className="mt-0.5 block text-[10px] text-slate-400">
-                      {index + 1} · {teacherResourceTypeLabel(resource.type)}
+                    <span className="mt-0.5 block text-[10px] text-stone-400">
+                      {index + 1} · {resource.stageLabel ?? stageKey} · {teacherResourceTypeLabel(resource.type)}
                     </span>
                   </span>
                 </button>
@@ -162,19 +236,24 @@ export function TeacherStageResources({
             </div>
           </div>
 
-          <div className="min-w-0 border-b border-slate-200 p-3 xl:border-b-0 xl:border-r">
+          <div className="min-w-0 border-b border-stone-200 p-3 xl:border-b-0 xl:border-r">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-sm font-black text-slate-900">{selected?.title}</div>
-                <div className="text-xs text-slate-500">
+                <div className="truncate text-sm font-bold text-stone-900">{selected?.title}</div>
+                <div className="text-xs text-stone-500">
                   {selected ? teacherResourceTypeLabel(selected.type) : ""}
+                  {selected ? ` · ${selected.stageLabel ?? stageKey}` : ""}
                   {selectedIndex >= 0 ? ` · ${selectedIndex + 1}/${resources.length}` : ""}
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
+                <div className="mr-1 inline-flex rounded-[6px] border border-stone-200 bg-white p-0.5" aria-label="投屏方式">
+                  <button className={cn("h-7 rounded-[4px] px-2 text-[11px] font-bold", projectionMode === "forced" ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "text-stone-500")} onClick={() => setProjectionMode("forced")} type="button">强制全屏</button>
+                  <button className={cn("h-7 rounded-[4px] px-2 text-[11px] font-bold", projectionMode === "optional" ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "text-stone-500")} onClick={() => setProjectionMode("optional")} type="button">自主查看</button>
+                </div>
                 <button
                   aria-label="上一个授课资源"
-                  className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 text-slate-600 disabled:cursor-not-allowed disabled:opacity-35"
+                  className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 text-stone-600 disabled:cursor-not-allowed disabled:opacity-35"
                   disabled={selectedIndex <= 0}
                   onClick={() => selectResource(resources[selectedIndex - 1])}
                   title="上一个授课资源"
@@ -184,7 +263,7 @@ export function TeacherStageResources({
                 </button>
                 <button
                   aria-label="下一个授课资源"
-                  className="grid h-9 w-9 place-items-center rounded-[6px] border border-slate-200 text-slate-600 disabled:cursor-not-allowed disabled:opacity-35"
+                  className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 text-stone-600 disabled:cursor-not-allowed disabled:opacity-35"
                   disabled={selectedIndex < 0 || selectedIndex >= resources.length - 1}
                   onClick={() => selectResource(resources[selectedIndex + 1])}
                   title="下一个授课资源"
@@ -196,8 +275,8 @@ export function TeacherStageResources({
                   className={cn(
                     "inline-flex h-9 items-center gap-1.5 rounded-[6px] px-3 text-xs font-bold text-white",
                     isSelectedProjected
-                      ? "bg-emerald-600 hover:bg-emerald-700"
-                      : "bg-indigo-600 hover:bg-indigo-700",
+                      ? "bg-[var(--pbl-success)] hover:bg-[var(--pbl-success)]/90"
+                      : "bg-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-hover)]",
                   )}
                   onClick={projectResource}
                   type="button"
@@ -208,9 +287,11 @@ export function TeacherStageResources({
             </div>
             {classroomId && selected ? (
               <OpenMaicResourcePlayer
-                className="h-[500px] rounded-[6px] border border-slate-200"
+                className="h-[500px] rounded-[6px] border border-stone-200"
                 classroomId={classroomId}
                 sceneId={selected.id}
+                experience="teacher-resource"
+                onPlaybackStateChange={syncProjection}
               />
             ) : (
               <div className="grid h-[500px] place-items-center rounded-[6px] border border-dashed border-rose-200 bg-rose-50 text-sm text-rose-700">
@@ -220,30 +301,39 @@ export function TeacherStageResources({
           </div>
 
           <aside className="min-w-0 bg-white p-4">
-            <h3 className="flex items-center gap-2 text-sm font-black text-slate-900">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-stone-900">
               <FileText className="text-amber-600" size={17} /> 教师讲稿
             </h3>
+            {selected ? <p className="mt-1 text-xs text-[var(--pbl-teacher)]">{selected.stageLabel ?? stageKey} · {selected.generationPurpose === "facilitation-scaffold" ? "教师主持支架" : selected.generationPurpose === "companion-guidance" ? "伴学引导提示" : "教师资源脚本"}</p> : null}
             {selected?.description ? (
-              <p className="mt-3 text-xs leading-6 text-slate-500">{selected.description}</p>
+              <p className="mt-3 text-xs leading-6 text-stone-500">{selected.description}</p>
             ) : null}
             {selected?.keyPoints.length ? (
-              <ul className="mt-3 space-y-1.5 border-y border-slate-100 py-3">
+              <ul className="mt-3 space-y-1.5 border-y border-stone-100 py-3">
                 {selected.keyPoints.map((point) => (
-                  <li className="flex gap-2 text-xs leading-5 text-slate-600" key={point}>
-                    <span className="text-indigo-400">·</span><span>{point}</span>
+                  <li className="flex gap-2 text-xs leading-5 text-stone-600" key={point}>
+                    <span className="text-[var(--pbl-teacher-border)]">·</span><span>{point}</span>
                   </li>
                 ))}
               </ul>
             ) : null}
             {selected?.script ? (
-              <div className="mt-3 max-h-[340px] overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-amber-50/70 p-3 text-sm leading-7 text-slate-700 ring-1 ring-amber-100">
+              <div className="mt-3 max-h-[340px] overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-amber-50/70 p-3 text-sm leading-7 text-stone-700 ring-1 ring-amber-100">
                 {selected.script}
               </div>
             ) : (
-              <div className="mt-3 rounded-[6px] border border-dashed border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+              <div className="mt-3 rounded-[6px] border border-dashed border-stone-200 bg-stone-50 p-3 text-xs leading-5 text-stone-500">
                 该资源没有生成讲稿。系统不会使用本地占位内容，请在备课阶段重新生成或补充讲稿。
               </div>
             )}
+            {selected?.generationMode === "dynamic-scaffold" && selectedScaffold ? (
+              <div className="mt-4 rounded-[6px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/60 p-3">
+                <div className="text-xs font-black text-[var(--pbl-teacher)]">动态教师主持支架 · {selectedScaffold.status === "template" ? "待课堂数据" : selectedScaffold.status === "draft" ? "待教师确认" : "已确认"}</div>
+                <p className="mt-2 text-xs leading-5 text-stone-600">备课阶段不预设学生表现；课堂中只依据真实产物、对话与共性问题填充。</p>
+                {selectedScaffold.filledContent ? <div className="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 text-xs leading-5 text-stone-700">{selectedScaffold.filledContent}</div> : null}
+                <div className="mt-3 flex gap-2"><button className="h-8 rounded bg-[var(--pbl-teacher)] px-3 text-xs font-bold text-white disabled:opacity-50" disabled={scaffoldLoading} onClick={() => void fillScaffold()} type="button">{scaffoldLoading ? "生成中..." : "用课堂证据填充"}</button>{selectedScaffold.status === "draft" ? <button className="h-8 rounded border border-[var(--pbl-teacher-border)] bg-white px-3 text-xs font-bold text-[var(--pbl-teacher)]" onClick={() => void confirmScaffold()} type="button">教师确认</button> : null}</div>
+              </div>
+            ) : null}
           </aside>
         </div>
       )}
@@ -257,22 +347,29 @@ export function StudentProjectedTeacherResource({
   projection: TeacherResourceProjection;
 }) {
   return (
-    <section className="overflow-hidden rounded-[var(--radius-lg)] border border-indigo-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50 px-4 py-3">
+    <section data-openpbl-embed className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-4 py-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-black text-indigo-900">
+          <div className="flex items-center gap-2 text-sm font-bold text-[var(--pbl-teacher)]">
             <MonitorUp size={17} /> 教师正在投屏
           </div>
-          <div className="mt-0.5 truncate text-xs text-indigo-700">{projection.title}</div>
+          <div className="mt-0.5 truncate text-xs text-[var(--pbl-teacher)]">{projection.title}</div>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> 实时同步
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-student-border)]">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--pbl-success)]" /> 实时同步
         </span>
       </div>
       <OpenMaicResourcePlayer
         className="h-[min(760px,calc(100vh-170px))] min-h-[620px]"
         classroomId={projection.classroomId}
         sceneId={projection.sceneId}
+        experience="projected-readonly"
+        playbackState={projection.playback && projection.engineMode ? {
+          version: projection.version ?? 0,
+          engineMode: projection.engineMode,
+          snapshot: projection.playback,
+        } : undefined}
+        interactionState={projection.interactionState ?? null}
       />
     </section>
   );

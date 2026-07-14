@@ -499,7 +499,7 @@ function WorkspaceTopBar({
                     'h-1.5 min-w-4 flex-1 rounded-full transition-colors',
                     completed && 'bg-cyan-300/70 shadow-[0_0_12px_rgba(103,232,249,0.30)]',
                     active && 'bg-violet-300 shadow-[0_0_16px_rgba(167,139,250,0.42)]',
-                    !active && !completed && 'bg-slate-500/35',
+                    !active && !completed && 'bg-stone-500/35',
                   )}
                 />
                 {active && (

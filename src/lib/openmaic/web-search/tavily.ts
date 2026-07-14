@@ -7,6 +7,7 @@
 
 import { proxyFetch } from '@openmaic/lib/server/proxy-fetch';
 import type { WebSearchResult, WebSearchSource } from '@openmaic/lib/types/web-search';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 export { formatSearchResultsAsContext } from './format';
 
 const TAVILY_DEFAULT_BASE_URL = 'https://api.tavily.com';
@@ -26,8 +27,10 @@ export async function searchWithTavily(params: {
   apiKey: string;
   maxResults?: number;
   baseUrl?: string;
+  signal?: AbortSignal;
 }): Promise<WebSearchResult> {
-  const { query, apiKey, maxResults = 5, baseUrl } = params;
+  const { query, apiKey, maxResults = 5, baseUrl, signal } = params;
+  throwIfAborted(signal);
 
   // Tavily rejects queries over 400 characters with a 400 error
   const truncatedQuery = query.slice(0, TAVILY_MAX_QUERY_LENGTH);
@@ -44,6 +47,7 @@ export async function searchWithTavily(params: {
       max_results: maxResults,
       include_answer: 'basic',
     }),
+    signal,
   });
 
   if (!res.ok) {
@@ -62,6 +66,7 @@ export async function searchWithTavily(params: {
       score: number;
     }>;
   };
+  throwIfAborted(signal);
 
   const sources: WebSearchSource[] = (data.results || []).map((r) => ({
     title: r.title,

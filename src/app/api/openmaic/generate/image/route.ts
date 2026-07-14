@@ -7,9 +7,11 @@
  * POST /api/generate/image
  *
  * Headers:
- *   x-image-provider: ImageProviderId (default: 'seedream')
- *   x-api-key: string (optional, server fallback)
- *   x-base-url: string (optional, server fallback)
+ *   x-image-provider: ImageProviderId (optional; server-configured provider is
+ *                     selected when omitted or when the requested provider has
+ *                     no usable credentials)
+ *   x-api-key / x-image-api-key: string (optional, server fallback)
+ *   x-base-url / x-image-base-url: string (optional, server fallback)
  *
  * Body: { prompt, negativePrompt?, width?, height?, aspectRatio?, style? }
  * Response: { success: boolean, result?: ImageGenerationResult, error?: string }
@@ -22,6 +24,7 @@ import {
   IMAGE_PROVIDERS,
 } from '@openmaic/lib/media/image-providers';
 import {
+  getServerImageProviders,
   isServerConfiguredProvider,
   resolveImageApiKey,
   resolveImageBaseUrl,
@@ -35,6 +38,44 @@ const log = createLogger('ImageGeneration API');
 
 export const maxDuration = 60;
 
+function isKnownImageProvider(value: string): value is ImageProviderId {
+  return Object.prototype.hasOwnProperty.call(IMAGE_PROVIDERS, value);
+}
+
+/**
+ * Select a provider that can actually run on the server. The UI historically
+ * defaulted to Seedream even when the server had configured another provider,
+ * which made an otherwise valid cover-image request fail with 401 before the
+ * provider adapter was reached.
+ */
+function resolveRequestProvider(
+  requestedProvider: string | undefined,
+  clientApiKey: string | undefined,
+): ImageProviderId {
+  const preferred = requestedProvider && isKnownImageProvider(requestedProvider)
+    ? requestedProvider
+    : undefined;
+
+  if (preferred) {
+    const managed = isServerConfiguredProvider('image', preferred);
+    const apiKey = resolveImageApiKey(preferred, managed ? undefined : clientApiKey);
+    if (!IMAGE_PROVIDERS[preferred].requiresApiKey || apiKey) return preferred;
+  }
+
+  const serverProviders = getServerImageProviders();
+  const configuredProvider = Object.keys(serverProviders).find((providerId) => {
+    const provider = isKnownImageProvider(providerId) ? IMAGE_PROVIDERS[providerId] : undefined;
+    if (!provider) return false;
+    return !provider.requiresApiKey || Boolean(resolveImageApiKey(providerId));
+  });
+  if (configuredProvider && isKnownImageProvider(configuredProvider)) {
+    return configuredProvider;
+  }
+
+  // Preserve the normal 401 response when no configured provider is usable.
+  return preferred ?? 'seedream';
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as ImageGenerationOptions;
@@ -43,12 +84,31 @@ export async function POST(request: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing prompt');
     }
 
-    const providerId = (request.headers.get('x-image-provider') || 'seedream') as ImageProviderId;
+    const requestedProvider = request.headers.get('x-image-provider')?.trim() || undefined;
+    const rawClientApiKey =
+      request.headers.get('x-api-key')?.trim() ||
+      request.headers.get('x-image-api-key')?.trim() ||
+      undefined;
+    const providerId = resolveRequestProvider(requestedProvider, rawClientApiKey);
     // Managed providers are admin-owned: ignore any client-sent key/baseUrl.
     const managed = isServerConfiguredProvider('image', providerId);
-    const clientApiKey = managed ? undefined : request.headers.get('x-api-key') || undefined;
-    const clientBaseUrl = managed ? undefined : request.headers.get('x-base-url') || undefined;
-    const clientModel = request.headers.get('x-image-model') || undefined;
+    const clientApiKey = managed ? undefined : rawClientApiKey;
+    const clientBaseUrl = managed
+      ? undefined
+      : request.headers.get('x-base-url')?.trim() ||
+        request.headers.get('x-image-base-url')?.trim() ||
+        undefined;
+    const requestedModel = request.headers.get('x-image-model')?.trim() || undefined;
+    const requestedModelBelongsToProvider = requestedProvider === providerId;
+    const serverModel = getServerImageProviders()[providerId]?.defaultModel;
+    const clientModel = requestedModelBelongsToProvider
+      ? requestedModel
+      : undefined;
+    const model = clientModel || serverModel || IMAGE_PROVIDERS[providerId]?.models[0]?.id;
+
+    if (requestedProvider && !isKnownImageProvider(requestedProvider)) {
+      return apiError('INVALID_REQUEST', 400, `Unsupported image provider: ${requestedProvider}`);
+    }
 
     if (clientBaseUrl && process.env.NODE_ENV === 'production') {
       const ssrfError = await validateUrlForSSRF(clientBaseUrl);
@@ -77,11 +137,11 @@ export async function POST(request: NextRequest) {
     }
 
     log.info(
-      `Generating image: provider=${providerId}, model=${clientModel || 'default'}, ` +
+      `Generating image: provider=${providerId}, model=${model || 'default'}, ` +
         `prompt="${body.prompt.slice(0, 80)}...", size=${body.width ?? 'auto'}x${body.height ?? 'auto'}`,
     );
 
-    const result = await generateImage({ providerId, apiKey, baseUrl, model: clientModel }, body);
+    const result = await generateImage({ providerId, apiKey, baseUrl, model }, body);
 
     return apiSuccess({ result });
   } catch (error) {

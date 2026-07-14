@@ -92,7 +92,10 @@ export class AudioPlayer {
    * @param audioUrl Optional server-generated audio URL (takes priority over IndexedDB)
    * @returns true if audio started playing, false if no audio (TTS disabled or not generated)
    */
-  public async play(audioId: string, audioUrl?: string): Promise<boolean> {
+  public async play(
+    audioId: string,
+    audioUrl?: string,
+  ): Promise<boolean> {
     try {
       // 1. Try audioUrl first (server-generated TTS)
       if (audioUrl) {
@@ -108,7 +111,6 @@ export class AudioPlayer {
         });
         try {
           await this.audio.play();
-          this.audio.playbackRate = this.playbackRate;
           return true;
         } catch (playError) {
           this.stop();
@@ -137,7 +139,6 @@ export class AudioPlayer {
             );
             throw retryError;
           }
-          this.audio.playbackRate = this.playbackRate;
           return true;
         }
       }
@@ -189,7 +190,6 @@ export class AudioPlayer {
         throw playError;
       }
       // Re-apply after play() — some browsers reset during load
-      this.audio.playbackRate = this.playbackRate;
       return true;
     } catch (error) {
       log.error('Failed to play audio:', error);

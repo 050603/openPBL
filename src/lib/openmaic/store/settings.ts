@@ -24,6 +24,10 @@ import { WEB_SEARCH_PROVIDERS } from '@openmaic/lib/web-search/constants';
 import type { BaiduSubSources, WebSearchProviderId } from '@openmaic/lib/web-search/types';
 import { createLogger } from '@openmaic/lib/logger';
 import {
+  registerTtsVoiceTimingCalibration,
+  type TtsVoiceTimingCalibration,
+} from '@openmaic/lib/audio/tts-timing';
+import {
   validateProvider,
   resolveSelectedModel,
   isLLMProviderConfigured,
@@ -87,6 +91,8 @@ export interface SettingsState {
       isServerConfigured?: boolean;
       /** Admin/server-level force-off (server-providers.yml / env). Overrides `enabled`. */
       serverDisabled?: boolean;
+      defaultVoice?: string;
+      timingCalibrations?: TtsVoiceTimingCalibration[];
       // Custom provider fields
       customName?: string;
       customDefaultBaseUrl?: string;
@@ -1247,7 +1253,7 @@ export const useSettingsStore = create<SettingsState>()(
               // generation, plus an admin/server-level force-off flag (#665).
               tts: Record<
                 string,
-                { disabled?: boolean; models?: string[]; defaultModel?: string; priority?: number }
+                { disabled?: boolean; models?: string[]; defaultModel?: string; priority?: number; defaultVoice?: string; timingCalibrations?: TtsVoiceTimingCalibration[] }
               >;
               asr: Record<string, { models?: string[]; defaultModel?: string; priority?: number }>;
               pdf: Record<string, { priority?: number }>;
@@ -1313,10 +1319,17 @@ export const useSettingsStore = create<SettingsState>()(
                     isServerConfigured: !info.disabled,
                     serverDisabled: info.disabled === true,
                     ...(info.defaultModel ? { modelId: info.defaultModel } : {}),
+                    ...(info.defaultVoice ? { defaultVoice: info.defaultVoice } : {}),
+                    ...(info.timingCalibrations?.length
+                      ? { timingCalibrations: info.timingCalibrations }
+                      : {}),
                     ...(info.models?.length
                       ? { customModels: info.models.map((id) => ({ id, name: id })) }
                       : {}),
                   };
+                  for (const calibration of info.timingCalibrations ?? []) {
+                    registerTtsVoiceTimingCalibration(calibration);
+                  }
                 }
               }
 

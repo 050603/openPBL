@@ -5,6 +5,11 @@
   "packageManager": "pnpm@10.4.1",
   "scripts": {
     "dev": "next dev",
+    "dev:next": "next dev -p 3100",
+    "dev:dual": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openpbl-versions.ps1 -Action Start",
+    "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openpbl-versions.ps1 -Action Stop",
+    "versions:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openpbl-versions.ps1 -Action Status",
+    "promote:new": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/promote-new-version.ps1",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

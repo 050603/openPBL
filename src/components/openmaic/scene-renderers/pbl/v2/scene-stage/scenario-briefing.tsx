@@ -118,7 +118,7 @@ function BriefingSection({
   readonly children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-cyan-100/[0.12] bg-slate-800/[0.46] p-4 shadow-[0_12px_30px_rgba(6,16,34,0.20)]">
+    <section className="rounded-xl border border-cyan-100/[0.12] bg-stone-800/[0.46] p-4 shadow-[0_12px_30px_rgba(6,16,34,0.20)]">
       <div className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-cyan-200/80">
         <span aria-hidden className="text-xs leading-none">
           {emoji}
@@ -146,7 +146,7 @@ function CharacterCard({
   const persona = character.persona?.trim();
   const situation = character.situation?.trim();
   return (
-    <li className="rounded-lg border border-cyan-100/[0.12] bg-slate-700/[0.30] p-2.5">
+    <li className="rounded-lg border border-cyan-100/[0.12] bg-stone-700/[0.30] p-2.5">
       <div className="flex items-center gap-2.5">
         <BriefingAvatar name={character.name} avatar={character.avatar} accent={accent} />
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-white">

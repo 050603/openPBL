@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -7,6 +7,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from "react";
 import type { ReactNode } from "react";
 import {
@@ -30,6 +31,7 @@ import type {
   GroupAnnouncement,
   GroupBoard,
   GroupBoardMode,
+  OfflineInterventionRecord,
   ProjectGroup,
   ReflectionRecord,
   RubricScore,
@@ -37,12 +39,15 @@ import type {
   Student,
   TeacherFeedback,
   TeamContribution,
+  TeacherAgentDirective,
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
-import { DEFAULT_STAGES } from "./types";
+import { DEFAULT_EVALUATION_FLOWS, DEFAULT_STAGES } from "./types";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import { loadJSON, saveJSON } from "./storage";
 import { generateInviteCode, normalizeInviteCode } from "./invite-code";
+import { toast } from "sonner";
 
 const IDENTITY_KEY = "openpbl.identity.v1";
 // Separate identity keys per role to prevent teacher/student identity cross-contamination
@@ -74,6 +79,10 @@ type IdentityState = Pick<
 };
 
 type SessionApi = SessionState & {
+  saveState: "idle" | "unsaved" | "saving" | "saved" | "error";
+  lastSavedAt?: string;
+  saveError?: string;
+  retrySave: () => Promise<void>;
   setUser: (u: SessionState["user"]) => void;
   createCourse: (input: Partial<Course>) => Course;
   updateCourse: (id: string, patch: Partial<Course>) => void;
@@ -116,6 +125,9 @@ type SessionApi = SessionState & {
   setPreviewUpload: (courseId: string, uploadId?: string) => void;
   upsertTeamContribution: (contribution: Omit<TeamContribution, "id" | "courseId" | "updatedAt"> & { id?: string; courseId?: string }) => TeamContribution | undefined;
   upsertAiSupport: (support: Omit<AiSupportRecord, "id" | "courseId" | "createdAt" | "updatedAt"> & { id?: string; courseId?: string }) => AiSupportRecord | undefined;
+  addOfflineIntervention: (input: Omit<OfflineInterventionRecord, "id" | "teacherName" | "createdAt"> & { id?: string; teacherName?: string }) => OfflineInterventionRecord;
+  resolveInterventionSignals: (courseId: string, signalIds: string[]) => void;
+  upsertTeacherAgentDirective: (input: Omit<TeacherAgentDirective, "id" | "teacherName" | "createdAt" | "updatedAt"> & { id?: string; teacherName?: string; createdAt?: string }) => TeacherAgentDirective;
   setUiState: (courseId: string, patch: Partial<CourseUiState>) => void;
   addActivity: (courseId: string, action: string, detail?: string, actor?: string) => void;
   setPresentingGroup: (courseId: string, groupId: string) => void;
@@ -168,9 +180,11 @@ async function postSessionAction(action: SessionAction): Promise<SessionState> {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialSessionState);
   const stateRef = useRef(state);
+  const [saveState, setSaveState] = useState<SessionApi["saveState"]>("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<string>();
+  const [saveError, setSaveError] = useState<string>();
+  const lastFailedActionRef = useRef<SessionAction | null>(null);
   const pollingRef = useRef(true);
-  const readErrorShownRef = useRef(false);
-  const writeErrorShownRef = useRef(false);
   // Tracks the number of in-flight commit POSTs. Only the LAST response
   // (when pending drops to 0) triggers a HYDRATE; intermediate responses
   // are ignored so they can't overwrite newer local optimistic state.
@@ -232,7 +246,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                           {
                             studentId: identity.studentId!,
                             name: identity.studentName!,
-                            role: identity.joinedGroupRole ?? "鎴愬憳",
+                            role: identity.joinedGroupRole ?? "成员",
                           },
                         ],
                       }
@@ -249,7 +263,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function refresh() {
-    // Skip polling refresh while commits are in-flight 鈥?the server file
+    // Skip polling refresh while commits are in-flight — the server file
     // may not yet reflect those actions (they're queued), and HYDRATEing
     // would overwrite local optimistic state, causing the same
     // "course disappears" symptom as the commit race condition.
@@ -259,10 +273,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "HYDRATE", payload: next });
     } catch (error) {
       console.error("[session] Failed to fetch session state:", error);
-      if (!readErrorShownRef.current) {
-        readErrorShownRef.current = true;
-        window.alert("无法读取平台真实数据，请检查会话接口或服务器数据文件后刷新页面。");
-      }
+      toast.error("无法读取课堂数据", { id: "session-read-error", description: "请检查会话接口或服务器数据文件后重试。" });
       if (!stateRef.current.hydrated) {
         dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
       }
@@ -272,6 +283,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   function commit(action: SessionAction, options?: { localOnly?: boolean }) {
     dispatch(action);
     if (options?.localOnly) return;
+    setSaveState("saving");
+    setSaveError(undefined);
     pendingCommitsRef.current++;
     void postSessionAction(action)
       .then((next) => {
@@ -284,16 +297,49 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // response contains ALL accumulated changes.
         if (pendingCommitsRef.current === 0) {
           dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
+          setLastSavedAt(new Date().toISOString());
+          setSaveState("saved");
+          lastFailedActionRef.current = null;
         }
       })
       .catch((error) => {
         pendingCommitsRef.current--;
         console.error("[session] Failed to persist session action:", error);
-        if (!writeErrorShownRef.current) {
-          writeErrorShownRef.current = true;
-          window.alert("数据保存失败，请检查服务器状态。当前页面内容可能尚未写入真实数据源。");
-        }
+        lastFailedActionRef.current = action;
+        setSaveState("error");
+        setSaveError("数据保存失败，请检查服务器状态后重试。");
+        toast.error("课堂数据尚未保存", { id: "session-write-error", description: "当前页面内容仍保留在本地，可直接重试。" });
       });
+  }
+
+  async function retrySave() {
+    const action = lastFailedActionRef.current;
+    if (!action) return;
+    setSaveState("saving");
+    setSaveError(undefined);
+    // Route retry through the same pendingCommitsRef serialization as commit():
+    // bump the in-flight counter so polling refresh is suppressed while the
+    // retry is in flight, and only HYDRATE from the response when this is the
+    // last pending commit. Otherwise a concurrent commit's response could be
+    // overwritten by the (older) retry response.
+    pendingCommitsRef.current++;
+    try {
+      const next = await postSessionAction(action);
+      pendingCommitsRef.current--;
+      if (pendingCommitsRef.current === 0) {
+        dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
+        setLastSavedAt(new Date().toISOString());
+        setSaveState("saved");
+        lastFailedActionRef.current = null;
+        toast.success("已重新保存");
+      }
+    } catch (error) {
+      pendingCommitsRef.current--;
+      console.error("[session] Retry failed:", error);
+      setSaveState("error");
+      setSaveError("重试失败，请确认服务器可用。");
+      toast.error("重新保存失败");
+    }
   }
 
   useEffect(() => {
@@ -343,6 +389,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const api: SessionApi = useMemo(() => {
     return {
       ...state,
+      saveState,
+      lastSavedAt,
+      saveError,
+      retrySave,
       setUser(u) {
         commit({ type: "SET_USER", payload: u }, { localOnly: true });
       },
@@ -358,6 +408,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           hours: input.hours ?? 8,
           summary: input.summary ?? "",
           drivingQuestion: input.drivingQuestion ?? "",
+          pblConfig: normalizePblCourseConfig(input.pblConfig),
           status: "draft",
           stages: input.stages ?? DEFAULT_STAGES,
           currentStageIndex: 0,
@@ -366,7 +417,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             knowledgePoints: [],
             teachingOutline: [],
             lessonOutline: [],
-            evaluationPlan: { dimensions: [], overallRubric: "" },
+            evaluationPlan: {
+              dimensions: [],
+              overallRubric: "",
+              flows: DEFAULT_EVALUATION_FLOWS.map((flow) => ({
+                ...flow,
+                evidenceRequirements: [...flow.evidenceRequirements],
+              })),
+            },
           },
           classConfig: undefined,
           inviteCode: undefined,
@@ -387,6 +445,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           uploads: [],
           teamContributions: [],
           aiSupports: [],
+          teacherInterventions: [],
+          stageTransitions: [],
+          evaluations: [],
           uiState: {},
           createdAt: now,
           updatedAt: now,
@@ -436,7 +497,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!target) {
           return { ok: false, reason: "邀请码无效，或教师尚未开始授课" };
         }
-        const trimmedName = name?.trim() || "瀛︾敓";
+        const trimmedName = name?.trim() || "学生";
 
         // ===== Same-name account merge =====
         // If a student with the same name already exists in this course,
@@ -474,11 +535,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         saveJSON(IDENTITY_KEY, identity);
         commit({ type: "SET_USER", payload: studentUser });
         commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student } });
-        if (existing) {
-          console.log(
-            `[session] merged same-name student "${trimmedName}" into existing account ${existing.id}`,
-          );
-        }
         return { ok: true, course: target };
       },
       leaveClass() {
@@ -517,12 +573,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Remove stale history entry
           const history = loadJSON<LeftClassRecord[]>(LEFT_CLASS_HISTORY_KEY, []);
           saveJSON(LEFT_CLASS_HISTORY_KEY, history.filter((r) => r.courseId !== record.courseId));
-          return { ok: false as const, reason: "璇惧爞宸茬粨鏉熸垨涓嶅瓨鍦紝鏃犳硶閲嶆柊鍔犲叆" };
+          return { ok: false as const, reason: "课堂已结束或不存在，无法重新加入" };
         }
         // Check if student is still in the course's student list
         const existingStudent = target.students.find((s) => s.id === record.studentId);
         if (existingStudent) {
-          // Student record still exists (teacher may not have removed them) 鈥?just restore identity
+          // Student record still exists (teacher may not have removed them) — just restore identity
           const studentUser = { role: "student" as const, name: record.studentName };
           const identity: IdentityState = {
             user: studentUser,
@@ -536,7 +592,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           commit({ type: "SET_USER", payload: studentUser });
           commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student: existingStudent } });
         } else {
-          // Student was removed from the course 鈥?re-add them
+          // Student was removed from the course — re-add them
           const student: Student = {
             id: record.studentId,
             name: record.studentName,
@@ -613,6 +669,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           stageKey: input.stageKey,
           kind: input.kind,
           content: input.content,
+          sourceRole: input.sourceRole ?? "teacher",
+          sourceName: input.sourceName ?? state.user.name,
+          evidence: input.evidence ?? [],
+          status: input.status ?? "open",
           createdAt: new Date().toISOString(),
         };
         commit({ type: "ADD_FEEDBACK", payload: { courseId, feedback } });
@@ -858,11 +918,44 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           suggestions: input.suggestions,
           evidence: input.evidence,
           status: input.status,
+          source: input.source,
+          editedContent: input.editedContent,
+          structuredPayload: input.structuredPayload,
+          adoption: input.adoption,
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
         };
         commit({ type: "UPSERT_AI_SUPPORT", payload: { courseId, support } });
         return support;
+      },
+      addOfflineIntervention(input) {
+        const intervention: OfflineInterventionRecord = {
+          ...input,
+          id: input.id ?? makeRecordId("offline-intervention"),
+          teacherName: input.teacherName ?? state.user.name,
+          createdAt: new Date().toISOString(),
+        };
+        commit({ type: "ADD_OFFLINE_INTERVENTION", payload: { courseId: input.courseId, intervention } });
+        return intervention;
+      },
+      resolveInterventionSignals(courseId, signalIds) {
+        if (!signalIds.length) return;
+        commit({ type: "RESOLVE_INTERVENTION_SIGNALS", payload: { courseId, signalIds } });
+      },
+      upsertTeacherAgentDirective(input) {
+        const existing = state.courses
+          .find((course) => course.id === input.courseId)
+          ?.teacherAgentDirectives?.find((directive) => directive.id === input.id);
+        const now = new Date().toISOString();
+        const directive: TeacherAgentDirective = {
+          ...input,
+          id: input.id ?? makeRecordId("teacher-directive"),
+          teacherName: input.teacherName ?? state.user.name,
+          createdAt: input.createdAt ?? existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+        commit({ type: "UPSERT_TEACHER_AGENT_DIRECTIVE", payload: { courseId: input.courseId, directive } });
+        return directive;
       },
       setUiState(courseId, patch) {
         commit({ type: "SET_UI_STATE", payload: { courseId, patch } });
@@ -898,7 +991,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       refresh,
     };
-  }, [state]);
+  }, [state, saveState, lastSavedAt, saveError]);
 
   return <SessionContext.Provider value={api}>{children}</SessionContext.Provider>;
 }
@@ -937,8 +1030,8 @@ function defaultTodos(): CourseTodo[] {
     },
     {
       id: "todo-join-group",
-      title: "加入小组",
-      description: "选择或创建小组，开启协作。",
+      title: "确认个人项目空间",
+      description: "确认系统已建立个人项目与 AI 伴学小组。",
       stageKey: "launch",
       completedBy: [],
     },
@@ -946,7 +1039,7 @@ function defaultTodos(): CourseTodo[] {
       id: "todo-pick-direction",
       title: "选择兴趣方向",
       description: "确定你希望研究的问题切入点。",
-      stageKey: "group",
+      stageKey: "proposal",
       completedBy: [],
     },
   ];

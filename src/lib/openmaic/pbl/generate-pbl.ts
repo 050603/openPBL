@@ -20,6 +20,7 @@ import { IssueboardMCP } from './mcp/issueboard-mcp';
 import { buildPBLSystemPrompt } from './pbl-system-prompt';
 import type { PBLMode } from './types';
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 export interface GeneratePBLConfig {
   projectTopic: string;
@@ -31,6 +32,7 @@ export interface GeneratePBLConfig {
 
 export interface GeneratePBLCallbacks {
   onProgress?: (message: string) => void;
+  signal?: AbortSignal;
 }
 
 /**
@@ -46,6 +48,7 @@ export async function generatePBLContent(
   callbacks?: GeneratePBLCallbacks,
   thinkingConfig?: ThinkingConfig,
 ): Promise<PBLProjectConfig> {
+  throwIfAborted(callbacks?.signal);
   const { languageDirective } = config;
 
   // Initialize shared state
@@ -292,6 +295,7 @@ export async function generatePBLContent(
       prompt: `Design a PBL project. Start in project_info mode by setting the project title and description.`,
       tools: pblTools,
       stopWhen: stepCountIs(30),
+      abortSignal: callbacks?.signal,
       onStepFinish: ({ toolCalls, text }) => {
         if (text) {
           callbacks?.onProgress?.(`Thinking: ${text.slice(0, 100)}...`);
@@ -307,6 +311,7 @@ export async function generatePBLContent(
     undefined,
     thinkingConfig,
   );
+  throwIfAborted(callbacks?.signal);
 
   // Check if mode reached idle; if not, the LLM may have stopped early
   if (modeMCP.getCurrentMode() !== 'idle') {
@@ -338,6 +343,7 @@ async function postProcessPBL(
   callbacks?: GeneratePBLCallbacks,
   thinkingConfig?: ThinkingConfig,
 ): Promise<void> {
+  throwIfAborted(callbacks?.signal);
   const { issueboard, agents } = config;
 
   if (issueboard.issues.length === 0) {
@@ -388,11 +394,13 @@ Format the questions as a numbered list.`;
         model,
         system: questionAgent.system_prompt,
         prompt: context,
+        abortSignal: callbacks?.signal,
       },
       'pbl-post-process',
       undefined,
       thinkingConfig,
     );
+    throwIfAborted(callbacks?.signal);
 
     const generatedQuestions = questionResult.text;
     firstIssue.generated_questions = generatedQuestions;
@@ -407,6 +415,7 @@ Format the questions as a numbered list.`;
 
     callbacks?.onProgress?.('Initial questions generated and welcome message added.');
   } catch (error) {
+    if (callbacks?.signal?.aborted) throw error;
     callbacks?.onProgress?.(
       `Warning: Failed to generate initial questions: ${error instanceof Error ? error.message : String(error)}`,
     );

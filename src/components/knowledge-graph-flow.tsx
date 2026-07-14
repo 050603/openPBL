@@ -8,6 +8,8 @@
  * - 路径高亮：选中节点时高亮其相邻节点与连边，其余节点淡化
  * - 外部联动：通过 activeNodeId 高亮当前讲解的知识点（与 OpenMAIC 场景联动）
  * - 层级布局：foundation → core → application → extension 自上而下分层
+ * - 全屏模式：支持 isFullscreen 切换
+ * - 节点选中回调：onNodeSelect 返回选中节点 ID
  */
 
 import "@xyflow/react/dist/style.css";
@@ -28,9 +30,11 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { Handle } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KnowledgeGraph, KnowledgeGraphNode, KnowledgePoint } from "@/lib/session/types";
 import { normalizeKnowledgeGraphForDisplay } from "@/components/knowledge-graph";
+import { cn } from "@/lib/utils";
 
 // ===== 层级配色 =====
 type Level = NonNullable<KnowledgeGraphNode["level"]>;
@@ -172,7 +176,7 @@ function layoutNodes(nodes: KnowledgeGraphNode[]): { id: string; position: { x: 
     tierNodes.forEach((node, idx) => {
       results.push({
         id: node.id,
-        position: {
+        position: node.position ?? {
           x: -totalWidth / 2 + idx * NODE_GAP,
           y: tierIndex * TIER_HEIGHT,
         },
@@ -203,12 +207,21 @@ export function KnowledgeGraphFlow({
   activeNodeId,
   height = 360,
   showMiniMap = true,
+  isFullscreen = false,
+  onToggleFullscreen,
+  onNodeSelect,
+  onNodePositionChange,
 }: {
   graph?: KnowledgeGraph;
   points?: KnowledgePoint[];
   activeNodeId?: string | null;
   height?: number;
   showMiniMap?: boolean;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  /** 节点选中回调，返回选中的节点 ID（再次点击同一节点返回 null） */
+  onNodeSelect?: (nodeId: string | null) => void;
+  onNodePositionChange?: (nodeId: string, position: { x: number; y: number }) => void;
 }) {
   const normalized = useMemo(
     () => normalizeKnowledgeGraphForDisplay(graph, points),
@@ -218,6 +231,15 @@ export function KnowledgeGraphFlow({
   const layout = useMemo(() => layoutNodes(normalized.nodes), [normalized.nodes]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const highlightId = activeNodeId ?? selectedId;
+  // ref 暂存待通知的 nodeId，在 effect 中回调 onNodeSelect，
+  // 避免在 setState updater 中触发父组件渲染
+  const pendingSelectRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (pendingSelectRef.current !== undefined) {
+      onNodeSelect?.(pendingSelectRef.current);
+      pendingSelectRef.current = undefined;
+    }
+  });
 
   const baseNodes: Node[] = useMemo(() => {
     return normalized.nodes.map((node) => {
@@ -295,19 +317,29 @@ export function KnowledgeGraphFlow({
   }, [highlightId, normalized.edges, setNodes, setEdges]);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    setSelectedId((prev) => (prev === node.id ? null : node.id));
+    setSelectedId((prev) => {
+      const next = prev === node.id ? null : node.id;
+      pendingSelectRef.current = next;
+      return next;
+    });
   }, []);
 
   if (normalized.nodes.length === 0) {
     return (
-      <div className="grid h-full place-items-center rounded-[8px] border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+      <div className="grid h-full place-items-center rounded-[8px] border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
         暂无知识图谱。请先生成或添加知识点。
       </div>
     );
   }
 
   return (
-    <div className="h-full w-full" style={{ minHeight: height }}>
+    <div
+      className={cn(
+        "relative h-full w-full",
+        isFullscreen && "fixed inset-0 z-50 bg-white",
+      )}
+      style={isFullscreen ? { minHeight: "100vh" } : { minHeight: height }}
+    >
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
@@ -315,6 +347,7 @@ export function KnowledgeGraphFlow({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onNodeDragStop={(_, node) => onNodePositionChange?.(node.id, node.position)}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
@@ -340,6 +373,16 @@ export function KnowledgeGraphFlow({
           ) : null}
         </ReactFlow>
       </ReactFlowProvider>
+      {onToggleFullscreen && (
+        <button
+          type="button"
+          onClick={onToggleFullscreen}
+          className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-md border border-stone-200 bg-white text-stone-500 shadow-sm transition-colors hover:bg-stone-50 hover:text-stone-700"
+          title={isFullscreen ? "退出全屏" : "全屏显示"}
+        >
+          {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </button>
+      )}
     </div>
   );
 }

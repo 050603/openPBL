@@ -8,10 +8,22 @@ import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constant
 import type {
   UserRequirements,
   SceneOutline,
+  SceneResourceType,
+  PblDetailKind,
   PdfImage,
   ImageMapping,
 } from '@openmaic/lib/types/generation';
+import type { WidgetType } from '@openmaic/lib/types/widgets';
 import { buildPrompt, PROMPT_IDS } from '@openmaic/lib/prompts';
+import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
+import {
+  PBL_STAGE_DEFINITIONS,
+  formatPblStageDefinitionsForPrompt,
+  PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS,
+} from '@/lib/openmaic/pbl/course-template';
+import { normalizePblStageKey } from '@/lib/pbl-time-model';
+import { rescalePblDetailDurations } from '@/lib/pbl-time-model';
+import { resolveCompanionIds } from '@/lib/companion/stage-policy';
 import { formatImageDescription, formatImagePlaceholder } from './prompt-formatters';
 import { parseJsonResponse } from './json-repair';
 import { uniquifyMediaElementIds } from './scene-builder';
@@ -27,6 +39,23 @@ const log = createLogger('Generation');
  */
 export const DEFAULT_LANGUAGE_DIRECTIVE =
   'Teach in the language that matches the user requirement.';
+
+/**
+ * Preserve the semantic page plan produced by the outline model.
+ *
+ * Page boundaries are a curriculum decision, not a fixed seconds-per-page
+ * calculation. The outline model may return one or many details for a parent
+ * activity; each detail is already one semantic PPT/interaction resource. In
+ * particular, a teacher resource's module duration describes time for students
+ * to perform the classroom activity and must never manufacture extra pages or
+ * narration. Keep this normalizer at the existing call sites so ordering is
+ * deterministic without changing the model's content plan.
+ */
+export function normalizeSceneOutlinesForDuration(
+  outlines: ReadonlyArray<SceneOutline>,
+): SceneOutline[] {
+  return outlines.map((outline, index) => ({ ...outline, order: index }));
+}
 
 /**
  * Generate scene outlines from user requirements
@@ -92,7 +121,11 @@ export async function generateSceneOutlinesFromRequirements(
   const hasSourceImages = (pdfImages?.length ?? 0) > 0;
 
   // Use simplified prompt variables
-  const prompts = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
+  const isPblCourse = requirements.pblProfile?.generationTemplate === 'pbl-six-stage';
+  const promptId = isPblCourse
+    ? PROMPT_IDS.PBL_COURSE
+    : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
+  const prompts = buildPrompt(promptId, {
     // New simplified variables
     requirement: requirements.requirement,
     pdfContent: pdfText ? pdfText.substring(0, MAX_PDF_CONTENT_CHARS) : 'None',
@@ -105,6 +138,16 @@ export async function generateSceneOutlinesFromRequirements(
     researchContext: options?.researchContext || 'None',
     // Server-side generation populates this via options; client-side populates via formatTeacherPersonaForPrompt
     teacherContext: options?.teacherContext || '',
+    pblProfile: requirements.pblProfile
+      ? formatPblCourseConfigForPrompt(requirements.pblProfile)
+      : '',
+    pblStages: isPblCourse ? formatPblStageDefinitionsForPrompt() : '',
+    ttsTimingContext: requirements.ttsTimingContext
+      ? JSON.stringify(requirements.ttsTimingContext, null, 2)
+      : 'No explicit calibration; use the conservative natural-speed fallback.',
+    requiredTeacherResourceStages: isPblCourse
+      ? PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS.join(', ')
+      : '',
   });
 
   if (!prompts) {
@@ -159,7 +202,11 @@ export async function generateSceneOutlinesFromRequirements(
     }));
 
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-    const result = uniquifyMediaElementIds(enriched);
+    const result = uniquifyMediaElementIds(
+      normalizeSceneOutlinesForDuration(
+        enforcePblOutlineContract(enriched, requirements),
+      ),
+    );
 
     callbacks?.onProgress?.({
       currentStage: 1,
@@ -204,27 +251,335 @@ export function sanitizeProceduralSkillOutline(outline: SceneOutline): SceneOutl
 export function applyOutlineFallbacks(
   outline: SceneOutline,
   hasLanguageModel: boolean,
-  options: { allowProceduralSkill?: boolean } = {},
+  options: { allowProceduralSkill?: boolean; personalProject?: boolean } = {},
 ): SceneOutline {
+  const normalizedOutline = normalizeInteractiveIntent(outline);
   // Ultra Mode: interactive scenes with widgetType + widgetOutline are valid
-  const hasWidgetConfig = outline.widgetType && outline.widgetOutline;
+  const hasWidgetConfig = normalizedOutline.widgetType && normalizedOutline.widgetOutline;
 
-  if (outline.widgetType === 'procedural-skill' && !options.allowProceduralSkill) {
-    log.warn(`Procedural-skill outline "${outline.title}" is not enabled, falling back to diagram`);
-    return sanitizeProceduralSkillOutline(outline);
+  if (normalizedOutline.widgetType === 'procedural-skill' && !options.allowProceduralSkill) {
+    log.warn(`Procedural-skill outline "${normalizedOutline.title}" is not enabled, falling back to diagram`);
+    return sanitizeProceduralSkillOutline(normalizedOutline);
   }
 
-  if (outline.type === 'interactive' && !outline.interactiveConfig && !hasWidgetConfig) {
+  if (normalizedOutline.type === 'interactive' && !normalizedOutline.interactiveConfig && !hasWidgetConfig) {
     log.warn(
-      `Interactive outline "${outline.title}" missing interactiveConfig and widget config, falling back to slide`,
+      `Interactive outline "${normalizedOutline.title}" missing widget config, using a simulation config`,
     );
-    return { ...outline, type: 'slide' };
+    return {
+      ...normalizedOutline,
+      type: 'interactive',
+      widgetType: 'simulation',
+      widgetOutline: { concept: normalizedOutline.title },
+    };
   }
-  if (outline.type === 'pbl' && (!outline.pblConfig || !hasLanguageModel)) {
+  if (options.personalProject && normalizedOutline.type === 'pbl') {
     log.warn(
-      `PBL outline "${outline.title}" missing pblConfig or languageModel, falling back to slide`,
+      `Personal-project outline "${normalizedOutline.title}" uses the legacy PBL scene type, falling back to a non-group slide`,
     );
-    return { ...outline, type: 'slide' };
+    const withoutPblConfig = { ...normalizedOutline };
+    delete withoutPblConfig.pblConfig;
+    return { ...withoutPblConfig, type: 'slide' };
   }
-  return outline;
+  if (normalizedOutline.type === 'pbl' && (!normalizedOutline.pblConfig || !hasLanguageModel)) {
+    log.warn(
+      `PBL outline "${normalizedOutline.title}" missing pblConfig or languageModel, falling back to slide`,
+    );
+    return { ...normalizedOutline, type: 'slide' };
+  }
+  return normalizedOutline;
+}
+
+/**
+ * Enforce the parts of the PBL generation contract that must not depend on an
+ * LLM remembering a prompt instruction. In particular, every non-AI-learning
+ * teaching activity gets a teacher-only support outline, and interactive
+ * learning requests retain their interactive output type.
+ */
+export function enforcePblOutlineContract(
+  outlines: SceneOutline[],
+  requirements: UserRequirements,
+): SceneOutline[] {
+  if (requirements.pblProfile?.generationTemplate !== 'pbl-six-stage') return outlines;
+
+  const normalized = outlines.map((outline) => {
+    const next = normalizeInteractiveIntent({
+      ...outline,
+      ...(normalizePblStageKey(outline.stageKey)
+        ? { stageKey: normalizePblStageKey(outline.stageKey) }
+        : {}),
+    });
+    const stage = PBL_STAGE_DEFINITIONS.find((item) => item.key === next.stageKey);
+    if (!stage) {
+      // An unlabelled PBL outline is never allowed to become student content
+      // by position or by its generated type. Keep it on the teacher side and
+      // make the missing phase visible to the coverage checker.
+      return normalizePblDetailMetadata({
+        ...next,
+        type: 'slide' as const,
+        audience: 'teacher' as const,
+        generationPurpose: 'facilitation-scaffold' as const,
+        resourceTypes: ['ppt', 'script'] as SceneResourceType[],
+      });
+    }
+
+    if (stage.key === 'ai-learning') {
+      return normalizePblDetailMetadata({
+        ...next,
+        stageLabel: next.stageLabel ?? stage.label,
+        audience: 'student' as const,
+        generationPurpose: 'knowledge-teaching' as const,
+      });
+    }
+
+    return normalizePblDetailMetadata({
+      ...next,
+      type: 'slide' as const,
+      stageLabel: next.stageLabel ?? stage.label,
+      audience: 'teacher' as const,
+      generationPurpose:
+        next.generationPurpose === 'teacher-resource'
+          ? 'teacher-resource' as const
+          : 'facilitation-scaffold' as const,
+      resourceTypes: ['ppt', 'script'] as SceneResourceType[],
+    });
+  });
+  const activities = requirements.pblTeachingActivities ?? [];
+  for (const activity of activities) {
+    const activityStageKey = normalizePblStageKey(activity.stageKey) ?? activity.stageKey;
+    const existing = normalized.find(
+      (outline) =>
+        outline.audience === 'teacher' &&
+        (outline.activityId === activity.activityId || outline.parentActivityId === activity.activityId),
+    );
+    if (activityStageKey === 'ai-learning') {
+      continue;
+    }
+    if (existing) {
+      existing.audience = 'teacher';
+      existing.generationPurpose =
+        existing.generationPurpose === 'teacher-resource'
+          ? 'teacher-resource'
+          : 'facilitation-scaffold';
+      existing.stageKey = activityStageKey;
+      existing.stageLabel =
+        PBL_STAGE_DEFINITIONS.find((item) => item.key === activityStageKey)?.label;
+      existing.resourceTypes = ['ppt', 'script'];
+      const normalizedExisting = normalizeInteractiveIntent(existing);
+      Object.assign(
+        existing,
+        normalizePblDetailMetadata({
+          ...normalizedExisting,
+          activityId: existing.activityId ?? activity.activityId,
+          parentActivityId: existing.parentActivityId ?? activity.activityId,
+          estimatedDuration: existing.estimatedDuration ?? activity.durationMin * 60,
+        }),
+      );
+      continue;
+    }
+
+    const stage = PBL_STAGE_DEFINITIONS.find((item) => item.key === activityStageKey);
+    const teacherSupportPurpose =
+      activityStageKey === 'launch' || activityStageKey === 'showcase'
+        ? 'teacher-resource'
+        : 'facilitation-scaffold';
+
+    normalized.push({
+      id: `teacher-activity-${activity.activityId}`,
+      type: 'slide',
+      title: `教师支架：${activity.title}`,
+      description: `${activity.requirement}${activity.teacherRole}`,
+      keyPoints: [
+        activity.teachingGoal,
+        activity.teacherRole,
+        activity.platformRole,
+        activity.aiRole,
+        activity.studentActivity,
+      ].filter(Boolean),
+      estimatedDuration: Math.max(60, activity.durationMin * 60),
+      order: normalized.length + 1,
+      stageKey: activityStageKey,
+      stageLabel: stage?.label ?? activityStageKey,
+      audience: 'teacher',
+      generationPurpose: teacherSupportPurpose,
+      activityId: activity.activityId,
+      parentActivityId: activity.activityId,
+      detailKind:
+        activityStageKey === 'launch'
+          ? 'teacher-introduction'
+          : activityStageKey === 'showcase'
+            ? 'showcase-coaching'
+            : 'project-scaffold',
+      targetDurationSec: Math.max(60, activity.durationMin * 60),
+      ttsPolicy: 'none',
+      resourceTypes: ['ppt', 'script'] as SceneResourceType[],
+      companionIds: resolveCompanionIds(activityStageKey, requirements.pblProfile.companionIds),
+      companionPrompt: `围绕课堂活动“${activity.title}”提供教师主持提示，并记录学生实际证据。`,
+    });
+  }
+
+  let withMetadata = normalized.map((outline) => {
+    const parentActivity = requirements.pblActivityCatalog?.find(
+      (activity) =>
+        activity.activityId === outline.parentActivityId ||
+        activity.activityId === outline.activityId,
+    );
+    const isStudentKnowledge =
+      outline.audience === 'student' && outline.stageKey === 'ai-learning';
+    const withCatalogDefaults: SceneOutline = {
+      ...outline,
+      ...(parentActivity && !outline.parentActivityId
+        ? { parentActivityId: parentActivity.activityId }
+        : {}),
+      ...(parentActivity && outline.targetDurationSec === undefined
+        ? { targetDurationSec: Math.max(60, parentActivity.durationMin * 60) }
+        : {}),
+      ...(isStudentKnowledge &&
+      parentActivity &&
+      (!outline.knowledgePointIds || outline.knowledgePointIds.length === 0)
+        ? { knowledgePointIds: [...parentActivity.knowledgePointIds] }
+        : {}),
+    };
+    return normalizePblDetailMetadata(withCatalogDefaults, parentActivity?.activityId);
+  });
+  const requiredKnowledgePoints = requirements.knowledgePoints ?? [];
+  const requiredKnowledgeIds = new Set(requiredKnowledgePoints.map((point) => point.id).filter(Boolean));
+  const studentIndexes = withMetadata
+    .map((outline, index) => ({ outline, index }))
+    .filter(({ outline }) => outline.audience === 'student' && outline.stageKey === 'ai-learning');
+  const coveredKnowledgeIds = new Set(
+    studentIndexes.flatMap(({ outline }) => outline.knowledgePointIds ?? []),
+  );
+  const missingKnowledgeIds = Array.from(requiredKnowledgeIds).filter(
+    (id) => !coveredKnowledgeIds.has(id),
+  );
+  if (missingKnowledgeIds.length > 0 && studentIndexes.length > 0) {
+    const targetIndex = studentIndexes[0].index;
+    const target = withMetadata[targetIndex];
+    const missingNames = requiredKnowledgePoints
+      .filter((point) => missingKnowledgeIds.includes(point.id))
+      .map((point) => point.name || point.id);
+    withMetadata = withMetadata.map((outline, index) =>
+      index === targetIndex
+        ? {
+            ...outline,
+            knowledgePointIds: Array.from(
+              new Set([...(outline.knowledgePointIds ?? []), ...missingKnowledgeIds]),
+            ),
+            keyPoints: Array.from(
+              new Set([...(outline.keyPoints ?? []), ...missingNames.map((name) => `知识点：${name}`)]),
+            ),
+            description: `${outline.description} 本场景还需覆盖：${missingNames.join('、')}。`,
+          }
+        : outline,
+    );
+    log.warn(
+      `PBL knowledge coverage was incomplete; attached ${missingKnowledgeIds.length} missing points to ${target.title}`,
+    );
+  }
+  const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({
+    id: activity.activityId,
+    durationMin: activity.durationMin,
+  }));
+  return rescalePblDetailDurations<SceneOutline>(withMetadata, parentActivities).map(
+    (outline, index) => ({ ...outline, order: index }),
+  );
+}
+
+const PBL_DETAIL_KINDS = new Set<PblDetailKind>([
+  'teacher-introduction',
+  'knowledge-explanation',
+  'interactive-practice',
+  'project-scaffold',
+  'project-practice',
+  'showcase-coaching',
+  'reflection-transfer',
+  'other',
+]);
+
+function defaultPblDetailKind(outline: SceneOutline): PblDetailKind {
+  if (outline.audience === 'teacher') {
+    if (outline.stageKey === 'launch') return 'teacher-introduction';
+    if (outline.stageKey === 'showcase') return 'showcase-coaching';
+    if (outline.stageKey === 'reflection') return 'reflection-transfer';
+    return 'project-scaffold';
+  }
+  if (outline.stageKey === 'ai-learning') {
+    return outline.type === 'interactive' ? 'interactive-practice' : 'knowledge-explanation';
+  }
+  return 'other';
+}
+
+function normalizePblDetailMetadata(
+  outline: SceneOutline,
+  fallbackActivityId?: string,
+): SceneOutline {
+  const parentActivityId =
+    outline.parentActivityId?.trim() || outline.activityId?.trim() || fallbackActivityId?.trim();
+  const detailKind = PBL_DETAIL_KINDS.has(outline.detailKind as PblDetailKind)
+    ? outline.detailKind
+    : defaultPblDetailKind(outline);
+  const targetDurationSec =
+    typeof outline.targetDurationSec === 'number' && Number.isFinite(outline.targetDurationSec)
+      ? Math.max(0, Math.round(outline.targetDurationSec))
+      : typeof outline.estimatedDuration === 'number' && Number.isFinite(outline.estimatedDuration)
+        ? Math.max(0, Math.round(outline.estimatedDuration))
+        : undefined;
+  const isStudentKnowledge =
+    outline.audience === 'student' && outline.stageKey === 'ai-learning';
+  const stageCompanionIds = outline.stageKey
+    ? resolveCompanionIds(outline.stageKey, outline.companionIds)
+    : outline.companionIds;
+
+  return {
+    ...outline,
+    ...(parentActivityId ? { parentActivityId } : {}),
+    ...(detailKind ? { detailKind } : {}),
+    ...(targetDurationSec !== undefined ? { targetDurationSec } : {}),
+    ...(stageCompanionIds?.length ? { companionIds: stageCompanionIds } : {}),
+    ttsPolicy: isStudentKnowledge ? outline.ttsPolicy ?? 'target-duration' : 'none',
+  };
+}
+
+function normalizeInteractiveIntent(outline: SceneOutline): SceneOutline {
+  if (outline.audience === 'teacher') {
+    return {
+      ...outline,
+      type: 'slide',
+      resourceTypes: ['ppt', 'script'] as SceneResourceType[],
+    };
+  }
+
+  const text = [outline.title, outline.description, ...(outline.keyPoints ?? [])]
+    .join(' ')
+    .toLowerCase();
+  const isAiLearningStudent = outline.stageKey === 'ai-learning' && outline.audience === 'student';
+  const requestsCode = outline.resourceTypes?.includes('code-interactive') ||
+    /\bcode\b|编程|代码|python|javascript|typescript/.test(text);
+  const requestsInteractive = outline.resourceTypes?.includes('interactive-demo') ||
+    outline.resourceTypes?.includes('code-interactive') ||
+    Boolean(outline.widgetType);
+
+  if (!isAiLearningStudent && outline.type !== 'interactive') {
+    return outline;
+  }
+  if (outline.type !== 'interactive' && !requestsInteractive) return outline;
+
+  const widgetType: WidgetType = requestsCode
+    ? 'code'
+    : outline.widgetType && outline.widgetType !== 'procedural-skill'
+      ? outline.widgetType
+      : 'simulation';
+  const widgetOutline = {
+    ...(outline.widgetOutline ?? {}),
+    concept: outline.widgetOutline?.concept || outline.title,
+    ...(widgetType === 'code' ? { language: outline.widgetOutline?.language || 'python' } : {}),
+  };
+
+  return {
+    ...outline,
+    ...(requestsInteractive ? { type: 'interactive' as const } : {}),
+    widgetType,
+    widgetOutline,
+  };
 }

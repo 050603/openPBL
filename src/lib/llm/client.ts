@@ -20,6 +20,17 @@ import type {
   TeachingOutlineSection,
 } from "../session/types";
 import { getActiveAiSettings } from "./settings";
+import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
+import {
+  applyConfirmedPblTimingPlan,
+  assessPblTeachingOutlineStructure,
+  normalizePblTeachingOutline,
+} from "@/lib/pbl-outline-normalization";
+import {
+  isPblModuleTimingPlanConfirmed,
+  normalizePblStageKey,
+  rescalePblDetailDurations,
+} from "@/lib/pbl-time-model";
 
 function env(name: string): string | undefined {
   if (typeof process !== "undefined" && process.env) return process.env[name];
@@ -72,6 +83,85 @@ export async function callLLM(
     jsonMode: opts.jsonMode ?? false,
     abortSignal: opts.abortSignal,
   });
+}
+
+/**
+ * Streaming LLM call — yields text deltas as they arrive.
+ * Uses the same settings as callLLM but with stream: true.
+ */
+export async function* callLLMStream(
+  messages: ChatMessage[],
+  opts: { abortSignal?: AbortSignal } = {},
+): AsyncGenerator<string, void, void> {
+  if (isLlmCoolingDown()) {
+    throw new LlmRateLimitError(Math.max(0, llmCooldownUntil - Date.now()));
+  }
+
+  const settings = await getActiveAiSettings();
+  const endpoint = settings.endpoint || env("OPENPBL_LLM_ENDPOINT");
+  const apiKey = settings.apiKey || env("OPENPBL_LLM_API_KEY");
+  const model = settings.model || env("OPENPBL_LLM_MODEL") || "gpt-5.4-mini";
+
+  if (!endpoint || !apiKey) throw new LlmNotConfiguredError();
+
+  const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.5,
+      stream: true,
+    }),
+    signal: opts.abortSignal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (res.status === 429) throw setRateLimitCooldown(res, text);
+    throw new Error(`LLM 调用失败：${res.status} ${text}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("LLM 流式响应为空");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: { delta?: { content?: string } }[];
+          };
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) yield delta;
+        } catch {
+          // Skip malformed chunks
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export async function isLlmReady(): Promise<boolean> {
@@ -148,13 +238,30 @@ async function callChatCompletions(
 }
 
 function extractJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("LLM 返回非 JSON");
-    return JSON.parse(match[0]);
+  const candidates = [
+    text.trim(),
+    text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Continue with the bounded JSON fragments below.
+    }
   }
+
+  const fragments = [
+    text.match(/\{[\s\S]*\}/)?.[0],
+    text.match(/\[[\s\S]*\]/)?.[0],
+  ].filter((fragment): fragment is string => Boolean(fragment));
+  for (const fragment of fragments) {
+    try {
+      return JSON.parse(fragment);
+    } catch {
+      // Keep the original error category for the UI.
+    }
+  }
+  throw new Error("LLM 返回非 JSON");
 }
 
 function emptyCourseContent(): CourseContent {
@@ -181,7 +288,14 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
   }
   return raw.map((item, index) => {
     const point = item && typeof item === "object"
-      ? item as { id?: string; name?: string; description?: string; keyInfo?: string; relatedIds?: unknown }
+      ? item as {
+          id?: string;
+          name?: string;
+          description?: string;
+          keyInfo?: string;
+          relatedIds?: unknown;
+          level?: unknown;
+        }
       : {};
     return {
       id: typeof point.id === "string" && point.id.trim() ? point.id.trim() : `kp-${index + 1}`,
@@ -191,6 +305,13 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
       relatedIds: Array.isArray(point.relatedIds)
         ? point.relatedIds.filter((id): id is string => typeof id === "string")
         : undefined,
+      level:
+        point.level === "foundation" ||
+        point.level === "core" ||
+        point.level === "application" ||
+        point.level === "extension"
+          ? point.level
+          : undefined,
     };
   });
 }
@@ -246,17 +367,36 @@ function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["k
   return { nodes, edges };
 }
 
-function validateLessonOutline(raw: unknown, input: GenerateInput): LessonOutlineSection[] {
+function applyGraphLevels(
+  knowledgePoints: CourseContent["knowledgePoints"],
+  graph: KnowledgeGraph,
+): CourseContent["knowledgePoints"] {
+  const levels = new Map(graph.nodes.map((node) => [node.id, node.level]));
+  return knowledgePoints.map((point) => ({
+    ...point,
+    level: point.level ?? levels.get(point.id),
+  }));
+}
+
+function validateLessonOutline(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "teachingOutline">>,
+): LessonOutlineSection[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error("AI 授知大纲生成失败：AI 未返回章节大纲。");
   }
-  return raw.map((item, index) => {
+  const details = raw.map((item, index) => {
     const section = item && typeof item === "object" ? item as Partial<LessonOutlineSection> : {};
+    const requestedStageKey = typeof section.stageKey === "string" ? section.stageKey.trim() : "";
+    const stageKey = input.pblConfig?.generationTemplate === "pbl-six-stage"
+      ? normalizePblStageKey(requestedStageKey) ?? "ai-learning"
+      : (requestedStageKey || input.stages[0]?.key) ?? "ai-learning";
+    const parent = context?.teachingOutline?.find((activity) => activity.id === section.parentActivityId);
+    const isStudentKnowledge = stageKey === "ai-learning";
     return {
       id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `lo-${index + 1}`,
-      stageKey: typeof section.stageKey === "string" && section.stageKey.trim()
-        ? section.stageKey.trim()
-        : input.stages[0]?.key ?? "ai-learning",
+      stageKey,
       title: requireText(section.title, "AI 授知大纲"),
       objectives: Array.isArray(section.objectives)
         ? section.objectives.map((objective) => String(objective)).filter(Boolean)
@@ -264,60 +404,381 @@ function validateLessonOutline(raw: unknown, input: GenerateInput): LessonOutlin
       activities: Array.isArray(section.activities)
         ? section.activities.map((activity) => String(activity)).filter(Boolean)
         : [],
-      durationMin: Number.isFinite(Number(section.durationMin)) ? Number(section.durationMin) : 45,
-    };
+      durationMin: Number.isFinite(Number(section.durationMin)) ? Math.max(1, Number(section.durationMin)) : 1,
+      parentActivityId:
+        typeof section.parentActivityId === "string" && section.parentActivityId.trim()
+          ? section.parentActivityId.trim()
+          : undefined,
+      detailKind:
+        typeof section.detailKind === "string" && DETAIL_KIND_VALUES.has(section.detailKind)
+          ? section.detailKind
+          : undefined,
+      knowledgePointIds: Array.isArray(section.knowledgePointIds)
+        ? section.knowledgePointIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+        : [],
+      resourceTypes: isStudentKnowledge
+        ? Array.isArray(section.resourceTypes)
+          ? section.resourceTypes.filter(
+              (type): type is NonNullable<LessonOutlineSection["resourceTypes"]>[number] =>
+                typeof type === "string" && RESOURCE_TYPE_VALUES.has(type),
+            )
+          : ["ppt"]
+        : ["ppt", "script"],
+      targetDurationSec: Number.isFinite(Number(section.targetDurationSec))
+        ? Math.max(60, Number(section.targetDurationSec))
+        : Math.max(60, (parent?.durationMin ?? Number(section.durationMin) ?? 1) * 60),
+      ttsPolicy: isStudentKnowledge ? "target-duration" : "none",
+    } satisfies LessonOutlineSection;
   });
+
+  if (input.pblConfig?.generationTemplate !== "pbl-six-stage" || !context?.knowledgePoints?.length) {
+    return details;
+  }
+
+  const aiDetails = details.filter((detail) => detail.stageKey === "ai-learning");
+  const covered = new Set(aiDetails.flatMap((detail) => detail.knowledgePointIds ?? []));
+  const missingPoints = context.knowledgePoints.filter((point) => !covered.has(point.id));
+  if (missingPoints.length === 0 || aiDetails.length === 0) return details;
+
+  const parentId = aiDetails[0].parentActivityId ?? context.teachingOutline?.find((activity) => activity.stageKey === "ai-learning")?.id;
+  const scaffoldDetails: LessonOutlineSection[] = missingPoints.map((point) => ({
+    id: `lo-knowledge-coverage-${point.id}`,
+    stageKey: "ai-learning",
+    title: `知识点补充：${point.name}`,
+    objectives: [point.description || point.name],
+    activities: [`通过一个短案例或检查题验证“${point.name}”与项目驱动问题的关系。`],
+    durationMin: 1,
+    parentActivityId: parentId,
+    detailKind: "knowledge-explanation",
+    knowledgePointIds: [point.id],
+    resourceTypes: ["ppt"],
+    targetDurationSec: 60,
+    ttsPolicy: "target-duration",
+  }));
+  const parentActivities = context.teachingOutline ?? [];
+  return rescalePblDetailDurations<LessonOutlineSection>(
+    [...details, ...scaffoldDetails],
+    parentActivities,
+  );
 }
 
-const OPEN_MAIC_USE_VALUES = new Set(["none", "student-ai-learning", "teacher-resource"]);
 const RESOURCE_TYPE_VALUES = new Set([
   "ppt",
   "interactive-demo",
+  "code-interactive",
   "script",
   "worksheet",
   "rubric",
   "project-brief",
 ]);
+const DETAIL_KIND_VALUES = new Set([
+  "teacher-introduction",
+  "knowledge-explanation",
+  "interactive-practice",
+  "project-scaffold",
+  "project-practice",
+  "showcase-coaching",
+  "reflection-transfer",
+  "other",
+]);
 
-function validateTeachingOutline(raw: unknown, input: GenerateInput): TeachingOutlineSection[] {
-  if (!Array.isArray(raw) || raw.length === 0) {
+type JsonRecord = Record<string, unknown>;
+
+function asJsonRecord(value: unknown): JsonRecord | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonRecord
+    : undefined;
+}
+
+function textFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const text = value
+      .map((item) => textFromUnknown(item))
+      .filter((item): item is string => Boolean(item))
+      .join("；");
+    return text || undefined;
+  }
+  const record = asJsonRecord(value);
+  if (!record) return undefined;
+  for (const key of ["text", "value", "content", "description", "action", "task", "responsibility", "role", "name", "label", "key"]) {
+    const text = textFromUnknown(record[key]);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function firstValue(record: JsonRecord, keys: ReadonlyArray<string>): unknown {
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null) return record[key];
+  }
+  return undefined;
+}
+
+function firstText(
+  record: JsonRecord,
+  keys: ReadonlyArray<string>,
+  nestedRecords: ReadonlyArray<JsonRecord | undefined> = [],
+): string | undefined {
+  const values = [record, ...nestedRecords];
+  for (const source of values) {
+    if (!source) continue;
+    for (const key of keys) {
+      const text = textFromUnknown(source[key]);
+      if (text) return text;
+    }
+  }
+  return undefined;
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const match = value.match(/-?\d+(?:\.\d+)?/);
+    if (match) {
+      const parsed = Number(match[0]);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
+}
+
+function stringListFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(/[,，、;；\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((item) => {
+      if (typeof item === "string") return stringListFromUnknown(item);
+      const record = asJsonRecord(item);
+      const id = record && firstText(record, ["id", "key", "value"]);
+      return id ? [id] : [];
+    })
+    .filter(Boolean);
+}
+
+function unwrapTeachingOutlinePayload(raw: unknown, depth = 0): unknown {
+  if (depth > 4) return undefined;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      return unwrapTeachingOutlinePayload(extractJson(raw), depth + 1);
+    } catch {
+      return undefined;
+    }
+  }
+  const record = asJsonRecord(raw);
+  if (!record) return undefined;
+  for (const key of [
+    "teachingOutline",
+    "teachingModules",
+    "courseModules",
+    "modules",
+    "outline",
+    "activities",
+    "items",
+    "课程模块",
+    "授课大纲",
+    "data",
+    "result",
+  ]) {
+    if (record[key] === undefined || record[key] === null) continue;
+    const payload = unwrapTeachingOutlinePayload(record[key], depth + 1);
+    if (payload !== undefined) return payload;
+  }
+  return undefined;
+}
+
+function normalizeTeachingOutlineStageKey(
+  raw: JsonRecord,
+  input: GenerateInput,
+  index: number,
+): string {
+  const requested = firstText(raw, ["stageKey", "stage_key", "stage", "phase", "moduleStage", "阶段"]);
+  const fallbackStage = input.stages[Math.min(index, Math.max(0, input.stages.length - 1))]?.key;
+  if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
+    return normalizePblStageKey(requested) ?? fallbackStage ?? "launch";
+  }
+  const exact = requested && input.stages.some((stage) => stage.key === requested) ? requested : undefined;
+  const byLabel = requested && input.stages.find((stage) => stage.label.trim() === requested)?.key;
+  return exact ?? byLabel ?? fallbackStage ?? "launch";
+}
+
+function normalizeTeachingActivityKind(value: unknown): TeachingOutlineSection["activityKind"] {
+  const normalized = textFromUnknown(value)?.trim().toLowerCase();
+  const aliases: Record<string, NonNullable<TeachingOutlineSection["activityKind"]>> = {
+    launch: "launch",
+    introduction: "launch",
+    引入: "launch",
+    启动: "launch",
+    knowledge: "knowledge",
+    teaching: "knowledge",
+    授知: "knowledge",
+    knowledge_teaching: "knowledge",
+    proposal: "proposal",
+    design: "proposal",
+    构思: "proposal",
+    practice: "practice",
+    make: "practice",
+    project_practice: "practice",
+    实践: "practice",
+    showcase: "showcase",
+    presentation: "showcase",
+    汇报: "showcase",
+    reflection: "reflection",
+    transfer: "reflection",
+    反思: "reflection",
+    other: "other",
+  };
+  return normalized ? aliases[normalized] : undefined;
+}
+
+/**
+ * Normalize the small structural variations commonly returned by LLMs.
+ * The six role fields are operationally required by the editor, so missing
+ * fields receive explicit, editable defaults instead of aborting the whole
+ * course generation request.
+ */
+export function normalizeTeachingOutlineResponse(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "moduleTimingPlan">>,
+): TeachingOutlineSection[] {
+  const payload = unwrapTeachingOutlinePayload(raw);
+  if (!Array.isArray(payload) || payload.length === 0) {
     throw new Error("授课大纲生成失败：AI 未返回教案级授课大纲。");
   }
-  const stageKeys = new Set(input.stages.map((stage) => stage.key));
-  return raw.map((item, index) => {
-    const section =
-      item && typeof item === "object" ? item as Partial<TeachingOutlineSection> : {};
-    const openMaicUse =
-      typeof section.openMaicUse === "string" && OPEN_MAIC_USE_VALUES.has(section.openMaicUse)
-        ? section.openMaicUse
-        : "none";
-    return {
-      id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `to-${index + 1}`,
-      stageKey: (() => {
-        const requested = typeof section.stageKey === "string" ? section.stageKey.trim() : "";
-        if (requested && stageKeys.has(requested)) return requested;
-        return input.stages[Math.min(index, input.stages.length - 1)]?.key ?? "launch";
-      })(),
-      title: requireText(section.title, "授课大纲"),
-      durationMin: Number.isFinite(Number(section.durationMin)) ? Number(section.durationMin) : 10,
-      teachingGoal: requireText(section.teachingGoal, "授课大纲"),
-      teacherRole: requireText(section.teacherRole, "授课大纲"),
-      platformRole: requireText(section.platformRole, "授课大纲"),
-      aiRole: requireText(section.aiRole, "授课大纲"),
-      studentActivity: requireText(section.studentActivity, "授课大纲"),
-      knowledgePointIds: Array.isArray(section.knowledgePointIds)
-        ? section.knowledgePointIds.filter((id): id is string => typeof id === "string")
-        : [],
-      openMaicUse,
-      resourceTypes: Array.isArray(section.resourceTypes)
-        ? section.resourceTypes.filter(
-            (type): type is NonNullable<TeachingOutlineSection["resourceTypes"]>[number] =>
-              typeof type === "string" && RESOURCE_TYPE_VALUES.has(type),
-          )
-        : [],
-      notes: typeof section.notes === "string" ? section.notes.trim() : "",
+
+  const parsed = payload.flatMap((item, index) => {
+    const section = asJsonRecord(item);
+    if (!section) return [];
+
+    const stageKey = normalizeTeachingOutlineStageKey(section, input, index);
+    const stageLabel = input.stages.find((stage) => stage.key === stageKey)?.label ?? stageKey;
+    const roleRecords = [
+      asJsonRecord(section.roles),
+      asJsonRecord(section.responsibilities),
+      asJsonRecord(section.roleAssignments),
+    ];
+    const missingFields: string[] = [];
+    const read = (keys: ReadonlyArray<string>, label: string): string => {
+      const value = firstText(section, keys, roleRecords);
+      if (value) return value;
+      missingFields.push(label);
+      return "";
     };
+
+    const title = read(["title", "name", "moduleName", "activityTitle", "课程模块"], "title") ||
+      `${stageLabel || "课程"}模块`;
+    const teachingGoal = read(
+      ["teachingGoal", "teaching_goal", "goal", "objective", "teachingObjective", "教学目标"],
+      "teachingGoal",
+    ) || `围绕“${title}”完成本模块的核心学习任务。`;
+    const teacherRole = read(
+      ["teacherRole", "teacher_role", "teacher", "teacherAction", "teacherTasks", "教师职责", "教师角色"],
+      "teacherRole",
+    ) || `教师组织“${title}”，明确任务要求并根据学生表现进行指导。`;
+    const platformRole = read(
+      ["platformRole", "platform_role", "platform", "platformAction", "platformTasks", "平台职责", "平台作用"],
+      "platformRole",
+    ) || "平台展示本模块资源，收集过程证据并记录学习结果。";
+    const aiRole = read(
+      ["aiRole", "ai_role", "ai", "aiAction", "aiTasks", "AI职责", "AI作用"],
+      "aiRole",
+    ) || (stageKey === "ai-learning"
+      ? "AI 提供分步讲解、练习与反馈，帮助学生独立完成任务，不直接给出最终答案。"
+      : "AI 提供伴学提示与澄清问题，不代替学生完成项目。");
+    const studentActivity = read(
+      ["studentActivity", "student_activity", "student", "studentTask", "studentAction", "studentTasks", "学生活动", "学习任务"],
+      "studentActivity",
+    ) || `学生围绕“${title}”完成任务并提交过程证据。`;
+
+    const rawResources = firstValue(section, ["resourceTypes", "resource_types", "resources", "资源类型"]);
+    const resourceTypes = stringListFromUnknown(rawResources).filter(
+      (type): type is NonNullable<TeachingOutlineSection["resourceTypes"]>[number] => RESOURCE_TYPE_VALUES.has(type),
+    );
+    const normalizedResourceTypes: NonNullable<TeachingOutlineSection["resourceTypes"]> = resourceTypes.length > 0
+      ? resourceTypes
+      : stageKey === "ai-learning"
+        ? ["ppt"]
+        : ["ppt", "script"];
+    const rawKnowledgePointIds = firstValue(section, [
+      "knowledgePointIds",
+      "knowledge_point_ids",
+      "knowledgeIds",
+      "knowledgePoints",
+      "知识点ID",
+    ]);
+    const knowledgePointIds = stringListFromUnknown(rawKnowledgePointIds);
+    const requestedOpenMaicUse = firstText(section, ["openMaicUse", "openMAICUse", "openmaicUse", "aiRoute", "route"]);
+    const openMaicUse = requestedOpenMaicUse === "student-ai-learning" || requestedOpenMaicUse === "student_ai_learning"
+      ? "student-ai-learning"
+      : stageKey === "ai-learning"
+        ? "student-ai-learning"
+        : "none";
+    const durationMin = Math.max(
+      1,
+      Math.round(toFiniteNumber(firstValue(section, ["durationMin", "durationMinutes", "duration", "minutes", "时长"]), 1)),
+    );
+    const notes = firstText(section, ["notes", "note", "remarks", "备注"]);
+    const normalizationNote = missingFields.length > 0
+      ? `AI 输出缺少字段（${missingFields.join("、")}），系统已补全，请教师核查。`
+      : undefined;
+
+    return [{
+      id: firstText(section, ["id", "moduleId", "activityId"]) ?? `to-${index + 1}`,
+      stageKey,
+      title,
+      durationMin,
+      teachingGoal,
+      teacherRole,
+      platformRole,
+      aiRole,
+      studentActivity,
+      activityKind: normalizeTeachingActivityKind(firstValue(section, ["activityKind", "activity_kind", "kind", "type", "活动类型"])),
+      knowledgePointIds,
+      openMaicUse,
+      resourceTypes: normalizedResourceTypes,
+      notes: [notes, normalizationNote].filter(Boolean).join("；"),
+    } satisfies TeachingOutlineSection];
   });
+
+  if (parsed.length === 0) {
+    throw new Error("授课大纲生成失败：AI 未返回可用课程模块。");
+  }
+
+  if (input.pblConfig?.generationTemplate !== "pbl-six-stage") return parsed;
+  const options = {
+    totalMinutes: Math.max(0, Math.round(input.hours * 60)),
+    topic: input.name,
+    subject: input.subject,
+    summary: input.summary,
+    grade: input.grade,
+    difficulty: input.pblConfig.difficultyLevel,
+    knowledgePoints: context?.knowledgePoints,
+    knowledgeGraph: context?.knowledgeGraph,
+  };
+  const normalized = context?.moduleTimingPlan
+    && isPblModuleTimingPlanConfirmed(context.moduleTimingPlan)
+    ? applyConfirmedPblTimingPlan(parsed, context.moduleTimingPlan, options)
+    : normalizePblTeachingOutline(parsed, options);
+  const structureIssues = assessPblTeachingOutlineStructure(normalized);
+  if (structureIssues.length > 0) {
+    throw new Error(`授课大纲结构校验失败：${structureIssues.map((issue) => issue.message).join("；")}`);
+  }
+  return normalized;
+}
+
+function validateTeachingOutline(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">>,
+): TeachingOutlineSection[] {
+  return normalizeTeachingOutlineResponse(raw, input, context);
 }
 
 function validateEvaluationPlan(raw: unknown): EvaluationPlan {
@@ -326,12 +787,22 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
     throw new Error("评价方案生成失败：AI 未返回评价维度。");
   }
   return {
-    dimensions: (plan.dimensions as { id?: string; name?: string; weight?: number; description?: string }[])
+    dimensions: (plan.dimensions as {
+      id?: string;
+      name?: string;
+      weight?: number;
+      description?: string;
+      responsibleRole?: unknown;
+    }[])
       .map((dimension, index) => ({
         id: typeof dimension.id === "string" && dimension.id.trim() ? dimension.id.trim() : `ev-${index + 1}`,
         name: requireText(dimension.name, "评价方案"),
         weight: Number(dimension.weight ?? 0),
         description: typeof dimension.description === "string" ? dimension.description.trim() : "",
+        responsibleRole:
+          dimension.responsibleRole === "ai" || dimension.responsibleRole === "teacher"
+            ? dimension.responsibleRole
+            : undefined,
       })),
     overallRubric: typeof plan.overallRubric === "string" ? plan.overallRubric.trim() : "",
   };
@@ -339,15 +810,43 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
 
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {
   const data = json && typeof json === "object" ? json as Partial<CourseContent> : {};
-  const knowledgePoints = validateKnowledgePoints(data.knowledgePoints);
+  const parsedKnowledgePoints = validateKnowledgePoints(data.knowledgePoints);
+  const knowledgeGraph = normalizeKnowledgeGraph(data.knowledgeGraph, parsedKnowledgePoints);
+  const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
+  const teachingOutline = data.teachingOutline
+    ? validateTeachingOutline(data.teachingOutline, input, { knowledgePoints, knowledgeGraph })
+    : [];
+  const lessonOutline = validateLessonOutline(data.lessonOutline, input, {
+    knowledgePoints,
+    knowledgeGraph,
+    teachingOutline,
+  });
+  if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
+    const activityIds = new Set(teachingOutline.map((activity) => activity.id));
+    const orphanDetails = lessonOutline.filter(
+      (detail) => !detail.parentActivityId || !activityIds.has(detail.parentActivityId),
+    );
+    if (orphanDetails.length > 0) {
+      throw new Error("课程大纲生成失败：存在未关联课程模块的资源。");
+    }
+    const studentDetails = lessonOutline.filter((detail) => detail.stageKey === "ai-learning");
+    const knowledgeValidation = validatePblKnowledgeAlignment(
+      studentDetails,
+      knowledgePoints,
+      { requireReferences: true, requireCoverage: true },
+    );
+    if (knowledgeValidation.issues.length > 0) {
+      throw new Error(
+        `课程大纲知识点校验失败：${knowledgeValidation.issues[0]?.message ?? "请检查知识点关联。"}`,
+      );
+    }
+  }
   return {
     pblOutline: requireText(data.pblOutline, "PBL 大纲"),
     knowledgePoints,
-    knowledgeGraph: normalizeKnowledgeGraph(data.knowledgeGraph, knowledgePoints),
-    teachingOutline: data.teachingOutline
-      ? validateTeachingOutline(data.teachingOutline, input)
-      : [],
-    lessonOutline: validateLessonOutline(data.lessonOutline, input),
+    knowledgeGraph,
+    teachingOutline,
+    lessonOutline,
     evaluationPlan: validateEvaluationPlan(data.evaluationPlan),
   };
 }
@@ -419,33 +918,44 @@ export async function generateCourseContent(
   }
   if (action === "lessonOutline") {
     return {
-      content: { ...emptyCourseContent(), lessonOutline: validateLessonOutline((json as { lessonOutline?: unknown }).lessonOutline, input) },
+      content: {
+        ...emptyCourseContent(),
+        lessonOutline: validateLessonOutline(
+          (json as { lessonOutline?: unknown }).lessonOutline,
+          input,
+          request.context,
+        ),
+      },
       source: "llm",
     };
   }
   if (action === "teachingOutline") {
+    const jsonRecord = asJsonRecord(json);
     return {
       content: {
         ...emptyCourseContent(),
         pblOutline:
-          typeof (json as { pblOutline?: unknown }).pblOutline === "string"
-            ? ((json as { pblOutline: string }).pblOutline).trim()
+          typeof jsonRecord?.pblOutline === "string"
+            ? jsonRecord.pblOutline.trim()
             : "",
-        teachingOutline: validateTeachingOutline(
-          (json as { teachingOutline?: unknown }).teachingOutline,
+        teachingOutline: normalizeTeachingOutlineResponse(
+          json,
           input,
+          request.context,
         ),
       },
       source: "llm",
     };
   }
   if (action === "knowledgeGraph") {
-    const knowledgePoints = validateKnowledgePoints((json as { knowledgePoints?: unknown }).knowledgePoints);
+    const parsedKnowledgePoints = validateKnowledgePoints((json as { knowledgePoints?: unknown }).knowledgePoints);
+    const knowledgeGraph = normalizeKnowledgeGraph((json as { knowledgeGraph?: unknown }).knowledgeGraph, parsedKnowledgePoints);
+    const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
     return {
       content: {
         ...emptyCourseContent(),
         knowledgePoints,
-        knowledgeGraph: normalizeKnowledgeGraph((json as { knowledgeGraph?: unknown }).knowledgeGraph, knowledgePoints),
+        knowledgeGraph,
       },
       source: "llm",
     };

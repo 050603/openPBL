@@ -28,6 +28,28 @@ export async function writeJsonFileAtomic(filePath: string, data: unknown) {
   await fs.rename(tempFilePath, filePath);
 }
 
+/** Serialize read-modify-write updates for one classroom snapshot. */
+const classroomLocks = new Map<string, Promise<void>>();
+
+async function withClassroomLock<T>(classroomId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = classroomLocks.get(classroomId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  classroomLocks.set(classroomId, current);
+
+  try {
+    await previous;
+    return await fn();
+  } finally {
+    release();
+    if (classroomLocks.get(classroomId) === current) {
+      classroomLocks.delete(classroomId);
+    }
+  }
+}
+
 export function buildRequestOrigin(req: NextRequest): string {
   return req.headers.get('x-forwarded-host')
     ? `${req.headers.get('x-forwarded-proto') || 'http'}://${req.headers.get('x-forwarded-host')}`
@@ -39,7 +61,16 @@ export interface PersistedClassroomData {
   stage: Stage;
   scenes: Scene[];
   createdAt: string;
+  assetGeneration?: ClassroomAssetGenerationStatus;
 }
+
+export type ClassroomAssetGenerationStatus = {
+  status: 'running' | 'completed' | 'partial-failure';
+  requested: number;
+  completed: number;
+  failures: Array<{ elementId: string; type: 'image' | 'video' | 'tts'; error: string }>;
+  updatedAt: string;
+};
 
 export function isValidClassroomId(id: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(id);
@@ -66,19 +97,60 @@ export async function persistClassroom(
   },
   baseUrl: string,
 ): Promise<PersistedClassroomData & { url: string }> {
-  const classroomData: PersistedClassroomData = {
-    id: data.id,
-    stage: data.stage,
-    scenes: data.scenes,
-    createdAt: new Date().toISOString(),
-  };
+  const classroomData = await withClassroomLock(data.id, async () => {
+    const next: PersistedClassroomData = {
+      id: data.id,
+      stage: data.stage,
+      scenes: data.scenes,
+      createdAt: new Date().toISOString(),
+    };
 
-  await ensureClassroomsDir();
-  const filePath = path.join(CLASSROOMS_DIR, `${data.id}.json`);
-  await writeJsonFileAtomic(filePath, classroomData);
+    await ensureClassroomsDir();
+    const filePath = path.join(CLASSROOMS_DIR, `${data.id}.json`);
+    await writeJsonFileAtomic(filePath, next);
+    return next;
+  });
 
   return {
     ...classroomData,
     url: `${baseUrl}/classroom/${data.id}`,
   };
+}
+
+/**
+ * Atomically replace only the scene payload of an already persisted classroom.
+ * This is used by background media/TTS tasks so completed assets are visible
+ * without rewriting the stage metadata or the original creation timestamp.
+ */
+export async function updatePersistedClassroomScenes(
+  classroomId: string,
+  scenes: Scene[],
+): Promise<PersistedClassroomData> {
+  return withClassroomLock(classroomId, async () => {
+    const existing = await readClassroom(classroomId);
+    if (!existing) {
+      throw new Error(`Classroom not found while updating scenes: ${classroomId}`);
+    }
+
+    const updated: PersistedClassroomData = {
+      ...existing,
+      scenes,
+    };
+    const filePath = path.join(CLASSROOMS_DIR, `${classroomId}.json`);
+    await writeJsonFileAtomic(filePath, updated);
+    return updated;
+  });
+}
+
+export async function updatePersistedClassroomAssetStatus(
+  classroomId: string,
+  assetGeneration: ClassroomAssetGenerationStatus,
+): Promise<PersistedClassroomData> {
+  return withClassroomLock(classroomId, async () => {
+    const existing = await readClassroom(classroomId);
+    if (!existing) throw new Error(`Classroom not found while updating asset status: ${classroomId}`);
+    const updated = { ...existing, assetGeneration };
+    await writeJsonFileAtomic(path.join(CLASSROOMS_DIR, `${classroomId}.json`), updated);
+    return updated;
+  });
 }

@@ -7,7 +7,7 @@ import {
   CheckCheck,
   Flag,
   HelpCircle,
-  Lightbulb,
+  Sparkles,
   Megaphone,
   Send,
   Target,
@@ -26,7 +26,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const totalSeats = course.classConfig?.totalStudents ?? 40;
   const joined = course.students.length;
   const rate = Math.min(100, Math.round((joined / totalSeats) * 100));
-  const grouped = course.groups?.reduce((sum, group) => sum + group.members.length, 0) ?? 0;
+  const projectSpaces = course.students.filter((student) => course.groups?.some((project) => project.members.some((member) => member.studentId === student.id))).length;
   const announcementRead = course.announcements?.length ? Math.round((joined / Math.max(1, totalSeats)) * 100) : 0;
 
   function publish() {
@@ -40,15 +40,15 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard title="到课情况" value={`${joined} / ${totalSeats}`} sub={`出勤率 ${rate}%`} icon={<Users className="text-blue-600" size={22} />} progress={rate} />
-        <StatCard title="已入组学生" value={`${grouped}`} sub={`${course.groups?.length ?? 0} 个小组`} icon={<Lightbulb className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((grouped / Math.max(1, joined)) * 100))} tone="emerald" />
-        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、选题、入组" icon={<HelpCircle className="text-amber-600" size={22} />} progress={66} tone="amber" />
-        <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-rose-600" size={22} />} progress={announcementRead} tone="rose" />
+        <StatCard title="个人项目空间" value={`${projectSpaces}`} sub={`${joined} 名学生独立完成`} icon={<Sparkles className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((projectSpaces / Math.max(1, joined)) * 100))} tone="emerald" />
+        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、理解任务、确认成果" icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={66} tone="amber" />
+        <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={announcementRead} tone="rose" />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-lg font-black">
+            <h2 className="flex items-center gap-2 text-lg font-bold">
               <Flag className="text-blue-700" size={20} /> 项目概览
             </h2>
             <Pill tone="blue">阶段一 · 项目启动</Pill>
@@ -60,16 +60,16 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
                 <Target size={16} /> 重点关注
               </div>
-              <p className="mt-2 text-sm leading-7 text-slate-700">
-                学生需要完成：阅读项目说明、选择兴趣方向、加入小组。教师可在此发布公告并观察未入组学生。
+              <p className="mt-2 text-sm leading-7 text-stone-700">
+                学生需要理解真实情境、驱动问题、个人成果要求与评价标准。每名学生独立承担完整项目，AI 伴学小组提供认知支持。
               </p>
             </div>
           </div>
         </Card>
 
         <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
-            <Megaphone className="text-amber-600" size={20} /> 发布课堂公告
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
+            <Megaphone className="text-[var(--pbl-warning)]" size={20} /> 发布课堂公告
           </h2>
           <div className="space-y-3">
             <TextInput placeholder="公告标题" value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -83,22 +83,22 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
         <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
             <Megaphone className="text-blue-700" size={20} /> 课堂公告管理
           </h2>
           <ul className="space-y-3">
             {(course.announcements ?? []).map((announcement) => (
-              <li className="rounded-[8px] border border-slate-200 bg-white p-3" key={announcement.id}>
+              <li className="rounded-[8px] border border-stone-200 bg-white p-3" key={announcement.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold text-slate-800">{announcement.title}</div>
-                    <p className="mt-1 line-clamp-2 text-sm text-slate-500">{announcement.content}</p>
-                    <div className="mt-2 text-xs text-slate-400">
+                    <div className="font-semibold text-stone-800">{announcement.title}</div>
+                    <p className="mt-1 line-clamp-2 text-sm text-stone-500">{announcement.content}</p>
+                    <div className="mt-2 text-xs text-stone-400">
                       {new Date(announcement.createdAt).toLocaleString("zh-CN")} · {announcement.replies.length} 条回复
                     </div>
                   </div>
                   <button
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-red-100 text-red-500 hover:bg-red-50"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-[var(--pbl-danger-border)] text-[var(--pbl-danger)] hover:bg-[var(--pbl-danger-soft)]"
                     onClick={() => session.deleteAnnouncement(course.id, announcement.id)}
                     type="button"
                     aria-label="删除公告"
@@ -109,36 +109,36 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               </li>
             ))}
             {!course.announcements?.length ? (
-              <li className="rounded-[8px] border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-sm text-slate-500">暂无公告</li>
+              <li className="rounded-[8px] border border-dashed border-stone-300 bg-stone-50 py-8 text-center text-sm text-stone-500">暂无公告</li>
             ) : null}
           </ul>
         </Card>
 
         <Card>
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 已加入学生（{joined}）
           </h2>
           {joined > 0 ? (
             <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <AvatarStack names={course.students.map((s) => s.name)} />
-                <span className="text-sm text-slate-500">最近加入：{course.students[course.students.length - 1]?.name}</span>
+                <span className="text-sm text-stone-500">最近加入：{course.students[course.students.length - 1]?.name}</span>
               </div>
               <ul className="mt-3 grid gap-2 md:grid-cols-2">
                 {course.students.map((s) => (
-                  <li className="flex items-center gap-3 rounded-[6px] border border-slate-200 bg-white px-3 py-2" key={s.id}>
+                  <li className="flex items-center gap-3 rounded-[6px] border border-stone-200 bg-white px-3 py-2" key={s.id}>
                     <Avatar name={s.name} size={32} />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold">{s.name}</span>
                     <Pill tone={course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "green" : "orange"}>
-                      {course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "已入组" : "待入组"}
+                      {course.groups?.some((g) => g.members.some((m) => m.studentId === s.id)) ? "项目空间就绪" : "正在初始化"}
                     </Pill>
                   </li>
                 ))}
               </ul>
             </div>
           ) : (
-            <div className="rounded-[6px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">
-              <CheckCheck className="mx-auto mb-2 text-slate-300" size={20} />
+            <div className="rounded-[6px] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">
+              <CheckCheck className="mx-auto mb-2 text-stone-300" size={20} />
               等待学生通过邀请码加入...
             </div>
           )}
@@ -151,8 +151,8 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 function Field({ title, text }: { title: string; text: string }) {
   return (
     <div>
-      <div className="text-sm font-semibold text-slate-500">{title}</div>
-      <p className="mt-1 text-[15px] leading-7 text-slate-800">{text}</p>
+      <div className="text-sm font-semibold text-stone-500">{title}</div>
+      <p className="mt-1 text-[15px] leading-7 text-stone-800">{text}</p>
     </div>
   );
 }
@@ -161,17 +161,17 @@ function StatCard({ title, value, sub, icon, progress, tone = "blue" }: { title:
   const toneColor = {
     blue: "bg-blue-50",
     emerald: "bg-emerald-50",
-    amber: "bg-amber-50",
-    rose: "bg-rose-50",
+    amber: "bg-[var(--pbl-warning-soft)]",
+    rose: "bg-[var(--pbl-danger-soft)]",
   }[tone];
   return (
     <Card>
       <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">{title}</div>
+        <div className="text-sm text-stone-500">{title}</div>
         <div className={`grid h-9 w-9 place-items-center rounded-full ${toneColor}`}>{icon}</div>
       </div>
-      <div className="mt-2 text-2xl font-black text-slate-950">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{sub}</div>
+      <div className="mt-2 text-2xl font-bold text-stone-900">{value}</div>
+      <div className="mt-1 text-xs text-stone-500">{sub}</div>
       <div className="mt-3">
         <ProgressBar className="h-1.5" tone={tone === "blue" ? "blue" : tone === "emerald" ? "green" : "orange"} value={progress} />
       </div>

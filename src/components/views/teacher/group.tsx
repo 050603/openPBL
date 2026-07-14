@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { AvatarStack } from "@/components/dashboard-shell";
-import { Card, Pill, PrimaryButton, ProgressBar, TextInput } from "@/components/ui";
+import { Card, Pill, PrimaryButton, ProgressBar, TextInput, toast } from "@/components/ui";
 import { GROUP_MODE_LABEL } from "@/lib/session/types";
 import type { Course, ProjectGroup } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
@@ -64,7 +64,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 小组观察刷新失败";
-      window.alert(message);
+      toast.error("AI 小组观察刷新失败", { description: message });
     } finally {
       setSignalsLoading(false);
     }
@@ -139,16 +139,16 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
         <Card>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-black">
+              <h2 className="flex items-center gap-2 text-lg font-bold">
                 <Users className="text-blue-700" size={20} /> 课堂态势图
               </h2>
-              <p className="mt-1 text-xs text-slate-500">用空间位置呈现小组成熟度、风险和协作规模，列表保留为精确管理入口。</p>
+              <p className="mt-1 text-xs text-stone-500">用空间位置呈现小组成熟度、风险和协作规模，列表保留为精确管理入口。</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={14} />
                 <input
-                  className="h-9 w-52 rounded-[var(--radius-sm)] border border-slate-200 bg-white pl-8 pr-3 text-sm outline-none focus:border-blue-500"
+                  className="h-9 w-52 rounded-[var(--radius-sm)] border border-stone-200 bg-white pl-8 pr-3 text-sm outline-none focus:border-blue-500"
                   onChange={(event) => setGroupQuery(event.target.value)}
                   placeholder="搜索小组 / 选题 / 成员"
                   value={groupQuery}
@@ -173,8 +173,8 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
           />
 
           {groups.length ? (
-            <div className="overflow-hidden rounded-[var(--radius-sm)] border border-slate-200">
-              <div className="grid grid-cols-[minmax(9rem,1.1fr)_minmax(11rem,1.5fr)_5rem_7rem_5.5rem] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
+            <div className="overflow-hidden rounded-[var(--radius-sm)] border border-stone-200">
+              <div className="grid grid-cols-[minmax(9rem,1.1fr)_minmax(11rem,1.5fr)_5rem_7rem_5.5rem] gap-3 bg-stone-50 px-3 py-2 text-[11px] font-bold text-stone-500">
                 <span>小组</span>
                 <span>选题 / 方向</span>
                 <span>人数</span>
@@ -188,8 +188,8 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
                   const selected = active?.id === group.id;
                   return (
                     <button
-                      className={`grid w-full grid-cols-[minmax(9rem,1.1fr)_minmax(11rem,1.5fr)_5rem_7rem_5.5rem] items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-left transition ${
-                        selected ? "bg-blue-50/70" : "bg-white hover:bg-slate-50"
+                      className={`grid w-full grid-cols-[minmax(9rem,1.1fr)_minmax(11rem,1.5fr)_5rem_7rem_5.5rem] items-center gap-3 border-t border-stone-100 px-3 py-2.5 text-left transition ${
+                        selected ? "bg-blue-50/70" : "bg-white hover:bg-stone-50"
                       }`}
                       key={group.id}
                       onClick={() => setActiveId(group.id)}
@@ -197,32 +197,32 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
                     >
                       <span className="min-w-0">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-sm font-bold text-slate-900">{group.name}</span>
-                          {signal ? <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> : null}
+                          <span className="truncate text-sm font-bold text-stone-900">{group.name}</span>
+                          {signal ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-warning)]" /> : null}
                         </span>
-                        <span className="mt-0.5 block truncate text-[11px] text-slate-500">{group.members.map((member) => member.name).join("、") || "暂无成员"}</span>
+                        <span className="mt-0.5 block truncate text-[11px] text-stone-500">{group.members.map((member) => member.name).join("、") || "暂无成员"}</span>
                       </span>
-                      <span className="truncate text-[13px] text-slate-600">{group.topic || "待确定选题"}</span>
-                      <span className="text-[13px] font-semibold text-slate-700">{group.members.length} 人</span>
+                      <span className="truncate text-[13px] text-stone-600">{group.topic || "待确定选题"}</span>
+                      <span className="text-[13px] font-semibold text-stone-700">{group.members.length} 人</span>
                       <span className="flex items-center gap-2">
                         <ProgressBar className="h-1.5 flex-1" tone={progress >= 80 ? "green" : progress < 35 ? "red" : "blue"} value={progress} />
-                        <span className="w-8 text-right text-[11px] font-bold text-slate-600">{progress}%</span>
+                        <span className="w-8 text-right text-[11px] font-bold text-stone-600">{progress}%</span>
                       </span>
                       <GroupStatusPill progress={progress} hasSignal={Boolean(signal)} />
                     </button>
                   );
                 })}
                 {!filteredGroups.length ? (
-                  <div className="border-t border-slate-100 bg-white py-10 text-center text-sm text-slate-500">没有匹配的小组。</div>
+                  <div className="border-t border-stone-100 bg-white py-10 text-center text-sm text-stone-500">没有匹配的小组。</div>
                 ) : null}
               </div>
             </div>
           ) : (
-            <div className="rounded-[var(--radius-sm)] border border-dashed border-slate-300 bg-slate-50 py-12 text-center text-sm text-slate-500">暂无小组，请创建或等待学生加入。</div>
+            <div className="rounded-[var(--radius-sm)] border border-dashed border-stone-300 bg-stone-50 py-12 text-center text-sm text-stone-500">暂无小组，请创建或等待学生加入。</div>
           )}
 
           {joinedButUngrouped.length > 0 ? (
-            <div className="mt-3 rounded-[var(--radius-sm)] border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-700">
+            <div className="mt-3 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3 text-sm text-[var(--pbl-danger)]">
               还有 <strong>{joinedButUngrouped.length}</strong> 位学生未加入任何小组：{joinedButUngrouped.map((student) => student.name).join("、")}
             </div>
           ) : null}
@@ -235,23 +235,23 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
                 <div className="min-w-0">
                   <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">selected group</div>
                   <TextInput className="mt-2 h-9 font-bold" value={active.name} onChange={(event) => renameGroup(active, event.target.value)} />
-                  <div className="mt-1 truncate text-xs text-slate-500">{active.topic || "待确定选题"}</div>
+                  <div className="mt-1 truncate text-xs text-stone-500">{active.topic || "待确定选题"}</div>
                 </div>
                 <Pill tone={activeSignal ? (activeSignal.riskLevel === "high" ? "red" : "orange") : "blue"}>
                   {activeSignal ? "需关注" : "进行中"}
                 </Pill>
               </div>
 
-              <div className="rounded-[var(--radius-sm)] bg-slate-50 p-3">
-                <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+              <div className="rounded-[var(--radius-sm)] bg-stone-50 p-3">
+                <div className="mb-2 flex items-center justify-between text-xs text-stone-500">
                   <span>构思成熟度</span>
-                  <span className="font-bold text-slate-700">{groupProgress(course, active)}%</span>
+                  <span className="font-bold text-stone-700">{groupProgress(course, active)}%</span>
                 </div>
                 <ProgressBar value={groupProgress(course, active)} tone={groupProgress(course, active) >= 80 ? "green" : groupProgress(course, active) < 35 ? "red" : "blue"} />
               </div>
 
               <div>
-                <div className="mb-2 text-xs font-bold text-slate-500">成员进度</div>
+                <div className="mb-2 text-xs font-bold text-stone-500">成员进度</div>
                 {active.members.length ? (
                   <ul className="space-y-1.5">
                     {active.members.map((member) => {
@@ -259,25 +259,25 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
                       const progress = student?.stageProgress?.group ?? 0;
                       return (
                         <li className="flex items-center gap-2 text-xs" key={member.studentId}>
-                          <span className="w-16 truncate text-slate-700">{member.name}</span>
+                          <span className="w-16 truncate text-stone-700">{member.name}</span>
                           <ProgressBar className="h-1.5 flex-1" tone={progress >= 80 ? "green" : progress < 35 ? "red" : "blue"} value={progress} />
-                          <span className="w-9 text-right font-bold text-slate-600">{progress}%</span>
+                          <span className="w-9 text-right font-bold text-stone-600">{progress}%</span>
                         </li>
                       );
                     })}
                   </ul>
                 ) : (
-                  <div className="rounded-[var(--radius-sm)] border border-dashed border-slate-200 py-5 text-center text-xs text-slate-500">暂无成员</div>
+                  <div className="rounded-[var(--radius-sm)] border border-dashed border-stone-200 py-5 text-center text-xs text-stone-500">暂无成员</div>
                 )}
               </div>
 
               {activeSignal ? (
-                <div className="rounded-[var(--radius-sm)] border border-amber-200 bg-amber-50/70 p-3">
-                  <div className="mb-1 flex items-center gap-1.5 text-xs font-bold text-amber-800">
+                <div className="rounded-[var(--radius-sm)] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70 p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-xs font-bold text-[var(--pbl-warning)]">
                     <AlertTriangle size={13} /> 风险线索
                   </div>
-                  <p className="text-sm leading-6 text-slate-700">{activeSignal.supportCard}</p>
-                  <div className="mt-1 text-xs leading-5 text-slate-500">依据：{activeSignal.evidence.join("；")}</div>
+                  <p className="text-sm leading-6 text-stone-700">{activeSignal.supportCard}</p>
+                  <div className="mt-1 text-xs leading-5 text-stone-500">依据：{activeSignal.evidence.join("；")}</div>
                   <PrimaryButton className="mt-2 h-8 px-3 text-xs" onClick={() => confirmSupport(activeSignal)} type="button">
                     <Send size={13} /> 确认并推送
                   </PrimaryButton>
@@ -294,7 +294,7 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
               </div>
             </div>
           ) : (
-            <div className="rounded-[var(--radius-sm)] border border-dashed border-slate-300 py-12 text-center text-sm text-slate-500">选择一个小组查看详情。</div>
+            <div className="rounded-[var(--radius-sm)] border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">选择一个小组查看详情。</div>
           )}
         </Card>
       </section>
@@ -303,19 +303,19 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
         <Card>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-black">
-                <Lightbulb className="text-amber-600" size={20} /> 风险队列
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <Lightbulb className="text-[var(--pbl-warning)]" size={20} /> 风险队列
                 {aiAnalysisPending ? (
-                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--pbl-warning)]">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--pbl-warning)]" />
                     学生有新更新
                   </span>
                 ) : null}
               </h2>
-              <p className="mt-1 text-xs text-slate-500">按风险等级聚合，只展示需要教师介入的小组，避免逐卡查找。</p>
+              <p className="mt-1 text-xs text-stone-500">按风险等级聚合，只展示需要教师介入的小组，避免逐卡查找。</p>
             </div>
             <button
-              className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50"
               disabled={signalsLoading}
               onClick={() => void refreshSignals()}
               type="button"
@@ -326,30 +326,30 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
             </button>
           </div>
           {interventionSignals.length ? (
-            <div className="max-h-[18rem] overflow-auto rounded-[var(--radius-sm)] border border-slate-200">
+            <div className="max-h-[18rem] overflow-auto rounded-[var(--radius-sm)] border border-stone-200">
               {interventionSignals.map((signal) => (
                 <button
-                  className="grid w-full grid-cols-[7.5rem_5.5rem_minmax(0,1fr)_5.75rem] items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-left first:border-t-0 hover:bg-slate-50"
+                  className="grid w-full grid-cols-[7.5rem_5.5rem_minmax(0,1fr)_5.75rem] items-center gap-3 border-t border-stone-100 px-3 py-2.5 text-left first:border-t-0 hover:bg-stone-50"
                   key={signal.groupId}
                   onClick={() => setActiveId(signal.groupId)}
                   type="button"
                 >
-                  <span className="truncate text-sm font-bold text-slate-900">{signal.groupName}</span>
+                  <span className="truncate text-sm font-bold text-stone-900">{signal.groupName}</span>
                   <Pill tone={signal.riskLevel === "high" ? "red" : "orange"}>{signal.riskLevel === "high" ? "高风险" : "需关注"}</Pill>
-                  <span className="truncate text-xs text-slate-500">{signal.reasons.join("、")}</span>
+                  <span className="truncate text-xs text-stone-500">{signal.reasons.join("、")}</span>
                   <span className="text-right text-xs font-semibold text-blue-700">查看</span>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="rounded-[var(--radius-sm)] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">
+            <div className="rounded-[var(--radius-sm)] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">
               点击刷新获取 AI 风险观察。
             </div>
           )}
         </Card>
 
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <LayoutPanelLeft className="text-blue-700" size={20} /> 全班学生进度
           </h2>
           {course.students.length ? (
@@ -359,29 +359,29 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
                 const progress = student.stageProgress?.group ?? 0;
                 return (
                   <li className="flex items-center gap-2 text-xs" key={student.id}>
-                    <span className="w-16 truncate font-semibold text-slate-700">{student.name}</span>
-                    <span className="w-16 truncate text-slate-400">{group?.name ?? "未分组"}</span>
+                    <span className="w-16 truncate font-semibold text-stone-700">{student.name}</span>
+                    <span className="w-16 truncate text-stone-400">{group?.name ?? "未分组"}</span>
                     <ProgressBar className="h-1.5 flex-1" tone={progress >= 80 ? "green" : progress < 35 ? "red" : "blue"} value={progress} />
-                    <span className="w-9 text-right font-bold text-slate-600">{progress}%</span>
+                    <span className="w-9 text-right font-bold text-stone-600">{progress}%</span>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <div className="rounded-[var(--radius-sm)] border border-dashed border-slate-300 py-6 text-center text-sm text-slate-500">暂无学生加入课堂</div>
+            <div className="rounded-[var(--radius-sm)] border border-dashed border-stone-300 py-6 text-center text-sm text-stone-500">暂无学生加入课堂</div>
           )}
         </Card>
       </section>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <Flag className="text-blue-700" size={20} /> 选题分布
         </h2>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {groups.map((group) => (
-            <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-3 py-2 text-sm" key={group.id}>
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{group.members.length}</span>
-              <span className="min-w-0 flex-1 truncate text-slate-600">{group.topic || "待确定选题"}</span>
+            <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-3 py-2 text-sm" key={group.id}>
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-stone-100 text-xs font-bold text-stone-600">{group.members.length}</span>
+              <span className="min-w-0 flex-1 truncate text-stone-600">{group.topic || "待确定选题"}</span>
               <AvatarStack names={group.members.map((member) => member.name)} />
             </div>
           ))}
@@ -414,22 +414,22 @@ function GroupConstellationMap({
 }) {
   if (!groups.length) {
     return (
-      <div className="mb-3 rounded-[var(--radius-sm)] border border-dashed border-slate-300 bg-slate-50 py-10 text-center text-sm text-slate-500">
+      <div className="mb-3 rounded-[var(--radius-sm)] border border-dashed border-stone-300 bg-stone-50 py-10 text-center text-sm text-stone-500">
         暂无可展示的小组节点
       </div>
     );
   }
 
   return (
-    <div className="mb-3 overflow-hidden rounded-[var(--radius-sm)] border border-slate-900/10 bg-slate-950 text-white shadow-sm">
+    <div className="mb-3 overflow-hidden rounded-[var(--radius-sm)] border border-slate-900/10 bg-stone-900 text-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
-          <div className="text-sm font-black">Group Constellation</div>
-          <div className="mt-0.5 text-xs text-slate-300">横轴：构思成熟度；纵轴：教师介入优先级；圆点大小：成员规模。</div>
+          <div className="text-sm font-bold">Group Constellation</div>
+          <div className="mt-0.5 text-xs text-stone-300">横轴：构思成熟度；纵轴：教师介入优先级；圆点大小：成员规模。</div>
         </div>
-        <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
-          <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-rose-400" />高风险</span>
-          <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-300" />需关注</span>
+        <div className="flex flex-wrap gap-2 text-[11px] text-stone-300">
+          <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-[var(--pbl-danger)]" />高风险</span>
+          <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-[var(--pbl-warning)]" />需关注</span>
           <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-cyan-300" />推进中</span>
           <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-emerald-300" />成熟</span>
         </div>
@@ -438,8 +438,8 @@ function GroupConstellationMap({
         <div className="pointer-events-none absolute inset-4 rounded-[var(--radius-sm)] border border-white/10" />
         <div className="pointer-events-none absolute inset-x-8 bottom-8 h-px bg-white/20" />
         <div className="pointer-events-none absolute bottom-8 left-8 top-8 w-px bg-white/20" />
-        <span className="pointer-events-none absolute bottom-3 right-7 text-[11px] text-slate-400">成熟度 →</span>
-        <span className="pointer-events-none absolute left-3 top-6 text-[11px] text-slate-400 [writing-mode:vertical-rl]">介入优先级 ↑</span>
+        <span className="pointer-events-none absolute bottom-3 right-7 text-[11px] text-stone-400">成熟度 →</span>
+        <span className="pointer-events-none absolute left-3 top-6 text-[11px] text-stone-400 [writing-mode:vertical-rl]">介入优先级 ↑</span>
         {groups.map((group, index) => {
           const progress = groupProgress(course, group);
           const signal = signalMap.get(group.id);
@@ -450,7 +450,7 @@ function GroupConstellationMap({
           return (
             <button
               className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border text-left shadow-lg transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/70 ${
-                selected ? "border-white bg-white text-slate-950 ring-4 ring-white/20" : `${tone} text-white`
+                selected ? "border-white bg-white text-stone-900 ring-4 ring-white/20" : `${tone} text-white`
               }`}
               key={group.id}
               onClick={() => onSelect(group.id)}
@@ -459,11 +459,11 @@ function GroupConstellationMap({
               title={`${group.name}：${progress}%`}
             >
               <span className="flex h-full w-full flex-col items-center justify-center px-1">
-                <span className="max-w-[90%] truncate text-[11px] font-black">{group.name}</span>
+                <span className="max-w-[90%] truncate text-[11px] font-bold">{group.name}</span>
                 <span className="text-[10px] opacity-80">{progress}%</span>
               </span>
               {signal ? (
-                <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-rose-500 text-white shadow">
+                <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--pbl-danger)] text-white shadow">
                   <AlertTriangle size={11} />
                 </span>
               ) : null}
@@ -487,14 +487,14 @@ function GroupMonitorOverlay({
   const group = course.groups?.find((item) => item.id === groupId);
   if (!group) return null;
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-slate-900/60" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-40 flex flex-col bg-stone-900/60" role="dialog" aria-modal="true">
       <div className="flex items-center justify-between bg-white px-5 py-3 shadow">
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-black">{group.name} · 协作板监控</h3>
-          <p className="text-xs text-slate-500">只读视图 · 实时同步 · {group.members.length} 名组员</p>
+          <h3 className="truncate text-lg font-bold">{group.name} · 协作板监控</h3>
+          <p className="text-xs text-stone-500">只读视图 · 实时同步 · {group.members.length} 名组员</p>
         </div>
         <button
-          className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-4 text-sm font-semibold text-stone-600 hover:bg-stone-50"
           onClick={onClose}
           type="button"
         >
@@ -511,9 +511,9 @@ function GroupMonitorOverlay({
 function Metric({ title, value, sub, tone = "blue" }: { title: string; value: string; sub?: string; tone?: "blue" | "green" | "orange" }) {
   return (
     <Card>
-      <div className="text-sm text-slate-500">{title}</div>
-      <div className={`mt-2 text-2xl font-black ${tone === "green" ? "text-emerald-700" : tone === "orange" ? "text-orange-700" : "text-blue-700"}`}>{value}</div>
-      {sub ? <div className="mt-1 text-xs text-slate-500">{sub}</div> : null}
+      <div className="text-sm text-stone-500">{title}</div>
+      <div className={`mt-2 text-2xl font-bold ${tone === "green" ? "text-[var(--pbl-success)]" : tone === "orange" ? "text-[var(--pbl-accent)]" : "text-blue-700"}`}>{value}</div>
+      {sub ? <div className="mt-1 text-xs text-stone-500">{sub}</div> : null}
     </Card>
   );
 }
@@ -549,9 +549,9 @@ function groupNodePosition(
 }
 
 function groupNodeTone(progress: number, signal?: TeacherInterventionSignal) {
-  if (signal?.riskLevel === "high") return "border-rose-200/70 bg-rose-500";
-  if (signal?.riskLevel === "medium") return "border-amber-200/70 bg-amber-500";
-  if (progress >= 80) return "border-emerald-200/70 bg-emerald-500";
+  if (signal?.riskLevel === "high") return "border-[var(--pbl-danger-border)]/70 bg-[var(--pbl-danger)]";
+  if (signal?.riskLevel === "medium") return "border-[var(--pbl-warning-soft)]/70 bg-[var(--pbl-warning)]";
+  if (progress >= 80) return "border-emerald-200/70 bg-[var(--pbl-success)]";
   if (progress >= 45) return "border-cyan-200/70 bg-cyan-500";
-  return "border-orange-200/70 bg-orange-500";
+  return "border-[var(--pbl-accent-border)]/70 bg-[var(--pbl-accent)]";
 }

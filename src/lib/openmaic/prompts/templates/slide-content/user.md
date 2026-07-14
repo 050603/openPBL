@@ -8,6 +8,8 @@
   {{keyPoints}}
 
 {{teacherContext}}
+{{pblContext}}
+{{timingBudget}}
 
 ## Available Resources
 
@@ -18,7 +20,9 @@
 
 ## Output Requirements
 
-Based on the scene information above, generate a complete Canvas/PPT component for one page.
+Based on the scene information above, generate a complete Canvas/PPT component for this one semantic page.
+
+The generated component must represent only this page's assigned subtopic. Follow the semantic page and narration budget in `{{timingBudget}}`: use enough concrete structure, examples, evidence, or visual relationships to make the assigned knowledge point understandable, but do not pack an entire multi-page module into one page or rely on a long script to compensate for sparse visuals. Treat the time target as a content/TTS budget, not as a reason to add unrelated or graph-outside knowledge.
 
 ## Language Directive
 {{languageDirective}}

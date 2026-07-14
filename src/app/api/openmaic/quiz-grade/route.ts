@@ -71,6 +71,7 @@ ${commentPrompt ? `Grading guidance: ${commentPrompt}\n` : ''}Student answer: ${
     const result = await callLLM(
       {
         model: languageModel,
+        abortSignal: req.signal,
         system: systemPrompt,
         prompt: userPrompt,
       },

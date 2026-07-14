@@ -6,6 +6,7 @@ import {
   getServerImageProviders,
   getServerVideoProviders,
   getServerWebSearchProviders,
+  getClassroomSceneConcurrency,
   getParallelSceneConcurrency,
 } from '@openmaic/lib/server/provider-config';
 import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
@@ -25,6 +26,7 @@ export async function GET() {
       webSearch: getServerWebSearchProviders(),
       generation: {
         parallelSceneConcurrency: getParallelSceneConcurrency(),
+        classroomSceneConcurrency: getClassroomSceneConcurrency(),
       },
     });
   } catch (error) {

@@ -45,6 +45,16 @@ interface OutlinesEditorProps {
   isStreaming?: boolean;
   /** Collapse the editor back to the preview surface (small streaming card / outline-ready). */
   onCollapse?: () => void;
+  /** Hide the header section (title, subtitle, collapse button). */
+  hideHeader?: boolean;
+  /** Hide the footer section (review checkbox, back/confirm buttons). */
+  hideFooter?: boolean;
+  /** Remove the OpenMAIC-style container (rounded glass card). */
+  bare?: boolean;
+  /** Optional first-level activity catalog for editing second-level ownership. */
+  parentActivities?: Array<{ id: string; title: string }>;
+  /** Optional confirmed knowledge catalog for editing detail references. */
+  knowledgePoints?: Array<{ id: string; name: string }>;
 }
 
 const SCENE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive', 'pbl'];
@@ -71,9 +81,9 @@ const TYPE_THEME: Record<
     dot: 'bg-purple-400',
   },
   interactive: {
-    chip: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
-    chipHover: 'hover:bg-emerald-100/80 dark:hover:bg-emerald-500/15',
-    accent: 'bg-emerald-500',
+    chip: 'bg-emerald-50 text-emerald-600 dark:bg-[var(--pbl-success)]/10 dark:text-emerald-300',
+    chipHover: 'hover:bg-emerald-100/80 dark:hover:bg-[var(--pbl-success)]/15',
+    accent: 'bg-[var(--pbl-success)]',
     dot: 'bg-emerald-400',
   },
   pbl: {
@@ -118,6 +128,11 @@ export function OutlinesEditor({
   isLoading = false,
   isStreaming = false,
   onCollapse,
+  hideHeader = false,
+  hideFooter = false,
+  bare = false,
+  parentActivities,
+  knowledgePoints,
 }: OutlinesEditorProps) {
   const { t } = useI18n();
   const sceneTypeLabel = useSceneTypeLabel();
@@ -232,21 +247,28 @@ export function OutlinesEditor({
     <motion.div
       layoutId="outline-review-surface"
       transition={{ type: 'spring', stiffness: 220, damping: 28 }}
-      // Explicit rotate: 0 so the layout-shared morph from the tilted preview
-      // card interpolates rotation cleanly back to upright.
       initial={{ rotate: 0 }}
       animate={{ rotate: 0 }}
       className={cn(
-        'relative overflow-hidden rounded-3xl border border-border/40',
-        'bg-white/85 shadow-[0_30px_80px_-30px_rgba(15,23,42,0.25)] backdrop-blur-xl',
-        'dark:border-white/5 dark:bg-slate-950/70 dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]',
+        bare
+          ? 'relative overflow-hidden'
+          : cn(
+              'relative overflow-hidden rounded-3xl border border-border/40',
+              'bg-white/85 shadow-[0_30px_80px_-30px_rgba(15,23,42,0.25)] backdrop-blur-xl',
+              'dark:border-white/5 dark:bg-stone-900/70 dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]',
+            ),
       )}
     >
-      {/* Soft gradient wash */}
-      <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
-      <div className="pointer-events-none absolute -top-32 left-1/2 h-64 w-[80%] -translate-x-1/2 rounded-full bg-blue-500/[0.04] blur-3xl dark:bg-blue-400/[0.08]" />
+      {/* Soft gradient wash — only in non-bare mode */}
+      {!bare && (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
+          <div className="pointer-events-none absolute -top-32 left-1/2 h-64 w-[80%] -translate-x-1/2 rounded-full bg-blue-500/[0.04] blur-3xl dark:bg-blue-400/[0.08]" />
+        </>
+      )}
 
       {/* Header */}
+      {!hideHeader && (
       <div className="relative flex items-start gap-3 px-6 pt-6 pb-4 md:px-10 md:pt-8 md:pb-6">
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground/70">
@@ -286,6 +308,7 @@ export function OutlinesEditor({
           </button>
         )}
       </div>
+      )}
 
       {/* Scene list */}
       <div className="relative max-h-[64vh] overflow-y-auto px-3 pb-2 md:px-6">
@@ -318,6 +341,8 @@ export function OutlinesEditor({
                       canMoveUp={index > 0}
                       canMoveDown={index < outlines.length - 1}
                       sceneTypeLabel={sceneTypeLabel}
+                      parentActivities={parentActivities}
+                      knowledgePoints={knowledgePoints}
                       disabled={editingDisabled}
                       isStreamingTip={isStreamingTip}
                       isDragging={draggingId === outline.id}
@@ -356,6 +381,7 @@ export function OutlinesEditor({
       </div>
 
       {/* Footer */}
+      {!hideFooter && (
       <div className="relative flex flex-col gap-3 border-t border-border/40 bg-gradient-to-t from-background/95 to-transparent px-6 py-4 md:flex-row md:items-center md:justify-between md:px-10 md:py-5">
         <label
           className={cn(
@@ -422,6 +448,7 @@ export function OutlinesEditor({
           </Button>
         </div>
       </div>
+      )}
     </motion.div>
   );
 }
@@ -441,6 +468,8 @@ interface SceneRowProps {
   canMoveUp: boolean;
   canMoveDown: boolean;
   sceneTypeLabel: (type: SceneType) => string;
+  parentActivities?: Array<{ id: string; title: string }>;
+  knowledgePoints?: Array<{ id: string; name: string }>;
   disabled: boolean;
   isStreamingTip: boolean;
   isDragging: boolean;
@@ -462,6 +491,8 @@ function SceneRow({
   canMoveUp,
   canMoveDown,
   sceneTypeLabel,
+  parentActivities,
+  knowledgePoints,
   disabled,
   isStreamingTip,
   isDragging,
@@ -473,6 +504,10 @@ function SceneRow({
 }: SceneRowProps) {
   const { t } = useI18n();
   const theme = TYPE_THEME[outline.type] ?? TYPE_THEME.slide;
+  const pageTargetSec = Math.max(
+    0,
+    Math.round(outline.targetDurationSec ?? outline.estimatedDuration ?? 0),
+  );
   const [keyPointDraft, setKeyPointDraft] = useState('');
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
@@ -527,8 +562,8 @@ function SceneRow({
       }}
       className={cn(
         'group/scene relative rounded-2xl px-3 py-3.5 transition-colors md:px-4',
-        'hover:bg-slate-50/60 dark:hover:bg-slate-800/30',
-        'focus-within:bg-slate-50/80 dark:focus-within:bg-slate-800/40',
+        'hover:bg-stone-50/60 dark:hover:bg-stone-800/30',
+        'focus-within:bg-stone-50/80 dark:focus-within:bg-stone-800/40',
         isDragging && 'opacity-40',
         isDragTarget && 'bg-blue-500/[0.04] ring-1 ring-blue-400/40',
       )}
@@ -619,6 +654,11 @@ function SceneRow({
               )}
             />
             <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+              {outline.segmentCount && outline.segmentCount > 1 && (
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium tabular-nums text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                  第 {outline.segmentIndex ?? 1}/{outline.segmentCount} 页 · 约 {pageTargetSec} 秒
+                </span>
+              )}
               {/* Cascading control: type-specific config (left) joined to the type selector (right) */}
               <div className="inline-flex items-center overflow-hidden rounded-full">
                 {!disabled && outline.type === 'quiz' && (
@@ -662,6 +702,81 @@ function SceneRow({
               disabled && 'cursor-default',
             )}
           />
+
+          {parentActivities && parentActivities.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <label className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span>父级活动</span>
+                <select
+                  value={outline.parentActivityId ?? ''}
+                  onChange={(event) =>
+                    onUpdate({
+                      parentActivityId: event.target.value || undefined,
+                      ...(outline.audience === 'teacher' && event.target.value
+                        ? { activityId: event.target.value }
+                        : {}),
+                    })
+                  }
+                  disabled={disabled}
+                  className="max-w-[15rem] rounded-md border border-border/50 bg-background px-2 py-1 text-xs text-foreground"
+                >
+                  <option value="">请选择一级活动</option>
+                  {parentActivities.map((activity) => (
+                    <option key={activity.id} value={activity.id}>
+                      {activity.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span>目标时长</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={Math.max(0, Math.round((outline.targetDurationSec ?? outline.estimatedDuration ?? 0) / 60))}
+                  onChange={(event) => {
+                    const minutes = Math.max(0, Number(event.target.value) || 0);
+                    onUpdate({ targetDurationSec: minutes * 60, estimatedDuration: minutes * 60 });
+                  }}
+                  disabled={disabled}
+                  className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-right tabular-nums text-foreground"
+                />
+                <span>分钟</span>
+              </label>
+            </div>
+          )}
+
+          {knowledgePoints && knowledgePoints.length > 0 && outline.stageKey === 'ai-learning' && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+              <span className="text-muted-foreground">知识点</span>
+              {knowledgePoints.map((point) => {
+                const selected = (outline.knowledgePointIds ?? []).includes(point.id);
+                return (
+                  <button
+                    key={point.id}
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={selected}
+                    onClick={() =>
+                      onUpdate({
+                        knowledgePointIds: selected
+                          ? (outline.knowledgePointIds ?? []).filter((id) => id !== point.id)
+                          : [...(outline.knowledgePointIds ?? []), point.id],
+                      })
+                    }
+                    className={cn(
+                      'rounded-full border px-2 py-1 transition-colors',
+                      selected
+                        ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200'
+                        : 'border-border/50 text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    {point.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Key points */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -978,11 +1093,7 @@ function KeyPointInput({
   placeholder: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
-  const [width, setWidth] = useState(120);
-
-  useEffect(() => {
-    setWidth(Math.max(100, Math.min(280, value.length * 8 + 40)));
-  }, [value]);
+  const width = Math.max(100, Math.min(280, value.length * 8 + 40));
 
   // Note: intentionally no onBlur commit. Committing on blur surprises users
   // who type a partial value then click away — that text becomes a chip they
@@ -1200,7 +1311,7 @@ function InteractiveConfigDisclosure({
                   className={cn(
                     'rounded-md border px-2 py-1.5 text-xs font-medium transition-all',
                     selected
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                      ? 'border-emerald-500/40 bg-[var(--pbl-success)]/10 text-emerald-700 dark:text-emerald-200'
                       : 'border-border/40 bg-transparent text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground',
                   )}
                 >

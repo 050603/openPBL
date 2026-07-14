@@ -7,6 +7,7 @@
 
 import type { ActionType } from './action';
 import type { MediaGenerationRequest } from '@openmaic/lib/media/types';
+import type { TtsTimingPlan } from '@openmaic/lib/audio/tts-timing';
 
 // ==================== PDF Image Types ====================
 
@@ -53,6 +54,23 @@ export interface UserRequirements {
   webSearch?: boolean; // Enable web search for richer context
   interactiveMode?: boolean; // Enable Interactive Mode for interactive-first generation
   taskEngineMode?: boolean; // Enable vocational task-engine generation path
+  /** Structured profile for the personal-project PBL classroom template. */
+  pblProfile?: import("@/lib/pbl-course-config").PblCourseConfig;
+  /** Structured ordinary-activity teacher support requirements. */
+  pblTeachingActivities?: PblTeachingActivityRequirement[];
+  /** Full first-level activity catalog, including student AI-learning activities. */
+  pblActivityCatalog?: PblActivityCatalogEntry[];
+  /** Confirmed knowledge catalog used to keep second-level coverage deterministic. */
+  knowledgePoints?: Array<{ id: string; name?: string; level?: string }>;
+  /** Natural-speed TTS facts available before semantic page planning. */
+  ttsTimingContext?: {
+    providerId: string;
+    modelId: string;
+    voiceId: string;
+    cjkCharsPerMinute: number;
+    latinWordsPerMinute: number;
+    calibrated: boolean;
+  };
 }
 
 // ==================== Stage 1 Output: Scene Outlines (Simplified) ====================
@@ -85,6 +103,53 @@ export interface WidgetOutline {
   challengeType?: string; // code - type of coding challenge
 }
 
+export type SceneResourceType =
+  | 'ppt'
+  | 'interactive-demo'
+  | 'code-interactive'
+  | 'script'
+  | 'worksheet'
+  | 'rubric'
+  | 'project-brief';
+
+/** The kind of second-level resource detail generated under a first-level activity. */
+export type PblDetailKind =
+  | 'teacher-introduction'
+  | 'knowledge-explanation'
+  | 'interactive-practice'
+  | 'project-scaffold'
+  | 'project-practice'
+  | 'showcase-coaching'
+  | 'reflection-transfer'
+  | 'other';
+
+/** Whether a detail may receive generated narration. Teacher resources never do. */
+export type PblTtsPolicy = 'none' | 'target-duration';
+
+export type PblTeachingActivityRequirement = {
+  activityId: string;
+  stageKey: string;
+  title: string;
+  durationMin: number;
+  teachingGoal: string;
+  teacherRole: string;
+  platformRole: string;
+  aiRole: string;
+  studentActivity: string;
+  openMaicUse: 'none' | 'student-ai-learning';
+  resourceTypes: SceneResourceType[];
+  requirement: string;
+};
+
+/** First-level activity catalog used to validate second-level parent links. */
+export type PblActivityCatalogEntry = {
+  activityId: string;
+  stageKey: string;
+  title: string;
+  durationMin: number;
+  knowledgePointIds: string[];
+};
+
 /**
  * Simplified scene outline
  * Gives AI more freedom, only requiring intent description and key points
@@ -98,6 +163,42 @@ export interface SceneOutline {
   teachingObjective?: string;
   estimatedDuration?: number; // seconds
   order: number;
+  /** Explicit PBL phase metadata; never infer this from array position. */
+  stageKey?: string;
+  stageLabel?: string;
+  audience?: "student" | "teacher";
+  generationPurpose?:
+    | "knowledge-teaching"
+    | "teacher-resource"
+    | "facilitation-scaffold"
+    | "companion-guidance";
+  companionIds?: string[];
+  companionPrompt?: string;
+  /** Teaching-outline activity represented by this scene, when applicable. */
+  activityId?: string;
+  /** First-level activity that owns this second-level detail. */
+  parentActivityId?: string;
+  /** Semantic role of the detail inside its parent activity. */
+  detailKind?: PblDetailKind;
+  /** Explicit references to the confirmed course knowledge-point IDs. */
+  knowledgePointIds?: string[];
+  /** Target narration/content duration for this detail, in seconds. */
+  targetDurationSec?: number;
+  /** 1-based page segment position when one detail is expanded into multiple pages. */
+  segmentIndex?: number;
+  /** Total page segments generated for the same parent detail. */
+  segmentCount?: number;
+  /** Short semantic cue used to keep sibling pages complementary. */
+  segmentRole?: string;
+  /** Stable group key shared by page segments derived from one detail. */
+  segmentGroupId?: string;
+  /** Explicit TTS policy; target-duration is only used for student knowledge scenes. */
+  ttsPolicy?: PblTtsPolicy;
+  /** Model-specific narration budget used by generation and playback verification. */
+  timingPlan?: TtsTimingPlan;
+  /** Requested output form; the generator must preserve it for PBL scenes. */
+  resourceTypes?: SceneResourceType[];
+  outcomePart?: 'artifact' | 'presentation' | 'reflection';
   languageNote?: string; // LLM-inferred language note for this scene
   // Suggested image IDs (from PDF-extracted images)
   suggestedImageIds?: string[]; // e.g., ["img_1", "img_3"]

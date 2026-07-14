@@ -58,12 +58,12 @@ function PdfScanVisualizer() {
         animate={{ opacity: [0.3, 0.6, 0.3] }}
         transition={{ duration: 2, repeat: Infinity }}
       />
-      <div className="w-20 h-28 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xl relative overflow-hidden">
+      <div className="w-20 h-28 bg-white dark:bg-stone-800 rounded-lg border border-stone-200 dark:border-slate-700 shadow-xl relative overflow-hidden">
         <div className="p-3 space-y-2 mt-1">
           {[80, 60, 90, 45, 70].map((w, i) => (
             <motion.div
               key={i}
-              className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded"
+              className="h-1.5 bg-stone-100 dark:bg-stone-700 rounded"
               style={{ width: `${w}%` }}
               animate={{ opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 2, repeat: Infinity, delay: i * 0.2 }}
@@ -121,11 +121,11 @@ function WebSearchVisualizer({ sources }: { sources: Array<{ title: string; url:
       />
 
       {/* Search results card */}
-      <div className="w-44 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden relative">
+      <div className="w-44 bg-white dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-slate-700 shadow-xl overflow-hidden relative">
         {/* Search bar header */}
-        <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2">
+        <div className="px-3 py-2 border-b border-stone-100 dark:border-slate-700 flex items-center gap-2">
           <Search className="size-3 text-teal-500 shrink-0" />
-          <div className="flex-1 h-4 bg-slate-50 dark:bg-slate-700/50 rounded-full overflow-hidden flex items-center px-2">
+          <div className="flex-1 h-4 bg-stone-50 dark:bg-stone-700/50 rounded-full overflow-hidden flex items-center px-2">
             <motion.div
               className="h-1.5 bg-teal-500/25 rounded-full"
               initial={{ width: 0 }}
@@ -165,14 +165,14 @@ function WebSearchVisualizer({ sources }: { sources: Array<{ title: string; url:
                     style={{ width: `${item.titleW}%` }}
                   />
                   <div
-                    className="h-1 bg-slate-100 dark:bg-slate-700 rounded"
+                    className="h-1 bg-stone-100 dark:bg-stone-700 rounded"
                     style={{ width: `${item.urlW}%` }}
                   />
                   <div className="flex gap-1">
                     {item.snippetW.map((w, j) => (
                       <div
                         key={j}
-                        className="h-1 bg-slate-100 dark:bg-slate-700 rounded"
+                        className="h-1 bg-stone-100 dark:bg-stone-700 rounded"
                         style={{ width: `${w * 0.5}%` }}
                       />
                     ))}
@@ -195,7 +195,7 @@ function WebSearchVisualizer({ sources }: { sources: Array<{ title: string; url:
                         'text-[8px] font-semibold truncate transition-colors duration-300 leading-tight',
                         isActive
                           ? 'text-teal-600 dark:text-teal-400'
-                          : 'text-slate-600 dark:text-slate-400',
+                          : 'text-stone-600 dark:text-stone-400',
                       )}
                     >
                       {source.title}
@@ -204,8 +204,8 @@ function WebSearchVisualizer({ sources }: { sources: Array<{ title: string; url:
                       {source.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 32)}
                     </div>
                     <div className="flex gap-1">
-                      <div className="h-0.5 flex-1 bg-slate-100 dark:bg-slate-700 rounded-full" />
-                      <div className="h-0.5 w-1/3 bg-slate-100 dark:bg-slate-700 rounded-full" />
+                      <div className="h-0.5 flex-1 bg-stone-100 dark:bg-stone-700 rounded-full" />
+                      <div className="h-0.5 w-1/3 bg-stone-100 dark:bg-stone-700 rounded-full" />
                     </div>
                   </motion.div>
                 );
@@ -281,14 +281,14 @@ function StreamingOutlineVisualizer({
       className={cn(
         'group/outline-card relative h-52 w-44 overflow-hidden rounded-2xl border p-3 text-left',
         'bg-white/90 shadow-xl shadow-slate-900/10 backdrop-blur',
-        'dark:bg-slate-900/80',
+        'dark:bg-stone-900/80',
         isInteractive
           ? 'cursor-pointer border-blue-400/40 shadow-blue-500/10 transition-shadow hover:border-blue-500/60 hover:shadow-2xl hover:shadow-blue-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-blue-400/30 dark:hover:border-blue-400/50'
-          : 'border-slate-200/70 dark:border-white/10',
+          : 'border-stone-200/70 dark:border-white/10',
       )}
     >
       <div className="mb-3 flex items-center justify-between">
-        <div className="h-1.5 w-12 rounded-full bg-slate-200 dark:bg-slate-700" />
+        <div className="h-1.5 w-12 rounded-full bg-stone-200 dark:bg-stone-700" />
         <motion.div
           className="size-2 rounded-full bg-blue-500"
           animate={{ opacity: [0.3, 1, 0.3], scale: [0.9, 1.15, 0.9] }}
@@ -298,7 +298,7 @@ function StreamingOutlineVisualizer({
 
       <div className="relative h-[168px] overflow-hidden pl-4">
         {/* Spine sits at the dot's horizontal center: pl-4 (16px) - dot offset (-15px) + dot half (4px) = 5px */}
-        <div className="absolute bottom-0 left-[5px] top-0 w-px bg-slate-200 dark:bg-slate-700" />
+        <div className="absolute bottom-0 left-[5px] top-0 w-px bg-stone-200 dark:bg-stone-700" />
         <AnimatePresence initial={false}>
           {outlines.length === 0
             ? [58, 78, 48, 68].map((w, i) => (
@@ -308,12 +308,12 @@ function StreamingOutlineVisualizer({
                   animate={{ opacity: [0.35, 0.75, 0.35] }}
                   transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.16 }}
                 >
-                  <div className="absolute -left-[15px] top-0.5 size-2 rounded-full border border-blue-300 bg-white dark:bg-slate-900" />
+                  <div className="absolute -left-[15px] top-0.5 size-2 rounded-full border border-blue-300 bg-white dark:bg-stone-900" />
                   <div
-                    className="h-2 rounded-full bg-slate-100 dark:bg-slate-800"
+                    className="h-2 rounded-full bg-stone-100 dark:bg-stone-800"
                     style={{ width: `${w}%` }}
                   />
-                  <div className="mt-1 h-1 w-2/3 rounded-full bg-slate-100 dark:bg-slate-800" />
+                  <div className="mt-1 h-1 w-2/3 rounded-full bg-stone-100 dark:bg-stone-800" />
                 </motion.div>
               ))
             : outlines.slice(0, 4).map((outline, i) => (
@@ -326,11 +326,11 @@ function StreamingOutlineVisualizer({
                   transition={{ type: 'spring', stiffness: 420, damping: 34 }}
                   className="relative mb-3"
                 >
-                  <div className="absolute -left-[15px] top-0.5 size-2 rounded-full border border-blue-300 bg-white shadow-sm shadow-blue-500/20 dark:bg-slate-900" />
-                  <div className="truncate text-[9px] font-semibold leading-tight text-slate-700 dark:text-slate-200">
+                  <div className="absolute -left-[15px] top-0.5 size-2 rounded-full border border-blue-300 bg-white shadow-sm shadow-blue-500/20 dark:bg-stone-900" />
+                  <div className="truncate text-[9px] font-semibold leading-tight text-stone-700 dark:text-slate-200">
                     {i + 1}. {outline.title}
                   </div>
-                  <div className="mt-1 truncate text-[7px] leading-tight text-slate-400 dark:text-slate-500">
+                  <div className="mt-1 truncate text-[7px] leading-tight text-stone-400 dark:text-stone-500">
                     {outline.description || outline.keyPoints?.[0] || '...'}
                   </div>
                 </motion.div>
@@ -478,7 +478,7 @@ function ContentVisualizer() {
           theme.color === 'blue' && 'bg-blue-500/10',
           theme.color === 'purple' && 'bg-purple-500/10',
           theme.color === 'amber' && 'bg-amber-500/10',
-          theme.color === 'emerald' && 'bg-emerald-500/10',
+          theme.color === 'emerald' && 'bg-[var(--pbl-success)]/10',
         )}
         animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
         transition={{ duration: 4, repeat: Infinity }}
@@ -521,7 +521,7 @@ function ContentVisualizer() {
             exit="exit"
             transition={{ type: 'spring', stiffness: 80, damping: 16 }}
             className={cn(
-              'absolute inset-0 bg-white dark:bg-slate-800 rounded-xl border shadow-xl overflow-hidden flex flex-col p-3 origin-center',
+              'absolute inset-0 bg-white dark:bg-stone-800 rounded-xl border shadow-xl overflow-hidden flex flex-col p-3 origin-center',
               theme.color === 'blue' && 'border-blue-200 dark:border-blue-900/30',
               theme.color === 'purple' && 'border-purple-200 dark:border-purple-900/30',
               theme.color === 'amber' && 'border-amber-200 dark:border-amber-900/30',
@@ -558,7 +558,7 @@ function ContentVisualizer() {
                         initial={{ width: 0 }}
                         animate={{ width: `${w * 100}%` }}
                         transition={{ delay: 0.3 + i * 0.1 }}
-                        className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full"
+                        className="h-1.5 bg-stone-100 dark:bg-stone-700 rounded-full"
                       />
                     ))}
                   </div>
@@ -597,19 +597,19 @@ function ContentVisualizer() {
                         'h-6 rounded border flex items-center px-2',
                         i === 1
                           ? 'bg-purple-500 text-white border-purple-500'
-                          : 'bg-slate-50 dark:bg-slate-700/50 border-slate-100 dark:border-slate-700',
+                          : 'bg-stone-50 dark:bg-stone-700/50 border-stone-100 dark:border-slate-700',
                       )}
                     >
                       <div
                         className={cn(
                           'size-1.5 rounded-full mr-2',
-                          i === 1 ? 'bg-white' : 'bg-slate-300',
+                          i === 1 ? 'bg-white' : 'bg-stone-300',
                         )}
                       />
                       <div
                         className={cn(
                           'h-1 w-8 rounded-full',
-                          i === 1 ? 'bg-white/50' : 'bg-slate-200 dark:bg-slate-600',
+                          i === 1 ? 'bg-white/50' : 'bg-stone-200 dark:bg-slate-600',
                         )}
                       />
                     </motion.div>
@@ -636,13 +636,13 @@ function ContentVisualizer() {
                       initial={{ y: 20, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
                       transition={{ delay: 0.2 + col * 0.15 }}
-                      className="flex-1 bg-slate-50 dark:bg-slate-700/30 rounded flex flex-col gap-1 p-1"
+                      className="flex-1 bg-stone-50 dark:bg-stone-700/30 rounded flex flex-col gap-1 p-1"
                     >
-                      <div className="h-1 w-6 bg-slate-200 dark:bg-slate-600 rounded mb-1" />
+                      <div className="h-1 w-6 bg-stone-200 dark:bg-slate-600 rounded mb-1" />
                       {[0, 1].map((card) => (
                         <div
                           key={card}
-                          className="h-3 w-full bg-white dark:bg-slate-600 rounded border border-slate-100 dark:border-slate-500 shadow-sm"
+                          className="h-3 w-full bg-white dark:bg-slate-600 rounded border border-stone-100 dark:border-stone-500 shadow-sm"
                         />
                       ))}
                     </motion.div>
@@ -655,13 +655,13 @@ function ContentVisualizer() {
             {index === 3 && (
               <div className="flex flex-col h-full relative pt-1">
                 {/* Browser Chrome - Padded right to avoid badge */}
-                <div className="flex items-center gap-1 mb-2 border-b border-slate-100 dark:border-slate-700 pb-1 pr-10">
+                <div className="flex items-center gap-1 mb-2 border-b border-stone-100 dark:border-slate-700 pb-1 pr-10">
                   <div className="flex gap-0.5">
                     <div className="size-1.5 rounded-full bg-red-400" />
                     <div className="size-1.5 rounded-full bg-amber-400" />
                     <div className="size-1.5 rounded-full bg-green-400" />
                   </div>
-                  <div className="h-1.5 flex-1 bg-slate-100 dark:bg-slate-700 rounded-full ml-1" />
+                  <div className="h-1.5 flex-1 bg-stone-100 dark:bg-stone-700 rounded-full ml-1" />
                 </div>
 
                 <div className="flex-1 flex gap-2 relative">
@@ -669,12 +669,12 @@ function ContentVisualizer() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.3 }}
-                    className="w-1/3 bg-slate-50 dark:bg-slate-700/30 rounded p-1 space-y-1"
+                    className="w-1/3 bg-stone-50 dark:bg-stone-700/30 rounded p-1 space-y-1"
                   >
                     {[1, 2, 3].map((i) => (
                       <div
                         key={i}
-                        className="h-1 w-full bg-slate-200 dark:bg-slate-600 rounded-full"
+                        className="h-1 w-full bg-stone-200 dark:bg-slate-600 rounded-full"
                       />
                     ))}
                   </motion.div>
@@ -741,7 +741,7 @@ function ActionsVisualizer() {
       icon: Play,
       label: 'Interact',
       color: 'text-emerald-500',
-      activeBg: 'bg-emerald-500/10',
+      activeBg: 'bg-[var(--pbl-success)]/10',
       activeBorder: 'border-emerald-200 dark:border-emerald-800',
     },
     {
@@ -774,9 +774,9 @@ function ActionsVisualizer() {
       />
 
       {/* Timeline card */}
-      <div className="w-44 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden relative">
+      <div className="w-44 bg-white dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-slate-700 shadow-xl overflow-hidden relative">
         {/* Header */}
-        <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2">
+        <div className="px-3 py-2 border-b border-stone-100 dark:border-slate-700 flex items-center gap-2">
           <Clapperboard className="size-3 text-violet-500" />
           <motion.div
             initial={{ width: 0 }}
@@ -811,7 +811,7 @@ function ActionsVisualizer() {
                 <div
                   className={cn(
                     'size-4 rounded flex items-center justify-center shrink-0 transition-colors duration-300',
-                    isActive ? item.color : 'text-slate-300 dark:text-slate-600',
+                    isActive ? item.color : 'text-stone-300 dark:text-stone-600',
                   )}
                 >
                   <Icon className="size-3" />
@@ -820,7 +820,7 @@ function ActionsVisualizer() {
                   <span
                     className={cn(
                       'text-[8px] font-semibold uppercase tracking-wider transition-colors duration-300',
-                      isActive ? item.color : 'text-slate-400 dark:text-slate-500',
+                      isActive ? item.color : 'text-stone-400 dark:text-stone-500',
                     )}
                   >
                     {item.label}
@@ -828,7 +828,7 @@ function ActionsVisualizer() {
                   <div
                     className={cn(
                       'h-1 flex-1 rounded-full transition-colors duration-300',
-                      isActive ? 'bg-current opacity-20' : 'bg-slate-100 dark:bg-slate-700',
+                      isActive ? 'bg-current opacity-20' : 'bg-stone-100 dark:bg-stone-700',
                     )}
                   />
                 </div>

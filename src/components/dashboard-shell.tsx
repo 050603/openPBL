@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { COURSE_STATUS_LABEL } from "@/lib/session/types";
 import type { CourseStatus } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { PrimaryButton, TextInput } from "@/components/ui";
+import { PrimaryButton, SaveStatus, TextInput } from "@/components/ui";
 
 type Role = "student" | "teacher";
 
@@ -41,6 +41,8 @@ export type DashboardShellProps = {
   currentCourse?: { id: string; name: string; status: CourseStatus };
   currentStage?: { index: number; total: number; label: string };
   userName?: string;
+  currentTask?: string;
+  leadRole?: "AI" | "教师" | "学生";
 };
 
 type OpenPanel = "courses" | "notifications" | "profile" | null;
@@ -59,6 +61,8 @@ export function DashboardShell({
   currentCourse,
   currentStage,
   userName,
+  currentTask,
+  leadRole,
 }: DashboardShellProps) {
   const session = useSession();
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
@@ -97,66 +101,65 @@ export function DashboardShell({
   }
 
   return (
-    <div className={cn("min-h-screen text-slate-900", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
-      <header className="fixed inset-x-0 top-0 z-30 px-3 pt-3 md:px-6">
-        <div className="pbl-glass mx-auto flex h-14 max-w-[1760px] items-center rounded-[var(--radius-md)] px-3 py-2 md:px-4">
-          <Link className="flex min-w-0 items-center gap-2.5" href={homeHref}>
+    <div className={cn("min-h-screen text-[var(--pbl-text)]", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
+      <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+        <div className="flex min-h-16 items-center px-3 py-2 md:px-5">
+          <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
-              <div className="truncate text-[15px] font-bold tracking-tight text-slate-900 md:text-base">
-                {isTeacher ? "教师课堂主控台" : title}
-              </div>
-              <div className="mt-0.5 text-[11px] font-medium text-slate-500">
-                {isTeacher ? "PBL 教师导学" : "PBL 学生工作台"}
-              </div>
+              <div className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</div>
+              <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
             </div>
           </Link>
 
           <div className="ml-3 flex min-w-0 flex-1 items-center gap-3 md:ml-6">
             {(courseName || stageLabel) && !hideCourseSwitcher ? (
               <button
-                className="hidden h-10 max-w-[520px] min-w-0 items-center gap-3 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-left text-[13px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white md:inline-flex"
+                className="hidden min-h-11 max-w-[620px] min-w-0 items-center gap-3 border-l border-[var(--pbl-border)] px-4 text-left text-sm font-semibold text-[var(--pbl-text)] transition-colors hover:bg-[var(--pbl-surface-soft)] md:inline-flex"
                 onClick={() => toggle("courses")}
                 type="button"
               >
-                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-50 text-indigo-700" : "bg-teal-50 text-teal-700")}>
-                  <GraduationCap size={15} />
+                <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]")}>
+                  <GraduationCap size={16} />
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate">{stageLabel || courseName}</span>
-                  {courseName ? <span className="block truncate text-[11px] text-slate-500">{courseName}</span> : null}
+                  <span className="block truncate text-xs font-normal text-[var(--pbl-text-muted)]">{[leadRole ? `${leadRole}主导` : null, currentTask ?? courseName].filter(Boolean).join(" · ")}</span>
                 </span>
                 {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
-                <ChevronDown size={14} className={cn("shrink-0 text-slate-400 transition", openPanel === "courses" && "rotate-180")} />
+                <ChevronDown size={14} className={cn("shrink-0 text-[var(--pbl-text-subtle)] transition", openPanel === "courses" && "rotate-180")} />
               </button>
             ) : null}
             {headerSlot}
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+            <div className="hidden lg:block">
+              <SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />
+            </div>
             {isTeacher ? (
               <Link
-                className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 px-3 text-[13px] font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 md:inline-flex"
+                className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white/80 px-3 text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)] md:inline-flex"
                 href="/teacher/settings"
               >
                 <Settings size={14} /> AI 设置
               </Link>
             ) : null}
             <button
-              className="relative grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-transparent text-slate-600 transition hover:border-slate-200 hover:bg-white"
+              className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-border)] hover:bg-[var(--pbl-surface)]"
               onClick={() => toggle("notifications")}
               type="button"
               aria-label="通知中心"
             >
               <Bell size={18} strokeWidth={1.8} />
               {unreadCount ? (
-                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
                   {unreadCount}
                 </span>
               ) : null}
             </button>
             <button
-              className="flex h-10 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white"
+              className="flex min-h-11 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white"
               onClick={() => toggle("profile")}
               type="button"
             >
@@ -164,12 +167,12 @@ export function DashboardShell({
               <span className="hidden max-w-[100px] truncate text-[13px] font-semibold md:inline">
                 {displayName || "未加入课堂"}
               </span>
-              <ChevronDown size={14} className={cn("text-slate-400 transition", openPanel === "profile" && "rotate-180")} />
+              <ChevronDown size={14} className={cn("text-[var(--pbl-text-subtle)] transition", openPanel === "profile" && "rotate-180")} />
             </button>
           </div>
         </div>
         {classroomBar ? (
-          <div className="mx-auto mt-2 max-w-[1760px]">
+          <div className="mt-2 px-3 md:px-5">
             {classroomBar}
           </div>
         ) : null}
@@ -184,25 +187,25 @@ export function DashboardShell({
           {openPanel === "profile" ? (
             <div className="space-y-3.5">
               <div>
-                <div className="text-base font-bold text-slate-900">个人信息</div>
-                <p className="mt-0.5 text-[13px] text-slate-500">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
+                <div className="text-base font-bold text-[var(--pbl-text-strong)]">个人信息</div>
+                <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
               </div>
-              <label className="block text-[13px] font-semibold text-slate-700">
+              <label className="block text-[13px] font-semibold text-[var(--pbl-text)]">
                 显示姓名
                 <TextInput className="mt-1.5 h-10" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} />
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton>
                 <Link
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50"
-                  href={isTeacher ? "/teacher/settings" : "/student/reflection"}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:bg-[var(--pbl-surface-soft)]"
+                  href={isTeacher ? "/teacher/settings" : "/student"}
                   onClick={() => setOpenPanel(null)}
                 >
                   <UserRound size={15} /> 个人中心
                 </Link>
               </div>
               <Link
-                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-rose-200 bg-rose-50 text-[13px] font-semibold text-rose-600 transition hover:bg-rose-100"
+                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[13px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
                 href={homeHref}
                 onClick={() => setOpenPanel(null)}
               >
@@ -213,9 +216,9 @@ export function DashboardShell({
         </TopPopover>
       ) : null}
 
-      <main className={classroomBar ? "pt-[150px] md:pt-[156px]" : "pt-[84px]"}>
-        <div className={cn("mx-auto w-full px-4 pb-10 md:px-7", wide ? "max-w-[1720px]" : "max-w-[1540px]")}>
-          {subtitle ? <p className="mb-2 text-sm font-medium text-slate-500">{subtitle}</p> : null}
+      <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
+        <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide && "max-w-none")}>
+          {subtitle ? <p className="mb-2 text-sm font-medium text-[var(--pbl-text-muted)]">{subtitle}</p> : null}
           {children}
         </div>
       </main>
@@ -228,11 +231,11 @@ function StatusPill({ status }: { status: CourseStatus }) {
     <span
       className={cn(
         "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-semibold ring-1",
-        status === "ready" && "bg-emerald-50 text-emerald-700 ring-emerald-200",
-        status === "teaching" && "bg-indigo-50 text-indigo-700 ring-indigo-200",
-        status === "preparing" && "bg-amber-50 text-amber-700 ring-amber-200",
-        status === "draft" && "bg-slate-100 text-slate-600 ring-slate-200",
-        status === "finished" && "bg-slate-100 text-slate-500 ring-slate-200",
+        status === "ready" && "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)] ring-[var(--pbl-success)]/30",
+        status === "teaching" && "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)] ring-[var(--pbl-ai-border)]",
+        status === "preparing" && "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-[var(--pbl-accent-border)]",
+        status === "draft" && "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)] ring-[var(--pbl-border)]",
+        status === "finished" && "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-subtle)] ring-[var(--pbl-border)]",
       )}
     >
       {COURSE_STATUS_LABEL[status]}
@@ -244,7 +247,7 @@ function TopPopover({ children, onClose }: { children: ReactNode; onClose: () =>
   return (
     <div className="pbl-glass fixed right-4 top-[84px] z-40 w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-md)] p-4 md:right-8">
       <button
-        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-slate-400 transition hover:bg-white hover:text-slate-700"
+        className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-[var(--pbl-text-subtle)] transition hover:bg-[var(--pbl-surface)] hover:text-[var(--pbl-text-muted)]"
         onClick={onClose}
         type="button"
         aria-label="关闭"
@@ -261,33 +264,33 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
   return (
     <div>
       <div className="mb-3 pr-8">
-        <div className="text-base font-bold text-slate-900">课堂切换</div>
-        <p className="mt-0.5 text-[13px] text-slate-500">选择要进入的课堂或项目页面。</p>
+        <div className="text-base font-bold text-[var(--pbl-text-strong)]">课堂切换</div>
+        <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">选择要进入的课堂或项目页面。</p>
       </div>
       <div className="max-h-[360px] space-y-1.5 overflow-auto pr-1">
         {courses.map((item) => {
           const href = isTeacher
             ? item.status === "teaching"
-              ? `/teacher/teach-classroom/${item.id}`
+              ? `/teacher/teach/${item.id}/classroom`
               : `/teacher/prepare/${item.id}/preview`
             : item.status === "teaching"
               ? `/student/classroom/${item.id}`
-              : "/student/project";
+              : "/student";
           return (
             <Link
               className={cn(
-                "block rounded-[var(--radius-sm)] border px-3 py-2.5 transition hover:border-indigo-300 hover:bg-indigo-50/40",
-                item.id === currentId ? "border-indigo-300 bg-indigo-50/60" : "border-slate-200 bg-white/80",
+                "block rounded-[var(--radius-sm)] border px-3 py-2.5 transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]",
+                item.id === currentId ? "border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]" : "border-[var(--pbl-border)] bg-white/80",
               )}
               href={href}
               key={item.id}
               onClick={onClose}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-[13px] font-bold text-slate-900">{item.name}</span>
+                <span className="truncate text-[13px] font-bold text-[var(--pbl-text-strong)]">{item.name}</span>
                 <StatusPill status={item.status} />
               </div>
-              <div className="mt-0.5 text-[11px] text-slate-500">
+              <div className="mt-0.5 text-[11px] text-[var(--pbl-text-muted)]">
                 {item.subject} · {item.grade} · 阶段 {item.currentStageIndex + 1}/{item.stages.length}
               </div>
             </Link>
@@ -302,23 +305,23 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
   return (
     <div>
       <div className="mb-3 pr-8">
-        <div className="text-base font-bold text-slate-900">通知中心</div>
-        <p className="mt-0.5 text-[13px] text-slate-500">课堂最近活动与反馈会显示在这里。</p>
+        <div className="text-base font-bold text-[var(--pbl-text-strong)]">通知中心</div>
+        <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">课堂最近活动与反馈会显示在这里。</p>
       </div>
       {items.length ? (
         <div className="space-y-1.5">
           {items.map((item) => (
-            <div className="rounded-[var(--radius-sm)] border border-slate-200 bg-white/80 p-2.5" key={item.id}>
-              <div className="text-[13px] font-semibold text-slate-900">
+            <div className="rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]/80 p-2.5" key={item.id}>
+              <div className="text-[13px] font-semibold text-[var(--pbl-text-strong)]">
                 {item.actor} · {item.action}
               </div>
-              {item.detail ? <div className="mt-0.5 text-[13px] text-slate-500">{item.detail}</div> : null}
-              <div className="mt-1.5 text-[11px] text-slate-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+              {item.detail ? <div className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">{item.detail}</div> : null}
+              <div className="mt-1.5 text-[11px] text-[var(--pbl-text-subtle)]">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-slate-300 bg-slate-50/40 py-8 text-center text-[13px] text-slate-500">
+        <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-[var(--pbl-border-strong)] bg-[var(--pbl-surface-soft)]/40 py-8 text-center text-[13px] text-[var(--pbl-text-muted)]">
           暂无通知，课堂活动会在这里出现。
         </div>
       )}
@@ -330,8 +333,8 @@ export function LogoMark({ role = "teacher" }: { role?: Role }) {
   const isTeacher = role === "teacher";
   return (
     <div className="relative h-9 w-9 shrink-0">
-      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-700" : "bg-teal-600")} />
-      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-indigo-400" : "bg-teal-400")} />
+      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-hover)]" : "bg-[var(--pbl-student-hover)]")} />
+      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]")} />
       <div className="absolute bottom-0 left-[12px] h-3 w-3 rotate-45 bg-white" />
     </div>
   );
@@ -341,7 +344,7 @@ export function Avatar({ name, size = 34 }: { name: string; size?: number }) {
   const initials = name.slice(0, 1);
   return (
     <div
-      className="grid shrink-0 place-items-center rounded-full bg-slate-800 text-sm font-bold text-white"
+      className="grid shrink-0 place-items-center rounded-full bg-stone-800 text-sm font-bold text-white"
       style={{ height: size, width: size }}
       title={name}
     >
@@ -359,7 +362,7 @@ export function AvatarStack({ names }: { names: string[] }) {
         </div>
       ))}
       {names.length > 4 ? (
-        <div className="-ml-1 grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+        <div className="-ml-1 grid h-8 w-8 place-items-center rounded-full bg-[var(--pbl-surface-soft)] text-xs font-bold text-[var(--pbl-text-muted)]">
           +{names.length - 4}
         </div>
       ) : null}
@@ -369,31 +372,47 @@ export function AvatarStack({ names }: { names: string[] }) {
 
 export function Toolbar() {
   const icons = [ClipboardList, FileText, CalendarDays, Database, Star];
+  const formatButtons: Array<{ label: string; name: string }> = [
+    { label: "B", name: "加粗" },
+    { label: "I", name: "斜体" },
+    { label: "U", name: "下划线" },
+    { label: "S", name: "删除线" },
+  ];
   return (
-    <div className="flex h-11 items-center gap-1 border-b border-slate-200 bg-slate-50 px-3">
-      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+    <div className="flex h-11 items-center gap-1 border-b border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] px-3">
+      <select className="h-8 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 text-sm text-[var(--pbl-text-muted)]">
         <option>正文</option>
       </select>
-      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 text-sm text-[var(--pbl-text-muted)]">
         <option>系统字体</option>
       </select>
-      <select className="h-8 rounded-[6px] border border-slate-200 bg-white px-3 text-sm text-slate-600">
+      <select className="h-8 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] px-3 text-sm text-[var(--pbl-text-muted)]">
         <option>14</option>
       </select>
-      <span className="mx-2 h-6 w-px bg-slate-200" />
-      {["B", "I", "U", "S"].map((item) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-base font-bold hover:bg-white" key={item} type="button">
-          {item}
+      <span className="mx-2 h-6 w-px bg-[var(--pbl-border)]" />
+      {formatButtons.map((item) => (
+        <button
+          aria-label={item.name}
+          className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] text-base font-bold text-[var(--pbl-text)] transition hover:bg-[var(--pbl-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--pbl-teacher)]"
+          key={item.label}
+          type="button"
+        >
+          {item.label}
         </button>
       ))}
-      <span className="mx-2 h-6 w-px bg-slate-200" />
+      <span className="mx-2 h-6 w-px bg-[var(--pbl-border)]" />
       {icons.map((Icon, index) => (
-        <button className="grid h-8 w-8 place-items-center rounded-[6px] text-slate-700 hover:bg-white" key={index} type="button">
+        <button
+          aria-label="格式按钮"
+          className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] text-[var(--pbl-text)] transition hover:bg-[var(--pbl-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--pbl-teacher)]"
+          key={index}
+          type="button"
+        >
           <Icon size={17} />
         </button>
       ))}
-      <span className="ml-auto text-slate-400">撤销</span>
-      <span className="text-slate-400">重做</span>
+      <span className="ml-auto text-[var(--pbl-text-subtle)]">撤销</span>
+      <span className="text-[var(--pbl-text-subtle)]">重做</span>
     </div>
   );
 }

@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
           hasApiKey: Boolean(entry.apiKey),
           defaultModel: entry.defaultModel,
           priority: entry.priority,
+          defaultVoice: entry.defaultVoice,
+          timingCalibrations: entry.timingCalibrations,
         },
       ]),
     );
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { section, providerId, apiKey, baseUrl, models, enabled, defaultModel, priority } = body as {
+    const { section, providerId, apiKey, baseUrl, models, enabled, defaultModel, priority, defaultVoice, timingCalibrations } = body as {
       section: ProviderSection;
       providerId: string;
       apiKey?: string;
@@ -51,6 +53,8 @@ export async function POST(request: NextRequest) {
       enabled?: boolean;
       defaultModel?: string;
       priority?: number;
+      defaultVoice?: string;
+      timingCalibrations?: import('@openmaic/lib/audio/tts-timing').TtsVoiceTimingCalibration[];
     };
     if (!section || !providerId) {
       return apiError(
@@ -66,6 +70,8 @@ export async function POST(request: NextRequest) {
       enabled,
       defaultModel,
       priority,
+      defaultVoice,
+      timingCalibrations,
     });
     return apiSuccess({ ok: true });
   } catch (error) {

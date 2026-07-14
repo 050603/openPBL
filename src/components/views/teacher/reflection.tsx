@@ -20,6 +20,7 @@ import {
   Pill,
   PrimaryButton,
   ProgressBar,
+  toast,
 } from "@/components/ui";
 import type {
   Course,
@@ -29,11 +30,12 @@ import type {
 } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { generateProcessEvaluation, type ProcessEvaluationResult } from "@/lib/teaching-ai/client-api";
+import { buildCourseSummaryPresentation } from "@/lib/evaluation/course-summary";
 
 type ProcessEvaluation = ProcessEvaluationResult;
 
 /**
- * 计算某学生/小组的真实综合得分。
+ * 计算某学生个人项目的真实综合得分。
  * 优先从 rubricScores 取最新一条；无评分时按 stageProgress 均值兜底。
  */
 function computeRealScore(
@@ -79,7 +81,7 @@ export function ReflectionTeacherView({
   course: Course;
   onSelectStudent?: (id: string) => void;
 }) {
-  const { addFeedback, upsertRubricScore, addActivity } = useSession();
+  const { addFeedback, upsertRubricScore, addActivity, updateCourse } = useSession();
   const [comments, setComments] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -95,7 +97,7 @@ export function ReflectionTeacherView({
   const studentScores = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of students) {
-      // 学生可能在小组中，优先查小组评分；否则查个人
+      // 个人项目沿用旧项目容器 ID 关联评分。
       const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
       const targetId = group?.id ?? s.id;
       map.set(s.id, computeRealScore(rubricScores, targetId, s.stageProgress ?? {}, stageKeys));
@@ -129,7 +131,7 @@ export function ReflectionTeacherView({
     const weakDims = dimensions.filter((d) => (dimensionAverages[d.id] ?? 0) < 70);
     const parts: string[] = [];
     if (rubricScores.length === 0) {
-      parts.push("尚未对任何小组提交评分，请先在「展示评价」阶段完成评分后查看班级整体分析。");
+      parts.push("尚未对任何个人项目提交评分，请先在「成果汇报与评价」阶段完成评分后查看班级整体分析。");
     } else {
       if (strongDims.length > 0) {
         parts.push(`班级整体在「${strongDims.map((d) => d.name).join("」「")}」维度表现突出（85+）。`);
@@ -141,7 +143,7 @@ export function ReflectionTeacherView({
         parts.push("班级各维度表现均衡，整体处于良好水平。");
       }
       if (excellentCount > 0) {
-        parts.push(`${excellentCount} 个小组达到优秀水平，可作为示范案例。`);
+        parts.push(`${excellentCount} 个个人项目达到优秀水平，可作为示范案例。`);
       }
     }
     return parts.join("");
@@ -173,6 +175,7 @@ export function ReflectionTeacherView({
   const [editingSummary, setEditingSummary] = useState(false);
   const [editedSummary, setEditedSummary] = useState("");
   const [sendingToStudents, setSendingToStudents] = useState(false);
+  const [summaryDeck, setSummaryDeck] = useState(course.content.courseSummaryPresentation ?? null);
 
   async function runProcessEval() {
     setEvalLoading(true);
@@ -184,7 +187,7 @@ export function ReflectionTeacherView({
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 过程评价失败";
       setEvalError(message);
-      window.alert(message);
+      toast.error("AI 过程评价失败", { description: message });
     } finally {
       setEvalLoading(false);
     }
@@ -195,6 +198,26 @@ export function ReflectionTeacherView({
     setProcessEval({ ...processEval, summary: editedSummary });
     setEditingSummary(false);
     flashMessage("已保存编辑后的总结", "ok");
+  }
+
+  function generateSummaryDeck() {
+    const nextDeck = buildCourseSummaryPresentation(course, processEval);
+    setSummaryDeck(nextDeck);
+    updateCourse(course.id, {
+      content: { ...course.content, courseSummaryPresentation: nextDeck },
+    });
+    flashMessage("课程总结 PPT 与讲稿已生成，等待教师确认", "ok");
+  }
+
+  function confirmSummaryDeck() {
+    if (!summaryDeck) return;
+    const confirmed = { ...summaryDeck, status: "teacher-confirmed" as const, updatedAt: new Date().toISOString() };
+    setSummaryDeck(confirmed);
+    updateCourse(course.id, {
+      content: { ...course.content, courseSummaryPresentation: confirmed },
+    });
+    addActivity(course.id, "确认课程总结演示", confirmed.title, "教师");
+    flashMessage("课程总结演示已确认，可用于课堂收束", "ok");
   }
 
   async function sendProcessEvalToStudents() {
@@ -282,8 +305,8 @@ export function ReflectionTeacherView({
         <div
           className={`flex items-start gap-2 rounded-[8px] border px-4 py-3 text-sm font-semibold ${
             message.tone === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              ? "border-emerald-200 bg-emerald-50 text-[var(--pbl-success)]"
+              : "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]"
           }`}
         >
           {message.tone === "ok" ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : null}
@@ -294,42 +317,42 @@ export function ReflectionTeacherView({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">班级平均分</div>
+            <div className="text-sm text-stone-500">班级平均分</div>
             <TrendingUp className="text-blue-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-blue-700">
+          <div className="mt-2 text-2xl font-bold text-blue-700">
             {students.length > 0 ? classAvg : "—"}
           </div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">优秀（≥90）</div>
+            <div className="text-sm text-stone-500">优秀（≥90）</div>
             <Award className="text-emerald-600" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-emerald-700">{excellentCount}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--pbl-success)]">{excellentCount}</div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">合格（75-89）</div>
-            <Star className="text-amber-600" size={20} />
+            <div className="text-sm text-stone-500">合格（75-89）</div>
+            <Star className="text-[var(--pbl-warning)]" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-amber-700">{passCount}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--pbl-warning)]">{passCount}</div>
         </Card>
         <Card>
           <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">待改进（&lt;75）</div>
-            <Lightbulb className="text-rose-600" size={20} />
+            <div className="text-sm text-stone-500">待改进（&lt;75）</div>
+            <Lightbulb className="text-[var(--pbl-danger)]" size={20} />
           </div>
-          <div className="mt-2 text-2xl font-black text-rose-700">{needImproveCount}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--pbl-danger)]">{needImproveCount}</div>
         </Card>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
             <Users className="text-blue-700" size={20} /> 班级综合评价汇总
             {!anyScored ? (
-              <span className="ml-2 rounded-[6px] bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+              <span className="ml-2 rounded-[6px] bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--pbl-warning)]">
                 暂无评分
               </span>
             ) : null}
@@ -339,7 +362,7 @@ export function ReflectionTeacherView({
               const avg = dimensionAverages[d.id] ?? 0;
               return (
                 <li className="flex items-center gap-3" key={d.id}>
-                  <span className="w-32 text-sm text-slate-600">{d.name}</span>
+                  <span className="w-32 text-sm text-stone-600">{d.name}</span>
                   <div className="flex-1">
                     <ProgressBar
                       className="h-2"
@@ -355,10 +378,10 @@ export function ReflectionTeacherView({
         </Card>
 
         <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
-            <Lightbulb className="text-amber-600" size={20} /> AI 班级整体点评
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
+            <Lightbulb className="text-[var(--pbl-warning)]" size={20} /> AI 班级整体点评
           </h2>
-          <div className="rounded-[8px] border border-amber-200 bg-amber-50/60 p-4 text-sm leading-7 text-slate-700">
+          <div className="rounded-[8px] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/60 p-4 text-sm leading-7 text-stone-700">
             {aiClassComment}
           </div>
         </Card>
@@ -367,16 +390,16 @@ export function ReflectionTeacherView({
       <Card>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-black">
-              <ClipboardCheck className="text-amber-600" size={20} /> AI 过程性评价报告
+            <h2 className="flex items-center gap-2 text-lg font-bold">
+              <ClipboardCheck className="text-[var(--pbl-warning)]" size={20} /> AI 过程性评价报告
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-stone-500">
               基于学生过程数据（活动记录、AI 支架采纳率、上传材料、提交记录）生成全班过程评价；总结可编辑后发送给学生。
             </p>
           </div>
           <div className="flex items-center gap-2">
             {processEval ? (
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${processEval.source === "llm" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${processEval.source === "llm" ? "bg-emerald-50 text-[var(--pbl-success)]" : "bg-stone-100 text-stone-600"}`}>
                 {processEval.source === "llm" ? "AI 生成" : "已记录"}
               </span>
             ) : null}
@@ -392,15 +415,15 @@ export function ReflectionTeacherView({
           </div>
         </div>
         {evalError ? (
-          <div className="rounded-[6px] border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          <div className="rounded-[6px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-3 py-2 text-sm font-semibold text-[var(--pbl-danger)]">
             {evalError}
           </div>
         ) : null}
         {processEval ? (
           <div className="space-y-4">
-            <div className="rounded-[8px] border border-slate-200 bg-slate-50 p-4">
+            <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-4">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700">过程评价总结（可编辑）</span>
+                <span className="text-xs font-bold text-stone-700">过程评价总结（可编辑）</span>
                 {editingSummary ? (
                   <button
                     className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
@@ -421,23 +444,23 @@ export function ReflectionTeacherView({
               </div>
               {editingSummary ? (
                 <textarea
-                  className="min-h-[6.25rem] w-full rounded-[6px] border border-slate-200 bg-white px-3 py-2 text-sm leading-7 outline-none focus:border-blue-500"
+                  className="min-h-[6.25rem] w-full rounded-[6px] border border-stone-200 bg-white px-3 py-2 text-sm leading-7 outline-none focus:border-blue-500"
                   onChange={(e) => setEditedSummary(e.target.value)}
                   value={editedSummary}
                 />
               ) : (
-                <p className="text-sm leading-7 text-slate-700">{processEval.summary}</p>
+                <p className="text-sm leading-7 text-stone-700">{processEval.summary}</p>
               )}
             </div>
 
             <div>
-              <div className="mb-2 text-xs font-bold text-slate-700">维度评分与证据</div>
+              <div className="mb-2 text-xs font-bold text-stone-700">维度评分与证据</div>
               <ul className="space-y-2">
                 {processEval.dimensions.map((d) => (
-                  <li key={d.name} className="rounded-[6px] border border-slate-200 bg-white px-3 py-2">
+                  <li key={d.name} className="rounded-[6px] border border-stone-200 bg-white px-3 py-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-slate-800">{d.name}</span>
-                      <span className="text-sm font-black text-blue-700">{d.score} 分</span>
+                      <span className="text-sm font-semibold text-stone-800">{d.name}</span>
+                      <span className="text-sm font-bold text-blue-700">{d.score} 分</span>
                     </div>
                     <ProgressBar
                       className="mt-2 h-1.5"
@@ -445,7 +468,7 @@ export function ReflectionTeacherView({
                       value={d.score}
                     />
                     {d.evidence.length > 0 ? (
-                      <div className="mt-1 text-xs leading-5 text-slate-500">证据：{d.evidence.join("；")}</div>
+                      <div className="mt-1 text-xs leading-5 text-stone-500">证据：{d.evidence.join("；")}</div>
                     ) : null}
                   </li>
                 ))}
@@ -454,14 +477,14 @@ export function ReflectionTeacherView({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-[6px] border border-emerald-200 bg-emerald-50/60 p-3">
-                <div className="mb-1 text-xs font-bold text-emerald-700">过程亮点</div>
-                <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">
+                <div className="mb-1 text-xs font-bold text-[var(--pbl-success)]">过程亮点</div>
+                <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
                   {processEval.highlights.map((h, i) => <li key={i}>{h}</li>)}
                 </ul>
               </div>
-              <div className="rounded-[6px] border border-amber-200 bg-amber-50/60 p-3">
-                <div className="mb-1 text-xs font-bold text-amber-700">改进建议</div>
-                <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">
+              <div className="rounded-[6px] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/60 p-3">
+                <div className="mb-1 text-xs font-bold text-[var(--pbl-warning)]">改进建议</div>
+                <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
                   {processEval.improvements.map((h, i) => <li key={i}>{h}</li>)}
                 </ul>
               </div>
@@ -483,7 +506,28 @@ export function ReflectionTeacherView({
       </Card>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+        <div className="flex flex-col gap-3 border-b border-stone-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold"><Wand2 className="text-[var(--pbl-teacher)]" size={20} />课程总结演示</h2>
+            <p className="mt-1 text-sm leading-6 text-stone-500">生成不预设学生结论的总结 PPT 与教师讲稿；生成后可根据真实班级证据编辑并确认。</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {summaryDeck ? <Pill tone={summaryDeck.status === "teacher-confirmed" ? "green" : "orange"}>{summaryDeck.status === "teacher-confirmed" ? "教师已确认" : "待确认"}</Pill> : null}
+            <PrimaryButton className="h-9 px-3 text-sm" onClick={generateSummaryDeck} type="button"><Wand2 size={15} />{summaryDeck ? "重新生成总结" : "生成总结 PPT + 讲稿"}</PrimaryButton>
+          </div>
+        </div>
+        {summaryDeck ? (
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,.75fr)]">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {summaryDeck.slides.map((slide, index) => <article className="aspect-[16/10] rounded-lg border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-4 shadow-sm" key={slide.id}><div className="flex items-center justify-between text-[11px] font-bold text-[var(--pbl-teacher-border)]"><span>SLIDE {String(index + 1).padStart(2, "0")}</span><span>{slide.evidenceIds.length ? `${slide.evidenceIds.length} 条证据` : "课程框架"}</span></div><h3 className="mt-5 text-base font-black text-stone-900">{slide.title}</h3><ul className="mt-3 space-y-1.5 text-sm leading-5 text-stone-700">{slide.bullets.map((bullet) => <li className="flex gap-2" key={bullet}><span className="text-[var(--pbl-teacher-border)]">•</span><span>{bullet}</span></li>)}</ul></article>)}
+            </div>
+            <aside className="rounded-lg border border-amber-100 bg-[var(--pbl-warning-soft)]/60 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-[var(--pbl-warning)]">教师讲稿</h3><span className="text-xs text-[var(--pbl-warning)]">{summaryDeck.script.length} 字</span></div><div className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-stone-700">{summaryDeck.script}</div>{summaryDeck.status !== "teacher-confirmed" ? <PrimaryButton className="mt-4 w-full" onClick={confirmSummaryDeck} type="button"><CheckCircle2 size={16} />确认总结演示</PrimaryButton> : <p className="mt-4 rounded-md bg-white/70 px-3 py-2 text-xs font-semibold text-[var(--pbl-success)]">已确认，可在课程总结环节使用。</p>}</aside>
+          </div>
+        ) : <div className="mt-4 rounded-lg border border-dashed border-stone-200 bg-stone-50 py-10 text-center text-sm text-stone-500">尚未生成课程总结演示。点击右上角生成一个可编辑的 PPT 结构和讲稿。</div>}
+      </Card>
+
+      <Card>
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <MessageSquare className="text-blue-700" size={20} /> 个别学生评语
         </h2>
         {students.length > 0 ? (
@@ -492,11 +536,11 @@ export function ReflectionTeacherView({
               const score = studentScores.get(s.id) ?? 0;
               const tone = score >= 90 ? "green" : score >= 75 ? "blue" : "orange";
               const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
-              // 取该学生/小组最新 feedback
+              // 取该学生个人项目的最新 feedback
               const latestFb = studentLatestFeedback.get(group?.id ?? s.id);
               return (
                 <li
-                  className="rounded-[8px] border border-slate-200 bg-white p-2.5"
+                  className="rounded-[8px] border border-stone-200 bg-white p-2.5"
                   key={s.id}
                 >
                   <div className="flex items-center gap-3">
@@ -508,8 +552,8 @@ export function ReflectionTeacherView({
                       >
                         {s.name}
                       </div>
-                      <div className="text-xs text-slate-500">
-                        综合分 {score} · {group ? `小组：${group.name}` : "未分组"} · 已加入课堂
+                      <div className="text-xs text-stone-500">
+                        综合分 {score} · {group ? `项目：${group.name}` : "个人项目待同步"} · 已加入课堂
                       </div>
                     </div>
                     <Pill tone={tone}>
@@ -532,13 +576,13 @@ export function ReflectionTeacherView({
                   </div>
                   {/* 已有 feedback 提示 */}
                   {latestFb ? (
-                    <div className="mt-2 rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <div className="mt-2 rounded-[6px] border border-stone-100 bg-stone-50 px-3 py-2 text-xs text-stone-600">
                       <span className="font-semibold">最近评语：</span>
                       {latestFb.content.slice(0, 80)}{latestFb.content.length > 80 ? "..." : ""}
                     </div>
                   ) : null}
                   <textarea
-                    className="mt-2 h-11 w-full rounded-[6px] border border-slate-200 p-2 text-sm outline-none focus:border-blue-500"
+                    className="mt-2 h-11 w-full rounded-[6px] border border-stone-200 p-2 text-sm outline-none focus:border-blue-500"
                     onChange={(e) =>
                       setComments((p) => ({ ...p, [s.id]: e.target.value }))
                     }
@@ -550,14 +594,14 @@ export function ReflectionTeacherView({
             })}
           </ul>
         ) : (
-          <div className="rounded-[6px] border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500">
+          <div className="rounded-[6px] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">
             暂无学生数据
           </div>
         )}
       </Card>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <Send className="text-blue-700" size={20} /> 批量操作
         </h2>
         <div className="flex flex-wrap items-center gap-3">

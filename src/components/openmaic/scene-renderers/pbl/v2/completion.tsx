@@ -157,7 +157,7 @@ export function PBLV2Completion({ project, onBack }: Props) {
               {heroCaption && (
                 <p className="mt-2 text-sm font-medium text-cyan-200/80">{heroCaption}</p>
               )}
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300/90">
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-stone-300/90">
                 {heroSummary}
               </p>
             </div>
@@ -189,7 +189,7 @@ export function PBLV2Completion({ project, onBack }: Props) {
             <Compass className="h-4 w-4 text-cyan-300" />
             {t('pbl.v2.completion.whatsNext')}
           </div>
-          <p className="text-sm leading-relaxed text-slate-300">
+          <p className="text-sm leading-relaxed text-stone-300">
             {report.whatsNext ?? t('pbl.v2.completion.noWhatsNext')}
           </p>
         </section>
@@ -353,7 +353,7 @@ function ScenarioCompletionBody({
             <Target className="h-4 w-4 text-cyan-300" />
             {t('pbl.v2.completion.scenario.goalReviewTitle')}
           </div>
-          <p className="mb-4 text-xs leading-relaxed text-slate-400">
+          <p className="mb-4 text-xs leading-relaxed text-stone-400">
             {t('pbl.v2.completion.scenario.goalReviewHint', {
               achieved: cov.achieved,
               total: cov.total,
@@ -379,7 +379,7 @@ function ScenarioCompletionBody({
             <Target className="h-4 w-4 text-cyan-300" />
             {t('pbl.v2.completion.scenario.goalListTitle')}
           </div>
-          <p className="mb-4 text-xs leading-relaxed text-slate-400">
+          <p className="mb-4 text-xs leading-relaxed text-stone-400">
             {t('pbl.v2.completion.scenario.goalListHint')}
           </p>
           <ol className="grid gap-3 md:grid-cols-2">
@@ -392,7 +392,7 @@ function ScenarioCompletionBody({
 
       {/* ── Cast ── */}
       {stats.characterNames.length > 0 && (
-        <p className="mt-3 px-1 text-xs text-slate-400">
+        <p className="mt-3 px-1 text-xs text-stone-400">
           {t('pbl.v2.completion.scenario.castLabel', {
             names: stats.characterNames.join('、'),
           })}
@@ -515,7 +515,7 @@ function StatCard({
         {icon}
       </div>
       <div className="text-xl font-bold text-white">{value}</div>
-      <div className="mt-0.5 text-[11px] text-slate-400">{label}</div>
+      <div className="mt-0.5 text-[11px] text-stone-400">{label}</div>
     </div>
   );
 }
@@ -550,7 +550,7 @@ function ActGoalReviewItem({
                   {g.skillFocus}
                 </span>
               )}
-              {g.note && <p className="mt-0.5 text-[11px] text-slate-400">{g.note}</p>}
+              {g.note && <p className="mt-0.5 text-[11px] text-stone-400">{g.note}</p>}
             </div>
           </li>
         ))}
@@ -580,7 +580,7 @@ function ActGoalListItem({
       <ul className="mt-2.5 ml-1 space-y-2">
         {act.goals.map((g, gi) => (
           <li key={gi} className="flex gap-2 text-xs leading-relaxed">
-            <span className="mt-0.5 text-slate-500" aria-hidden>
+            <span className="mt-0.5 text-stone-500" aria-hidden>
               •
             </span>
             <div className="min-w-0 flex-1">
@@ -619,7 +619,7 @@ function GoalStatusIcon({ status }: { readonly status: 'achieved' | 'partial' | 
   }
   return (
     <X
-      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500"
+      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-stone-500"
       aria-label={t('pbl.v2.completion.scenario.goalMissed')}
     />
   );
@@ -654,7 +654,7 @@ function StageReviewItem({
       {hasContent ? (
         <ul className="mt-2 ml-7 space-y-1">
           {detail.conceptsInStage.length > 0 && (
-            <li className="text-xs text-slate-400">
+            <li className="text-xs text-stone-400">
               <span className="mr-1 text-emerald-300/80">+</span>
               {t('pbl.v2.completion.conceptsInStageLabel')}
               {detail.conceptsInStage.map((c, ci) => (
@@ -663,14 +663,14 @@ function StageReviewItem({
                     {c}
                   </span>
                   {ci < detail.conceptsInStage.length - 1 && (
-                    <span className="text-slate-500">{'、'}</span>
+                    <span className="text-stone-500">{'、'}</span>
                   )}
                 </span>
               ))}
             </li>
           )}
           {detail.submissionsInStage > 0 && (
-            <li className="text-xs text-slate-400">
+            <li className="text-xs text-stone-400">
               <span className="mr-1 text-cyan-300/80">+</span>
               {t('pbl.v2.completion.submissionsInStage', { count: detail.submissionsInStage })}
             </li>
@@ -686,7 +686,7 @@ function StageReviewItem({
           )}
         </ul>
       ) : (
-        <p className="mt-1 ml-7 text-xs text-slate-500">{t('pbl.v2.completion.stageNoData')}</p>
+        <p className="mt-1 ml-7 text-xs text-stone-500">{t('pbl.v2.completion.stageNoData')}</p>
       )}
     </li>
   );
@@ -714,7 +714,7 @@ function ReportSection({
           {items.map((item, idx) => (
             <li
               key={`${idx}-${item}`}
-              className="flex gap-2.5 text-sm leading-relaxed text-slate-300"
+              className="flex gap-2.5 text-sm leading-relaxed text-stone-300"
             >
               <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300/60" />
               <span>{item}</span>
@@ -722,7 +722,7 @@ function ReportSection({
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-slate-400">{fallback}</p>
+        <p className="text-sm text-stone-400">{fallback}</p>
       )}
     </section>
   );

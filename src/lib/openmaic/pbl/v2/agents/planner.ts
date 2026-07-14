@@ -28,6 +28,7 @@ import { loadPBLV2Prompt } from '../prompts/loader';
 import { computeInitialAssessment, reseatAssessmentTier } from '../operations/proficiency';
 import { normalizeProjectRuntime, normalizeScenario } from '../operations/progress';
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 import type {
   PBLProjectV2,
@@ -65,6 +66,8 @@ export interface PlannerV2Callbacks {
   /** Fired on each successful tool call. Used by the future Generating
    *  page to show "Adding milestone: X" etc. */
   onProgress?: (event: PlannerV2ProgressEvent) => void;
+  /** Cancels the planner's current and subsequent model calls. */
+  signal?: AbortSignal;
 }
 
 export type PlannerV2ProgressEvent =
@@ -168,6 +171,7 @@ export async function generatePBLV2Project(
   // `mark_design_complete` is accepted by the completion gate, or
   // until the defensive step budget is hit.
   try {
+    throwIfAborted(callbacks?.signal);
     await callLLM(
       {
         model,
@@ -176,6 +180,7 @@ export async function generatePBLV2Project(
           'Design the PBL project now. Call the tools in the documented order; do not write narrative text.',
         tools,
         stopWhen: [plannerDesignAccepted(), stepCountIs(MAX_PLANNER_STEPS)],
+        abortSignal: callbacks?.signal,
         onStepFinish: ({ toolCalls }) => {
           // Optional verbose log. Keep at debug-level so production
           // logs don't drown in tool noise.
@@ -190,6 +195,7 @@ export async function generatePBLV2Project(
       undefined,
       thinkingConfig,
     );
+    throwIfAborted(callbacks?.signal);
   } catch (err) {
     throw err;
   }

@@ -9,6 +9,11 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { createLogger } from '@openmaic/lib/logger';
+import { TTS_PROVIDERS } from '@openmaic/lib/audio/constants';
+import {
+  registerTtsVoiceTimingCalibration,
+  type TtsVoiceTimingCalibration,
+} from '@openmaic/lib/audio/tts-timing';
 
 const log = createLogger('ServerProviderConfig');
 const DEFAULT_FILENAME = 'server-providers.yml';
@@ -37,6 +42,8 @@ interface ServerProviderEntry {
    * 当生成调用未携带 x-model 时，resolveModel 会回退到此值。
    */
   defaultModel?: string;
+  defaultVoice?: string;
+  timingCalibrations?: TtsVoiceTimingCalibration[];
 }
 
 interface ServerConfig {
@@ -203,6 +210,8 @@ function loadEnvSection(
           proxy: entry.proxy,
           priority: typeof entry.priority === 'number' ? entry.priority : undefined,
           defaultModel: entry.defaultModel,
+          defaultVoice: entry.defaultVoice,
+          timingCalibrations: entry.timingCalibrations,
         };
       }
     }
@@ -384,6 +393,8 @@ type ProviderMetadata = {
   models?: string[];
   defaultModel?: string;
   priority?: number;
+  defaultVoice?: string;
+  timingCalibrations?: TtsVoiceTimingCalibration[];
 };
 
 function getProviderPriority(entry: ServerProviderEntry): number {
@@ -407,6 +418,8 @@ function toProviderMetadata(entry: ServerProviderEntry): ProviderMetadata {
   if (entry.models && entry.models.length > 0) metadata.models = entry.models;
   if (entry.defaultModel) metadata.defaultModel = entry.defaultModel;
   if (typeof entry.priority === 'number') metadata.priority = entry.priority;
+  if (entry.defaultVoice) metadata.defaultVoice = entry.defaultVoice;
+  if (entry.timingCalibrations?.length) metadata.timingCalibrations = entry.timingCalibrations;
   return metadata;
 }
 
@@ -538,6 +551,23 @@ export function resolveTTSModel(providerId: string, clientModel?: string): strin
   if (entry?.defaultModel) return entry.defaultModel;
   if (entry?.models && entry.models.length > 0) return entry.models[0];
   return clientModel;
+}
+
+export function resolveTTSVoice(providerId: string, clientVoice?: string): string | undefined {
+  return getConfig().tts[providerId]?.defaultVoice || clientVoice;
+}
+
+/** Register and return the exact normal-speed profile for provider/model/voice. */
+export function resolveTTSTimingCalibration(
+  providerId: string,
+  modelId: string,
+  voiceId: string,
+): TtsVoiceTimingCalibration | undefined {
+  const calibration = getConfig().tts[providerId]?.timingCalibrations?.find(
+    (item) => item.modelId === modelId && item.voiceId === voiceId,
+  );
+  if (calibration) registerTtsVoiceTimingCalibration(calibration);
+  return calibration;
 }
 
 // ---------------------------------------------------------------------------
@@ -700,4 +730,44 @@ export function getParallelSceneConcurrency(): number {
   const raw = Number.parseInt(process.env.PARALLEL_SCENE_CONCURRENCY ?? '', 10);
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return Math.min(raw, 10);
+}
+
+/**
+ * Concurrency used by the teacher server-side classroom scene pipeline.
+ *
+ * The older client generation path keeps `getParallelSceneConcurrency()` opt-in
+ * and defaults to serial generation. The teacher pipeline is now explicitly
+ * finite-concurrent: it defaults to four scene workers and accepts the same
+ * environment variable as an override, clamped to the supported 1-5 range.
+ */
+export function getClassroomSceneConcurrency(): number {
+  const configured = getParallelSceneConcurrency();
+  if (configured <= 0) return 4;
+  return Math.min(configured, 5);
+}
+
+const DEFAULT_TTS_CONCURRENCY = 2;
+const MIN_TTS_CONCURRENCY = 1;
+const MAX_TTS_CONCURRENCY = 4;
+
+function ttsConcurrencyEnvKey(providerId: string): string {
+  return `TTS_${providerId.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()}_CONCURRENCY`;
+}
+
+/**
+ * Resolve a safe server-side TTS concurrency for a provider.
+ *
+ * Provider metadata supplies a conservative default. Operators can tune a
+ * provider independently with `TTS_<PROVIDER>_CONCURRENCY`, or apply a global
+ * cap with `TTS_CONCURRENCY`. Every value is clamped to 1-4 so a bad setting
+ * cannot turn classroom generation into an unbounded request burst.
+ */
+export function getTtsConcurrencyLimit(providerId: string): number {
+  const providerConfig = TTS_PROVIDERS[providerId as keyof typeof TTS_PROVIDERS];
+  const configured =
+    process.env[ttsConcurrencyEnvKey(providerId)] ?? process.env.TTS_CONCURRENCY;
+  const fallback = providerConfig?.maxConcurrency ?? DEFAULT_TTS_CONCURRENCY;
+  const raw = configured === undefined ? fallback : Number.parseInt(configured, 10);
+  const value = Number.isFinite(raw) ? raw : fallback;
+  return Math.min(MAX_TTS_CONCURRENCY, Math.max(MIN_TTS_CONCURRENCY, value));
 }

@@ -13,8 +13,14 @@
 import type { Scene as DslScene, SceneContent as DslSceneContent } from '@openmaic/dsl';
 import type { Action } from '@openmaic/lib/types/action';
 import type { WidgetType, WidgetConfig } from '@openmaic/lib/types/widgets';
+import type {
+  PblDetailKind,
+  PblTtsPolicy,
+  SceneResourceType,
+} from '@openmaic/lib/types/generation';
 import type { PBLProjectConfig } from '@openmaic/lib/pbl/types';
 import type { PBLProjectV2 } from '@openmaic/lib/pbl/v2/types';
+import type { TtsTimingPlan } from '@openmaic/lib/audio/tts-timing';
 
 export type {
   SceneType,
@@ -87,6 +93,32 @@ export interface PBLContent {
  */
 export type AppSceneContent = DslSceneContent | InteractiveContent | PBLContent;
 
+export type PblSceneMetadata = {
+  /** Explicit PBL phase metadata copied from the generation outline. */
+  stageKey?: string;
+  stageLabel?: string;
+  audience?: 'student' | 'teacher';
+  generationPurpose?:
+    | 'knowledge-teaching'
+    | 'teacher-resource'
+    | 'facilitation-scaffold'
+    | 'companion-guidance';
+  companionIds?: string[];
+  companionPrompt?: string;
+  activityId?: string;
+  parentActivityId?: string;
+  detailKind?: PblDetailKind;
+  knowledgePointIds?: string[];
+  targetDurationSec?: number;
+  segmentIndex?: number;
+  segmentCount?: number;
+  segmentRole?: string;
+  segmentGroupId?: string;
+  ttsPolicy?: PblTtsPolicy;
+  timingPlan?: TtsTimingPlan;
+  resourceTypes?: SceneResourceType[];
+};
+
 /**
  * The app's `SceneContent` — the full four-way union. Overrides the contract's
  * narrower `SceneContentBase` (slide | quiz) so call sites that switch on all
@@ -102,7 +134,7 @@ export type SceneContent = AppSceneContent;
  * callers keep their original semantics (actions are `Action[]`, content spans
  * all four kinds).
  */
-export type AppScene = DslScene<Action, SceneContent> & {
+export type AppScene = DslScene<Action, SceneContent> & PblSceneMetadata & {
   /**
    * Stable id of the generation outline this scene was built from. Lets editor
    * agent tools resolve a scene's outline by identity instead of by the mutable

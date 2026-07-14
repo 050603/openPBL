@@ -40,7 +40,7 @@ const ACTION_ICON_ONLY: Record<string, { Icon: typeof Flashlight; style: string 
   widget_setState: {
     Icon: SlidersHorizontal,
     style:
-      'bg-indigo-50 dark:bg-indigo-500/15 border-indigo-300/40 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300',
+      'bg-[var(--pbl-teacher-soft)] dark:bg-indigo-500/15 border-indigo-300/40 dark:border-indigo-500/30 text-[var(--pbl-teacher)] dark:text-indigo-300',
   },
   widget_annotation: {
     Icon: StickyNote,
@@ -50,7 +50,7 @@ const ACTION_ICON_ONLY: Record<string, { Icon: typeof Flashlight; style: string 
   widget_reveal: {
     Icon: Eye,
     style:
-      'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300/40 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300',
+      'bg-emerald-50 dark:bg-[var(--pbl-success)]/15 border-emerald-300/40 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300',
   },
 };
 

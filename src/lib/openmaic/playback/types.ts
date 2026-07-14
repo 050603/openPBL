@@ -17,6 +17,15 @@ export type EngineMode = 'idle' | 'playing' | 'paused' | 'live';
 /** Discussion topic state */
 export type TopicState = 'active' | 'pending' | 'closed';
 
+export type ActivityPurpose = 'quiz' | 'interaction';
+export type ActivityCompletionReason = 'timeout' | 'user';
+
+export interface ActivityGate {
+  sceneId: string;
+  purpose: ActivityPurpose;
+  durationSec: number;
+}
+
 /** Trigger event (for proactive discussion card) */
 export interface TriggerEvent {
   id: string;
@@ -34,6 +43,8 @@ export interface PlaybackEngineCallbacks {
   onTextDelta?: (content: string) => void;
   onSpeakerChange?: (role: string) => void;
   onEffectFire?: (effect: Effect) => void;
+  onActivityStart?: (activity: ActivityGate) => void;
+  onActivityComplete?: (activity: ActivityGate, reason: ActivityCompletionReason) => void;
 
   // Proactive discussion
   onProactiveShow?: (trigger: TriggerEvent) => void;

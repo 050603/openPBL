@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applySessionAction,
   initialSessionState,
+  normalizeCourse,
   type SessionAction,
   type SessionState,
 } from "./actions";
@@ -57,6 +58,12 @@ describe("applySessionAction — JOIN_CLASS", () => {
     expect(next.studentName).toBe("张三");
     expect(next.courses[0].students).toHaveLength(1);
     expect(next.courses[0].students[0].name).toBe("张三");
+    expect(next.courses[0].groups).toHaveLength(1);
+    expect(next.courses[0].groups?.[0]).toMatchObject({
+      id: "grp-s1",
+      name: "张三的个人项目",
+      members: [{ studentId: "s1", name: "张三", role: "项目负责人" }],
+    });
   });
 
   it("does not duplicate the student if they already joined", () => {
@@ -89,7 +96,7 @@ describe("applySessionAction — JOIN_CLASS", () => {
 });
 
 describe("applySessionAction — LEAVE_CLASS", () => {
-  it("removes the student from the course and any group memberships", () => {
+  it("removes the student and their personal project space", () => {
     const student = makeStudent("s1", "张三");
     const course = makeCourse({
       students: [student],
@@ -114,7 +121,7 @@ describe("applySessionAction — LEAVE_CLASS", () => {
     });
 
     expect(next.courses[0].students).toHaveLength(0);
-    expect(next.courses[0].groups![0].members).toHaveLength(0);
+    expect(next.courses[0].groups).toHaveLength(0);
   });
 
   it("clears joinedCourseId/studentId when the leaving student is the current user", () => {
@@ -415,5 +422,53 @@ describe("applySessionAction — SET_STAGE", () => {
     });
 
     expect(next.courses[0].currentStageIndex).toBe(DEFAULT_STAGES.length - 1);
+  });
+});
+
+describe("normalizeCourse — v2 migration", () => {
+  it("migrates seven stages into the six-stage personal-project model", () => {
+    const legacyStages = [
+      ...DEFAULT_STAGES.slice(0, 2),
+      { key: "group", label: "小组构思", view: "group" as const, description: "组队" },
+      { key: "review", label: "方案汇报与纠偏", view: "workspace" as const, description: "汇报" },
+      ...DEFAULT_STAGES.slice(3),
+    ];
+    const legacy = makeCourse({
+      stages: legacyStages,
+      currentStageIndex: 3,
+      classConfig: { groupMode: "free", totalStudents: 36, perGroup: 6 },
+      content: {
+        ...makeCourse().content,
+        evaluationPlan: {
+          dimensions: [],
+          overallRubric: "旧评价方案",
+          flows: [
+            { id: "legacy-ai", sourceRole: "ai", name: "AI", weight: 30, evidenceRequirements: [], enabled: true },
+            { id: "legacy-teacher", sourceRole: "teacher", name: "教师", weight: 50, evidenceRequirements: [], enabled: true },
+            { id: "legacy-peer", sourceRole: "peer", name: "同伴", weight: 10, evidenceRequirements: [], enabled: true },
+            { id: "legacy-self", sourceRole: "self", name: "自评", weight: 10, evidenceRequirements: [], enabled: true },
+          ],
+        },
+      },
+      feedback: [{ id: "f1", courseId: "course-1", targetType: "group", targetId: "g1", stageKey: "review", kind: "comment", content: "请补充证据", createdAt: "2024-01-01T00:00:00.000Z" }],
+    });
+    const result = normalizeCourse(legacy);
+    expect(result.stages.map((stage) => stage.key)).toEqual(["launch", "ai-learning", "proposal", "make", "showcase", "reflection"]);
+    expect(result.stages[result.currentStageIndex].key).toBe("proposal");
+    expect(result.classConfig).toMatchObject({ groupMode: "solo", perGroup: 1, crossClass: false });
+    expect(result.feedback?.[0]).toMatchObject({ sourceRole: "teacher", status: "open", evidence: [] });
+    expect(result.content.evaluationPlan.flows).toEqual([
+      expect.objectContaining({ sourceRole: "ai", weight: 40, scored: true }),
+      expect.objectContaining({ sourceRole: "teacher", weight: 60, scored: true }),
+      expect.objectContaining({ sourceRole: "self", weight: 0, scored: false }),
+    ]);
+    expect(result.content.evaluationPlan.flows?.some((flow) => flow.sourceRole === "peer")).toBe(false);
+    expect(result.learningEvents).toEqual([]);
+    expect(result.companionThreads).toEqual([]);
+    expect(result.learningSignals).toEqual([]);
+    expect(result.classCommonIssues).toEqual([]);
+    expect(result.teacherAgentDirectives).toEqual([]);
+    expect(result.offlineInterventions).toEqual([]);
+    expect(result.dynamicFacilitationScaffolds).toEqual([]);
   });
 });

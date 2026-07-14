@@ -114,6 +114,11 @@ export interface TTSProviderConfig {
   id: TTSProviderId;
   name: string;
   requiresApiKey: boolean;
+  /**
+   * Conservative server-side request concurrency for this provider. The
+   * server may override it with TTS_<PROVIDER>_CONCURRENCY or TTS_CONCURRENCY.
+   */
+  maxConcurrency?: number;
   defaultBaseUrl?: string;
   icon?: string;
   /** Available models. Empty array means provider has no model concept (e.g. Azure, Browser Native). */

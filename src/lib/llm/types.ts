@@ -1,6 +1,7 @@
 import type {
   CourseContent,
 } from "../session/types";
+import type { PblCourseConfig } from "../pbl-course-config";
 
 export type GenerateInput = {
   name: string;
@@ -10,6 +11,7 @@ export type GenerateInput = {
   summary: string;
   drivingQuestion: string;
   stages: { key: string; label: string; description: string }[];
+  pblConfig?: PblCourseConfig;
 };
 
 export class LlmNotConfiguredError extends Error {
@@ -31,7 +33,13 @@ export type LlmCallRequest = {
   context?: Partial<
     Pick<
       CourseContent,
-      "pblOutline" | "knowledgePoints" | "knowledgeGraph" | "teachingOutline" | "lessonOutline"
+      | "pblOutline"
+      | "knowledgePoints"
+      | "knowledgeGraph"
+      | "projectMainline"
+      | "moduleTimingPlan"
+      | "teachingOutline"
+      | "lessonOutline"
     >
   >;
 };

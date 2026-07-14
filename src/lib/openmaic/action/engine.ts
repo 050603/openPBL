@@ -214,7 +214,6 @@ export class ActionEngine {
 
   private async executeSpeech(action: SpeechAction): Promise<void> {
     if (!this.audioPlayer) return;
-
     return new Promise<void>((resolve) => {
       this.audioPlayer!.onEnded(() => resolve());
       this.audioPlayer!.play(action.audioId || '', action.audioUrl)

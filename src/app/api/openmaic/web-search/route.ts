@@ -20,12 +20,14 @@ import type { AICallFn } from '@openmaic/lib/generation/pipeline-types';
 import { WEB_SEARCH_PROVIDERS } from '@openmaic/lib/web-search/constants';
 import type { BaiduSubSources, WebSearchProviderId } from '@openmaic/lib/web-search/types';
 import { resolveWebSearchRouteBaseUrl } from '@openmaic/lib/server/web-search-config';
+import { isAbortError, throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 const log = createLogger('WebSearch');
 
 export async function POST(req: NextRequest) {
   let query: string | undefined;
   try {
+    throwIfAborted(req.signal);
     const body = await req.json();
     const {
       query: requestQuery,
@@ -87,6 +89,7 @@ export async function POST(req: NextRequest) {
         const result = await callLLM(
           {
             model: languageModel,
+            abortSignal: req.signal,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt },
@@ -100,9 +103,11 @@ export async function POST(req: NextRequest) {
         return result.text;
       };
     } catch (error) {
+      throwIfAborted(req.signal);
       log.warn('Search query rewrite model unavailable, falling back to raw requirement:', error);
     }
 
+    throwIfAborted(req.signal);
     const searchQuery = await buildSearchQuery(query, boundedPdfText, aiCall);
 
     log.info('Running web search API request', {
@@ -117,8 +122,10 @@ export async function POST(req: NextRequest) {
       query: searchQuery.query,
       apiKey,
       baseUrl,
+      signal: req.signal,
       ...(providerId === 'baidu' && baiduSubSources ? { baiduSubSources } : {}),
     });
+    throwIfAborted(req.signal);
     const context = formatSearchResultsAsContext(result);
 
     return apiSuccess({
@@ -129,6 +136,9 @@ export async function POST(req: NextRequest) {
       responseTime: result.responseTime,
     });
   } catch (err) {
+    if (req.signal.aborted || isAbortError(err)) {
+      return new Response(null, { status: 499 });
+    }
     log.error(`Web search failed [query="${query?.substring(0, 60) ?? 'unknown'}"]:`, err);
     const message = err instanceof Error ? err.message : 'Web search failed';
     return apiError('INTERNAL_ERROR', 500, message);

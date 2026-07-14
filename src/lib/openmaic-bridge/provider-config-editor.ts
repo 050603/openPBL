@@ -1,9 +1,14 @@
-﻿// 閫傞厤灞傦細鍦?OpenMAIC 鍘熺敓 provider-config 涔嬪锛屾柊澧炲啓鍏ヨ兘鍔?// OpenMAIC 鍘熺敓 provider-config.ts 鍙涓嶅啓锛圷AML+env 鍙屾潵婧愶級
+// 閫傞厤灞傦細鍦?OpenMAIC 鍘熺敓 provider-config 涔嬪锛屾柊澧炲啓鍏ヨ兘鍔?// OpenMAIC 鍘熺敓 provider-config.ts 鍙涓嶅啓锛圷AML+env 鍙屾潵婧愶級
 // 鏁欏笀璁剧疆 UI 闇€瑕佸啓鍏?server-providers.yml锛屾湰妯″潡鎻愪緵璇ヨ兘鍔?
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { clearServerProviderConfigCache } from '@openmaic/lib/server/provider-config';
+import {
+  getTtsCalibrationKey,
+  mergeTtsVoiceTimingCalibrations,
+  type TtsVoiceTimingCalibration,
+} from '@openmaic/lib/audio/tts-timing';
 
 export type ProviderSection = 'providers' | 'tts' | 'asr' | 'pdf' | 'image' | 'video' | 'web-search';
 
@@ -16,6 +21,8 @@ export interface ProviderEntry {
   /**
    * 鏁欏笀鍦ㄨ缃〉鎸囧畾鐨勮 provider 榛樿妯″瀷 ID锛堟潵鑷?models 鍒楄〃涓殑鏌愪竴椤癸級銆?   * 褰撶敓鎴愯皟鐢ㄦ湭鎼哄甫 x-model 鏃讹紝resolveModel 浼氬洖閫€鍒版鍊笺€?   * 浠呯敤浜?LLM 娈碉紙providers锛夛紱鍏朵粬娈靛拷鐣ユ瀛楁銆?   */
   defaultModel?: string;
+  defaultVoice?: string;
+  timingCalibrations?: TtsVoiceTimingCalibration[];
 }
 
 const CONFIG_PATH = path.join(/* turbopackIgnore: true */ process.cwd(), 'server-providers.yml');
@@ -47,6 +54,44 @@ async function writeYaml(data: ServerProvidersYaml): Promise<void> {
   invalidateProviderConfigCache();
 }
 
+let providerConfigWriteQueue = Promise.resolve();
+
+async function withProviderConfigWrite<T>(operation: () => Promise<T>): Promise<T> {
+  let result!: T;
+  const queued = providerConfigWriteQueue.then(async () => {
+    result = await operation();
+  });
+  providerConfigWriteQueue = queued.catch(() => undefined);
+  await queued;
+  return result;
+}
+
+/** Atomically merge one measured sample into the shared provider/voice aggregate. */
+export async function mergeProviderTtsTimingCalibration(
+  providerId: string,
+  sample: TtsVoiceTimingCalibration,
+): Promise<TtsVoiceTimingCalibration> {
+  return withProviderConfigWrite(async () => {
+    const data = await readYaml();
+    data.tts ??= {};
+    const existingEntry = data.tts[providerId] ?? {};
+    const calibrations = existingEntry.timingCalibrations ?? [];
+    const key = getTtsCalibrationKey(sample);
+    const existing = calibrations.find((item) => getTtsCalibrationKey(item) === key);
+    const aggregate = mergeTtsVoiceTimingCalibrations(existing, sample);
+    data.tts[providerId] = {
+      ...existingEntry,
+      apiKey: existingEntry.apiKey || '',
+      timingCalibrations: [
+        ...calibrations.filter((item) => getTtsCalibrationKey(item) !== key),
+        aggregate,
+      ],
+    };
+    await writeYaml(data);
+    return aggregate;
+  });
+}
+
 /**
  * 娓呴櫎 OpenMAIC provider-config 妯″潡绾х紦瀛樸€? * OpenMAIC 鐨?_configs Map 鏄鏈夊彉閲忥紝鎴戜滑鐢?require cache 澶辨晥鏉ュ己鍒堕噸杞姐€? */
 function invalidateProviderConfigCache(): void {
@@ -58,14 +103,15 @@ export async function saveProviderEntry(
   providerId: string,
   entry: ProviderEntry,
 ): Promise<void> {
-  const data = await readYaml();
-  const sectionKey = section === 'web-search' ? 'web-search' : section;
-  if (!data[sectionKey]) data[sectionKey] = {};
-  const existing = data[sectionKey]![providerId] ?? {};
+  await withProviderConfigWrite(async () => {
+    const data = await readYaml();
+    const sectionKey = section === 'web-search' ? 'web-search' : section;
+    if (!data[sectionKey]) data[sectionKey] = {};
+    const existing = data[sectionKey]![providerId] ?? {};
   // 淇濈暀宸叉湁 apiKey锛氬墠绔繚瀛樻椂鑻ヨ緭鍏ユ涓虹┖浼氫紶 undefined/绌轰覆锛?  // 姝ゆ椂涓嶅簲瑕嗙洊宸插瓨鍌ㄧ殑 API key锛堜粎褰撲紶鍏ヤ簡鏂伴潪绌哄€兼椂鎵嶆洿鏂帮級
   const apiKey = entry.apiKey || existing.apiKey || '';
-  data[sectionKey]![providerId] = {
-    apiKey,
+    data[sectionKey]![providerId] = {
+      apiKey,
     ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : existing.baseUrl ? { baseUrl: existing.baseUrl } : {}),
     ...(entry.models && entry.models.length > 0
       ? { models: entry.models }
@@ -83,23 +129,36 @@ export async function saveProviderEntry(
       : existing.defaultModel
         ? { defaultModel: existing.defaultModel }
         : {}),
-  };
-  await writeYaml(data);
+    ...(entry.defaultVoice
+      ? { defaultVoice: entry.defaultVoice }
+      : existing.defaultVoice
+        ? { defaultVoice: existing.defaultVoice }
+        : {}),
+    ...(entry.timingCalibrations
+      ? { timingCalibrations: entry.timingCalibrations }
+      : existing.timingCalibrations
+        ? { timingCalibrations: existing.timingCalibrations }
+        : {}),
+    };
+    await writeYaml(data);
+  });
 }
 
 export async function deleteProviderEntry(
   section: ProviderSection,
   providerId: string,
 ): Promise<void> {
-  const data = await readYaml();
-  const sectionKey = section === 'web-search' ? 'web-search' : section;
-  if (!data[sectionKey]) return;
-  delete data[sectionKey]![providerId];
-  // Remove an empty section to keep the YAML compact.
-  if (Object.keys(data[sectionKey]!).length === 0) {
-    delete data[sectionKey];
-  }
-  await writeYaml(data);
+  await withProviderConfigWrite(async () => {
+    const data = await readYaml();
+    const sectionKey = section === 'web-search' ? 'web-search' : section;
+    if (!data[sectionKey]) return;
+    delete data[sectionKey]![providerId];
+    // Remove an empty section to keep the YAML compact.
+    if (Object.keys(data[sectionKey]!).length === 0) {
+      delete data[sectionKey];
+    }
+    await writeYaml(data);
+  });
 }
 
 export async function getProviderEntry(
@@ -118,6 +177,8 @@ export async function getProviderEntry(
     enabled: entry.enabled,
     priority: typeof entry.priority === 'number' ? entry.priority : undefined,
     defaultModel: entry.defaultModel,
+    defaultVoice: entry.defaultVoice,
+    timingCalibrations: entry.timingCalibrations,
   };
 }
 
@@ -138,6 +199,8 @@ export async function listProviders(
       enabled: entry.enabled,
       priority: typeof entry.priority === 'number' ? entry.priority : undefined,
       defaultModel: entry.defaultModel,
+      defaultVoice: entry.defaultVoice,
+      timingCalibrations: entry.timingCalibrations,
     };
   }
   return result;
@@ -169,7 +232,6 @@ export async function migrateLegacySettings(): Promise<void> {
       baseUrl,
       models,
     });
-    console.log('[openmaic-bridge] Migrated legacy .openpbl-data settings to server-providers.yml');
   } catch {
     // 鏃犻仐鐣欓厤缃紝鏃犻渶杩佺Щ
   }
@@ -193,6 +255,8 @@ async function readProviderEntryRaw(
     enabled: entry.enabled,
     priority: typeof entry.priority === 'number' ? entry.priority : undefined,
     defaultModel: entry.defaultModel,
+    defaultVoice: entry.defaultVoice,
+    timingCalibrations: entry.timingCalibrations,
   };
 }
 

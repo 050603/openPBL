@@ -74,6 +74,33 @@ export function createSceneAPI(store: StageStore) {
             order,
             actions: params.actions,
             ...(params.outlineId !== undefined && { outlineId: params.outlineId }),
+            ...(params.stageKey !== undefined && { stageKey: params.stageKey }),
+            ...(params.stageLabel !== undefined && { stageLabel: params.stageLabel }),
+            ...(params.audience !== undefined && { audience: params.audience }),
+            ...(params.generationPurpose !== undefined && {
+              generationPurpose: params.generationPurpose,
+            }),
+            ...(params.companionIds !== undefined && {
+              companionIds: [...params.companionIds],
+            }),
+            ...(params.companionPrompt !== undefined && {
+              companionPrompt: params.companionPrompt,
+            }),
+            ...(params.activityId !== undefined && { activityId: params.activityId }),
+            ...(params.parentActivityId !== undefined && {
+              parentActivityId: params.parentActivityId,
+            }),
+            ...(params.detailKind !== undefined && { detailKind: params.detailKind }),
+            ...(params.knowledgePointIds !== undefined && {
+              knowledgePointIds: [...params.knowledgePointIds],
+            }),
+            ...(params.targetDurationSec !== undefined && {
+              targetDurationSec: params.targetDurationSec,
+            }),
+            ...(params.ttsPolicy !== undefined && { ttsPolicy: params.ttsPolicy }),
+            ...(params.resourceTypes !== undefined && {
+              resourceTypes: [...params.resourceTypes],
+            }),
             createdAt: Date.now(),
             updatedAt: Date.now(),
           },

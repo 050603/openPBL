@@ -12,6 +12,7 @@ import type {
   CourseUpload,
   GroupAnnouncement,
   GroupBoard,
+  OfflineInterventionRecord,
   ProjectGroup,
   ReflectionRecord,
   RubricScore,
@@ -19,9 +20,13 @@ import type {
   Student,
   TeacherFeedback,
   TeamContribution,
+  TeacherAgentDirective,
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
+import { DEFAULT_EVALUATION_FLOWS } from "./types";
+import { DEFAULT_STAGES } from "./types";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 
 export type SessionState = {
   courses: Course[];
@@ -101,6 +106,9 @@ export type SessionAction =
   | { type: "SET_PREVIEW_UPLOAD"; payload: { courseId: string; uploadId?: string } }
   | { type: "UPSERT_TEAM_CONTRIBUTION"; payload: { courseId: string; contribution: TeamContribution } }
   | { type: "UPSERT_AI_SUPPORT"; payload: { courseId: string; support: AiSupportRecord } }
+  | { type: "ADD_OFFLINE_INTERVENTION"; payload: { courseId: string; intervention: OfflineInterventionRecord } }
+  | { type: "RESOLVE_INTERVENTION_SIGNALS"; payload: { courseId: string; signalIds: string[] } }
+  | { type: "UPSERT_TEACHER_AGENT_DIRECTIVE"; payload: { courseId: string; directive: TeacherAgentDirective } }
   | { type: "SET_UI_STATE"; payload: { courseId: string; patch: Partial<CourseUiState> } };
 
 export function initialSessionState(): SessionState {
@@ -194,9 +202,8 @@ export function applySessionAction(
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
         },
-        // Clear any stale seed/demo group data so the real class
-        // starts fresh. Students will be auto-grouped on join based
-        // on the selected groupMode.
+        // A new class starts with no project spaces. Each student receives one
+        // private personal-project space when joining; no real student grouping occurs.
         groups: [],
         workPlan: [],
         whiteboard: [],
@@ -264,27 +271,22 @@ export function applySessionAction(
         studentName: student.name,
         courses: state.courses.map((c) => {
           if (c.id !== courseId) return c;
-          // Auto-create a solo group for the student when the class is
-          // configured as "solo" (one-person-per-group) or "none" (no
-          // grouping / whole-class). This ensures every student has a
-          // group context in the ideation stage without seeing another
-          // student's group data.
-          const mode = c.classConfig?.groupMode;
-          const shouldAutoGroup = mode === "solo" || mode === "none";
+          // Keep the legacy ProjectGroup container only as the storage key for
+          // one student's private project. It is never presented as a group.
           const alreadyInGroup = (c.groups ?? []).some((g) =>
             g.members.some((m) => m.studentId === student.id),
           );
-          const groups = shouldAutoGroup && !alreadyInGroup
+          const groups = !alreadyInGroup
             ? [
                 ...(c.groups ?? []),
                 {
                   id: `grp-${student.id}`,
-                  name: `${student.name}的个人小组`,
+                  name: `${student.name}的个人项目`,
                   topic: "待确定选题方向",
                   goal: "",
                   keywords: [],
                   selectedForms: [],
-                  members: [{ studentId: student.id, name: student.name, role: "组长" }],
+                  members: [{ studentId: student.id, name: student.name, role: "项目负责人" }],
                   createdAt: touchedAt,
                   updatedAt: touchedAt,
                 },
@@ -559,6 +561,37 @@ export function applySessionAction(
         ),
       }));
     }
+    case "ADD_OFFLINE_INTERVENTION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        offlineInterventions: [action.payload.intervention, ...(c.offlineInterventions ?? [])],
+      }));
+    case "RESOLVE_INTERVENTION_SIGNALS": {
+      const resolvedIds = new Set(action.payload.signalIds);
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        resolvedInterventionSignalIds: [
+          ...new Set([...(c.resolvedInterventionSignalIds ?? []), ...action.payload.signalIds]),
+        ],
+        learningSignals: (c.learningSignals ?? []).map((signal) =>
+          resolvedIds.has(signal.id)
+            ? { ...signal, status: "resolved", resolvedAt: touchedAt, handledAt: signal.handledAt ?? touchedAt }
+            : signal,
+        ),
+        classCommonIssues: (c.classCommonIssues ?? []).map((issue) =>
+          issue.signalIds.length > 0 && issue.signalIds.every((id) => resolvedIds.has(id))
+            ? { ...issue, status: "resolved", resolvedAt: touchedAt, lastDetectedAt: touchedAt }
+            : issue,
+        ),
+        teacherInterventions: (c.teacherInterventions ?? []).map((intervention) =>
+          intervention.signalId && resolvedIds.has(intervention.signalId)
+            ? { ...intervention, status: "resolved", resolvedAt: touchedAt }
+            : intervention,
+        ),
+      }));
+    }
+    case "UPSERT_TEACHER_AGENT_DIRECTIVE":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        teacherAgentDirectives: upsertById(c.teacherAgentDirectives ?? [], action.payload.directive),
+      }));
     case "SET_UI_STATE":
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         uiState: { ...(c.uiState ?? {}), ...action.payload.patch },
@@ -658,18 +691,62 @@ function activity(actor: string, action: string, detail: string | undefined, cre
 }
 
 export function normalizeCourse(course: Course): Course {
+  const previousStageKey = course.stages?.[course.currentStageIndex]?.key;
+  const migratedStageKey = previousStageKey === "group" || previousStageKey === "review"
+    ? "proposal"
+    : previousStageKey;
+  const stages = DEFAULT_STAGES.map((stage) => ({ ...stage }));
+  const migratedStageIndex = Math.max(0, stages.findIndex((stage) => stage.key === migratedStageKey));
+  const legacyGroups = course.groups ?? [];
+  const personalProjects = (course.students ?? []).map((student) => {
+    const exactProject = legacyGroups.find((project) => project.id === `grp-${student.id}`)
+      ?? legacyGroups.find((project) => project.members.length === 1 && project.members[0]?.studentId === student.id);
+    const inheritedProject = exactProject
+      ?? legacyGroups.find((project) => project.members.some((member) => member.studentId === student.id));
+    const now = course.updatedAt || new Date().toISOString();
+    return {
+      ...(inheritedProject ?? {
+        id: `grp-${student.id}`,
+        topic: "待确定选题方向",
+        goal: "",
+        keywords: [],
+        selectedForms: [],
+        createdAt: now,
+        updatedAt: now,
+      }),
+      id: exactProject?.id ?? `grp-${student.id}`,
+      name: `${student.name}的个人项目`,
+      members: [{ studentId: student.id, name: student.name, role: "项目负责人" }],
+    };
+  });
+  const migrateStageKey = (stageKey: string) => stageKey === "group" || stageKey === "review"
+    ? "proposal"
+    : stageKey === "workspace"
+      ? "make"
+      : stageKey;
   return {
     ...course,
+    pblConfig: normalizePblCourseConfig(course.pblConfig),
+    stages,
+    currentStageIndex: migratedStageIndex,
+    classConfig: course.classConfig
+      ? { ...course.classConfig, groupMode: "solo", perGroup: 1, crossClass: false }
+      : course.classConfig,
     students: course.students ?? [],
     submissions: course.submissions ?? [],
-    feedback: course.feedback ?? [],
+    feedback: (course.feedback ?? []).map((item) => ({
+      sourceRole: "teacher" as const,
+      evidence: [],
+      status: "open" as const,
+      ...item,
+    })),
     rubricScores: course.rubricScores ?? [],
     reflections: course.reflections ?? [],
     activityLog: course.activityLog ?? [],
     announcements: course.announcements ?? [],
     todos: course.todos ?? [],
     resources: course.resources ?? [],
-    groups: course.groups ?? [],
+    groups: personalProjects,
     groupAnnouncements: course.groupAnnouncements ?? [],
     workPlan: course.workPlan ?? [],
     whiteboard: course.whiteboard ?? [],
@@ -677,7 +754,43 @@ export function normalizeCourse(course: Course): Course {
     uploads: course.uploads ?? [],
     teamContributions: course.teamContributions ?? [],
     aiSupports: course.aiSupports ?? [],
-    uiState: course.uiState ?? {},
+    teacherInterventions: course.teacherInterventions ?? [],
+    resolvedInterventionSignalIds: course.resolvedInterventionSignalIds ?? [],
+    stageTransitions: course.stageTransitions ?? [],
+    evaluations: course.evaluations ?? [],
+    learningEvents: course.learningEvents ?? [],
+    companionThreads: course.companionThreads ?? [],
+    learningSignals: course.learningSignals ?? [],
+    classCommonIssues: course.classCommonIssues ?? [],
+    teacherAgentDirectives: course.teacherAgentDirectives ?? [],
+    offlineInterventions: course.offlineInterventions ?? [],
+    dynamicFacilitationScaffolds: course.dynamicFacilitationScaffolds ?? [],
+    uiState: {
+      ...(course.uiState ?? {}),
+      teacherResourceProjection: course.uiState?.teacherResourceProjection ?? null,
+      aiChatStagesEnabled: course.uiState?.aiChatStagesEnabled?.length
+        ? [...new Set(course.uiState.aiChatStagesEnabled.map(migrateStageKey))]
+        : course.uiState?.aiChatStagesEnabled,
+    },
+    content: {
+      ...course.content,
+      lessonOutline: (course.content.lessonOutline ?? []).map((section) => ({ ...section, stageKey: migrateStageKey(section.stageKey) })),
+      teachingOutline: course.content.teachingOutline?.map((section) => ({
+        ...section,
+        stageKey: migrateStageKey(section.stageKey),
+        // Collapse the removed legacy tag into ordinary classroom activity.
+        openMaicUse: section.openMaicUse === "student-ai-learning"
+          ? "student-ai-learning"
+          : "none",
+      })),
+      evaluationPlan: {
+        ...course.content.evaluationPlan,
+        flows: DEFAULT_EVALUATION_FLOWS.map((flow) => ({
+          ...flow,
+          evidenceRequirements: [...flow.evidenceRequirements],
+        })),
+      },
+    },
   };
 }
 

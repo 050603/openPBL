@@ -32,6 +32,9 @@ import type {
   PlaybackSnapshot,
   TriggerEvent,
   Effect,
+  ActivityGate,
+  ActivityPurpose,
+  ActivityCompletionReason,
 } from './types';
 import type { AudioPlayer } from '@openmaic/lib/utils/audio-player';
 import { ActionEngine } from '@openmaic/lib/action/engine';
@@ -84,6 +87,8 @@ export class PlaybackEngine {
   private browserTTSChunkIndex: number = 0; // current chunk being spoken
   private browserTTSPausedChunks: string[] = []; // remaining chunks saved on pause (for cancel+re-speak)
   private speechTimerRemaining: number = 0; // remaining ms (set on pause)
+  private speechTimerIsActivityPause: boolean = false;
+  private activeActivity: ActivityGate | null = null;
 
   constructor(
     scenes: Scene[],
@@ -103,6 +108,14 @@ export class PlaybackEngine {
   /** Get the current engine mode */
   getMode(): EngineMode {
     return this.mode;
+  }
+
+  /** Complete the current student activity early. Duplicate/stale events are ignored. */
+  completeActivity(sceneId: string, purpose?: ActivityPurpose): boolean {
+    const activity = this.activeActivity;
+    if (!activity || activity.sceneId !== sceneId) return false;
+    if (purpose && activity.purpose !== purpose) return false;
+    return this.finishActivity('user');
   }
 
   /** Export a serializable playback snapshot */
@@ -216,10 +229,14 @@ export class PlaybackEngine {
         // Reading timer was paused — reschedule with remaining time
         this.speechTimerStart = Date.now();
         this.speechTimer = setTimeout(() => {
-          this.speechTimer = null;
-          this.speechTimerRemaining = 0;
-          this.callbacks.onSpeechEnd?.();
-          if (this.mode === 'playing') this.processNext();
+          if (this.speechTimerIsActivityPause) {
+            this.finishActivity('timeout');
+          } else {
+            this.speechTimer = null;
+            this.speechTimerRemaining = 0;
+            this.callbacks.onSpeechEnd?.();
+            if (this.mode === 'playing') this.processNext();
+          }
         }, this.speechTimerRemaining);
       } else {
         // TTS finished while paused, continue to next event
@@ -245,6 +262,8 @@ export class PlaybackEngine {
       this.speechTimer = null;
     }
     this.speechTimerRemaining = 0;
+    this.speechTimerIsActivityPause = false;
+    this.activeActivity = null;
     this.sceneIndex = 0;
     this.actionIndex = 0;
     this.savedSceneIndex = null;
@@ -366,6 +385,7 @@ export class PlaybackEngine {
 
   /** Whether all remaining actions have been consumed (no speech left to play) */
   isExhausted(): boolean {
+    if (this.activeActivity) return false;
     let si = this.sceneIndex;
     let ai = this.actionIndex;
     while (si < this.scenes.length) {
@@ -400,6 +420,22 @@ export class PlaybackEngine {
     }
     this.savedSceneIndex = null;
     this.savedActionIndex = null;
+  }
+
+  private finishActivity(reason: ActivityCompletionReason): boolean {
+    const activity = this.activeActivity;
+    if (!activity) return false;
+
+    this.activeActivity = null;
+    if (this.speechTimer) {
+      clearTimeout(this.speechTimer);
+      this.speechTimer = null;
+    }
+    this.speechTimerRemaining = 0;
+    this.speechTimerIsActivityPause = false;
+    this.callbacks.onActivityComplete?.(activity, reason);
+    if (this.mode === 'playing') queueMicrotask(() => this.processNext());
+    return true;
   }
 
   /**
@@ -439,7 +475,7 @@ export class PlaybackEngine {
       return;
     }
 
-    const { action } = current;
+    const { action, sceneId } = current;
 
     // Notify progress BEFORE advancing the cursor so the snapshot points at
     // the current action.  On restore the same action will be replayed — this
@@ -451,6 +487,31 @@ export class PlaybackEngine {
     switch (action.type) {
       case 'speech': {
         const speechAction = action as SpeechAction;
+        const activityPauseSec = Number(
+          (speechAction as SpeechAction & { activityPauseSec?: number }).activityPauseSec,
+        );
+        if (Number.isFinite(activityPauseSec) && activityPauseSec > 0) {
+          const configuredPurpose = (speechAction as SpeechAction & {
+            activityPausePurpose?: ActivityPurpose;
+          }).activityPausePurpose;
+          const sceneType = this.scenes[this.sceneIndex]?.type;
+          const purpose: ActivityPurpose =
+            configuredPurpose === 'quiz' || configuredPurpose === 'interaction'
+              ? configuredPurpose
+              : sceneType === 'quiz'
+                ? 'quiz'
+                : 'interaction';
+          const pauseMs = activityPauseSec * 1000;
+          this.activeActivity = { sceneId, purpose, durationSec: activityPauseSec };
+          this.speechTimerStart = Date.now();
+          this.speechTimerRemaining = pauseMs;
+          this.speechTimerIsActivityPause = true;
+          this.speechTimer = setTimeout(() => {
+            this.finishActivity('timeout');
+          }, pauseMs);
+          this.callbacks.onActivityStart?.(this.activeActivity);
+          break;
+        }
         this.callbacks.onSpeechStart?.(speechAction.text);
 
         // onEnded → processNext; if paused, resume() will call processNext
@@ -478,6 +539,7 @@ export class PlaybackEngine {
           const readingMs = rawMs / speed;
           this.speechTimerStart = Date.now();
           this.speechTimerRemaining = readingMs;
+          this.speechTimerIsActivityPause = false;
           this.speechTimer = setTimeout(() => {
             this.speechTimer = null;
             this.speechTimerRemaining = 0;
@@ -657,7 +719,10 @@ export class PlaybackEngine {
 
     // Apply settings
     const speed = this.callbacks.getPlaybackSpeed?.() ?? 1;
-    utterance.rate = (settings.ttsSpeed ?? 1) * speed;
+    // The course planner sizes narration for the provider's normal rate.
+    // Only the student's explicit playback-speed control may alter it here.
+    const baseRate = speed;
+    utterance.rate = baseRate;
     utterance.volume = settings.ttsMuted ? 0 : (settings.ttsVolume ?? 1);
 
     // Ensure voices are loaded (Chrome loads them asynchronously)

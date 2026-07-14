@@ -10,34 +10,60 @@ import { I18nProvider } from "@openmaic/lib/hooks/use-i18n";
 import { ThemeProvider } from "@openmaic/lib/hooks/use-theme";
 import { createLogger } from "@openmaic/lib/logger";
 import { useStageStore } from "@openmaic/lib/store";
-import { useSettingsStore } from "@openmaic/lib/store/settings";
 import type { Scene, Stage as StageType } from "@openmaic/lib/types/stage";
+import type { PlaybackSyncState, StageExperience } from "@openmaic/components/stage-experience";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui";
 
 const log = createLogger("OpenMaicResourcePlayer");
+const ASSET_REFRESH_INTERVAL_MS = 5_000;
+const MAX_ASSET_REFRESH_ATTEMPTS = 60;
 
 type LoadState = "loading" | "ready" | "error";
 
 interface ClassroomPayload {
   stage: StageType;
   scenes: Scene[];
+  assetGeneration?: {
+    status: "running" | "completed" | "partial-failure";
+    requested: number;
+    completed: number;
+    failures: Array<{ elementId: string; type: "image" | "video" | "tts"; error: string }>;
+  };
 }
 
 export function OpenMaicResourcePlayer({
   classroomId,
   sceneId,
   className,
+  experience = "teacher-resource",
+  playbackState,
+  onPlaybackStateChange,
+  interactionState,
 }: {
   classroomId: string;
   sceneId?: string;
   className?: string;
+  experience?: StageExperience;
+  playbackState?: PlaybackSyncState;
+  onPlaybackStateChange?: (state: Omit<PlaybackSyncState, "version">) => void;
+  /**
+   * 互动场景状态快照（由教师端 projection 同步过来）。
+   * 仅在 experience="projected-readonly" 时有意义：学生端 PlaybackChromeRoot
+   * 监听此属性变化，通过 postMessage apply-state 将状态应用到互动 iframe，
+   * 使学生看到教师的操作结果。
+   */
+  interactionState?: Record<string, unknown> | null;
 }) {
   const [state, setState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [assetGeneration, setAssetGeneration] = useState<ClassroomPayload["assetGeneration"]>();
 
-  const loadResource = useCallback(async () => {
-    setState("loading");
-    setErrorMessage(undefined);
+  const loadResource = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setState("loading");
+      setErrorMessage(undefined);
+    }
 
     try {
       const response = await fetch(
@@ -59,6 +85,7 @@ export function OpenMaicResourcePlayer({
       if (!payload.success || !payload.classroom) {
         throw new Error("授课资源课堂返回内容为空");
       }
+      setAssetGeneration(payload.classroom.assetGeneration);
 
       const selectedScene = sceneId
         ? payload.classroom.scenes.find((scene) => scene.id === sceneId)
@@ -73,43 +100,60 @@ export function OpenMaicResourcePlayer({
         ...selectedScene,
         stageId: payload.classroom.stage.id,
       } as Scene);
-      useStageStore.getState().setStage(payload.classroom.stage);
-      useStageStore.setState({
-        scenes: [migratedScene],
-        currentSceneId: migratedScene.id,
-        mode: "playback",
-        outlines: [],
-        generatingOutlines: [],
-        generationComplete: true,
-        generationStatus: "completed",
-      });
-      useSettingsStore.setState((settings) => ({
-        ttsEnabled: true,
-        ttsProviderId: settings.ttsProviderId || "browser-native-tts",
-        ttsProvidersConfig: {
-          ...settings.ttsProvidersConfig,
-          "browser-native-tts": {
-            ...settings.ttsProvidersConfig?.["browser-native-tts"],
-            enabled: true,
-          },
-        },
-      }));
-      setState("ready");
+      const currentScene = useStageStore.getState().scenes[0];
+      const currentSnapshot = currentScene
+        ? JSON.stringify({ content: currentScene.content, actions: currentScene.actions })
+        : undefined;
+      const nextSnapshot = JSON.stringify({ content: migratedScene.content, actions: migratedScene.actions });
+      if (!options.silent || currentSnapshot !== nextSnapshot) {
+        useStageStore.getState().setStage(payload.classroom.stage);
+        useStageStore.setState({
+          scenes: [migratedScene],
+          currentSceneId: migratedScene.id,
+          mode: "playback",
+          outlines: [],
+          generatingOutlines: [],
+          generationComplete: true,
+          generationStatus: "completed",
+        });
+      }
+      if (!options.silent) setState("ready");
     } catch (error) {
       const message = error instanceof Error ? error.message : "授课资源加载失败";
       log.error("Failed to load projected teacher resource:", error);
-      setErrorMessage(message);
-      setState("error");
-      window.alert(message);
+      if (!options.silent) {
+        setErrorMessage(message);
+        setState("error");
+        toast.error("资源加载失败", { description: message });
+      }
     }
   }, [classroomId, sceneId]);
 
   useEffect(() => {
+    // Loading the external classroom snapshot initializes both Zustand stores
+    // and this component's visible loading state as one bridge operation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadResource();
     return () => {
       useStageStore.getState().clearStore();
     };
   }, [loadResource]);
+
+  useEffect(() => {
+    if (state !== "ready") return;
+    let attempts = 0;
+    const refreshTimer = window.setInterval(() => {
+      attempts += 1;
+      if (attempts > MAX_ASSET_REFRESH_ATTEMPTS) {
+        window.clearInterval(refreshTimer);
+        return;
+      }
+      // Keep the already visible classroom body in place while picking up
+      // audio/image/video URLs written by the background asset task.
+      void loadResource({ silent: true });
+    }, ASSET_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(refreshTimer);
+  }, [loadResource, state]);
 
   return (
     <ThemeProvider>
@@ -123,8 +167,8 @@ export function OpenMaicResourcePlayer({
             )}
           >
             {state === "loading" ? (
-              <div className="flex flex-1 items-center justify-center bg-slate-50">
-                <div className="text-center text-slate-500">
+              <div className="flex flex-1 items-center justify-center bg-stone-50">
+                <div className="text-center text-stone-500">
                   <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-blue-600" />
                   <p className="text-sm">正在加载授课资源...</p>
                 </div>
@@ -144,7 +188,24 @@ export function OpenMaicResourcePlayer({
                 </div>
               </div>
             ) : (
-              <Stage />
+              <>
+                {assetGeneration?.status === "running" ? (
+                  <div className="border-b border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-800">
+                    图片和视频正在后台生成，完成后会自动回填（{assetGeneration.completed}/{assetGeneration.requested}）。
+                  </div>
+                ) : null}
+                {assetGeneration?.status === "partial-failure" ? (
+                  <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+                    已生成 {assetGeneration.completed}/{assetGeneration.requested} 项媒体资源；其余资源生成失败，课程正文仍可正常使用。可检查模型配置后重新生成。
+                  </div>
+                ) : null}
+                <Stage
+                  experience={experience}
+                  onPlaybackStateChange={onPlaybackStateChange}
+                  playbackState={playbackState}
+                  interactionState={interactionState}
+                />
+              </>
             )}
           </div>
         </MediaStageProvider>

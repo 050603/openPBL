@@ -104,6 +104,7 @@ export async function POST(req: NextRequest) {
         const result = await callLLM(
           {
             model: languageModel,
+            abortSignal: req.signal,
             system: systemPrompt,
             messages: [
               {
@@ -121,9 +122,10 @@ export async function POST(req: NextRequest) {
         return result.text;
       }
       const result = await callLLM(
-        {
-          model: languageModel,
-          system: systemPrompt,
+          {
+            model: languageModel,
+            abortSignal: req.signal,
+            system: systemPrompt,
           prompt: userPrompt,
           maxOutputTokens: modelInfo?.outputWindow,
           maxRetries: 0,
@@ -139,6 +141,7 @@ export async function POST(req: NextRequest) {
     const vocationalActive = resolveVocationalActive(requirements);
     const effectiveOutline = applyOutlineFallbacks(outline, !!languageModel, {
       allowProceduralSkill: vocationalActive,
+      personalProject: requirements?.pblProfile?.projectMode === 'personal',
     });
 
     // ── Filter images assigned to this outline ──
@@ -176,7 +179,9 @@ export async function POST(req: NextRequest) {
       thinkingConfig,
       targetLanguage: userLocale || undefined,
       userRequirements: requirements,
+      pblProfile: requirements?.pblProfile,
       allowProceduralSkill: vocationalActive,
+      signal: req.signal,
     });
 
     if (!content) {

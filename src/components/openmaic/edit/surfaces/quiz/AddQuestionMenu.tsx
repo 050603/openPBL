@@ -17,7 +17,7 @@ const TYPES: { type: QuizQuestionType; labelKey: string; Icon: LucideIcon; tint:
     type: 'multiple',
     labelKey: 'edit.quiz.type.multiple',
     Icon: ListChecks,
-    tint: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300',
+    tint: 'bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] dark:bg-indigo-500/15 dark:text-indigo-300',
   },
   {
     type: 'short_answer',

@@ -4,7 +4,14 @@
  * Shared types used across all stage-api sub-modules.
  */
 
-import type { Stage, Scene, SceneContent, SceneType, StageMode } from '@openmaic/lib/types/stage';
+import type {
+  PblSceneMetadata,
+  Stage,
+  Scene,
+  SceneContent,
+  SceneType,
+  StageMode,
+} from '@openmaic/lib/types/stage';
 import type { PPTElement } from '@openmaic/dsl';
 import type { Action } from '@openmaic/lib/types/action';
 
@@ -22,7 +29,7 @@ export interface APIResult<T = unknown> {
 /**
  * Scene creation parameters
  */
-export interface CreateSceneParams {
+export interface CreateSceneParams extends PblSceneMetadata {
   type: SceneType;
   title: string;
   content?: Partial<SceneContent>;

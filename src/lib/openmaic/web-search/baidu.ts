@@ -10,6 +10,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import type { WebSearchResult, WebSearchSource } from '@openmaic/lib/types/web-search';
 import type { BaiduSubSources } from './types';
 import { normalizeWebSearchQuery } from './utils';
+import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 const log = createLogger('BaiduSearch');
 
@@ -60,11 +61,13 @@ async function fetchWebSearch(
   apiKey: string,
   maxResults: number,
   baseUrl?: string,
+  signal?: AbortSignal,
 ): Promise<WebSearchSource[]> {
   try {
     const res = await proxyFetch(buildQianfanUrl(BAIDU_WEB_SEARCH_PATH, baseUrl), {
       method: 'POST',
       headers: baiduHeaders(apiKey),
+      signal,
       body: JSON.stringify({
         messages: [{ content: query, role: 'user' }],
         search_source: 'baidu_search_v2',
@@ -94,16 +97,18 @@ async function fetchWebSearch(
         score: Number((0.9 - index * 0.05).toFixed(2)),
       }));
   } catch (error) {
+    if (signal?.aborted) throw error;
     log.warn('[Baidu Web] Failed:', error);
     return [];
   }
 }
 
-async function fetchBaike(query: string, apiKey: string): Promise<WebSearchSource[]> {
+async function fetchBaike(query: string, apiKey: string, signal?: AbortSignal): Promise<WebSearchSource[]> {
   try {
     const res = await proxyFetch(buildBaikeUrl(query), {
       method: 'GET',
       headers: baiduHeaders(apiKey),
+      signal,
     });
 
     if (!res.ok) {
@@ -126,6 +131,7 @@ async function fetchBaike(query: string, apiKey: string): Promise<WebSearchSourc
       },
     ];
   } catch (error) {
+    if (signal?.aborted) throw error;
     log.warn('[Baidu Baike] Failed:', error);
     return [];
   }
@@ -136,11 +142,13 @@ async function fetchScholar(
   apiKey: string,
   maxResults: number,
   baseUrl?: string,
+  signal?: AbortSignal,
 ): Promise<WebSearchSource[]> {
   try {
     const res = await proxyFetch(buildScholarUrl(query, baseUrl), {
       method: 'GET',
       headers: baiduHeaders(apiKey),
+      signal,
     });
 
     if (!res.ok) {
@@ -169,6 +177,7 @@ async function fetchScholar(
         score: Number((0.85 - index * 0.05).toFixed(2)),
       }));
   } catch (error) {
+    if (signal?.aborted) throw error;
     log.warn('[Baidu Scholar] Failed:', error);
     return [];
   }
@@ -180,8 +189,10 @@ export async function searchWithBaidu(params: {
   maxResults?: number;
   baseUrl?: string;
   subSources?: Partial<BaiduSubSources>;
+  signal?: AbortSignal;
 }): Promise<WebSearchResult> {
-  const { query: rawQuery, apiKey, maxResults = 10, baseUrl } = params;
+  const { query: rawQuery, apiKey, maxResults = 10, baseUrl, signal } = params;
+  throwIfAborted(signal);
   if (!apiKey) throw new Error('Baidu API key is required');
 
   const query = normalizeWebSearchQuery(rawQuery);
@@ -189,10 +200,11 @@ export async function searchWithBaidu(params: {
   const startedAt = Date.now();
 
   const [webResults, baikeResults, scholarResults] = await Promise.all([
-    subSources.webSearch ? fetchWebSearch(query, apiKey, maxResults, baseUrl) : Promise.resolve([]),
-    subSources.baike ? fetchBaike(query, apiKey) : Promise.resolve([]),
-    subSources.scholar ? fetchScholar(query, apiKey, 3, baseUrl) : Promise.resolve([]),
+    subSources.webSearch ? fetchWebSearch(query, apiKey, maxResults, baseUrl, signal) : Promise.resolve([]),
+    subSources.baike ? fetchBaike(query, apiKey, signal) : Promise.resolve([]),
+    subSources.scholar ? fetchScholar(query, apiKey, 3, baseUrl, signal) : Promise.resolve([]),
   ]);
+  throwIfAborted(signal);
 
   const seen = new Set<string>();
   const sources = [...baikeResults, ...webResults, ...scholarResults].filter((source) => {
