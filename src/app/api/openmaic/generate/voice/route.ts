@@ -11,7 +11,7 @@
  *  - else synthesize the descriptor once, register, and return the clip so the
  *    client can cache it.
  *
- * POST /api/generate/voice
+ * POST /api/openmaic/generate/voice
  */
 
 import { NextRequest } from 'next/server';

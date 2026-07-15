@@ -9,6 +9,23 @@ import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import {
   isPblModuleTimingPlanConfirmed,
 } from "@/lib/pbl-time-model";
+import { deriveTeachingConstraints } from "@openmaic/lib/pedagogy/teaching-constraints";
+
+export function buildCourseTeachingConstraints(
+  course: Pick<Course, "name" | "subject" | "grade" | "hours" | "learningObjectives" | "pblConfig" | "learnerProfile">,
+  content?: Partial<CourseContent>,
+) {
+  return deriveTeachingConstraints({
+    grade: course.grade,
+    subject: course.subject,
+    topic: course.name,
+    hours: course.hours,
+    difficulty: course.pblConfig?.difficultyLevel,
+    learnerProfile: course.learnerProfile,
+    learningObjectives: course.learningObjectives,
+    knowledgePoints: content?.knowledgePoints,
+  });
+}
 
 export function buildTeacherActivityRequirements(
   content?: Partial<CourseContent>,
@@ -52,7 +69,7 @@ export function buildPblActivityCatalog(
  * in the pbl-course prompt template rather than in this request text.
  */
 export function buildPblCourseRequirement(
-  course: Pick<Course, "name" | "subject" | "grade" | "hours" | "summary" | "drivingQuestion" | "learningObjectives" | "pblConfig">,
+  course: Pick<Course, "name" | "subject" | "grade" | "hours" | "summary" | "drivingQuestion" | "learningObjectives" | "pblConfig" | "learnerProfile">,
   content?: Partial<CourseContent>,
   outlines?: SceneOutline[],
 ): string {
@@ -78,6 +95,8 @@ export function buildPblCourseRequirement(
         summary: course.summary,
         drivingQuestion: course.drivingQuestion,
         learningObjectives: course.learningObjectives ?? [],
+        learnerProfile: course.learnerProfile ?? null,
+        teachingConstraints: buildCourseTeachingConstraints(course, content),
         pblConfig: normalizePblCourseConfig(course.pblConfig),
       },
       null,

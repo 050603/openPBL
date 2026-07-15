@@ -1,4 +1,5 @@
 import type { Course, ProjectGroup, Stage } from "@/lib/session/types";
+import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
 
 export type StageGateItem = {
   code: string;
@@ -25,6 +26,7 @@ export type InterventionSignal = {
   suggestedAction: string;
   confidence: "medium" | "high";
   stageKey?: string;
+  contentLocation?: string;
 };
 
 function isProposalComplete(group: ProjectGroup): boolean {
@@ -66,7 +68,13 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
     const hasAiContent = Boolean(course.aiLearningClassroomId || course.content._openmaicClassroomId || course.content._openmaicSceneOutlines?.length);
     if (!hasAiContent) blockers.push({ code: "ai-content", message: "AI 授知内容尚未生成或关联", targetIds: [course.id] });
     else completed.push("AI 授知内容可用");
-    const unmet = Object.entries(course.aiLearningProgress ?? {}).filter(([, progress]) => progress.unmetGoals?.length || progress.masteryLevel === "not-started").map(([studentId]) => studentId);
+    const unmet = Object.entries(course.aiLearningProgress ?? {})
+      .filter(([, progress]) =>
+        !isReliableAiProgress(progress) ||
+        progress.unmetGoals?.length ||
+        progress.masteryLevel === "not-started",
+      )
+      .map(([studentId]) => studentId);
     if (unmet.length) warnings.push({ code: "unmet-goals", message: `${unmet.length} 名学生仍有未达成目标，需要教师处理或说明覆盖`, targetIds: unmet });
   }
 
@@ -123,23 +131,24 @@ export function detectInterventionSignals(course: Course, now = Date.now()): Int
   const signals: InterventionSignal[] = [];
   const resolvedIds = new Set(course.resolvedInterventionSignalIds ?? []);
   const progress = Object.entries(course.aiLearningProgress ?? {});
+  const activeStageKey = course.stages[course.currentStageIndex]?.key;
   const misconception = new Map<string, string[]>();
   progress.forEach(([studentId, item]) => item.unmetGoals?.forEach((goal) => misconception.set(goal, [...(misconception.get(goal) ?? []), studentId])));
   misconception.forEach((studentIds, goal) => {
-    if (studentIds.length >= 2) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${id}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high", stageKey: "ai-learning" });
+    const population = Math.max(course.students.length, progress.length);
+    if (population < 2) return;
+    const required = Math.min(population, Math.max(2, Math.ceil(population * 0.3)));
+    if (studentIds.length >= required) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在知识点“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${course.students.find((student) => student.id === id)?.name ?? id}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high", stageKey: "ai-learning", contentLocation: `知识点：${goal}` });
   });
 
   // ===== 阶段三（方案构思）风险信号 =====
-  // 检测学生在方案构思阶段的风险：未开始、无 AI 互动、方案过简、长期未确认
+  // 仅在学生实际处于方案阶段时检测，避免用课程创建时间产生跨阶段误报。
   const proposalStage = course.stages.find((s) => s.key === "proposal");
-  if (proposalStage) {
-    const proposalThreads = (course.companionThreads ?? []).filter((t) => t.stageKey === "proposal");
+  if (proposalStage && activeStageKey === "proposal") {
     (course.groups ?? []).forEach((project) => {
       const student = project.members[0];
       if (!student) return;
       const proposal = project.proposal;
-      const thread = proposalThreads.find((t) => t.studentId === student.studentId);
-      const studentMessages = thread?.messages.filter((m) => m.role === "student") ?? [];
       const hasSubmission = (course.submissions ?? []).some((item) =>
         (item.studentId === student.studentId || item.groupId === project.id) &&
         ["idea", "plan"].includes(item.type));
@@ -162,23 +171,7 @@ export function detectInterventionSignals(course: Course, now = Date.now()): Int
         });
       }
 
-      // 2. 无 AI 伴学互动
-      if (studentMessages.length === 0 && staleMs > 15 * 60 * 1000) {
-        signals.push({
-          id: `proposal-no-ai:${project.id}`,
-          kind: "low-confidence",
-          title: "方案构思阶段未与 AI 伴学小组交流",
-          whatHappened: `${student.name} 在方案构思阶段尚未与 AI 伴学小组对话`,
-          evidence: ["伴学对话记录为空", `最后更新：${project.updatedAt}`],
-          targetType: "student",
-          targetIds: [student.studentId],
-          suggestedAction: "提醒学生可以点击“让 AI 伴学小组帮我完善”获取多角色反馈",
-          confidence: "medium",
-          stageKey: "proposal",
-        });
-      }
-
-      // 3. 方案过简（核心字段过短）
+      // 2. 方案过简（核心字段过短）
       if (proposal) {
         const questionLen = proposal.projectQuestion.trim().length;
         const planLen = proposal.implementationPlan.trim().length;
@@ -198,7 +191,7 @@ export function detectInterventionSignals(course: Course, now = Date.now()): Int
         }
       }
 
-      // 4. 长期等待教师确认
+      // 3. 长期等待教师确认
       if (proposal && project.teacherApproval?.status === "pending") {
         const pendingSince = new Date(project.teacherApproval.updatedAt).getTime();
         if (now - pendingSince > 30 * 60 * 1000) {
@@ -219,7 +212,7 @@ export function detectInterventionSignals(course: Course, now = Date.now()): Int
     });
   }
 
-  (course.groups ?? []).filter((project) => project.members.length === 1).forEach((project) => {
+  (activeStageKey === "make" ? course.groups ?? [] : []).filter((project) => project.members.length === 1).forEach((project) => {
     const lastProgress = new Date(project.updatedAt).getTime();
     const hasProgress = (course.workPlan ?? []).some((item) => item.groupId === project.id && item.progress > 0);
     const student = project.members[0];

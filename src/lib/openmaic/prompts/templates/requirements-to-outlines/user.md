@@ -81,7 +81,7 @@ Never return a bare array. Never omit `languageDirective` or `courseTitle`. All 
    "quizConfig": {
      "questionCount": 2,
      "difficulty": "easy" | "medium" | "hard",
-     "questionTypes": ["single", "multiple"]
+     "questionTypes": ["single", "multiple", "true_false", "fill_blank", "short_answer", "scenario_task"]
    }
    ```
 {{#if hasSourceImages}}
@@ -92,6 +92,8 @@ Never return a bare array. Never omit `languageDirective` or `courseTitle`. All 
    - Provide appropriate widgetOutline for the widget type
 - **Scene count**: Based on inferred duration, typically 1-2 scenes per minute
 - **Quiz placement**: Recommend inserting a quiz every 3-5 slides for assessment
+- **Quiz design**: choose supported formats according to the objective: recognition (`single`/`true_false`), evidence classification (`multiple`), concept completion (`fill_blank`), explanation (`short_answer`), or transfer (`scenario_task`). Do not request matching, drag, line, ordering, or sorting because those components are not supported.
+- **Teaching progression**: activate prerequisites before introducing new terminology; explain each unfamiliar term before using it in examples or assessment; move from concrete familiar contexts to mechanism and then application.
 - **Language**: Infer from the user's requirement text and context, then output all content in the inferred language
 - **If web search results are provided**, reference specific findings and sources in scene descriptions and keyPoints. The search results provide up-to-date information — incorporate it to make the course content current and accurate.
 

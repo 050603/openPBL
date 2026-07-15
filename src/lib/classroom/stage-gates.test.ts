@@ -36,6 +36,7 @@ describe("detectInterventionSignals", () => {
   it("covers the six personal-project teacher-attention signals", () => {
     const old = new Date(Date.now() - 40 * 60 * 1000).toISOString();
     const result = detectInterventionSignals(course({
+      currentStageIndex: 3,
       aiLearningProgress: {
         s1: { classroomId: "c", studentId: "s1", currentSceneIndex: 1, totalScenes: 2, completedScenes: [], lastActiveAt: old, masteryLevel: "in-progress", unmetGoals: ["变量关系"] },
         s2: { classroomId: "c", studentId: "s2", currentSceneIndex: 1, totalScenes: 2, completedScenes: [], lastActiveAt: old, masteryLevel: "in-progress", unmetGoals: ["变量关系"] },

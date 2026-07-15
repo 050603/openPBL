@@ -94,7 +94,7 @@ export function ShowcaseView({ course }: { course: Course }) {
       });
       session.setPreviewUpload(course.id, upload.id);
       session.updateStudentProgress("showcase", 85);
-      if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey: "showcase", kind: "file-uploaded", artifactId: data.id, summary: slot.title });
+      if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey: "showcase", kind: "file-uploaded", artifactId: data.id, summary: slot.title, milestone: true });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "上传失败，请重试");
     } finally {

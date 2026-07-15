@@ -113,7 +113,7 @@ export const DEFAULT_PBL_OUTCOME: PblOutcomeSpec = {
 export const DEFAULT_PBL_COURSE_CONFIG: PblCourseConfig = {
   projectMode: "personal",
   difficultyLevel: "standard",
-  evidenceRequirements: DEFAULT_PBL_EVIDENCE_REQUIREMENTS,
+  evidenceRequirements: DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((item) => item.required),
   outcome: DEFAULT_PBL_OUTCOME,
   companionIds: PBL_COMPANION_ORDER,
   evaluationModel: "tri-party",
@@ -136,15 +136,16 @@ export function normalizePblCourseConfig(
 ): PblCourseConfig {
   const rawEvidence = Array.isArray(input?.evidenceRequirements)
     ? input.evidenceRequirements
-    : DEFAULT_PBL_EVIDENCE_REQUIREMENTS;
+    : DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((item) => item.required);
   const evidenceRequirements = rawEvidence
     .filter((item): item is PblEvidenceRequirement => Boolean(item && typeof item === "object"))
+    .filter((item) => item.required !== false)
     .map((item) => ({
       ...item,
       kind: item.kind,
       label: typeof item.label === "string" ? item.label.trim() : "",
       description: typeof item.description === "string" ? item.description.trim() : "",
-      required: item.required !== false,
+      required: true,
       stageKeys: Array.isArray(item.stageKeys)
         ? item.stageKeys.filter(
             (key): key is string => typeof key === "string" && Boolean(key.trim()),

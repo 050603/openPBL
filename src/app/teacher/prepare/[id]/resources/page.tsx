@@ -10,8 +10,7 @@ import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { TeacherResourceViewer } from "@/components/openmaic-bridge/teacher-resource-viewer";
 
 const STEPS = [
-  { key: "new", label: "创建项目" },
-  { key: "verify", label: "课程核查" },
+  { key: "verify", label: "备课阶段" },
   { key: "generate", label: "生成课程" },
   { key: "preview", label: "预览发布" },
 ];
@@ -56,7 +55,7 @@ export default function TeacherResourcesPage() {
         currentCourse={{ id: course.id, name: course.name, status: course.status }}
         headerSlot={
           <div className="ml-4">
-            <WizardStepper current={3} steps={STEPS} />
+            <WizardStepper current={2} steps={STEPS} />
           </div>
         }
       >
@@ -102,7 +101,7 @@ export default function TeacherResourcesPage() {
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       headerSlot={
         <div className="ml-4 flex items-center gap-2">
-          <WizardStepper current={3} steps={STEPS} />
+          <WizardStepper current={2} steps={STEPS} />
           <Pill tone="blue">教师资源</Pill>
         </div>
       }

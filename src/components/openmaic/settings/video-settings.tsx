@@ -175,7 +175,7 @@ export function VideoSettings({ selectedProviderId }: VideoSettingsProps) {
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-foreground"
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -236,7 +236,7 @@ export function VideoSettings({ selectedProviderId }: VideoSettingsProps) {
                 currentConfig?.baseUrl || currentProvider?.defaultBaseUrl || '';
               if (!effectiveBaseUrl) return null;
               return (
-                <p className="text-xs text-muted-foreground break-all">
+                <p className="text-xs text-stone-500 break-all">
                   {t('settings.requestUrl')}: {effectiveBaseUrl}
                 </p>
               );
@@ -260,11 +260,11 @@ export function VideoSettings({ selectedProviderId }: VideoSettingsProps) {
           {builtInModels.map((model) => (
             <div
               key={model.id}
-              className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-card"
+              className="flex items-center justify-between p-3 rounded-lg border border-stone-200/50 bg-white"
             >
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-sm font-medium">{model.name}</div>
-                <div className="text-xs text-muted-foreground font-mono mt-0.5">{model.id}</div>
+                <div className="text-xs text-stone-500 font-mono mt-0.5">{model.id}</div>
               </div>
             </div>
           ))}
@@ -273,11 +273,11 @@ export function VideoSettings({ selectedProviderId }: VideoSettingsProps) {
           {customModels.map((model, index) => (
             <div
               key={`custom-${index}`}
-              className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-card"
+              className="flex items-center justify-between p-3 rounded-lg border border-stone-200/50 bg-white"
             >
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-sm font-medium">{model.name}</div>
-                <div className="text-xs text-muted-foreground font-mono mt-0.5">{model.id}</div>
+                <div className="text-xs text-stone-500 font-mono mt-0.5">{model.id}</div>
               </div>
               <div className="flex items-center gap-1">
                 <Button

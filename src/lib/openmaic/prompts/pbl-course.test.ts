@@ -39,4 +39,31 @@ describe("PBL course prompt", () => {
     expect(prompt?.user).toContain("fixed seconds-per-page threshold");
     expect(prompt?.user).toContain("教师负责线下校准与成果评价");
   });
+
+  it("injects the mandatory interaction cadence only when interactive mode is enabled", () => {
+    const common = {
+      requirement: "课程：校园节能设计",
+      pblProfile: formatPblCourseConfigForPrompt(DEFAULT_PBL_COURSE_CONFIG),
+      pblStages: formatPblStageDefinitionsForPrompt(),
+      requiredTeacherResourceStages: "launch, proposal, make, showcase, reflection",
+      teacherContext: "",
+      researchContext: "None",
+    };
+
+    const normal = buildPrompt(PROMPT_IDS.PBL_COURSE, {
+      ...common,
+      interactiveMode: false,
+    });
+    const interactive = buildPrompt(PROMPT_IDS.PBL_COURSE, {
+      ...common,
+      interactiveMode: true,
+    });
+
+    expect(normal?.user).not.toContain("mandatory explanation-practice cadence");
+    expect(interactive?.user).toContain("mandatory explanation-practice cadence");
+    expect(interactive?.user).toContain("one or at most two closely related semantic pages");
+    expect(interactive?.user).toContain("A `quiz` is an assessment and does NOT satisfy");
+    expect(interactive?.user).toContain("PPT/script-only");
+    expect(interactive?.user).toContain("Decorative clicking");
+  });
 });

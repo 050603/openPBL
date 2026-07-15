@@ -56,7 +56,7 @@ describe('PBL activity time estimation', () => {
       contentType: 'quiz',
       quiz: {
         questionCount: 4,
-        questionTypes: ['single', 'multiple', 'text'],
+        questionTypes: ['single', 'multiple', 'short_answer'],
         difficulty: 'advanced',
       },
     });

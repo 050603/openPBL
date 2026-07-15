@@ -2,13 +2,13 @@
  * Per-speech managed-TTS helpers for the timeline editor.
  *
  * Audio is keyed and produced exactly like the generation pipeline: the cache
- * key is `tts_s<sceneOrder>_<actionId>` (see use-scene-generator /
- * classroom-media-generation) and synthesis delegates to `generateAndStoreTTS`,
+ * key is `tts_s<sceneOrder>_<actionId>` (shared with classroom media generation)
+ * and synthesis delegates to `generateAndStoreTTS`,
  * so the request/store contract and key scheme stay single-sourced.
  */
 import { db } from '@openmaic/lib/utils/database';
 import { useSettingsStore } from '@openmaic/lib/store/settings';
-import { generateAndStoreTTS } from '@openmaic/lib/hooks/use-scene-generator';
+import { generateAndStoreTTS } from '@openmaic/lib/audio/generate-and-store-tts';
 
 /** Canonical audio cache key — matches the generation pipeline. */
 export function speechAudioId(sceneOrder: number, actionId: string): string {

@@ -15,7 +15,7 @@
 
 import { NextRequest } from 'next/server';
 import { streamLLM } from '@openmaic/lib/ai/llm';
-import { buildPrompt, PROMPT_IDS } from '@openmaic/lib/prompts';
+import { buildPrompt } from '@openmaic/lib/prompts';
 import {
   formatImageDescription,
   formatImagePlaceholder,
@@ -29,6 +29,8 @@ import {
   enforcePblOutlineContract,
   normalizeSceneOutlinesForDuration,
 } from '@openmaic/lib/generation/outline-generator';
+import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { resolveOutlinePromptPlan } from '@openmaic/lib/generation/outline-prompt-plan';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import { nanoid } from 'nanoid';
 import type {
@@ -42,6 +44,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
 import { resolveVocationalActive } from '@openmaic/lib/config/feature-flags';
 import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
+import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import {
   isPblModuleTimingPlanConfirmed,
   type PblModuleTimingPlan,
@@ -335,10 +338,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Build user profile string for language inference context
-    const userProfileText =
+    const legacyUserProfileText =
       requirements.userNickname || requirements.userBio
         ? `## Student Profile\n\nStudent: ${requirements.userNickname || 'Unknown'}${requirements.userBio ? ` — ${requirements.userBio}` : ''}\n\nConsider this student's background when designing the course. Adapt difficulty, examples, and teaching approach accordingly.\n\n---`
         : '';
+    const userProfileText = [
+      formatTeachingConstraintsForPrompt(requirements.teachingConstraints),
+      legacyUserProfileText,
+    ].filter(Boolean).join('\n\n');
 
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;
@@ -383,15 +390,9 @@ export async function POST(req: NextRequest) {
     const teacherContext = formatTeacherPersonaForPrompt(agents);
 
     // Check if Interactive Mode or server-enabled Task Engine mode is enabled.
-    const interactiveMode = requirements.interactiveMode ?? false;
     const taskEngineMode = resolveVocationalActive(requirements);
-    const promptId = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
-      ? PROMPT_IDS.PBL_COURSE
-      : taskEngineMode
-      ? PROMPT_IDS.TASK_ENGINE_OUTLINES
-      : interactiveMode
-        ? PROMPT_IDS.INTERACTIVE_OUTLINES
-        : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
+    const promptPlan = resolveOutlinePromptPlan(requirements, taskEngineMode);
+    const promptId = promptPlan.promptId;
 
     const prompts = buildPrompt(promptId, {
       requirement: requirements.requirement,
@@ -402,6 +403,7 @@ export async function POST(req: NextRequest) {
       imageEnabled: imageGenerationEnabled,
       videoEnabled: videoGenerationEnabled,
       mediaEnabled: mediaGenerationEnabled,
+      interactiveMode: promptPlan.interactiveMode,
       teacherContext,
       userProfile: userProfileText,
       pblProfile: requirements.pblProfile
@@ -636,7 +638,11 @@ export async function POST(req: NextRequest) {
             const contractOutlines = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
               ? enforcePblOutlineContract(parsedOutlines, requirements)
               : parsedOutlines;
-            const normalizedOutlines = normalizeSceneOutlinesForDuration(contractOutlines);
+            const modeAwareOutlines = applyInteractiveModePolicy(
+              contractOutlines,
+              promptPlan.interactiveMode,
+            );
+            const normalizedOutlines = normalizeSceneOutlinesForDuration(modeAwareOutlines);
             const uniquifiedOutlines = uniquifyMediaElementIds(normalizedOutlines);
             // Send done event with all outlines
             const doneEvent = JSON.stringify({

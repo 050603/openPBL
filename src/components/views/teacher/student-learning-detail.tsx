@@ -7,6 +7,8 @@ import { DialogDescription, DialogTitle, Drawer, DrawerContent, PrimaryButton } 
 import { useSession } from "@/lib/session/store";
 import type { Course, OfflineInterventionKind } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
+import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
+import { isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
 
 type DetailTab = "signals" | "conversation" | "trajectory" | "artifacts" | "guidance";
 
@@ -23,7 +25,13 @@ export function StudentLearningDetail({ course, studentId, open, onOpenChange }:
   const [tab, setTab] = useState<DetailTab>("signals");
   const student = course.students.find((item) => item.id === studentId);
   const project = course.groups?.find((group) => group.members.some((member) => member.studentId === studentId));
-  const signals = (course.learningSignals ?? []).filter((signal) => signal.studentId === studentId && signal.stageKey === "ai-learning");
+  const signals = (course.learningSignals ?? []).filter((signal) => signal.studentId === studentId
+    && signal.stageKey === "ai-learning"
+    && isLearningSignalRelevant(
+      signal,
+      course.learningEvents ?? [],
+      ["completed", "mastered"].includes(course.aiLearningProgress?.[studentId ?? ""]?.masteryLevel ?? ""),
+    ));
   const events = (course.learningEvents ?? []).filter((event) => event.studentId === studentId && event.stageKey === "ai-learning").sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
   const messages = (course.companionThreads ?? []).filter((thread) => thread.studentId === studentId).flatMap((thread) => thread.messages).filter((message) => message.visibility === "student-and-teacher" || message.visibility === "teacher-only").sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   const submissions = (course.submissions ?? []).filter((submission) => submission.studentId === studentId || (project && submission.groupId === project.id));
@@ -31,9 +39,9 @@ export function StudentLearningDetail({ course, studentId, open, onOpenChange }:
   const stageKey = course.stages[course.currentStageIndex]?.key ?? "ai-learning";
 
   const activeContent = useMemo(() => {
-    if (tab === "signals") return signals.length ? <ul className="space-y-3">{signals.map((signal) => <li className="rounded-lg border border-rose-200 bg-rose-50/60 p-3" key={signal.id}><div className="flex items-center justify-between gap-2"><strong className="text-rose-800">{signal.title}</strong><span className="text-xs font-bold text-rose-700">{signal.status === "open" ? "待处理" : signal.status}</span></div><p className="mt-2 text-sm leading-6 text-stone-600">{signal.summary}</p><p className="mt-2 text-xs text-stone-400">证据 {signal.evidenceEventIds.length} 条 · 最近 {new Date(signal.lastDetectedAt).toLocaleString("zh-CN")}</p></li>)}</ul> : <Empty text="暂无风险信号" />;
+    if (tab === "signals") return signals.length ? <ul className="space-y-3">{signals.map((signal) => <li className="rounded-lg border border-rose-200 bg-rose-50/60 p-3" key={signal.id}><div className="flex items-center justify-between gap-2"><strong className="text-rose-800">{signal.title}</strong><span className="text-xs font-bold text-rose-700">{signal.status === "open" ? "待处理" : signal.status}</span></div><p className="mt-2 text-xs font-semibold text-stone-500">{formatLearningContentReference(signal.content, signal.sceneId)}</p><p className="mt-2 text-sm leading-6 text-stone-600">{signal.summary}</p><p className="mt-2 text-xs text-stone-400">证据 {signal.evidenceEventIds.length} 条 · 最近 {new Date(signal.lastDetectedAt).toLocaleString("zh-CN")}</p></li>)}</ul> : <Empty text="暂无风险信号" />;
     if (tab === "conversation") return messages.length ? <ol className="space-y-3">{messages.map((message) => <li className="border-l-2 border-stone-200 pl-3" key={message.id}><div className="flex justify-between gap-3 text-xs text-stone-400"><span>{message.authorName ?? message.companionId ?? message.role}</span><time>{new Date(message.createdAt).toLocaleString("zh-CN")}</time></div><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-700">{message.content}</p></li>)}</ol> : <Empty text="AI 授知阶段未配置伴学圆桌，暂无对话记录" />;
-    if (tab === "trajectory") return events.length ? <ol className="space-y-2">{events.map((event) => <li className="flex gap-3 border-b border-stone-100 py-2 text-sm" key={event.id}><time className="w-36 shrink-0 text-xs text-stone-400">{new Date(event.occurredAt).toLocaleString("zh-CN")}</time><span className="font-semibold text-stone-700">{event.type}</span><span className="text-stone-500">{event.metadata?.sceneTitle?.toString() ?? event.sceneId ?? "阶段事件"}</span></li>)}</ol> : <Empty text="暂无学习轨迹" />;
+    if (tab === "trajectory") return events.length ? <ol className="space-y-2">{events.map((event) => <li className="flex gap-3 border-b border-stone-100 py-2 text-sm" key={event.id}><time className="w-36 shrink-0 text-xs text-stone-400">{new Date(event.occurredAt).toLocaleString("zh-CN")}</time><span className="font-semibold text-stone-700">{event.type}</span><span className="text-stone-500">{formatLearningContentReference(event.content, event.metadata?.sceneTitle?.toString() ?? event.sceneId ?? "阶段事件")}</span></li>)}</ol> : <Empty text="暂无学习轨迹" />;
     if (tab === "artifacts") return submissions.length ? <ul className="space-y-3">{submissions.map((submission) => <li className="rounded-lg border border-stone-200 p-3" key={submission.id}><strong>{submission.title}</strong><p className="mt-2 line-clamp-4 text-sm leading-6 text-stone-600">{submission.content}</p></li>)}</ul> : <Empty text="暂无阶段产物" />;
     return <div className="space-y-4"><div className="grid gap-2 sm:grid-cols-3"><InterventionButton kind="patrol" label="标记已巡视" /><InterventionButton kind="individual-guidance" label="已个别辅导" /><InterventionButton kind="whole-class-teaching" label="已进行全班讲解" /></div>{interventions.length ? <ul className="divide-y divide-stone-100 border-y border-stone-100">{interventions.map((record) => <li className="py-3 text-sm" key={record.id}><div className="flex justify-between"><strong>{record.kind === "patrol" ? "课堂巡视" : record.kind === "individual-guidance" ? "个别辅导" : "全班讲解"}</strong><time className="text-xs text-stone-400">{new Date(record.createdAt).toLocaleString("zh-CN")}</time></div><p className="mt-1 text-stone-500">记录人：{record.teacherName}</p></li>)}</ul> : <Empty text="暂无教师现场介入记录" />}</div>;
   // eslint-disable-next-line react-hooks/exhaustive-deps

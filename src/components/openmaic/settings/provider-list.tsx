@@ -37,7 +37,7 @@ export function ProviderList({
   };
 
   return (
-    <div className="flex-shrink-0 bg-background flex flex-col" style={{ width: width ?? 192 }}>
+    <div className="flex-shrink-0 bg-white flex flex-col" style={{ width: width ?? 192 }}>
       <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
         {providers.map((provider) => (
           <button
@@ -46,8 +46,8 @@ export function ProviderList({
             className={cn(
               'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all border text-left',
               selectedProviderId === provider.id
-                ? 'bg-primary/5 border-primary/50 shadow-sm'
-                : 'border-transparent hover:bg-muted/50',
+                ? 'bg-[var(--pbl-teacher-soft)] border-[var(--pbl-teacher)]/40 shadow-sm'
+                : 'border-transparent hover:bg-stone-100',
             )}
           >
             {provider.icon ? (
@@ -63,13 +63,13 @@ export function ProviderList({
                 }}
               />
             ) : (
-              <Box className="h-5 w-5 text-muted-foreground" />
+              <Box className="h-5 w-5 text-stone-500" />
             )}
             <span className="font-medium text-sm flex-1 truncate">
               {getProviderDisplayName(provider)}
             </span>
             {provider.isServerConfigured && (
-              <span className="text-[10px] px-1 py-0 h-4 leading-4 rounded shrink-0 bg-muted text-muted-foreground">
+              <span className="text-[10px] px-1.5 py-0 h-4 leading-4 rounded shrink-0 bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]">
                 {t('settings.serverConfigured')}
               </span>
             )}

@@ -81,6 +81,18 @@ describe('PBL time model', () => {
     expect(Object.values(ratios).reduce((sum, value) => sum + value, 0)).toBeCloseTo(1);
   });
 
+  it('reserves more scaffolding time when the teacher confirms explicit learning needs', () => {
+    const baseline = derivePblTimeRatios({ grade: '高二' });
+    const supported = derivePblTimeRatios({
+      grade: '高二',
+      learnerProfile: { learningNeeds: '抽象概念需要图示、分步示例和理解检查' },
+    });
+
+    expect(supported.knowledge).toBeGreaterThan(baseline.knowledge);
+    expect(supported.proposal).toBeGreaterThan(baseline.proposal);
+    expect(Object.values(supported).reduce((sum, value) => sum + value, 0)).toBeCloseTo(1);
+  });
+
   it('builds a strict six-module mainline and rescales child targets', () => {
     const activities = [
       { id: 'launch', stageKey: 'project-launch', durationMin: 10 },

@@ -9,6 +9,8 @@ export type StudentArtifactEvent = {
   kind: StudentArtifactEventKind;
   artifactId?: string;
   summary?: string;
+  /** Only milestone saves should proactively interrupt the student; routine autosaves stay silent. */
+  milestone?: boolean;
   /** 文档的纯文本内容（仅 document-saved 时携带），供伴学智能体直接读取 */
   content?: string;
 };

@@ -1,6 +1,6 @@
 import { aggregateCommonIssues, analyzeStudentLearning } from "@/lib/learning-analytics/analyzer";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
-import type { LearningEvent, LearningSignal } from "@/lib/session/types";
+import type { Course, LearningEvent, LearningSignal } from "@/lib/session/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +24,26 @@ function isValidEvent(event: LearningEvent, courseId: string, studentId: string)
   );
 }
 
+function enrichContentReference(event: LearningEvent, course: Course): LearningEvent {
+  const content = event.content;
+  if (!content) return event;
+  const activity = course.content.teachingOutline?.find((item) =>
+    item.id === content.activityId,
+  ) ?? course.content.lessonOutline?.find((item) => item.id === content.activityId);
+  const knowledgeLabels = (content.knowledgePointIds ?? []).flatMap((id) => {
+    const point = course.content.knowledgePoints.find((item) => item.id === id);
+    return point?.name ? [point.name] : [];
+  });
+  return {
+    ...event,
+    content: {
+      ...content,
+      ...(activity?.title ? { activityTitle: activity.title } : {}),
+      ...(knowledgeLabels.length ? { knowledgePointLabels: knowledgeLabels } : {}),
+    },
+  };
+}
+
 export async function POST(request: Request) {
   let body: LearningEventsRequest;
   try {
@@ -44,7 +64,9 @@ export async function POST(request: Request) {
     return Response.json({ error: "STUDENT_NOT_IN_COURSE" }, { status: 403 });
   }
 
-  const incoming = body.events.filter((event) => isValidEvent(event, courseId, studentId));
+  const incoming = body.events
+    .filter((event) => isValidEvent(event, courseId, studentId))
+    .map((event) => enrichContentReference(event, course));
   if (!incoming.length) return Response.json({ error: "NO_VALID_EVENTS" }, { status: 400 });
 
   const existingKeys = new Set((course.learningEvents ?? []).map((event) => event.idempotencyKey));
@@ -62,6 +84,14 @@ export async function POST(request: Request) {
       const affectedScopes = new Set(
         accepted.map((event) => [event.studentId, event.stageKey, event.sceneId ?? ""].join("|")),
       );
+      for (const event of accepted) {
+        if (event.type !== "stage-goal-complete") continue;
+        for (const existingEvent of learningEvents) {
+          if (existingEvent.studentId === event.studentId && existingEvent.stageKey === event.stageKey) {
+            affectedScopes.add([existingEvent.studentId, existingEvent.stageKey, existingEvent.sceneId ?? ""].join("|"));
+          }
+        }
+      }
       const retainedSignals = (current.learningSignals ?? []).filter(
         (signal) => !affectedScopes.has([signal.studentId, signal.stageKey, signal.sceneId ?? ""].join("|")),
       );
@@ -76,12 +106,20 @@ export async function POST(request: Request) {
         const expectedDurationSec = [...scopedEvents]
           .reverse()
           .find((event) => typeof event.expectedDurationSec === "number")?.expectedDurationSec ?? 0;
+        const ttsDurationSec = [...scopedEvents]
+          .reverse()
+          .find((event) => typeof event.ttsDurationSec === "number")?.ttsDurationSec;
+        const plannedStudentActivitySec = [...scopedEvents]
+          .reverse()
+          .find((event) => typeof event.plannedStudentActivitySec === "number")?.plannedStudentActivitySec;
         const existingAttempts = (current.learningSignals ?? [])
           .filter((signal) => signal.studentId === scopeStudentId && signal.stageKey === stageKey && (signal.sceneId ?? "") === sceneId)
           .reduce((max, signal) => Math.max(max, signal.aiInterventionAttempts), 0);
         return analyzeStudentLearning({
           events: scopedEvents,
           expectedDurationSec,
+          ttsDurationSec,
+          plannedStudentActivitySec,
           aiInterventionAttempts: existingAttempts,
         }).signals;
       });

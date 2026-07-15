@@ -72,7 +72,7 @@ export function WorkspaceView({ course }: { course: Course }) {
     });
     session.addActivity(course.id, "提交项目方案", "学生已提交个人项目设计报告", group?.name ?? "个人项目");
     session.updateStudentProgress(stageKey, 100);
-    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "已提交项目设计报告", content: documentText });
+    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "document-saved", artifactId: submission?.id, summary: "已提交项目设计报告", content: documentText, milestone: true });
     setStatus("已提交");
   }
 
@@ -111,7 +111,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         files: [{ name: data.fileName, type: data.fileType, size: data.size, url: data.url }],
       });
       session.addActivity(course.id, "上传文件", data.fileName, group.name ?? "个人项目");
-      if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "file-uploaded", artifactId: data.id, summary: data.fileName });
+      if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey, kind: "file-uploaded", artifactId: data.id, summary: data.fileName, milestone: true });
       setStatus("文件已上传");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "上传失败");

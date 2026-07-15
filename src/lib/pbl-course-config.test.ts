@@ -16,12 +16,26 @@ describe("PBL course configuration", () => {
     expect(config.evidenceRequirements.map((item) => item.label)).toEqual(
       expect.arrayContaining(["构思草稿", "方案修订记录", "反思日志", "数据 / 测试截图"]),
     );
+    expect(config.evidenceRequirements.map((item) => item.kind)).not.toEqual(
+      expect.arrayContaining(["ai-decision-log", "artifact-version"]),
+    );
   });
 
   it("keeps the recorder when a teacher customizes the companion list", () => {
     const config = normalizePblCourseConfig({ companionIds: ["critic", "critic"] });
 
     expect(config.companionIds).toEqual(["critic", "recorder"]);
+  });
+
+  it("treats evidence requirements as selected entries", () => {
+    const config = normalizePblCourseConfig({
+      evidenceRequirements: [
+        { kind: "ai-decision-log", label: "AI 建议采纳记录", description: "记录理由", required: false, stageKeys: ["proposal"] },
+        { kind: "artifact-version", label: "作品迭代版本", description: "保留版本", required: true, stageKeys: ["make"] },
+      ],
+    });
+
+    expect(config.evidenceRequirements.map((item) => item.kind)).toEqual(["artifact-version"]);
   });
 
   it("does not share nested defaults between courses", () => {

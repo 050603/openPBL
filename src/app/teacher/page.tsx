@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -50,11 +51,25 @@ function matches(course: Course, filter: Filter) {
 export default function TeacherHomePage() {
   const session = useSession();
   const hydrated = useHydrated();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("courses");
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [nameOpen, setNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(session.user.name);
+  const [creating, setCreating] = useState(false);
+
+  function createAndOpenProject() {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const course = session.createCourse({});
+      router.push(`/teacher/prepare/${course.id}/verify`);
+    } finally {
+      // 创建失败时也要重置，避免按钮卡住
+      setTimeout(() => setCreating(false), 500);
+    }
+  }
 
   const sorted = useMemo(
     () => [...session.courses].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -91,7 +106,7 @@ export default function TeacherHomePage() {
       userName={session.user.name}
       variant="bare"
     >
-      <div className="py-7">
+      <div className="mx-auto max-w-[1280px] py-7">
         {/* 精简头部 */}
         <header className="flex flex-col gap-5 border-b border-[var(--pbl-border)] pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -117,12 +132,14 @@ export default function TeacherHomePage() {
                 value={query}
               />
             </label>
-            <Link
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
-              href="/teacher/prepare/new"
+            <button
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] disabled:opacity-60"
+              disabled={creating}
+              onClick={createAndOpenProject}
+              type="button"
             >
               <Plus size={17} />创建项目
-            </Link>
+            </button>
           </div>
         </header>
 
@@ -172,12 +189,14 @@ export default function TeacherHomePage() {
             ) : (
               <PageState
                 action={
-                  <Link
-                    className="inline-flex min-h-11 items-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
-                    href="/teacher/prepare/new"
+                  <button
+                    className="inline-flex min-h-11 items-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] disabled:opacity-60"
+                    disabled={creating}
+                    onClick={createAndOpenProject}
+                    type="button"
                   >
                     创建第一个项目
-                  </Link>
+                  </button>
                 }
                 description="可以调整筛选条件，或从一个真实问题开始创建课程。"
                 title="这里还没有匹配的课程"

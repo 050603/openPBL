@@ -17,12 +17,21 @@ import type {
   ProjectGroup,
   WorkPlanItem,
 } from "@/lib/session/types";
+import type { LearnerProfileInput } from "@/lib/openmaic/pedagogy/teaching-constraints";
 
 // 重新导出类型（编译时擦除，无运行时依赖）
 export type { AiSupportDraft, ArtifactFocus, TeacherInterventionSignal };
 
 // 返回值类型（显式定义，避免客户端组件用 ReturnType<typeof xxx> 推断时引入运行时 import）
 export type ProjectSkeletonResult = {
+  courseHourOptions: Array<{ hours: number; rationale: string; scope: string }>;
+  learningObjectiveOptions: string[][];
+  summaryOptions: string[];
+  learnerProfileOptions: Array<{
+    priorKnowledge: string;
+    learningNeeds: string;
+    familiarContexts: string;
+  }>;
   drivingQuestions: string[];
   scenario: string;
   suggestedForms: string[];
@@ -58,6 +67,13 @@ export type LiveEvaluationResult = {
   overallComment: string;
   source: "llm" | "local";
 };
+
+export type ProjectSkeletonTarget =
+  | "courseHours"
+  | "learningObjectives"
+  | "summary"
+  | "learnerProfile"
+  | "drivingQuestions";
 
 export type ProjectDirectionResult = {
   directions: Array<{
@@ -144,6 +160,9 @@ export async function generateProjectSkeleton(input: {
   hours: number;
   summary?: string;
   initialDrivingQuestion?: string;
+  learningObjectives?: string[];
+  learnerProfile?: LearnerProfileInput;
+  targetPart?: ProjectSkeletonTarget;
 }): Promise<ProjectSkeletonResult> {
   return callSupport("generateProjectSkeleton", input);
 }

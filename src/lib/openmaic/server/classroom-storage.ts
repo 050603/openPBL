@@ -1,10 +1,8 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import type { NextRequest } from 'next/server';
 import type { Scene, Stage } from '@openmaic/lib/types/stage';
 
 export const CLASSROOMS_DIR = path.join(process.cwd(), 'data', 'classrooms');
-export const CLASSROOM_JOBS_DIR = path.join(process.cwd(), 'data', 'classroom-jobs');
 
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
@@ -12,10 +10,6 @@ async function ensureDir(dir: string) {
 
 export async function ensureClassroomsDir() {
   await ensureDir(CLASSROOMS_DIR);
-}
-
-export async function ensureClassroomJobsDir() {
-  await ensureDir(CLASSROOM_JOBS_DIR);
 }
 
 export async function writeJsonFileAtomic(filePath: string, data: unknown) {
@@ -48,12 +42,6 @@ async function withClassroomLock<T>(classroomId: string, fn: () => Promise<T>): 
       classroomLocks.delete(classroomId);
     }
   }
-}
-
-export function buildRequestOrigin(req: NextRequest): string {
-  return req.headers.get('x-forwarded-host')
-    ? `${req.headers.get('x-forwarded-proto') || 'http'}://${req.headers.get('x-forwarded-host')}`
-    : req.nextUrl.origin;
 }
 
 export interface PersistedClassroomData {
@@ -95,9 +83,8 @@ export async function persistClassroom(
     stage: Stage;
     scenes: Scene[];
   },
-  baseUrl: string,
-): Promise<PersistedClassroomData & { url: string }> {
-  const classroomData = await withClassroomLock(data.id, async () => {
+): Promise<PersistedClassroomData> {
+  return withClassroomLock(data.id, async () => {
     const next: PersistedClassroomData = {
       id: data.id,
       stage: data.stage,
@@ -110,11 +97,6 @@ export async function persistClassroom(
     await writeJsonFileAtomic(filePath, next);
     return next;
   });
-
-  return {
-    ...classroomData,
-    url: `${baseUrl}/classroom/${data.id}`,
-  };
 }
 
 /**

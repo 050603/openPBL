@@ -4,7 +4,7 @@
  * Generates a video from a text prompt using the specified provider.
  * Uses async task pattern (submit → poll) so maxDuration is set to 5 minutes.
  *
- * POST /api/generate/video
+ * POST /api/openmaic/generate/video
  *
  * Headers:
  *   x-video-provider: VideoProviderId (default: 'seedance')

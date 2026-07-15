@@ -4,7 +4,7 @@
  * Generates TTS audio for a single text string and returns base64-encoded audio.
  * Called by the client in parallel for each speech action after a scene is generated.
  *
- * POST /api/generate/tts
+ * POST /api/openmaic/generate/tts
  */
 
 import { NextRequest } from 'next/server';

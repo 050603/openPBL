@@ -144,6 +144,8 @@ export interface QuizOption {
 export interface QuizQuestion {
   id: string;
   type: 'single' | 'multiple' | 'short_answer';
+  /** Pedagogical presentation within a runtime-supported response structure. */
+  format?: 'single_choice' | 'multiple_choice' | 'true_false' | 'fill_blank' | 'short_answer' | 'scenario_task';
   question: string;
   options?: QuizOption[];
   answer?: string[]; // Correct answer values: ["A"], ["A","C"], or undefined for text

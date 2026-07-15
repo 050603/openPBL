@@ -26,6 +26,19 @@ Create an educational GAME widget for: {{title}}
 
 Generate a FUN, INTERACTIVE HTML game with these MANDATORY features:
 
+### Knowledge Teaching (CRITICAL — students must LEARN, not just play)
+1. **Objective Alignment**: Map every supplied Key Point to a decision, rule, variable, or strategy that the player must use. State the learning objective and success evidence before play; never add unrelated trivia for variety.
+2. **No Decorative Interaction**: The winning strategy must require the student to predict, apply, observe, explain, or revise the target knowledge. Speed, random rewards, points, and animations may increase engagement but must not allow success without understanding.
+3. **Teaching Loop**: Use a brief worked round, ask for a prediction or plan, let the learner act, make the consequence visible, then pause for a concise explanation and a chance to revise. Increase difficulty by requiring deeper application, not faster clicking.
+4. **Explanatory Feedback**: After meaningful actions and all success/failure states, explain what happened and why using the player's actual choice and the relevant Key Point. Diagnose likely misconceptions and give a targeted hint instead of only adding or subtracting score.
+5. **Fair Assessment**: Separate knowledge errors from motor/timing errors. If dexterity is not itself an objective, provide forgiving controls and do not let reaction speed determine the learning result.
+6. **Mastery Evidence**: End with a transfer challenge that changes the context or parameters. Record the player's strategy and explanation, evaluate them against visible success criteria, and show which Key Points were demonstrated; game completion alone is not mastery.
+
+### Activity Completion Protocol (MANDATORY)
+1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
+2. Call `window.__maicActivity.reset()` whenever a replay/restart invalidates that evidence; add `data-activity-reset` to the reset control.
+3. Do not signal completion for starting the game, winning by score alone, finishing an animation, or any decorative interaction. Completion must mean the transfer challenge and explanation meet the visible success criteria.
+
 ### Game Design (CRITICAL - NOT A QUIZ!)
 1. **Interactive gameplay**: Player MUST control something meaningful (NOT just click answers)
 2. **Real game mechanics**: Timing, aiming, dragging, balancing, catching, or building
@@ -72,4 +85,4 @@ Generate a FUN, INTERACTIVE HTML game with these MANDATORY features:
 9. Pause functionality
 
 ### Output
-Return ONLY the HTML document. Make the game FUN enough that students want to play again!
+Return ONLY the HTML document. Make the game FUN enough that students want to play again — but ensure they LEARN the key concepts while playing!

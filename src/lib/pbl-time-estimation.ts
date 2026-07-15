@@ -25,7 +25,7 @@ export type PblInteractionType =
   | 'game'
   | 'custom';
 
-export type PblQuizQuestionType = 'single' | 'multiple' | 'text';
+export type PblQuizQuestionType = 'single' | 'multiple' | 'short_answer' | 'true_false' | 'fill_blank' | 'scenario_task';
 
 export type PblActivityTimingInput = {
   id: string;
@@ -120,7 +120,10 @@ const INTERACTION_SECONDS_PER_STEP: Record<PblInteractionType, number> = {
 const QUIZ_SECONDS_PER_QUESTION: Record<PblQuizQuestionType, number> = {
   single: 45,
   multiple: 65,
-  text: 120,
+  short_answer: 120,
+  true_false: 35,
+  fill_blank: 55,
+  scenario_task: 150,
 };
 
 function clamp(value: number, min: number, max: number): number {

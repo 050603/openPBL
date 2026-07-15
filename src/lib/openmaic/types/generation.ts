@@ -51,6 +51,8 @@ export interface UserRequirements {
   requirement: string; // Single free-form text for all user input
   userNickname?: string; // Student nickname for personalization
   userBio?: string; // Student background for personalization
+  /** Shared learner-readiness and knowledge-boundary contract for every generation stage. */
+  teachingConstraints?: import('@openmaic/lib/pedagogy/teaching-constraints').TeachingConstraints;
   webSearch?: boolean; // Enable web search for richer context
   interactiveMode?: boolean; // Enable Interactive Mode for interactive-first generation
   taskEngineMode?: boolean; // Enable vocational task-engine generation path
@@ -208,7 +210,7 @@ export interface SceneOutline {
   quizConfig?: {
     questionCount: number;
     difficulty: 'easy' | 'medium' | 'hard';
-    questionTypes: ('single' | 'multiple' | 'text')[];
+    questionTypes: ('single' | 'multiple' | 'short_answer' | 'true_false' | 'fill_blank' | 'scenario_task')[];
   };
   /**
    * @deprecated Use widgetType + widgetOutline instead

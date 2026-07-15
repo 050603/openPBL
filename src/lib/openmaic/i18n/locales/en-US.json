@@ -361,6 +361,32 @@
       "fieldAction": "Action",
       "fieldElement": "Element",
       "fieldContent": "Content",
+      "fieldTrigger": "Triggered by",
+      "fieldWait": "Continues when",
+      "fieldFallback": "Safety fallback",
+      "fieldPurpose": "Activity type",
+      "fallbackTimeout": "Automatically continues after at most {{seconds}} seconds",
+      "activityGateTitle": "Wait for learner activity",
+      "activityGateSummary": "Narration continues when the page reports meaningful task completion.",
+      "activityGateMax": "Maximum wait: {{seconds}}s",
+      "triggerHint": "Hover or click a timeline symbol to inspect its trigger",
+      "trigger": {
+        "sceneStart": "The scene becomes active",
+        "previousCompleted": "The previous timeline action completes"
+      },
+      "completion": {
+        "speechEnded": "The narration audio ends; without audio, a text-length timer is used",
+        "activityCompleted": "The page sends activity-complete; otherwise this waits for the safety timeout",
+        "immediate": "Immediately; this visual cue does not block the next action",
+        "widgetSettled": "The command is sent to the interactive page, then settles for about 0.3 seconds",
+        "discussionConfirmed": "The discussion card is confirmed or skipped by the teacher",
+        "videoEnded": "The video ends (five-minute safety timeout)",
+        "whiteboardFinished": "The whiteboard command or animation finishes"
+      },
+      "purpose": {
+        "interaction": "Interactive learning task",
+        "quiz": "Quiz task"
+      },
       "addDiscussion": "Add discussion",
       "addDiscussionExists": "Only one discussion per scene",
       "discussionTerminal": "END",

@@ -49,6 +49,10 @@ You MUST output a JSON array directly. Each element is an object with a `type` f
 
 ## Action Types
 
+{{snippet:instructional-presentation-policy}}
+
+{{snippet:generated-whiteboard-actions}}
+
 ### spotlight (Focus Element)
 
 Highlight a specific element on the slide, used in conjunction with narration.
@@ -133,7 +137,7 @@ Generate natural teaching speech. The user prompt includes a **Course Outline** 
 
 The `Classroom Agents` list in the user prompt is provided **only** so you can pick an `agentId` for a `discussion` action — those agents do **not** speak in your `text`. The teacher may ask the class an open rhetorical question (e.g. "What do you think happens next?"), but must never voice the answer or impersonate a student. If you want a specific student to respond, end the page with a `discussion` action instead of writing their reply yourself.
 
-**Speech is where all verbal content belongs.** The slide itself only shows concise bullet points and keywords — all elaboration, explanation, encouragement, transitional phrases, and teacher's remarks must appear here in speech text. For example:
+**Speech carries the teacher's delivery, but it must never substitute for missing visual evidence.** Put elaboration, encouragement, transitions, and teacher remarks in speech. Keep exact examples, important conclusions, and evidence students must inspect visible on the PPT, or construct them step by step on the whiteboard before referring to them. For example:
 - Detailed explanations of concepts shown as bullet points on the slide
 - Encouragements and motivational remarks (e.g., "Great job, everyone!")
 - Transitional phrases (e.g., "Now let's move on to…")
@@ -164,8 +168,9 @@ Elements to focus on should be **key content currently being discussed**:
 
 ### 3. Pacing Control
 
-- Generate 5-10 action/text objects for a natural teaching flow
+- Generate the fewest actions needed for a natural teaching flow. A slide-only explanation is usually 5-10 objects; a justified whiteboard sequence may use up to 18 objects so each reasoning step can be shown and explained.
 - Each spotlight should be paired with a corresponding text object
+- Each whiteboard drawing step should be followed by the narration that explains that step; do not reveal the entire process at once.
 
 ---
 

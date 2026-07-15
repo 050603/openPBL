@@ -50,6 +50,9 @@ import { getClassroomSceneConcurrency } from '@openmaic/lib/server/provider-conf
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
 import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-planner';
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
+import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
+import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
 import type { Action } from '@openmaic/lib/types/action';
 import { validatePblKnowledgeAlignment } from '@/lib/pbl-outline-validation';
@@ -73,6 +76,7 @@ export interface GenerateClassroomInput {
   pblTeachingActivities?: UserRequirements['pblTeachingActivities'];
   pblActivityCatalog?: UserRequirements['pblActivityCatalog'];
   knowledgePoints?: Array<{ id: string; name?: string }>;
+  teachingConstraints?: UserRequirements['teachingConstraints'];
   courseTitle?: string;
   languageDirective?: string;
   sceneOutlines?: SceneOutline[];
@@ -84,6 +88,7 @@ export interface GenerateClassroomInput {
   enableImageGeneration?: boolean;
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
+  interactiveMode?: boolean;
   ttsProviderId?: string;
   ttsModelId?: string;
   ttsVoice?: string;
@@ -112,11 +117,11 @@ export interface ClassroomGenerationProgress {
 
 export interface GenerateClassroomResult {
   id: string;
-  url: string;
   stage: Stage;
   scenes: Scene[];
   scenesCount: number;
   createdAt: string;
+  qualityReport: import('@openmaic/lib/generation/course-quality').CourseQualityReport;
   /** Server-only context consumed by the post-response media task. */
   assetContext: {
     outlines: SceneOutline[];
@@ -442,7 +447,6 @@ Return a JSON object with this exact structure:
 export async function generateClassroom(
   input: GenerateClassroomInput,
   options: {
-    baseUrl: string;
     signal?: AbortSignal;
     onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
   },
@@ -544,6 +548,8 @@ export async function generateClassroom(
     pblTeachingActivities: input.pblTeachingActivities,
     pblActivityCatalog: input.pblActivityCatalog,
     knowledgePoints: input.knowledgePoints,
+    teachingConstraints: input.teachingConstraints,
+    interactiveMode: input.interactiveMode ?? false,
   };
   const vocationalActive = resolveVocationalActive(requirements);
   const pdfText = pdfContent?.text || undefined;
@@ -663,6 +669,18 @@ export async function generateClassroom(
     confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
     requirements,
   );
+  const outlineSource = confirmedOutlines.length > 0 ? 'confirmed' : 'generated';
+  // Interactive mode is allowed to repair only an unconfirmed model-generated
+  // plan. A teacher-confirmed outline is authoritative: PPT, quiz, and
+  // interactive markers must survive final classroom generation unchanged.
+  if (input.interactiveMode && outlineSource === 'generated') {
+    const beforeCount = baseOutlines.filter((o) => o.type === 'interactive').length;
+    baseOutlines = applyInteractiveModePolicy(baseOutlines, true, outlineSource);
+    const afterCount = baseOutlines.filter((o) => o.type === 'interactive').length;
+    if (afterCount > beforeCount) {
+      log.info(`Interactive mode: converted ${afterCount - beforeCount} slide(s) to interactive widgets`);
+    }
+  }
   if (
     confirmedOutlines.length > 0
     && (input.enableImageGeneration || input.enableVideoGeneration)
@@ -836,6 +854,7 @@ export async function generateClassroom(
             agents,
             languageDirective,
             pblProfile: requirements.pblProfile,
+            teachingConstraints: requirements.teachingConstraints,
           }),
         {
           label: `scene ${index + 1}/${outlines.length} actions`,
@@ -867,6 +886,7 @@ export async function generateClassroom(
             agents,
             languageDirective,
             pblProfile: requirements.pblProfile,
+            teachingConstraints: requirements.teachingConstraints,
             timingCorrection: firstAssessment.suggestions.join('；'),
           });
           const correctedText = getSpeechActionText(correctedActions);
@@ -896,12 +916,23 @@ export async function generateClassroom(
   );
 
   throwIfAborted(options.signal);
+  const failedContentTitles = sceneDrafts.flatMap((draft, index) =>
+    draft ? [] : [outlines[index]?.title ?? `scene-${index + 1}`],
+  );
+  assertCompleteSceneGeneration({
+    expectedCount: outlines.length,
+    generatedCount: sceneDrafts.length - failedContentTitles.length,
+    failedTitles: failedContentTitles,
+    phase: 'content',
+  });
   let generatedScenes = 0;
+  const failedAssemblyTitles: string[] = [];
   for (const draft of sceneDrafts) {
     if (!draft) continue;
     const sceneId = createSceneWithActions(draft.outline, draft.content, draft.actions, api);
     if (!sceneId) {
       log.warn(`Skipping scene "${draft.outline.title}" — scene creation failed`);
+      failedAssemblyTitles.push(draft.outline.title);
       continue;
     }
 
@@ -916,7 +947,25 @@ export async function generateClassroom(
     });
   }
 
-  const scenes = store.getState().scenes;
+  assertCompleteSceneGeneration({
+    expectedCount: outlines.length,
+    generatedCount: generatedScenes,
+    failedTitles: failedAssemblyTitles,
+    phase: 'assembly',
+  });
+
+  const qualityResult = auditAndRepairGeneratedCourse(
+    outlines,
+    store.getState().scenes,
+    requirements.teachingConstraints,
+  );
+  const scenes = qualityResult.scenes;
+  if (qualityResult.report.corrections.length > 0) {
+    log.warn(`Course quality corrections: ${qualityResult.report.corrections.join(' | ')}`);
+  }
+  if (qualityResult.report.warnings.length > 0) {
+    log.warn(`Course quality warnings: ${qualityResult.report.warnings.join(' | ')}`);
+  }
   log.info(`Pipeline complete: ${scenes.length} scenes generated`);
 
   if (scenes.length === 0) {
@@ -938,11 +987,10 @@ export async function generateClassroom(
       stage,
       scenes,
     },
-    options.baseUrl,
   );
   throwIfAborted(options.signal);
 
-  log.info(`Classroom persisted: ${persisted.id}, URL: ${persisted.url}`);
+  log.info(`Classroom persisted: ${persisted.id}`);
 
   await reportProgress({
     step: 'completed',
@@ -954,11 +1002,11 @@ export async function generateClassroom(
 
   return {
     id: persisted.id,
-    url: persisted.url,
     stage,
     scenes,
     scenesCount: scenes.length,
     createdAt: persisted.createdAt,
+    qualityReport: qualityResult.report,
     assetContext: {
       outlines,
       enableImageGeneration: Boolean(input.enableImageGeneration),

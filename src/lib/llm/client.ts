@@ -782,30 +782,122 @@ function validateTeachingOutline(
 }
 
 function validateEvaluationPlan(raw: unknown): EvaluationPlan {
-  const plan = raw && typeof raw === "object" ? raw as Partial<EvaluationPlan> : {};
-  if (!Array.isArray(plan.dimensions) || plan.dimensions.length === 0) {
+  const plan = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const rawDimensions = plan.dimensions;
+  if (!Array.isArray(rawDimensions) || rawDimensions.length === 0) {
     throw new Error("评价方案生成失败：AI 未返回评价维度。");
   }
-  return {
-    dimensions: (plan.dimensions as {
-      id?: string;
-      name?: string;
-      weight?: number;
-      description?: string;
-      responsibleRole?: unknown;
-    }[])
-      .map((dimension, index) => ({
-        id: typeof dimension.id === "string" && dimension.id.trim() ? dimension.id.trim() : `ev-${index + 1}`,
-        name: requireText(dimension.name, "评价方案"),
-        weight: Number(dimension.weight ?? 0),
-        description: typeof dimension.description === "string" ? dimension.description.trim() : "",
-        responsibleRole:
-          dimension.responsibleRole === "ai" || dimension.responsibleRole === "teacher"
-            ? dimension.responsibleRole
-            : undefined,
-      })),
-    overallRubric: typeof plan.overallRubric === "string" ? plan.overallRubric.trim() : "",
-  };
+
+  type RawDimension = Record<string, unknown>;
+  const parsed = (rawDimensions as RawDimension[]).map((dimension, index) => {
+    // Accept common field name aliases for "name"
+    const name =
+      pickString(dimension, ["name", "title", "dimensionName", "维度名称", "label"]) ??
+      "";
+    if (!name) {
+      throw new Error(`评价方案生成失败：第 ${index + 1} 个维度缺少名称字段（name）。`);
+    }
+
+    // Parse weight: accept number, numeric string, or "20%" format
+    const weight = parseWeight(dimension);
+
+    // Accept common field name aliases for "description"
+    const description =
+      pickString(dimension, ["description", "desc", "说明", "标准", "criteria"]) ?? "";
+
+    // Accept common field name aliases for "responsibleRole"
+    const roleRaw = pickString(dimension, ["responsibleRole", "role", "负责人", "评价方"]);
+    const responsibleRole: "ai" | "teacher" | undefined =
+      roleRaw === "ai" || roleRaw === "teacher"
+        ? roleRaw
+        : roleRaw === "AI" || roleRaw === "ai过程" || roleRaw === "AI过程"
+          ? "ai"
+          : roleRaw === "教师" || roleRaw === "teacher"
+            ? "teacher"
+            : undefined;
+
+    const id =
+      typeof dimension.id === "string" && dimension.id.trim()
+        ? dimension.id.trim()
+        : `ev-${index + 1}`;
+
+    return { id, name, weight, description, responsibleRole };
+  });
+
+  // Normalize weights: ensure each role group sums to 100
+  const normalized = normalizeDimensionWeights(parsed);
+
+  const overallRubric =
+    pickString(plan, ["overallRubric", "rubric", "整体评价", "评价说明"]) ?? "";
+
+  return { dimensions: normalized, overallRubric };
+}
+
+/** Try multiple keys on a record and return the first non-empty string value. */
+function pickString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const val = record[key];
+    if (typeof val === "string" && val.trim()) return val.trim();
+  }
+  return undefined;
+}
+
+/** Parse a weight value that may be a number, numeric string, or "20%" format. */
+function parseWeight(dimension: Record<string, unknown>): number {
+  const raw = dimension.weight ?? dimension["权重"] ?? dimension["percentage"] ?? dimension["ratio"];
+  if (typeof raw === "number" && !Number.isNaN(raw)) return raw;
+  if (typeof raw === "string") {
+    const cleaned = raw.replace(/[%％]/g, "").trim();
+    const num = Number(cleaned);
+    if (!Number.isNaN(num)) return num;
+  }
+  return 0;
+}
+
+/**
+ * Normalize dimension weights so that AI dimensions sum to 100 and teacher
+ * dimensions sum to 100. Dimensions without a role are grouped together and
+ * also normalized to 100. If all weights in a group are 0, distribute evenly.
+ */
+function normalizeDimensionWeights(
+  dimensions: Array<{ id: string; name: string; weight: number; description: string; responsibleRole?: "ai" | "teacher" }>,
+): Array<{ id: string; name: string; weight: number; description: string; responsibleRole?: "ai" | "teacher" }> {
+  const groups: Record<string, number[]> = { ai: [], teacher: [], unassigned: [] };
+  const groupIndex: Array<{ group: string; idx: number }> = [];
+
+  dimensions.forEach((dim, idx) => {
+    const group = dim.responsibleRole ?? "unassigned";
+    groups[group].push(dim.weight);
+    groupIndex.push({ group, idx });
+  });
+
+  const normalizedWeights: Record<string, number[]> = {};
+  for (const [group, weights] of Object.entries(groups)) {
+    if (weights.length === 0) continue;
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (sum === 0) {
+      // All zero → distribute evenly
+      normalizedWeights[group] = weights.map(() => Math.round(100 / weights.length));
+    } else if (sum === 100) {
+      normalizedWeights[group] = weights;
+    } else {
+      // Scale proportionally, round, then fix rounding error on last element
+      const scaled = weights.map((w) => Math.round((w / sum) * 100));
+      const diff = 100 - scaled.reduce((a, b) => a + b, 0);
+      if (scaled.length > 0) scaled[scaled.length - 1] += diff;
+      normalizedWeights[group] = scaled;
+    }
+  }
+
+  return dimensions.map((dim, idx) => {
+    const group = groupIndex[idx].group;
+    const weightArr = normalizedWeights[group];
+    const weightIdx = groupIndex.filter((g) => g.group === group).findIndex((g) => g.idx === idx);
+    return { ...dim, weight: weightArr?.[weightIdx] ?? dim.weight };
+  });
 }
 
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {

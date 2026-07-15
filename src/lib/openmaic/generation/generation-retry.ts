@@ -84,6 +84,16 @@ function booleanField(record: Record<string, unknown>, key: string): boolean | u
   return typeof value === 'boolean' ? value : undefined;
 }
 
+function numberField(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
 function statusCodeFrom(value: unknown): number | undefined {
   if (!isRecord(value)) return undefined;
 
@@ -163,6 +173,20 @@ function retryReason(error: unknown): string {
   return message || 'retryable error';
 }
 
+function retryAfterMs(error: unknown, seen = new Set<unknown>()): number | undefined {
+  if (!isRecord(error) || seen.has(error)) return undefined;
+  seen.add(error);
+
+  const direct = numberField(error, 'retryAfterMs') ?? numberField(error, 'retry_after_ms');
+  if (direct !== undefined && direct >= 0) return direct;
+
+  for (const nested of unwrapErrors(error)) {
+    const nestedDelay = retryAfterMs(nested, seen);
+    if (nestedDelay !== undefined) return nestedDelay;
+  }
+  return undefined;
+}
+
 function retryDelayMs(
   attempt: number,
   baseDelayMs: number,
@@ -217,7 +241,10 @@ export async function withGenerationRetry<T>(
         throw error;
       }
 
-      const nextDelayMs = retryDelayMs(attempt, baseDelayMs, maxDelayMs, random);
+      const nextDelayMs = Math.max(
+        retryDelayMs(attempt, baseDelayMs, maxDelayMs, random),
+        retryAfterMs(error) ?? 0,
+      );
       await options.onRetry?.({
         label: options.label,
         attempt,

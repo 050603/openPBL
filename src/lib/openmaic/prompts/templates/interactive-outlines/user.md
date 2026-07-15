@@ -37,18 +37,13 @@ Infer the course language directive by applying the decision rules from the syst
 
 ---
 
-## Distribution Target
+## Mandatory Structural Target
 
-- **70% interactive scenes** (widgets: simulation, diagram, code, game)
-- **30% slide scenes** (introductions, summaries, transitions)
-
-## Widget Type Constraints (MANDATORY)
-
-| Widget Type | Constraint |
-|------------|-----------|
-| simulation | **Minimum 2 scenes** |
-| game | **Minimum 1 scene** |
-| diagram | **Maximum 1 scene** |
+- Generate repeated `slide` explanation → `interactive` practice pairs.
+- One explanation block contains one or at most two closely related slide scenes.
+- The interaction immediately following a block must apply or check the knowledge just explained; a quiz cannot replace it.
+- Preserve slides when they are the clearest explanation format. The goal is coordinated teaching and practice, not a fixed widget percentage.
+- A final comprehensive quiz or summary may appear only after the last required interaction.
 
 ## CRITICAL: Required Fields for Interactive Scenes
 

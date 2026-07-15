@@ -7,15 +7,17 @@ import {
   ArrowLeft,
   Check,
   CircleAlert,
+  Image as ImageIcon,
   Lightbulb,
   Loader2,
-  RefreshCw,
-  Wand2,
+  Search,
+  Video,
+  Volume2,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { ServerProvidersInit } from "@/components/openmaic/server-providers-init";
 import { WizardStepper } from "@/components/wizard-stepper";
-import { Button, Card, FlowActionBar, PrimaryButton, SaveStatus, toast } from "@/components/ui";
+import { Button, Card, FlowActionBar, SaveStatus, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 import type { LessonOutlineSection, TeacherResourceScene } from "@/lib/session/types";
@@ -23,6 +25,7 @@ import type { SceneOutline } from "@/lib/openmaic/types/generation";
 import { buildFacilitationScaffold } from "@/lib/teacher-resources/facilitation-scaffolds";
 import {
   buildPblCourseRequirement,
+  buildCourseTeachingConstraints,
   buildPblActivityCatalog,
   buildTeacherActivityRequirements,
 } from "@/lib/openmaic/pbl/course-request";
@@ -33,8 +36,7 @@ import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-pan
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 
 const STEPS = [
-  { key: "new", label: "创建项目" },
-  { key: "verify", label: "课程核查" },
+  { key: "verify", label: "备课阶段" },
   { key: "generate", label: "生成课程" },
   { key: "preview", label: "预览发布" },
 ];
@@ -43,13 +45,13 @@ type GenStatus = "loading" | "success" | "error";
 
 type GenResult = {
   id: string;
-  url: string;
   scenesCount: number;
   studentSceneCount?: number;
   teacherSceneCount?: number;
   teacherClassroomId?: string;
   teacherResourceScenes?: TeacherResourceScene[];
   pblCoverage?: ReturnType<typeof checkPblStageCoverage>;
+  qualityReport?: { ok: boolean; corrections: string[]; warnings: string[] };
   stage: { id: string; name: string };
 };
 
@@ -65,13 +67,13 @@ type SseEvent =
   | {
       type: "done";
       id: string;
-      url: string;
       scenesCount: number;
       studentSceneCount?: number;
       teacherSceneCount?: number;
       teacherClassroomId?: string;
       teacherResourceScenes?: TeacherResourceScene[];
       pblCoverage?: ReturnType<typeof checkPblStageCoverage>;
+      qualityReport?: { ok: boolean; corrections: string[]; warnings: string[] };
       stage: { id: string; name: string };
     }
   | { type: "error"; error?: string; details?: string };
@@ -239,9 +241,11 @@ export default function GenerateCoursePage() {
   const startedRef = useRef(false);
   // 生成选项开关（Phase 2.6-2.8：media/TTS/WebSearch 阶段）
   const [enableWebSearch, setEnableWebSearch] = useState(false);
-  const [enableImageGeneration, setEnableImageGeneration] = useState(false);
+  const [enableImageGeneration, setEnableImageGeneration] = useState(true);
   const [enableVideoGeneration, setEnableVideoGeneration] = useState(false);
   const [enableTTS, setEnableTTS] = useState(true);
+  // 互动模式：从备课阶段读取，不在生成页面修改
+  const interactiveMode = course?.content.interactiveMode ?? false;
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
@@ -268,7 +272,7 @@ export default function GenerateCoursePage() {
     if (!course) return;
     if (!isPblModuleTimingPlanConfirmed(course.content.moduleTimingPlan)) {
       setStatus("error");
-      setError("请返回课程核查页，先确认六个模块的时间分配。");
+      setError("请返回备课阶段页，先确认六个模块的时间分配。");
       return;
     }
     setStatus("loading");
@@ -301,6 +305,7 @@ export default function GenerateCoursePage() {
           pblTeachingActivities: buildTeacherActivityRequirements(course.content),
           pblActivityCatalog: buildPblActivityCatalog(course.content),
           knowledgePoints: course.content.knowledgePoints,
+          teachingConstraints: buildCourseTeachingConstraints(course, course.content),
           courseId: course.id,
           courseTitle: course.name,
           sceneOutlines,
@@ -308,6 +313,7 @@ export default function GenerateCoursePage() {
           enableImageGeneration,
           enableVideoGeneration,
           enableTTS,
+          interactiveMode,
           ttsProviderId,
           ttsModelId,
           ttsVoice: ttsVoiceId,
@@ -375,17 +381,17 @@ export default function GenerateCoursePage() {
           } else if (evt.type === "done") {
             doneEvent = {
               id: evt.id,
-              url: evt.url,
               scenesCount: evt.scenesCount,
               studentSceneCount: evt.studentSceneCount,
               teacherSceneCount: evt.teacherSceneCount,
               teacherClassroomId: evt.teacherClassroomId,
               teacherResourceScenes: evt.teacherResourceScenes,
               pblCoverage: evt.pblCoverage,
+              qualityReport: evt.qualityReport,
               stage: evt.stage,
             };
           } else if (evt.type === "error") {
-            errorEvent = evt.error || evt.details || "生成失败";
+            errorEvent = evt.details || evt.error || "生成失败";
           }
         }
       }
@@ -519,7 +525,7 @@ export default function GenerateCoursePage() {
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       headerSlot={
         <div className="ml-4">
-          <WizardStepper current={2} steps={STEPS} />
+          <WizardStepper current={1} steps={STEPS} />
         </div>
       }
     >
@@ -539,7 +545,7 @@ export default function GenerateCoursePage() {
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]">
         {!started ? (
           <Card>
             <div className="mb-5 flex items-center justify-between">
@@ -558,82 +564,39 @@ export default function GenerateCoursePage() {
               ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
             ].map(([label, value]) => <div className="border-t border-[var(--pbl-border)] pt-3" key={label}><dt className="text-xs text-[var(--pbl-text-muted)]">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
 
-            <details className="border-y border-[var(--pbl-border)] py-3">
-              <summary className="cursor-pointer text-sm font-semibold">生成设置 <span className="font-normal text-[var(--pbl-text-muted)]">· 联网、配图、视频与语音</span></summary>
-            <div className="mt-4 space-y-3">
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
-                <input
-                  type="checkbox"
-                  checked={enableWebSearch}
-                  onChange={(e) => setEnableWebSearch(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-blue-600"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-stone-800">Web 搜索</div>
-                  <div className="mt-1 text-xs text-stone-500">
-                    生成前联网检索相关资料，丰富课件内容（需配置 Web Search Provider）
-                  </div>
-                </div>
-              </label>
+            <details className="group rounded-[12px] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)]/45 p-4" open>
+              <summary className="cursor-pointer list-none text-sm font-semibold marker:hidden">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span>生成设置 <span className="font-normal text-[var(--pbl-text-muted)]">· 开始前可随时调整</span></span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[var(--pbl-ai)] shadow-sm">默认开启配图与语音</span>
+                </span>
+              </summary>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {[
+                { key: "web", label: "Web 搜索", description: "联网补充资料与出处，需配置搜索服务。", Icon: Search, checked: enableWebSearch, setChecked: setEnableWebSearch },
+                { key: "image", label: "图像生成", description: "为适合视觉表达的课件场景生成配图。", Icon: ImageIcon, checked: enableImageGeneration, setChecked: setEnableImageGeneration },
+                { key: "video", label: "视频生成", description: "生成视频素材，耗时与资源消耗更高。", Icon: Video, checked: enableVideoGeneration, setChecked: setEnableVideoGeneration },
+                { key: "tts", label: "学生 AI 授知 TTS", description: "为学生 AI 授知场景生成同步语音。", Icon: Volume2, checked: enableTTS, setChecked: setEnableTTS },
+              ].map(({ key, label, description, Icon, checked, setChecked }) => (
+                <label className={cn("relative flex cursor-pointer items-start gap-3 rounded-[10px] border bg-white p-4 transition", checked ? "border-[var(--pbl-ai)] shadow-sm" : "border-stone-200 hover:border-stone-300")} key={key}>
+                  <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-[8px]", checked ? "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]" : "bg-stone-100 text-stone-400")}><Icon size={17} /></span>
+                  <span className="min-w-0 flex-1 pr-9"><span className="block text-sm font-bold text-stone-800">{label}</span><span className="mt-1 block text-xs leading-5 text-stone-500">{description}</span></span>
+                  <input className="peer sr-only" checked={checked} onChange={(event) => setChecked(event.target.checked)} type="checkbox" />
+                  <span aria-hidden className={cn("absolute right-4 top-4 h-6 w-11 rounded-full transition", checked ? "bg-[var(--pbl-ai)]" : "bg-stone-200")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition", checked ? "left-[22px]" : "left-0.5")} /></span>
+                </label>
+              ))}
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
-                <input
-                  type="checkbox"
-                  checked={enableImageGeneration}
-                  onChange={(e) => setEnableImageGeneration(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-blue-600"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-stone-800">图像生成</div>
-                  <div className="mt-1 text-xs text-stone-500">
-                    为课件场景配图（需配置 Image Provider，如 DALL·E）
+              {interactiveMode ? (
+                <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3 md:col-span-2">
+                  <div className="text-sm font-bold text-stone-800">互动模式 · 已开启</div>
+                  <div className="mt-1 text-xs leading-5 text-stone-500">
+                    最终生成严格遵循已确认大纲中的 PPT、测验与互动类型，不会在此阶段再次转换。项目启动和后续教师资源仍为 PPT/讲稿。
                   </div>
                 </div>
-              </label>
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
-                <input
-                  type="checkbox"
-                  checked={enableVideoGeneration}
-                  onChange={(e) => setEnableVideoGeneration(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-blue-600"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-stone-800">视频生成</div>
-                  <div className="mt-1 text-xs text-stone-500">
-                    为课件场景配视频（需配置 Video Provider，耗时较长）
-                  </div>
-                </div>
-              </label>
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-stone-200 px-4 py-3 hover:bg-stone-50">
-                <input
-                  type="checkbox"
-                  checked={enableTTS}
-                  onChange={(e) => setEnableTTS(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-blue-600"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-stone-800">学生 AI 授知 TTS</div>
-                  <div className="mt-1 text-xs text-stone-500">
-                    仅为学生 AI 授知场景生成语音；普通课堂活动的 PPT 与讲稿不生成 TTS
-                  </div>
-                </div>
-              </label>
+              ) : null}
             </div>
             </details>
 
-            <div className="mt-5 flex items-center gap-3">
-              <PrimaryButton onClick={beginGeneration} type="button">
-                <Wand2 size={18} /> 开始生成
-              </PrimaryButton>
-              <Link
-                className="text-sm font-semibold text-stone-500 hover:underline"
-                href={`/teacher/prepare/${course.id}/verify`}
-              >
-                返回上一步
-              </Link>
-            </div>
           </Card>
         ) : (
           <Card>
@@ -721,21 +684,20 @@ export default function GenerateCoursePage() {
               </div>
             ) : null}
 
-            {status === "error" ? (
-              <div className="mt-5">
-                <PrimaryButton
-                  onClick={() => void startGeneration()}
-                  type="button"
-                  variant="outline"
-                >
-                  <RefreshCw size={18} /> 重试
-                </PrimaryButton>
-              </div>
-            ) : null}
             {status === "success" && result ? (
-              <div className="mt-5 flex flex-col gap-3 border-t border-[var(--pbl-border)] pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-[var(--pbl-text-muted)]">已保留生成结果，不会自动离开本页。请查看摘要后主动进入预览。</p>
-                <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link>
+              <div className="mt-5 border-t border-[var(--pbl-border)] pt-5">
+                {result.qualityReport && (result.qualityReport.corrections.length > 0 || result.qualityReport.warnings.length > 0) ? (
+                  <details className="mb-4 rounded-[var(--radius-xs)] border border-[var(--pbl-warning)]/30 bg-[var(--pbl-warning)]/5 px-4 py-3">
+                    <summary className="cursor-pointer text-sm font-semibold text-[var(--pbl-text)]">教学质量检查：已自动修复 {result.qualityReport.corrections.length} 项，仍有 {result.qualityReport.warnings.length} 项建议复核</summary>
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-[var(--pbl-text-muted)]">
+                      {result.qualityReport.corrections.map((item) => <li key={`fix-${item}`}>已修复：{item}</li>)}
+                      {result.qualityReport.warnings.map((item) => <li key={`warn-${item}`}>建议：{item}</li>)}
+                    </ul>
+                  </details>
+                ) : null}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-[var(--pbl-text-muted)]">已保留生成结果，不会自动离开本页。请查看摘要后主动进入预览。</p>
+                </div>
               </div>
             ) : null}
           </Card>
@@ -744,6 +706,7 @@ export default function GenerateCoursePage() {
         <aside className="space-y-5">
           {course.content.moduleTimingPlan ? (
             <PblModuleTimingPanel
+              compact
               moduleActivities={course.content.teachingOutline ?? []}
               totalMinutes={Math.max(0, Math.round(course.hours * 60))}
               timingPlan={course.content.moduleTimingPlan}
@@ -769,7 +732,7 @@ export default function GenerateCoursePage() {
           </Card>
         </aside>
       </div>
-      <FlowActionBar back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/verify`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}>{status === "success" && result ? <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link> : <Button disabled={started && status === "loading"} loading={started && status === "loading"} onClick={started ? () => void startGeneration() : beginGeneration}>{started && status === "error" ? "重新生成" : "生成课程内容"}</Button>}</FlowActionBar>
+      <FlowActionBar persistent back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/verify`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}>{status === "success" && result ? <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link> : <Button disabled={started && status === "loading"} loading={started && status === "loading"} onClick={started ? () => void startGeneration() : beginGeneration}>{started && status === "error" ? "重新生成" : "生成课程内容"}</Button>}</FlowActionBar>
     </DashboardShell>
   );
 }

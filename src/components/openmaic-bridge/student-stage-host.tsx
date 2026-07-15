@@ -31,6 +31,12 @@ import type { LearningEvent, LearningEventType } from '@/lib/session/types';
 import { cn } from '@/lib/utils';
 import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 import { estimateSpeechDurationSec } from '@openmaic/lib/audio/tts-timing';
+import type { PlaybackSyncState } from '@openmaic/components/stage-experience';
+import { isScenePlaybackExhausted } from '@openmaic/lib/playback/scene-completion';
+import {
+  AI_PROGRESS_COMPLETION_MODEL_VERSION,
+  isReliableAiProgress,
+} from '@openmaic/lib/progress/completion-model';
 
 const log = createLogger('StudentStageHost');
 
@@ -46,6 +52,7 @@ interface ProgressEntry {
   masteryLevel: string;
   quizScore?: number;
   lastActiveAt?: string;
+  completionModelVersion?: number;
 }
 
 interface ProgressResponse {
@@ -107,6 +114,42 @@ function expectedDurationSec(scene?: Scene): number | undefined {
   return speechText ? Math.max(30, estimateSpeechDurationSec(speechText)) : undefined;
 }
 
+function sceneAudioUrls(scene?: Scene): string[] {
+  if (!scene) return [];
+  return [...new Set((scene.actions ?? []).flatMap((action) =>
+    action.type === 'speech' && action.audioUrl ? [action.audioUrl] : [],
+  ))];
+}
+
+function audioDurationSec(url: string): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    let settled = false;
+    let timer = 0;
+    const finish = (duration: number | undefined) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+      audio.removeAttribute('src');
+      audio.load();
+      resolve(duration);
+    };
+    timer = window.setTimeout(() => finish(undefined), 8_000);
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => finish(Number.isFinite(audio.duration) ? audio.duration : undefined);
+    audio.onerror = () => finish(undefined);
+    audio.src = url;
+  });
+}
+
+async function measuredSceneTtsDurationSec(scene: Scene): Promise<number | undefined> {
+  const durations = await Promise.all(sceneAudioUrls(scene).map(audioDurationSec));
+  const measured = durations.reduce<number>((sum, duration) => sum + (duration ?? 0), 0);
+  return measured > 0 ? measured : undefined;
+}
+
 export function StudentStageHost({
   classroomId,
   courseId,
@@ -126,6 +169,7 @@ export function StudentStageHost({
   const lastReportedSceneRef = useRef<string | null>(null);
   // 已上报"全部完成"标记
   const completionReportedRef = useRef<boolean>(false);
+  const classroomLoadControllerRef = useRef<AbortController | null>(null);
   // store 订阅卸载函数
   const unsubscribeRef = useRef<(() => void) | null>(null);
   // 是否已成功 hydrate store（用于阻止 hydrate 前的 subscribe 触发误报）
@@ -135,6 +179,7 @@ export function StudentStageHost({
   const sceneEnteredAtRef = useRef<number | null>(null);
   const lastHeartbeatAtRef = useRef<number | null>(null);
   const seenSceneIdsRef = useRef<Set<string>>(new Set());
+  const ttsDurationBySceneRef = useRef<Map<string, number>>(new Map());
   const trackingEnabled = shouldTrackStudentLearning(mode) && Boolean(courseId && studentId);
 
   const flushTelemetry = useCallback(async () => {
@@ -157,25 +202,50 @@ export function StudentStageHost({
     patch: Partial<Pick<LearningEvent, 'durationMs' | 'visible' | 'progressMarker' | 'metadata'>> = {},
   ) => {
     if (!trackingEnabled || !courseId || !studentId) return;
-    const scene = useStageStore.getState().scenes.find((item) => item.id === sceneId);
+    const scenes = useStageStore.getState().scenes;
+    const sceneIndex = scenes.findIndex((item) => item.id === sceneId);
+    const scene = sceneIndex >= 0 ? scenes[sceneIndex] : undefined;
+    const measuredTtsDurationSec = sceneId ? ttsDurationBySceneRef.current.get(sceneId) : undefined;
     telemetryQueueRef.current.push(createLearningEvent(type, {
       courseId,
       studentId,
       stageKey: 'ai-learning',
+      ...patch,
       ...(sceneId ? { sceneId } : {}),
       ...(expectedDurationSec(scene) ? { expectedDurationSec: expectedDurationSec(scene) } : {}),
-      ...patch,
+      ...(measuredTtsDurationSec ? { ttsDurationSec: measuredTtsDurationSec } : {}),
+      ...(scene?.timingPlan?.studentActivitySec
+        ? { plannedStudentActivitySec: scene.timingPlan.studentActivitySec }
+        : {}),
+      ...(scene ? {
+        content: {
+          stageLabel: scene.stageLabel ?? 'AI 授知',
+          sceneTitle: scene.title,
+          sceneIndex: sceneIndex + 1,
+          sceneType: scene.type,
+          activityId: scene.parentActivityId ?? scene.activityId,
+          knowledgePointIds: scene.knowledgePointIds ?? [],
+        },
+        metadata: {
+          sceneTitle: scene.title,
+          sceneIndex: sceneIndex + 1,
+          ...(patch.metadata ?? {}),
+        },
+      } : {}),
     }));
   }, [courseId, studentId, trackingEnabled]);
 
   const loadClassroom = useCallback(async () => {
+    classroomLoadControllerRef.current?.abort();
+    const loadController = new AbortController();
+    classroomLoadControllerRef.current = loadController;
     setState('loading');
     setErrorMsg(undefined);
     try {
       // 1. 拉取课堂
       const res = await fetch(
         `/api/openmaic/classroom?id=${encodeURIComponent(classroomId)}`,
-        { cache: 'no-store' },
+        { cache: 'no-store', signal: loadController.signal },
       );
       if (!res.ok) {
         setErrorMsg(
@@ -212,13 +282,13 @@ export function StudentStageHost({
       if (mode === 'student' && courseId && studentId) {
         try {
           const progRes = await fetch(
-            `/api/openmaic/progress?courseId=${encodeURIComponent(courseId)}`,
-            { cache: 'no-store' },
+            `/api/openmaic/progress?courseId=${encodeURIComponent(courseId)}&studentId=${encodeURIComponent(studentId)}`,
+            { cache: 'no-store', signal: loadController.signal },
           );
           if (progRes.ok) {
             const progJson = (await progRes.json()) as ProgressResponse;
             const entry = progJson.data?.progress?.[studentId];
-            if (entry) {
+            if (entry && isReliableAiProgress(entry)) {
               restoredIndex = Math.min(
                 entry.currentSceneIndex ?? 0,
                 Math.max(0, studentScenes.length - 1),
@@ -231,6 +301,7 @@ export function StudentStageHost({
         }
       }
       completedRef.current = new Set(restoredCompleted);
+      if (loadController.signal.aborted) return;
       lastReportedSceneRef.current = studentScenes[restoredIndex]?.id ?? null;
       // 已上报过完成：恢复进度中已完成场景数 >= 总场景数
       completionReportedRef.current = restoredCompleted.length >= studentScenes.length;
@@ -263,6 +334,18 @@ export function StudentStageHost({
         },
       }));
       hydratedRef.current = true;
+      ttsDurationBySceneRef.current.clear();
+      for (const scene of migrated) {
+        if (!sceneAudioUrls(scene).length) continue;
+        void measuredSceneTtsDurationSec(scene).then((duration) => {
+          if (!duration || !hydratedRef.current) return;
+          ttsDurationBySceneRef.current.set(scene.id, duration);
+          if (useStageStore.getState().currentSceneId === scene.id) {
+            queueTelemetry('heartbeat', scene.id, { durationMs: 0, visible: true });
+            void flushTelemetry();
+          }
+        });
+      }
       const initialSceneId = migrated[restoredIndex]?.id ?? migrated[0]?.id;
       if (trackingEnabled && initialSceneId) {
         seenSceneIdsRef.current.add(initialSceneId);
@@ -276,15 +359,25 @@ export function StudentStageHost({
 
       setState('ready');
     } catch (err) {
+      if (
+        loadController.signal.aborted ||
+        (err instanceof DOMException && err.name === 'AbortError')
+      ) {
+        return;
+      }
       log.error('Failed to load classroom:', err);
       setErrorMsg(err instanceof Error ? err.message : '网络异常，请稍后重试');
       setState('error');
+    } finally {
+      if (classroomLoadControllerRef.current === loadController) {
+        classroomLoadControllerRef.current = null;
+      }
     }
   }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, studentId, trackingEnabled]);
 
   // 上报进度到 /api/openmaic/progress
   const reportProgress = useCallback(
-    async (nextSceneId: string | null, isComplete: boolean) => {
+    async (nextSceneId: string | null) => {
       if (mode !== 'student' || !courseId || !studentId || !classroomId) return;
       // 取当前 store 的 scenes 列表
       const storeState = useStageStore.getState();
@@ -294,11 +387,8 @@ export function StudentStageHost({
       const currentIdx = nextSceneId
         ? Math.max(0, scenes.findIndex((s) => s.id === nextSceneId))
         : scenes.length - 1;
-      const completedSet = completedRef.current;
-      // 把当前场景加入完成集合（学生看到即视为完成）
-      if (nextSceneId) completedSet.add(nextSceneId);
-      const completedScenes = Array.from(completedSet);
-      const isAllComplete = isComplete || completedScenes.length >= scenes.length;
+      const completedScenes = Array.from(completedRef.current);
+      const isAllComplete = completedScenes.length >= scenes.length;
 
       // 已上报过完成且状态未变化则跳过
       if (isAllComplete && completionReportedRef.current) return;
@@ -315,6 +405,7 @@ export function StudentStageHost({
             currentSceneIndex: currentIdx,
             totalScenes: scenes.length,
             completedScenes,
+            completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
           }),
         });
         if (isAllComplete) completionReportedRef.current = true;
@@ -323,6 +414,24 @@ export function StudentStageHost({
       }
     },
     [courseId, studentId, studentName, classroomId, mode],
+  );
+
+  const handlePlaybackStateChange = useCallback(
+    (playbackState: Omit<PlaybackSyncState, 'version'>) => {
+      if (mode !== 'student') return;
+      const storeState = useStageStore.getState();
+      const scene = storeState.scenes.find((item) => item.id === storeState.currentSceneId);
+      if (!scene || !isScenePlaybackExhausted(scene, playbackState)) return;
+      if (completedRef.current.has(scene.id)) return;
+      completedRef.current.add(scene.id);
+      queueTelemetry('scene-complete', scene.id, { progressMarker: 'completed' });
+      if (completedRef.current.size >= storeState.scenes.length) {
+        queueTelemetry('stage-goal-complete', null, { progressMarker: 'completed' });
+      }
+      void flushTelemetry();
+      void reportProgress(scene.id);
+    },
+    [flushTelemetry, mode, queueTelemetry, reportProgress],
   );
 
   // 订阅 useStageStore 的 currentSceneId 变化
@@ -335,12 +444,10 @@ export function StudentStageHost({
       if (!hydratedRef.current) return;
       if (current.currentSceneId === prevSceneId) return;
       prevSceneId = current.currentSceneId;
-      // 把上一个 scene 加入完成集合（如果是首次切换）
       if (
         previous.currentSceneId &&
         previous.currentSceneId !== current.currentSceneId
       ) {
-        completedRef.current.add(previous.currentSceneId);
         queueTelemetry('scene-leave', previous.currentSceneId, {
           durationMs: Math.max(0, Date.now() - (sceneEnteredAtRef.current ?? Date.now())),
           visible: typeof document === 'undefined' ? true : document.visibilityState === 'visible',
@@ -357,7 +464,7 @@ export function StudentStageHost({
         void flushTelemetry();
       }
       lastReportedSceneRef.current = current.currentSceneId;
-      void reportProgress(current.currentSceneId, false);
+      void reportProgress(current.currentSceneId);
     });
     return () => {
       if (unsubscribeRef.current) {
@@ -398,6 +505,7 @@ export function StudentStageHost({
     });
     // 组件卸载时清空 store，避免跨课堂污染
     return () => {
+      classroomLoadControllerRef.current?.abort();
       const currentSceneId = useStageStore.getState().currentSceneId;
       queueTelemetry('scene-leave', currentSceneId, {
         durationMs: Math.max(0, Date.now() - (sceneEnteredAtRef.current ?? Date.now())),
@@ -449,7 +557,10 @@ export function StudentStageHost({
                 </div>
               </div>
             ) : (
-              <Stage />
+              <Stage
+                experience="student-course"
+                onPlaybackStateChange={handlePlaybackStateChange}
+              />
             )}
           </div>
         </MediaStageProvider>

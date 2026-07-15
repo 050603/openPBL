@@ -9,7 +9,7 @@
 import { NextRequest } from "next/server";
 import { callLLM, callLLMStream, parseLLMJson } from "@/lib/llm/client";
 import { buildCompanionSystemPrompt, getCompanion, type AiCompanionId } from "@/lib/ai-companions";
-import { activeDirectivesForStudent, recorderVisibility, shouldUseReviewer } from "@/lib/companion/orchestrator";
+import { activeDirectivesForStudent, isSubstantiallyRepeatedResponse, maxSpeakersForTurn, recorderVisibility, shouldUseReviewer } from "@/lib/companion/orchestrator";
 import { buildCompanionContext, type CompanionContextSnapshot } from "@/lib/companion/context";
 import { appendCompanionMessages, companionMessage, getCompanionThread } from "@/lib/companion/server-store";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
@@ -97,6 +97,7 @@ function buildDirectorPrompt(input: {
   history: ChatMessage[];
   companions: { id: AiCompanionId; name: string; role: string; description: string; canQuestion: boolean }[];
   stageLabel: string;
+  trigger?: CompanionTriggerKind;
 }): { system: string; user: string } {
   const companionList = input.companions
     .map((c) => `- ${c.id}（${c.name}，${c.role}）：${c.description}${c.canQuestion ? " [唯一可提问角色]" : " [仅陈述]"}`)
@@ -112,17 +113,18 @@ function buildDirectorPrompt(input: {
 ${companionList}
 
 规则：
-1. 根据学生的问题和当前阶段（${input.stageLabel}），选择 1-2 个最合适的角色发言；只有确实需要互补视角时才选 2 个
+1. 根据学生的问题和当前阶段（${input.stageLabel}）选择角色。主动介入只能选 1 个角色；学生主动提问时默认也选 1 个，只有学生明确要求多角色或多个角度时才可选 2 个
 2. 优先选择能提供不同视角的角色组合（如：一个陈述知识+一个质疑检验）
 3. 如果学生明确要求某个角色，必须包含该角色
-4. 避免为了热闹而派人；每位被选角色都必须能提供不同且直接推动当前活动的价值
+4. 避免为了热闹而派人；若选 2 个角色，两者必须围绕同一个核心问题分工，第二个角色不能开启新的任务
 5. 必须返回 JSON 格式：{"speakers": ["角色id1", "角色id2"], "cueUser": true/false}
 6. cueUser 为 true 表示需要学生继续输入，false 表示本轮讨论结束
 7. 功能矩阵约束：只有"问问"(critic)可以提问，其他角色只提供陈述性内容和解决方案
 8. 如果学生需要知识解释，优先派"知知"(knowledge)；如果需要方案，优先派"策策"(planner)
 9. 这些角色是课堂上的伴学伙伴，说话风格应像同学之间的交流，自然、口语化`;
 
-  const user = `学生最新消息：${input.message}
+  const user = `本轮来源：${input.trigger ? `系统主动介入（${input.trigger}）` : "学生主动请求"}
+学生最新消息：${input.message}
 ${recentHistory ? `最近对话：\n${recentHistory}` : ""}
 
 请决定哪些伴学角色应该回应，返回 JSON。`;
@@ -195,8 +197,8 @@ export async function POST(req: NextRequest) {
         ? [companionMessage({ role: "system-trigger", content: body.trigger.reason || body.message, visibility: "teacher-only", triggerKind: body.trigger.kind })]
         : [companionMessage({ role: "student", content: body.message, visibility: "student-and-teacher", authorId: body.studentId, authorName: body.studentName })],
     });
-    const recentStudentMessages = (thread?.messages ?? []).filter((message) => message.role === "student").slice(-2);
-    if (!body.trigger && recentStudentMessages.length === 2) {
+    const recentStudentMessages = (thread?.messages ?? []).filter((message) => message.role === "student").slice(-3);
+    if (!body.trigger && recentStudentMessages.length === 3) {
       const evidenceStart = Date.parse(recentStudentMessages[0].createdAt);
       const hasNewArtifact = (course.submissions ?? []).some(
         (submission) => submission.studentId === body.studentId && Date.parse(submission.updatedAt) > evidenceStart,
@@ -215,7 +217,7 @@ export async function POST(req: NextRequest) {
             severity: existing?.severity ?? "warning" as const,
             status: "open" as const,
             title: "多轮伴学对话没有形成产物进展",
-            summary: "连续 3 轮对话后没有检测到新的事实、选择或产物修改。",
+            summary: "连续 4 轮对话后没有检测到新的事实、选择或产物修改。",
             normalizedIssueKey: `conversation-no-progress:${body.stageKey}:stage`,
             evidenceEventIds: [...recentStudentMessages.map((message) => message.id), "current-message"],
             aiInterventionAttempts: existing?.aiInterventionAttempts ?? 0,
@@ -278,6 +280,7 @@ export async function POST(req: NextRequest) {
         history: authoritativeHistory,
         companions: availableCompanions,
         stageLabel: body.stageLabel,
+        trigger: body.trigger?.kind,
       });
 
       let directorResult: DirectorResult;
@@ -305,7 +308,7 @@ export async function POST(req: NextRequest) {
           selectedSpeakers.push("reviewer");
         }
         directorResult = {
-          speakers: [...new Set(selectedSpeakers)].slice(0, 2),
+          speakers: [...new Set(selectedSpeakers)].slice(0, maxSpeakersForTurn(body.trigger?.kind, body.message)),
           cueUser: Boolean(parsed.cueUser),
         };
       } catch {
@@ -320,12 +323,13 @@ export async function POST(req: NextRequest) {
       // === Step 2: 依次让每个选中角色发言 ===
       const conversationHistory = [...authoritativeHistory, { role: "user" as const, content: body.message }];
       const peerResponses: string[] = [];
+      const persistedAgentMessages: ReturnType<typeof companionMessage>[] = [];
 
-      for (const companionId of directorResult.speakers) {
+      for (const [speakerIndex, companionId] of directorResult.speakers.entries()) {
         if (signal.aborted) return;
 
         const companion = getCompanion(companionId);
-        await write({ type: "agent_start", companionId });
+        if (speakerIndex === 0) await write({ type: "agent_start", companionId });
 
         const systemPrompt = buildCompanionSystemPrompt({
           companion,
@@ -349,48 +353,53 @@ export async function POST(req: NextRequest) {
           for await (const delta of callLLMStream(agentMessages, { abortSignal: signal })) {
             if (signal.aborted) return;
             fullResponse += delta;
-            await write({ type: "text_delta", companionId, delta });
+            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta });
           }
         } catch {
           // 单个角色流式失败时，用非流式降级
           if (signal.aborted) return;
           try {
             fullResponse = await callLLM(agentMessages, { abortSignal: signal });
-            await write({ type: "text_delta", companionId, delta: fullResponse });
+            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta: fullResponse });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            await write({ type: "text_delta", companionId, delta: `（${companion.name}暂时无法回应：${msg}）` });
+            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta: `（${companion.name}暂时无法回应：${msg}）` });
             fullResponse = "";
           }
         }
 
-        await write({ type: "agent_end", companionId });
+        const repeated = speakerIndex > 0 && isSubstantiallyRepeatedResponse(fullResponse, peerResponses);
+        if (speakerIndex > 0 && fullResponse && !repeated) {
+          await write({ type: "agent_start", companionId });
+          await write({ type: "text_delta", companionId, delta: fullResponse });
+        }
+        if (!repeated) await write({ type: "agent_end", companionId });
 
         // 将该角色的回复加入对话历史，供后续角色参考
-        if (fullResponse) {
+        if (fullResponse && !repeated) {
           conversationHistory.push({ role: "assistant", content: fullResponse });
           peerResponses.push(`${companion.name}：${fullResponse.slice(0, 500)}`);
           if (canPersist) {
-            await appendCompanionMessages({
-              courseId: body.courseId!, studentId: body.studentId!, stageKey: body.stageKey,
-              messages: [companionMessage({ role: "agent", companionId, authorName: companion.name, content: fullResponse, visibility: "student-and-teacher", triggerKind: body.trigger?.kind })],
-            });
+            persistedAgentMessages.push(companionMessage({ role: "agent", companionId, authorName: companion.name, content: fullResponse, visibility: "student-and-teacher", triggerKind: body.trigger?.kind }));
           }
         }
       }
 
-      if (canPersist && peerResponses.length) {
+      if (canPersist && persistedAgentMessages.length) {
         const recorderSummary = `本轮讨论：${peerResponses.join("；").slice(0, 1200)}`;
         await appendCompanionMessages({
           courseId: body.courseId!, studentId: body.studentId!, stageKey: body.stageKey,
-          messages: [companionMessage({
-            role: "agent",
-            companionId: "recorder",
-            authorName: "记记",
-            content: recorderSummary,
-            visibility: recorderVisibility(body.trigger?.kind),
-            triggerKind: body.trigger?.kind,
-          })],
+          messages: [
+            ...persistedAgentMessages,
+            companionMessage({
+              role: "agent",
+              companionId: "recorder",
+              authorName: "记记",
+              content: recorderSummary,
+              visibility: recorderVisibility(body.trigger?.kind),
+              triggerKind: body.trigger?.kind,
+            }),
+          ],
         });
       }
 

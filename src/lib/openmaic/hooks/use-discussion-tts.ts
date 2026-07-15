@@ -54,8 +54,11 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
   const abortControllerRef = useRef<AbortController | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const onAudioStateChangeRef = useRef(onAudioStateChange);
-  onAudioStateChangeRef.current = onAudioStateChange;
   const processQueueRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    onAudioStateChangeRef.current = onAudioStateChange;
+  }, [onAudioStateChange]);
 
   const {
     speak: browserSpeak,
@@ -75,13 +78,16 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
     },
   });
   const browserCancelRef = useRef(browserCancel);
-  browserCancelRef.current = browserCancel;
   const browserSpeakRef = useRef(browserSpeak);
-  browserSpeakRef.current = browserSpeak;
   const browserPauseRef = useRef(browserPause);
-  browserPauseRef.current = browserPause;
   const browserResumeRef = useRef(browserResume);
-  browserResumeRef.current = browserResume;
+
+  useEffect(() => {
+    browserCancelRef.current = browserCancel;
+    browserSpeakRef.current = browserSpeak;
+    browserPauseRef.current = browserPause;
+    browserResumeRef.current = browserResume;
+  }, [browserCancel, browserPause, browserResume, browserSpeak]);
 
   // Build agent index map for deterministic voice resolution
   const agentIndexMap = useRef<Map<string, number>>(new Map());
@@ -126,7 +132,7 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
 
       // Teacher's voice = the global lecture selection, honored VERBATIM (incl.
       // its model) whenever that provider is enabled — identical to what the
-      // pre-generated lecture sends (use-scene-generator), so lecture and
+      // pre-generated lecture TTS, so lecture and
       // discussion teacher never diverge. No voiceId re-validation/fallback that
       // could swap the user's chosen voice. Only if the global provider is itself
       // disabled does the teacher fall back to an enabled provider.
@@ -189,7 +195,7 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
         voiceId: item.voiceId,
         language: locale,
       });
-      const res = await fetch('/api/generate/tts', {
+      const res = await fetch('/api/openmaic/generate/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -260,7 +266,9 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
     }
   }, [agents, enabled, locale, ttsMuted, ttsVolume, ttsProvidersConfig, ttsSpeed, playbackSpeed]);
 
-  processQueueRef.current = processQueue;
+  useEffect(() => {
+    processQueueRef.current = processQueue;
+  }, [processQueue]);
 
   const handleSegmentSealed = useCallback(
     (messageId: string, partId: string, fullText: string, agentId: string | null) => {

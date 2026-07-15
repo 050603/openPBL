@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { Stage } from "@openmaic/components/stage";
 import { ServerProvidersInit } from "@openmaic/components/server-providers-init";
@@ -14,6 +14,7 @@ import type { Scene, Stage as StageType } from "@openmaic/lib/types/stage";
 import type { PlaybackSyncState, StageExperience } from "@openmaic/components/stage-experience";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui";
+import { shouldPollClassroomAssets } from "./resource-player-policy";
 
 const log = createLogger("OpenMaicResourcePlayer");
 const ASSET_REFRESH_INTERVAL_MS = 5_000;
@@ -58,8 +59,12 @@ export function OpenMaicResourcePlayer({
   const [state, setState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>();
   const [assetGeneration, setAssetGeneration] = useState<ClassroomPayload["assetGeneration"]>();
+  const loadControllerRef = useRef<AbortController | null>(null);
 
   const loadResource = useCallback(async (options: { silent?: boolean } = {}) => {
+    loadControllerRef.current?.abort();
+    const loadController = new AbortController();
+    loadControllerRef.current = loadController;
     if (!options.silent) {
       setState("loading");
       setErrorMessage(undefined);
@@ -68,7 +73,7 @@ export function OpenMaicResourcePlayer({
     try {
       const response = await fetch(
         `/api/openmaic/classroom?id=${encodeURIComponent(classroomId)}`,
-        { cache: "no-store" },
+        { cache: "no-store", signal: loadController.signal },
       );
       if (!response.ok) {
         throw new Error(
@@ -82,6 +87,7 @@ export function OpenMaicResourcePlayer({
         success?: boolean;
         classroom?: ClassroomPayload;
       };
+      if (loadController.signal.aborted) return;
       if (!payload.success || !payload.classroom) {
         throw new Error("授课资源课堂返回内容为空");
       }
@@ -119,6 +125,12 @@ export function OpenMaicResourcePlayer({
       }
       if (!options.silent) setState("ready");
     } catch (error) {
+      if (
+        loadController.signal.aborted ||
+        (error instanceof DOMException && error.name === "AbortError")
+      ) {
+        return;
+      }
       const message = error instanceof Error ? error.message : "授课资源加载失败";
       log.error("Failed to load projected teacher resource:", error);
       if (!options.silent) {
@@ -126,6 +138,8 @@ export function OpenMaicResourcePlayer({
         setState("error");
         toast.error("资源加载失败", { description: message });
       }
+    } finally {
+      if (loadControllerRef.current === loadController) loadControllerRef.current = null;
     }
   }, [classroomId, sceneId]);
 
@@ -135,12 +149,13 @@ export function OpenMaicResourcePlayer({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadResource();
     return () => {
+      loadControllerRef.current?.abort();
       useStageStore.getState().clearStore();
     };
   }, [loadResource]);
 
   useEffect(() => {
-    if (state !== "ready") return;
+    if (state !== "ready" || !shouldPollClassroomAssets(assetGeneration?.status)) return;
     let attempts = 0;
     const refreshTimer = window.setInterval(() => {
       attempts += 1;
@@ -153,7 +168,7 @@ export function OpenMaicResourcePlayer({
       void loadResource({ silent: true });
     }, ASSET_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(refreshTimer);
-  }, [loadResource, state]);
+  }, [assetGeneration?.status, loadResource, state]);
 
   return (
     <ThemeProvider>

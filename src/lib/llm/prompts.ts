@@ -2,6 +2,10 @@
 // Each prompt asks the model to return a strict JSON object matching our schema.
 
 import type { GenerateInput } from "./types";
+import {
+  deriveTeachingConstraints,
+  formatTeachingConstraintsForPrompt,
+} from "@/lib/openmaic/pedagogy/teaching-constraints";
 
 const TEACHING_OUTLINE_ROUTING_RULES = `
 Hard routing rules for the new PBL classroom:
@@ -65,10 +69,37 @@ function personalProjectConfigText(input: GenerateInput): string {
     : "（未配置个人项目 PBL 参数）";
 }
 
+export function buildAuthoritativeCourseBasisPrompt(input: GenerateInput): string {
+  const constraints = deriveTeachingConstraints({
+    grade: input.grade,
+    subject: input.subject,
+    topic: input.name,
+    hours: input.hours,
+    learnerProfile: input.learnerProfile,
+    learningObjectives: input.learningObjectives,
+  });
+  return [
+    "教师确认的课程基础约束（最高优先级）：",
+    `课程名称：${input.name}`,
+    `学科与学段：${input.subject} / ${input.grade} (${constraints.gradeBand})`,
+    `课程容量：${constraints.courseHours} 课时，共 ${constraints.totalMinutes} 分钟`,
+    `知识点数量范围：${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max}`,
+    `课程目标：${constraints.learningObjectives.length ? constraints.learningObjectives.join("；") : "未单独填写，需保守限定在课程名称与说明范围内"}`,
+    `课程说明：${input.summary || "未填写"}`,
+    `学生已有基础：${constraints.learnerFoundation}`,
+    `学习特点与支架需要：${constraints.learningNeeds.join("；") || "按学段采用保守支架"}`,
+    `熟悉情境：${constraints.familiarContexts.join("；") || "按学段选择日常可理解情境"}`,
+    `内容容量规则：${constraints.scopeRule}`,
+    formatTeachingConstraintsForPrompt(constraints),
+    "硬约束：后续知识、活动与评价必须服务于已确认课程目标；不得把认知边界之外的概念变成隐藏前置知识或评价目标；内容深度、练习数量和成果复杂度必须与总课时匹配。",
+  ].join("\n");
+}
+
 export function buildFullCoursePrompt(input: GenerateInput): {
   system: string;
   user: string;
 } {
+  const constraints = deriveTeachingConstraints({ grade: input.grade, hours: input.hours });
   const stageList = input.stages
     .map((s) => `- ${s.key}（${s.label}）：${s.description}`)
     .join("\n");
@@ -82,12 +113,14 @@ export function buildFullCoursePrompt(input: GenerateInput): {
 驱动问题：${input.drivingQuestion || "（无，请根据课程名称与简介推断）"}
 个人项目配置：${personalProjectConfigText(input)}
 
+${buildAuthoritativeCourseBasisPrompt(input)}
+
 课程阶段：
 ${stageList}
 
 要求：
-1. 知识点 6-10 个，名称精炼，粒度要比章节标题更细；每个知识点写出本节课关键信息 keyInfo
-2. 生成 knowledgeGraph：节点必须与 knowledgePoints 对齐，边要清晰表达先修、支撑、应用、对比或迁移关系，至少 ${Math.max(5, input.hours * 2)} 条边
+1. 知识点 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个，名称精炼，粒度要比章节标题更细；每个知识点写出本节课关键信息 keyInfo
+2. 生成 knowledgeGraph：节点必须与 knowledgePoints 对齐，边要清晰表达先修、支撑、应用、对比或迁移关系，至少 ${Math.max(1, constraints.recommendedKnowledgePointRange.min - 1)} 条边
 3. teachingOutline 是整节课程的教案级授课大纲，先生成六个宏观课程模块（launch、ai-learning、proposal、make、showcase、reflection），必须写清平台和 AI 负责什么、教师负责什么
 4. AI 授知章节大纲必须参考知识图谱，按先修到应用的关系组织学习路径，并在 objectives/keyPoints 中覆盖核心节点
 5. 评价维度 4-6 个，权重合计 100%，评价项要能检查学生对知识图谱核心节点的理解与迁移应用
@@ -107,6 +140,7 @@ export function buildPblOutlinePrompt(input: GenerateInput, context?: { knowledg
 简介：${input.summary || "（无）"}
 驱动问题：${input.drivingQuestion || "（无）"}
 个人项目配置：${personalProjectConfigText(input)}
+${buildAuthoritativeCourseBasisPrompt(input)}
 已确认知识点与图谱：${JSON.stringify({
     knowledgePoints: context?.knowledgePoints ?? [],
     knowledgeGraph: context?.knowledgeGraph ?? null,
@@ -122,6 +156,7 @@ export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: { pblO
   system: string;
   user: string;
 } {
+  const constraints = deriveTeachingConstraints({ grade: input.grade, hours: input.hours });
   const stageList = input.stages
     .map((s) => `- ${s.key}（${s.label}）：${s.description}`)
     .join("\n");
@@ -132,16 +167,17 @@ export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: { pblO
 简介：${input.summary || "（无）"}
 驱动问题：${input.drivingQuestion || "（无）"}
 个人项目配置：${personalProjectConfigText(input)}
+${buildAuthoritativeCourseBasisPrompt(input)}
 已确认 PBL 大纲：${context?.pblOutline || "（尚未生成，请根据课程信息推断）"}
 
 课程阶段：
 ${stageList}
 
 要求：
-1. 输出 6-10 个知识点，粒度要具体到概念、方法、模型、工具或判断标准。
+1. 输出 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个知识点，粒度要具体到概念、方法、模型、工具或判断标准；短课时优先保留直接服务课程目标的 foundation/core，长课时才扩展 application/extension。
 2. 每个知识点包含 id、name、description、keyInfo、level、relatedIds；level 必须为 foundation、core、application 或 extension。
 3. knowledgeGraph.nodes 与 knowledgePoints 一一对应，节点 level 只能为 foundation/core/application/extension。
-4. knowledgeGraph.edges 至少 ${Math.max(5, input.hours * 2)} 条，source/target 必须引用节点 id，label 用短语说明关系。
+4. knowledgeGraph.edges 至少 ${Math.max(1, constraints.recommendedKnowledgePointRange.min - 1)} 条，source/target 必须引用节点 id，label 用短语说明关系。
 5. 必须清晰体现先修关系、概念支撑关系和在 PBL 项目中的应用关系。
 
 仅返回 JSON：{
@@ -180,6 +216,7 @@ export function buildTeachingOutlinePrompt(
 简介：${input.summary || "（无）"}
 驱动问题：${input.drivingQuestion || "（无）"}
 个人项目配置：${personalProjectConfigText(input)}
+${buildAuthoritativeCourseBasisPrompt(input)}
 已确认 PBL 项目说明：${context?.pblOutline || "（尚未生成，可根据课程信息推断）"}
 已确认项目主线：${JSON.stringify(context?.projectMainline ?? null)}
 教师最终确认的时间安排（最高优先级）：${JSON.stringify(context?.moduleTimingPlan ?? null)}
@@ -256,6 +293,7 @@ export function buildLessonOutlinePrompt(
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
 驱动问题：${input.drivingQuestion || "（无）"}
 个人项目配置：${personalProjectConfigText(input)}
+${buildAuthoritativeCourseBasisPrompt(input)}
 已确认知识点与图谱：${JSON.stringify({
     knowledgePoints: context?.knowledgePoints ?? [],
     knowledgeGraph: context?.knowledgeGraph ?? null,
@@ -299,6 +337,7 @@ export function buildEvaluationPlanPrompt(
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
 驱动问题：${input.drivingQuestion || "（无）"}
 个人项目配置：${personalProjectConfigText(input)}
+${buildAuthoritativeCourseBasisPrompt(input)}
 已确认知识点与图谱：${JSON.stringify({
     knowledgePoints: context?.knowledgePoints ?? [],
     knowledgeGraph: context?.knowledgeGraph ?? null,
@@ -317,7 +356,30 @@ export function buildEvaluationPlanPrompt(
 6. overallRubric 明确两部分独立评分、缺一时最终分待完成。
 7. 评价证据必须优先引用个人项目配置中的 evidenceRequirements；AI 过程评价关注方案选择、修订、测试和 AI 建议采纳/拒绝证据，教师评价关注 artifact 与 presentation，学生 reflection 只评价成长与迁移，不计入计分权重。
 8. 评价维度必须覆盖 foundation/core 理解、application/extension 迁移、项目实践证据、成果表达与反思成长，并标明评价发生在哪个课程模块。
+9. 权重规则：AI 负责的维度权重合计必须为 100，教师负责的维度权重合计也必须为 100。weight 为纯数字（如 20，不要写 "20%"）。
 
-仅返回 JSON：{ "evaluationPlan": { "dimensions": [...], "overallRubric": "string" } }`;
+仅返回 JSON，结构如下（字段名必须完全一致）：
+{
+  "evaluationPlan": {
+    "dimensions": [
+      {
+        "id": "ev-1",
+        "name": "维度名称（必填，字符串）",
+        "weight": 20,
+        "description": "该维度的评价标准说明（字符串）",
+        "responsibleRole": "ai"
+      },
+      {
+        "id": "ev-2",
+        "name": "维度名称（必填，字符串）",
+        "weight": 30,
+        "description": "该维度的评价标准说明（字符串）",
+        "responsibleRole": "teacher"
+      }
+    ],
+    "overallRubric": "整体评价说明字符串"
+  }
+}
+注意：dimensions 数组必须包含 4-6 个对象；每个对象必须包含 name（字符串）、weight（数字）、responsibleRole（"ai" 或 "teacher"）；responsibleRole 为 "ai" 的维度 weight 合计 = 100，responsibleRole 为 "teacher" 的维度 weight 合计 = 100。`;
   return { system: SYSTEM_PREAMBLE, user };
 }

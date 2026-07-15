@@ -92,7 +92,7 @@ export function GeneralSettings() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">{t('settings.clearCache')}</p>
-              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              <p className="text-xs text-stone-500 mt-0.5 leading-relaxed">
                 {t('settings.clearCacheDescription')}
               </p>
             </div>

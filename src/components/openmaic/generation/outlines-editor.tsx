@@ -69,28 +69,28 @@ const TYPE_THEME: Record<
   }
 > = {
   slide: {
-    chip: 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
-    chipHover: 'hover:bg-blue-100/80 dark:hover:bg-blue-500/15',
-    accent: 'bg-blue-500',
-    dot: 'bg-blue-400',
+    chip: 'bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]',
+    chipHover: 'hover:bg-[var(--pbl-teacher-border)]/40',
+    accent: 'bg-[var(--pbl-teacher)]',
+    dot: 'bg-[var(--pbl-teacher)]',
   },
   quiz: {
-    chip: 'bg-purple-50 text-purple-600 dark:bg-purple-500/10 dark:text-purple-300',
-    chipHover: 'hover:bg-purple-100/80 dark:hover:bg-purple-500/15',
-    accent: 'bg-purple-500',
-    dot: 'bg-purple-400',
+    chip: 'bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]',
+    chipHover: 'hover:bg-[var(--pbl-ai-border)]/40',
+    accent: 'bg-[var(--pbl-ai)]',
+    dot: 'bg-[var(--pbl-ai)]',
   },
   interactive: {
-    chip: 'bg-emerald-50 text-emerald-600 dark:bg-[var(--pbl-success)]/10 dark:text-emerald-300',
-    chipHover: 'hover:bg-emerald-100/80 dark:hover:bg-[var(--pbl-success)]/15',
+    chip: 'bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]',
+    chipHover: 'hover:bg-[var(--pbl-success-border)]/40',
     accent: 'bg-[var(--pbl-success)]',
-    dot: 'bg-emerald-400',
+    dot: 'bg-[var(--pbl-success)]',
   },
   pbl: {
-    chip: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
-    chipHover: 'hover:bg-amber-100/80 dark:hover:bg-amber-500/15',
-    accent: 'bg-amber-500',
-    dot: 'bg-amber-400',
+    chip: 'bg-[var(--pbl-accent-soft)] text-[var(--pbl-accent)]',
+    chipHover: 'hover:bg-[var(--pbl-accent-border)]/40',
+    accent: 'bg-[var(--pbl-accent)]',
+    dot: 'bg-[var(--pbl-accent)]',
   },
 };
 
@@ -253,36 +253,34 @@ export function OutlinesEditor({
         bare
           ? 'relative overflow-hidden'
           : cn(
-              'relative overflow-hidden rounded-3xl border border-border/40',
-              'bg-white/85 shadow-[0_30px_80px_-30px_rgba(15,23,42,0.25)] backdrop-blur-xl',
-              'dark:border-white/5 dark:bg-stone-900/70 dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]',
+              'relative overflow-hidden rounded-[var(--radius-sm)] border border-stone-200',
+              'bg-white shadow-[var(--shadow-soft)]',
             ),
       )}
     >
       {/* Soft gradient wash — only in non-bare mode */}
       {!bare && (
         <>
-          <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
-          <div className="pointer-events-none absolute -top-32 left-1/2 h-64 w-[80%] -translate-x-1/2 rounded-full bg-blue-500/[0.04] blur-3xl dark:bg-blue-400/[0.08]" />
+          <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-[var(--pbl-teacher)]/40 to-transparent" />
         </>
       )}
 
       {/* Header */}
       {!hideHeader && (
-      <div className="relative flex items-start gap-3 px-6 pt-6 pb-4 md:px-10 md:pt-8 md:pb-6">
+      <div className="relative flex items-start gap-3 px-5 pt-5 pb-3 md:px-6 md:pt-6 md:pb-4">
         <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground/70">
-            <Sparkles className="size-3 text-blue-500" />
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-stone-500">
+            <Sparkles className="size-3 text-[var(--pbl-teacher)]" />
             {t('generation.outlineEditorEyebrow')}
           </div>
-          <h2 className="text-2xl font-semibold tracking-tight md:text-[28px]">
+          <h2 className="text-xl font-semibold tracking-tight md:text-2xl text-stone-800">
             {t('generation.outlineEditorTitle')}
           </h2>
-          <p className="flex min-h-[1.5rem] items-center gap-2 text-sm text-muted-foreground">
+          <p className="flex min-h-[1.5rem] items-center gap-2 text-sm text-stone-500">
             {isStreaming && (
               <motion.span
                 aria-hidden
-                className="inline-flex size-1.5 rounded-full bg-blue-500"
+                className="inline-flex size-1.5 rounded-full bg-[var(--pbl-teacher)]"
                 animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
                 transition={{ duration: 1.2, repeat: Infinity }}
               />
@@ -297,9 +295,9 @@ export function OutlinesEditor({
             disabled={isLoading}
             aria-label={t('generation.collapseEditor')}
             className={cn(
-              'mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium',
-              'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30',
+              'mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-stone-200 px-3 py-1.5 text-xs font-medium',
+              'text-stone-500 transition-colors hover:bg-stone-50 hover:text-stone-800',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pbl-teacher)]/30',
               'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >
@@ -382,10 +380,10 @@ export function OutlinesEditor({
 
       {/* Footer */}
       {!hideFooter && (
-      <div className="relative flex flex-col gap-3 border-t border-border/40 bg-gradient-to-t from-background/95 to-transparent px-6 py-4 md:flex-row md:items-center md:justify-between md:px-10 md:py-5">
+      <div className="relative flex flex-col gap-3 border-t border-stone-200 bg-stone-50/50 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6 md:py-4">
         <label
           className={cn(
-            'flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground',
+            'flex cursor-pointer items-center gap-2.5 text-sm text-stone-500 transition-colors hover:text-stone-800',
             isLoading && 'cursor-not-allowed opacity-60',
           )}
         >
@@ -404,7 +402,7 @@ export function OutlinesEditor({
             variant="ghost"
             onClick={onBack}
             disabled={isLoading}
-            className="rounded-full px-4 text-muted-foreground hover:text-foreground"
+            className="rounded-[var(--radius-sm)] px-4 text-stone-500 hover:text-stone-800"
           >
             {t('generation.backToRequirements')}
           </Button>
@@ -413,11 +411,11 @@ export function OutlinesEditor({
               type="button"
               onClick={scrollToFirstBlocking}
               title={t('generation.jumpToBlankTitle')}
-              className="inline-flex items-center gap-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex items-center gap-2.5 text-xs text-stone-500 transition-colors hover:text-stone-800"
             >
-              <span className="block h-1 w-[84px] overflow-hidden rounded-full bg-muted">
+              <span className="block h-1 w-[84px] overflow-hidden rounded-full bg-stone-200">
                 <span
-                  className="block h-full rounded-full bg-muted-foreground/45 transition-[width]"
+                  className="block h-full rounded-full bg-[var(--pbl-teacher)]/45 transition-[width]"
                   style={{ width: `${totalCount > 0 ? (readyCount / totalCount) * 100 : 0}%` }}
                 />
               </span>
@@ -427,7 +425,7 @@ export function OutlinesEditor({
           <Button
             onClick={onConfirm}
             disabled={isLoading || isStreaming || outlines.length === 0 || blockingCount > 0}
-            className="rounded-full px-6 shadow-lg shadow-blue-500/20"
+            className="rounded-[var(--radius-sm)] bg-[var(--pbl-teacher)] px-6 text-white hover:bg-[var(--pbl-teacher-hover)]"
           >
             {isLoading ? (
               <>
@@ -561,11 +559,11 @@ function SceneRow({
         if (sourceId) onDrop(sourceId);
       }}
       className={cn(
-        'group/scene relative rounded-2xl px-3 py-3.5 transition-colors md:px-4',
-        'hover:bg-stone-50/60 dark:hover:bg-stone-800/30',
-        'focus-within:bg-stone-50/80 dark:focus-within:bg-stone-800/40',
+        'group/scene relative rounded-[var(--radius-sm)] px-3 py-3 transition-colors md:px-4',
+        'hover:bg-stone-50/80',
+        'focus-within:bg-stone-50',
         isDragging && 'opacity-40',
-        isDragTarget && 'bg-blue-500/[0.04] ring-1 ring-blue-400/40',
+        isDragTarget && 'bg-[var(--pbl-teacher-soft)] ring-1 ring-[var(--pbl-teacher-border)]',
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -599,12 +597,12 @@ function SceneRow({
             }}
             disabled={disabled}
             className={cn(
-              'flex size-7 shrink-0 cursor-grab items-center justify-center rounded-md',
-              'text-muted-foreground/45 transition-all',
-              'hover:bg-muted hover:text-foreground/80',
-              'group-hover/scene:text-muted-foreground/70',
+              'flex size-7 shrink-0 cursor-grab items-center justify-center rounded-[var(--radius-xs)]',
+              'text-stone-400 transition-all',
+              'hover:bg-stone-100 hover:text-stone-700',
+              'group-hover/scene:text-stone-500',
               'active:cursor-grabbing',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pbl-teacher)]/30',
               disabled && 'pointer-events-none opacity-30',
             )}
           >
@@ -613,8 +611,8 @@ function SceneRow({
           <span
             className={cn(
               'relative flex size-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums transition-colors',
-              'bg-muted/60 text-muted-foreground',
-              'group-hover/scene:bg-muted',
+              'bg-stone-100 text-stone-500',
+              'group-hover/scene:bg-stone-200',
             )}
           >
             {index + 1}
@@ -636,7 +634,7 @@ function SceneRow({
             {!disabled && !outline.title.trim() && (
               // Incomplete marker — a soft amber dot before a blank title. A
               // blank title blocks generation; the gate below counts how many.
-              <span aria-hidden className="mt-[11px] h-2 w-2 shrink-0 rounded-full bg-amber-400" />
+              <span aria-hidden className="mt-[11px] h-2 w-2 shrink-0 rounded-full bg-[var(--pbl-warning)]" />
             )}
             <textarea
               ref={titleRef}
@@ -647,15 +645,15 @@ function SceneRow({
               rows={1}
               spellCheck={false}
               className={cn(
-                'flex-1 resize-none border-none bg-transparent p-0 text-base font-semibold leading-7 tracking-tight',
-                'placeholder:font-normal placeholder:text-muted-foreground/40',
+                'flex-1 resize-none border-none bg-transparent p-0 text-base font-semibold leading-7 tracking-tight text-stone-800',
+                'placeholder:font-normal placeholder:text-stone-400',
                 'focus:outline-none focus:ring-0 md:text-lg',
                 disabled && 'cursor-default',
               )}
             />
             <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
               {outline.segmentCount && outline.segmentCount > 1 && (
-                <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium tabular-nums text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                <span className="rounded-full bg-[var(--pbl-teacher-soft)] px-2 py-1 text-[11px] font-medium tabular-nums text-[var(--pbl-teacher)]">
                   第 {outline.segmentIndex ?? 1}/{outline.segmentCount} 页 · 约 {pageTargetSec} 秒
                 </span>
               )}
@@ -696,16 +694,16 @@ function SceneRow({
             disabled={disabled}
             rows={1}
             className={cn(
-              'block w-full resize-none border-none bg-transparent p-0 text-sm leading-relaxed text-muted-foreground',
-              'placeholder:text-muted-foreground/40',
-              'focus:outline-none focus:ring-0 focus:text-foreground/90',
+              'block w-full resize-none border-none bg-transparent p-0 text-sm leading-relaxed text-stone-500',
+              'placeholder:text-stone-400',
+              'focus:outline-none focus:ring-0 focus:text-stone-700',
               disabled && 'cursor-default',
             )}
           />
 
           {parentActivities && parentActivities.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-              <label className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <label className="inline-flex items-center gap-1.5 text-stone-500">
                 <span>父级活动</span>
                 <select
                   value={outline.parentActivityId ?? ''}
@@ -718,7 +716,7 @@ function SceneRow({
                     })
                   }
                   disabled={disabled}
-                  className="max-w-[15rem] rounded-md border border-border/50 bg-background px-2 py-1 text-xs text-foreground"
+                  className="max-w-[15rem] rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700"
                 >
                   <option value="">请选择一级活动</option>
                   {parentActivities.map((activity) => (
@@ -728,7 +726,7 @@ function SceneRow({
                   ))}
                 </select>
               </label>
-              <label className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <label className="inline-flex items-center gap-1.5 text-stone-500">
                 <span>目标时长</span>
                 <input
                   type="number"
@@ -739,7 +737,7 @@ function SceneRow({
                     onUpdate({ targetDurationSec: minutes * 60, estimatedDuration: minutes * 60 });
                   }}
                   disabled={disabled}
-                  className="w-16 rounded-md border border-border/50 bg-background px-2 py-1 text-right tabular-nums text-foreground"
+                  className="w-16 rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1 text-right tabular-nums text-stone-700"
                 />
                 <span>分钟</span>
               </label>
@@ -748,33 +746,70 @@ function SceneRow({
 
           {knowledgePoints && knowledgePoints.length > 0 && outline.stageKey === 'ai-learning' && (
             <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
-              <span className="text-muted-foreground">知识点</span>
-              {knowledgePoints.map((point) => {
-                const selected = (outline.knowledgePointIds ?? []).includes(point.id);
-                return (
+              <span className="text-stone-500">知识点</span>
+              {knowledgePoints
+                .filter((point) => (outline.knowledgePointIds ?? []).includes(point.id))
+                .map((point) => (
                   <button
                     key={point.id}
                     type="button"
                     disabled={disabled}
-                    aria-pressed={selected}
                     onClick={() =>
                       onUpdate({
-                        knowledgePointIds: selected
-                          ? (outline.knowledgePointIds ?? []).filter((id) => id !== point.id)
-                          : [...(outline.knowledgePointIds ?? []), point.id],
+                        knowledgePointIds: (outline.knowledgePointIds ?? []).filter(
+                          (id) => id !== point.id,
+                        ),
                       })
                     }
-                    className={cn(
-                      'rounded-full border px-2 py-1 transition-colors',
-                      selected
-                        ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200'
-                        : 'border-border/50 text-muted-foreground hover:bg-muted',
-                    )}
+                    className="rounded-full border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-2 py-1 text-[var(--pbl-teacher)] transition-colors hover:bg-[var(--pbl-teacher-border)]/30"
                   >
                     {point.name}
                   </button>
-                );
-              })}
+                ))}
+              {!disabled &&
+                knowledgePoints.some(
+                  (point) => !(outline.knowledgePointIds ?? []).includes(point.id),
+                ) && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="添加知识点"
+                        className="inline-flex size-5 items-center justify-center rounded-full border border-dashed border-stone-300 text-stone-400 transition-colors hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)] hover:text-[var(--pbl-teacher)]"
+                      >
+                        <Plus className="size-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" sideOffset={4} className="w-56 p-2">
+                      <div className="space-y-1">
+                        <p className="px-1 text-xs font-medium text-stone-500">添加知识点</p>
+                        <div className="max-h-48 overflow-y-auto">
+                          {knowledgePoints
+                            .filter(
+                              (point) => !(outline.knowledgePointIds ?? []).includes(point.id),
+                            )
+                            .map((point) => (
+                              <button
+                                key={point.id}
+                                type="button"
+                                onClick={() =>
+                                  onUpdate({
+                                    knowledgePointIds: [
+                                      ...(outline.knowledgePointIds ?? []),
+                                      point.id,
+                                    ],
+                                  })
+                                }
+                                className="flex w-full items-center rounded-[var(--radius-xs)] px-2 py-1.5 text-xs text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-800"
+                              >
+                                {point.name}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
             </div>
           )}
 
@@ -791,7 +826,7 @@ function SceneRow({
                   transition={{ duration: 0.15 }}
                   className={cn(
                     'group/chip inline-flex max-w-[18rem] items-center gap-1 rounded-full px-2.5 py-1 text-xs',
-                    'bg-muted/70 text-foreground/80',
+                    'bg-stone-100 text-stone-700',
                   )}
                 >
                   <span className="whitespace-normal break-words" title={point}>
@@ -802,7 +837,7 @@ function SceneRow({
                       type="button"
                       onClick={() => removeKeyPoint(idx)}
                       aria-label={t('generation.removeKeyPoint')}
-                      className="ml-0.5 inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/0 transition-colors hover:bg-muted-foreground/20 hover:text-muted-foreground group-hover/chip:text-muted-foreground/70"
+                      className="ml-0.5 inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-300 hover:text-stone-700 group-hover/chip:text-stone-500"
                     >
                       <X className="size-2.5" />
                     </button>
@@ -846,11 +881,11 @@ function EmptyState({
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-          className="text-blue-500/70"
+          className="text-[var(--pbl-teacher)]"
         >
           <Loader2 className="size-6" />
         </motion.div>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-stone-500">
           {t('generation.outlineEditorStreamingWaiting')}
         </p>
       </div>
@@ -859,8 +894,8 @@ function EmptyState({
 
   return (
     <div className="flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
-      <p className="text-sm text-muted-foreground">{t('generation.noOutlines')}</p>
-      <Button variant="outline" onClick={onAdd} disabled={disabled} className="rounded-full">
+      <p className="text-sm text-stone-500">{t('generation.noOutlines')}</p>
+      <Button variant="outline" onClick={onAdd} disabled={disabled} className="rounded-[var(--radius-sm)] border-stone-200 text-stone-600 hover:bg-stone-50">
         <Plus className="size-4" />
         {t('generation.addFirstScene')}
       </Button>
@@ -915,7 +950,7 @@ function TypePill({
                 <span className={cn('size-2 rounded-full', optionTheme.accent)} />
                 {t(`generation.sceneType${capitalize(option)}`)}
               </span>
-              {option === type && <Check className="size-3.5 text-muted-foreground" />}
+              {option === type && <Check className="size-3.5 text-stone-400" />}
             </DropdownMenuItem>
           );
         })}
@@ -935,10 +970,10 @@ function DeleteSceneButton({ onConfirm }: { onConfirm: () => void }) {
           type="button"
           aria-label={t('generation.deleteScene')}
           className={cn(
-            'inline-flex size-7 items-center justify-center rounded-full text-muted-foreground/40 transition-all',
-            'hover:bg-destructive/10 hover:text-destructive',
+            'inline-flex size-7 items-center justify-center rounded-full text-stone-400 transition-all',
+            'hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]',
             'opacity-0 group-hover/scene:opacity-100',
-            'data-[state=open]:opacity-100 data-[state=open]:bg-destructive/10 data-[state=open]:text-destructive',
+            'data-[state=open]:opacity-100 data-[state=open]:bg-[var(--pbl-danger-soft)] data-[state=open]:text-[var(--pbl-danger)]',
             'focus-visible:opacity-100 focus-visible:outline-none',
           )}
         >
@@ -946,8 +981,8 @@ function DeleteSceneButton({ onConfirm }: { onConfirm: () => void }) {
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={4} className="w-56 p-3">
-        <p className="text-sm font-medium">{t('generation.deleteSceneConfirm')}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="text-sm font-medium text-stone-800">{t('generation.deleteSceneConfirm')}</p>
+        <p className="mt-1 text-xs text-stone-500">
           {t('generation.deleteSceneConfirmDesc')}
         </p>
         <div className="mt-3 flex justify-end gap-2">
@@ -994,7 +1029,7 @@ function StreamingPlaceholder({ nextIndex }: { nextIndex: number }) {
       {/* Left rail: spacer for grip column + spinner where the number badge would be */}
       <div className="flex shrink-0 items-center gap-0.5 pt-1">
         <span className="size-7" aria-hidden />
-        <span className="flex size-7 items-center justify-center rounded-full bg-blue-500/10 text-blue-500">
+        <span className="flex size-7 items-center justify-center rounded-full bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
           <Loader2 className="size-3.5 animate-spin" />
         </span>
       </div>
@@ -1005,13 +1040,13 @@ function StreamingPlaceholder({ nextIndex }: { nextIndex: number }) {
           aria-hidden
           animate={{ opacity: [0.35, 0.7, 0.35] }}
           transition={{ duration: 1.4, repeat: Infinity }}
-          className="h-4 w-3/5 rounded-md bg-muted/50"
+          className="h-4 w-3/5 rounded-[var(--radius-xs)] bg-stone-200/70"
         />
         <motion.div
           aria-hidden
           animate={{ opacity: [0.35, 0.7, 0.35] }}
           transition={{ duration: 1.4, repeat: Infinity, delay: 0.2 }}
-          className="h-3 w-2/5 rounded bg-muted/40"
+          className="h-3 w-2/5 rounded-[var(--radius-xs)] bg-stone-200/50"
         />
       </div>
 
@@ -1059,19 +1094,19 @@ function InsertDivider({
           aria-hidden
           className={cn(
             'absolute top-1/2 h-px -translate-y-1/2 transition-colors',
-            // Edge: short, neutral line; between: longer, blue line
+            // Edge: short, neutral line; between: longer, teacher-colored line
             isEdge
-              ? 'inset-x-16 bg-muted-foreground/40 group-hover/insert:bg-blue-500/60'
-              : 'inset-x-8 bg-blue-400/30 group-hover/insert:bg-blue-500/60',
+              ? 'inset-x-16 bg-stone-300 group-hover/insert:bg-[var(--pbl-teacher)]/60'
+              : 'inset-x-8 bg-[var(--pbl-teacher-border)] group-hover/insert:bg-[var(--pbl-teacher)]/60',
           )}
         />
         <span
           className={cn(
             'relative flex items-center justify-center rounded-full text-white transition-all',
-            // Edge: smaller, neutral, no shadow until hover; between: full blue badge
+            // Edge: smaller, neutral, no shadow until hover; between: full teacher-colored badge
             isEdge
-              ? 'size-4 bg-muted-foreground/60 group-hover/insert:size-5 group-hover/insert:bg-blue-500 group-hover/insert:shadow-md group-hover/insert:shadow-blue-500/30'
-              : 'size-5 bg-blue-500 shadow-md shadow-blue-500/30 group-hover/insert:scale-110',
+              ? 'size-4 bg-stone-400 group-hover/insert:size-5 group-hover/insert:bg-[var(--pbl-teacher)] group-hover/insert:shadow-md group-hover/insert:shadow-[var(--pbl-teacher)]/30'
+              : 'size-5 bg-[var(--pbl-teacher)] shadow-md shadow-[var(--pbl-teacher)]/30 group-hover/insert:scale-110',
           )}
         >
           <Plus className={cn('transition-all', isEdge ? 'size-2.5' : 'size-3')} />
@@ -1110,9 +1145,9 @@ function KeyPointInput({
         style={{ width }}
         className={cn(
           'inline-block rounded-full bg-transparent px-2.5 py-1 text-xs',
-          'text-foreground placeholder:text-muted-foreground/50',
+          'text-stone-700 placeholder:text-stone-400',
           'border border-dashed border-transparent transition-colors',
-          'hover:border-muted-foreground/20 focus:border-blue-400/50 focus:bg-blue-500/[0.03]',
+          'hover:border-stone-300 focus:border-[var(--pbl-teacher-border)] focus:bg-[var(--pbl-teacher-soft)]',
           'focus:outline-none focus:ring-0',
         )}
       />
@@ -1170,7 +1205,7 @@ function QuizConfigDisclosure({
       <PopoverContent align="start" sideOffset={6} className="w-64 space-y-2.5 p-3">
         {/* Count: label left, stepper right */}
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.quizQuestionCount')}
           </span>
           <Stepper
@@ -1182,7 +1217,7 @@ function QuizConfigDisclosure({
         </div>
         {/* Difficulty: label left, segmented right */}
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.quizDifficulty')}
           </span>
           <SegmentedControl
@@ -1197,7 +1232,7 @@ function QuizConfigDisclosure({
         </div>
         {/* Type: label above, multi-select pills below */}
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.quizType')}
           </span>
           <div className="flex gap-1">
@@ -1205,7 +1240,7 @@ function QuizConfigDisclosure({
               [
                 ['single', 'generation.quizTypeSingle'],
                 ['multiple', 'generation.quizTypeMultiple'],
-                ['text', 'generation.quizTypeText'],
+                ['short_answer', 'generation.quizTypeText'],
               ] as const
             ).map(([type, labelKey]) => {
               const current = config.questionTypes ?? ['single'];
@@ -1225,11 +1260,11 @@ function QuizConfigDisclosure({
                     updateConfig({ questionTypes: next });
                   }}
                   className={cn(
-                    'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all',
+                    'flex-1 rounded-[var(--radius-xs)] px-2 py-1.5 text-xs font-medium transition-all',
                     'border',
                     selected
-                      ? 'border-purple-500/40 bg-purple-500/10 text-purple-700 dark:text-purple-200'
-                      : 'border-border/40 bg-transparent text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground',
+                      ? 'border-[var(--pbl-ai-border)] bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]'
+                      : 'border-stone-200 bg-transparent text-stone-500 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700',
                     isOnlySelected && 'cursor-not-allowed opacity-90',
                   )}
                 >
@@ -1296,7 +1331,7 @@ function InteractiveConfigDisclosure({
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={6} className="w-64 space-y-2.5 p-3">
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.interactiveWidgetKind')}
           </span>
           <div className="flex flex-wrap gap-1">
@@ -1309,10 +1344,10 @@ function InteractiveConfigDisclosure({
                   aria-pressed={selected}
                   onClick={() => setWidgetType(value)}
                   className={cn(
-                    'rounded-md border px-2 py-1.5 text-xs font-medium transition-all',
+                    'rounded-[var(--radius-xs)] border px-2 py-1.5 text-xs font-medium transition-all',
                     selected
-                      ? 'border-emerald-500/40 bg-[var(--pbl-success)]/10 text-emerald-700 dark:text-emerald-200'
-                      : 'border-border/40 bg-transparent text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground',
+                      ? 'border-[var(--pbl-success-border)] bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]'
+                      : 'border-stone-200 bg-transparent text-stone-500 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700',
                   )}
                 >
                   {t(labelKey)}
@@ -1322,7 +1357,7 @@ function InteractiveConfigDisclosure({
           </div>
         </div>
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.interactiveConcept')}
           </span>
           <input
@@ -1331,8 +1366,8 @@ function InteractiveConfigDisclosure({
             onChange={(event) => setConcept(event.target.value)}
             placeholder={t('generation.interactiveConceptPlaceholder')}
             className={cn(
-              'w-full rounded-md border border-border/50 bg-background px-2 py-1.5 text-xs',
-              'focus:border-emerald-400/50 focus:outline-none focus:ring-0',
+              'w-full rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'focus:border-[var(--pbl-success-border)] focus:outline-none focus:ring-0',
             )}
           />
         </div>
@@ -1416,10 +1451,10 @@ function PblConfigDisclosure({
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={6} className="w-72 space-y-2.5 p-3">
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.pblSubtype')}
           </span>
-          <div className="grid grid-cols-2 overflow-hidden rounded-md border border-border/50 bg-muted/30 p-0.5">
+          <div className="grid grid-cols-2 overflow-hidden rounded-[var(--radius-xs)] border border-stone-200 bg-stone-50 p-0.5">
             {[
               { value: false, label: t('generation.pblSubtypeProject') },
               { value: true, label: t('generation.pblSubtypeScenario') },
@@ -1432,10 +1467,10 @@ function PblConfigDisclosure({
                   aria-pressed={active}
                   onClick={() => updateSubtype(option.value)}
                   className={cn(
-                    'rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'rounded-[var(--radius-xs)] px-2 py-1 text-xs font-medium transition-colors',
                     active
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? 'bg-white text-stone-800 shadow-sm'
+                      : 'text-stone-500 hover:text-stone-700',
                   )}
                 >
                   {option.label}
@@ -1445,7 +1480,7 @@ function PblConfigDisclosure({
           </div>
         </div>
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.pblProjectTopic')}
           </span>
           <input
@@ -1454,13 +1489,13 @@ function PblConfigDisclosure({
             onChange={(event) => updateConfig({ projectTopic: event.target.value })}
             placeholder={t('generation.pblProjectTopicPlaceholder')}
             className={cn(
-              'w-full rounded-md border border-border/50 bg-background px-2 py-1.5 text-xs',
-              'focus:border-amber-400/50 focus:outline-none focus:ring-0',
+              'w-full rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
             )}
           />
         </div>
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.pblProjectDescription')}
           </span>
           <textarea
@@ -1469,14 +1504,14 @@ function PblConfigDisclosure({
             placeholder={t('generation.pblProjectDescriptionPlaceholder')}
             rows={2}
             className={cn(
-              'w-full resize-none rounded-md border border-border/50 bg-background px-2 py-1.5 text-xs',
-              'focus:border-amber-400/50 focus:outline-none focus:ring-0',
+              'w-full resize-none rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
             )}
           />
         </div>
         {scenarioRoleplay && (
           <div className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">
+            <span className="text-xs font-medium text-stone-500">
               {t('generation.pblScenarioBrief')}
             </span>
             <textarea
@@ -1485,14 +1520,14 @@ function PblConfigDisclosure({
               placeholder={t('generation.pblScenarioBriefPlaceholder')}
               rows={2}
               className={cn(
-                'w-full resize-none rounded-md border border-border/50 bg-background px-2 py-1.5 text-xs',
-                'focus:border-amber-400/50 focus:outline-none focus:ring-0',
+                'w-full resize-none rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+                'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
               )}
             />
           </div>
         )}
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-xs font-medium text-stone-500">
             {t('generation.pblTargetSkills')}
           </span>
           {skills.length > 0 && (
@@ -1500,14 +1535,14 @@ function PblConfigDisclosure({
               {skills.map((skill) => (
                 <span
                   key={skill}
-                  className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-200"
+                  className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-accent-soft)] px-2 py-0.5 text-xs text-[var(--pbl-accent)]"
                 >
                   {skill}
                   <button
                     type="button"
                     onClick={() => removeSkill(skill)}
                     aria-label={t('generation.removeSkill')}
-                    className="inline-flex size-3 items-center justify-center rounded-full hover:bg-amber-500/20"
+                    className="inline-flex size-3 items-center justify-center rounded-full hover:bg-[var(--pbl-accent-border)]/40"
                   >
                     <X className="size-2.5" />
                   </button>
@@ -1528,8 +1563,8 @@ function PblConfigDisclosure({
             onBlur={addSkill}
             placeholder={t('generation.pblAddSkill')}
             className={cn(
-              'w-full rounded-md border border-dashed border-border/50 bg-background px-2 py-1.5 text-xs',
-              'focus:border-amber-400/50 focus:outline-none focus:ring-0',
+              'w-full rounded-[var(--radius-xs)] border border-dashed border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
             )}
           />
         </div>
@@ -1552,23 +1587,23 @@ function Stepper({
   const dec = () => onChange(Math.max(min, value - 1));
   const inc = () => onChange(Math.min(max, value + 1));
   return (
-    <div className="inline-flex items-center overflow-hidden rounded-md border border-border/50 bg-background">
+    <div className="inline-flex items-center overflow-hidden rounded-[var(--radius-xs)] border border-stone-200 bg-white">
       <button
         type="button"
         onClick={dec}
         disabled={value <= min}
         aria-label="Decrease"
-        className="flex size-7 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex size-7 items-center justify-center text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Minus className="size-3.5" />
       </button>
-      <span className="w-8 text-center text-sm font-semibold tabular-nums">{value}</span>
+      <span className="w-8 text-center text-sm font-semibold tabular-nums text-stone-800">{value}</span>
       <button
         type="button"
         onClick={inc}
         disabled={value >= max}
         aria-label="Increase"
-        className="flex size-7 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex size-7 items-center justify-center text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Plus className="size-3.5" />
       </button>
@@ -1586,7 +1621,7 @@ function SegmentedControl({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-border/50 bg-background p-0.5">
+    <div className="inline-flex rounded-[var(--radius-xs)] border border-stone-200 bg-white p-0.5">
       {options.map((opt) => {
         const selected = opt.value === value;
         return (
@@ -1596,10 +1631,10 @@ function SegmentedControl({
             onClick={() => onChange(opt.value)}
             aria-pressed={selected}
             className={cn(
-              'rounded px-2 py-0.5 text-xs font-medium transition-colors',
+              'rounded-[var(--radius-xs)] px-2 py-0.5 text-xs font-medium transition-colors',
               selected
-                ? 'bg-foreground text-background'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'bg-stone-800 text-white'
+                : 'text-stone-500 hover:text-stone-800',
             )}
           >
             {opt.label}

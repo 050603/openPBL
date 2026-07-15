@@ -26,6 +26,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Clock3,
   Flag,
   FoldVertical,
   GripVertical,
@@ -51,6 +52,10 @@ import {
   SelectValue,
 } from '@openmaic/components/ui/select';
 import type { Action, DiscussionAction } from '@openmaic/lib/types/action';
+import {
+  getActionTriggerDiagnostic,
+  isActivityPauseAction,
+} from './action-trigger-description';
 import { ELEMENT_BOUND, cueLabel, cueMeta } from './cue-meta';
 import { applyCuePreview, clearCuePreview, cuePreviewFor } from './cue-preview';
 import {
@@ -120,15 +125,43 @@ type DragPayload = { kind: 'new'; type: AddableType } | { kind: 'move'; id: stri
 
 interface TooltipState {
   action: Action;
+  actionIndex: number;
   anchor: DOMRect;
+  pinned?: boolean;
 }
 
 type TFn = (key: string, options?: Record<string, unknown>) => string;
 
-function propsOf(a: Action, t: TFn): Array<[string, string]> {
-  const rows: Array<[string, string]> = [[t('edit.timeline.fieldAction'), cueLabel(a.type, t)]];
+function propsOf(a: Action, actionIndex: number, t: TFn): Array<[string, string]> {
+  const diagnostic = getActionTriggerDiagnostic(a, actionIndex);
+  const actionLabel = isActivityPauseAction(a)
+    ? t('edit.timeline.activityGateTitle')
+    : cueLabel(a.type, t);
+  const rows: Array<[string, string]> = [[t('edit.timeline.fieldAction'), actionLabel]];
+  rows.push([
+    t('edit.timeline.fieldTrigger'),
+    t(`edit.timeline.trigger.${diagnostic.trigger}`),
+  ]);
+  rows.push([
+    t('edit.timeline.fieldWait'),
+    t(`edit.timeline.completion.${diagnostic.completion}`),
+  ]);
+  if (diagnostic.fallbackSec) {
+    rows.push([
+      t('edit.timeline.fieldFallback'),
+      t('edit.timeline.fallbackTimeout', { seconds: diagnostic.fallbackSec }),
+    ]);
+  }
+  if (diagnostic.purpose) {
+    rows.push([
+      t('edit.timeline.fieldPurpose'),
+      t(`edit.timeline.purpose.${diagnostic.purpose}`),
+    ]);
+  }
   const el = (a as { elementId?: string }).elementId;
   if (el) rows.push([t('edit.timeline.fieldElement'), el]);
+  const target = (a as { target?: string }).target;
+  if (target) rows.push([t('edit.timeline.fieldElement'), target]);
   const content = (a as { content?: string }).content;
   if (content)
     rows.push([
@@ -148,19 +181,79 @@ function CueTooltip({ tip }: { tip: TooltipState }) {
         left: Math.max(8, tip.anchor.left + tip.anchor.width / 2),
         top: tip.anchor.top - 8,
         transform: 'translate(-50%, -100%)',
-        maxWidth: 280,
+        maxWidth: 360,
         zIndex: 60,
       }}
       className="pointer-events-none rounded-lg border border-border/80 bg-popover px-2.5 py-1.5 text-popover-foreground shadow-lg shadow-black/5"
     >
-      {propsOf(tip.action, t).map(([k, v]) => (
-        <div key={k} className="flex gap-2 text-[11px] leading-relaxed">
+      {propsOf(tip.action, tip.actionIndex, t).map(([k, v], index) => (
+        <div key={`${k}-${index}`} className="flex gap-2 text-[11px] leading-relaxed">
           <span className="shrink-0 text-muted-foreground">{k}</span>
           <span className="font-mono [overflow-wrap:anywhere]">{v}</span>
         </div>
       ))}
     </div>,
     document.body,
+  );
+}
+
+/** Generated activity gate: wait for page mastery evidence, with timeout fallback. */
+function ActivityGateClip({
+  seconds,
+  onDelete,
+  onMoveLeft,
+  onMoveRight,
+  canMoveLeft,
+  canMoveRight,
+  onDragStart,
+  onDragEnd,
+}: {
+  seconds: number;
+  onDelete: () => void;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="relative flex h-full w-[188px] shrink-0 flex-col overflow-hidden rounded-xl border border-cyan-300/70 bg-cyan-50/70 shadow-sm dark:border-cyan-700/60 dark:bg-cyan-950/20">
+      <span className="absolute inset-x-0 top-0 h-[3px] bg-cyan-500/70" />
+      <div className="flex items-center gap-1.5 border-b border-cyan-200/70 px-2 py-1 dark:border-cyan-800/50">
+        <span
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          className="cursor-grab text-cyan-700/50 active:cursor-grabbing dark:text-cyan-300/50"
+          aria-label={t('edit.timeline.reorder')}
+        >
+          <GripVertical className="size-3.5" />
+        </span>
+        <Clock3 className="size-3.5 text-cyan-700 dark:text-cyan-300" />
+        <span className="text-[10px] font-semibold text-cyan-800 dark:text-cyan-200">
+          {t('edit.timeline.activityGateTitle')}
+        </span>
+        <span className="ml-auto flex items-center">
+          <MoveButtons
+            onLeft={onMoveLeft}
+            onRight={onMoveRight}
+            canLeft={canMoveLeft}
+            canRight={canMoveRight}
+          />
+          <DeleteButton onDelete={onDelete} />
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col justify-center gap-2 px-3 py-2">
+        <p className="text-[11px] leading-relaxed text-cyan-950/75 dark:text-cyan-100/75">
+          {t('edit.timeline.activityGateSummary')}
+        </p>
+        <span className="w-fit rounded-full bg-cyan-500/10 px-2 py-0.5 font-mono text-[10px] text-cyan-700 dark:text-cyan-300">
+          {t('edit.timeline.activityGateMax', { seconds })}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -427,7 +520,6 @@ function SpeechClip({
 
   useEffect(() => {
     if (document.activeElement !== ref.current || !dirtyRef.current) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync external text in only when not mid-edit
       setVal(text);
       dirtyRef.current = false;
     }
@@ -544,11 +636,9 @@ function DiscussionClip({
   const topicDirty = useRef(false);
   const promptDirty = useRef(false);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- adopt external topic only when not mid-edit
     if (!topicDirty.current) setTopicVal(topic);
   }, [topic]);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- adopt external prompt only when not mid-edit
     if (!promptDirty.current) setPromptVal(prompt);
   }, [prompt]);
 
@@ -655,6 +745,7 @@ function DiscussionClip({
  */
 function CueMarker({
   action,
+  actionIndex,
   onTip,
   onDelete,
   onPick,
@@ -666,7 +757,8 @@ function CueMarker({
   onDragEnd,
 }: {
   action: Action;
-  onTip: (t: TooltipState | null) => void;
+  actionIndex: number;
+  onTip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
   onDelete: () => void;
   onPick: () => void;
   onMoveLeft: () => void;
@@ -691,11 +783,12 @@ function CueMarker({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onMouseEnter={(e) => {
-        onTip({ action, anchor: e.currentTarget.getBoundingClientRect() });
+        const anchor = e.currentTarget.getBoundingClientRect();
+        onTip((current) => (current?.pinned ? current : { action, actionIndex, anchor }));
         applyCuePreview(cuePreviewFor(action));
       }}
       onMouseLeave={() => {
-        onTip(null);
+        onTip((current) => (current?.pinned ? current : null));
         clearCuePreview();
       }}
       onClick={() => {
@@ -757,6 +850,7 @@ function CueMarker({
 /** A node anchored on the axis — drag handle; for cues, hover preview + click-to-pick. */
 function NodeDot({
   action,
+  actionIndex,
   onTip,
   onPick,
   onDragStart,
@@ -764,7 +858,8 @@ function NodeDot({
   canDrag = true,
 }: {
   action: Action;
-  onTip: (t: TooltipState | null) => void;
+  actionIndex: number;
+  onTip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
   onPick: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
@@ -772,34 +867,55 @@ function NodeDot({
 }) {
   const { t } = useI18n();
   useClearCuePreviewOnUnmount();
-  const isSpeech = action.type === 'speech';
   // A discussion is the scene's terminal anchor — give its node a distinct
   // marker (square, filled yellow) so it reads as the end stop, not a regular
   // cue. Its flag glyph comes from cue-meta like every other type's.
   const isDiscussion = action.type === 'discussion';
+  const activityGate = isActivityPauseAction(action);
   const bound = ELEMENT_BOUND.has(action.type);
   const elementId = (action as { elementId?: string }).elementId ?? '';
   const needsTarget = bound && !elementId;
   const m = cueMeta(action.type);
-  const label = cueLabel(action.type, t);
-  const Icon = m.icon;
+  const label = activityGate
+    ? t('edit.timeline.activityGateTitle')
+    : cueLabel(action.type, t);
+  const Icon = activityGate ? Clock3 : m.icon;
   return (
     <span
       draggable={canDrag}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      title={isSpeech ? (action as { text?: string }).text?.slice(0, 60) : label}
       onMouseEnter={(e) => {
-        if (isSpeech) return;
-        onTip({ action, anchor: e.currentTarget.getBoundingClientRect() });
+        const anchor = e.currentTarget.getBoundingClientRect();
+        onTip((current) => (current?.pinned ? current : { action, actionIndex, anchor }));
         applyCuePreview(cuePreviewFor(action));
       }}
       onMouseLeave={() => {
-        if (isSpeech) return;
-        onTip(null);
+        onTip((current) => (current?.pinned ? current : null));
         clearCuePreview();
       }}
-      onClick={() => {
+      onFocus={(e) =>
+        onTip({ action, actionIndex, anchor: e.currentTarget.getBoundingClientRect() })
+      }
+      onBlur={() => onTip((current) => (current?.pinned ? current : null))}
+      onClick={(e) => {
+        const anchor = e.currentTarget.getBoundingClientRect();
+        onTip((current) =>
+          current?.pinned && current.action === action
+            ? null
+            : { action, actionIndex, anchor, pinned: true },
+        );
+        if (bound) onPick();
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        const anchor = e.currentTarget.getBoundingClientRect();
+        onTip((current) =>
+          current?.pinned && current.action === action
+            ? null
+            : { action, actionIndex, anchor, pinned: true },
+        );
         if (bound) onPick();
       }}
       className={cn(
@@ -809,7 +925,9 @@ function NodeDot({
           ? 'text-amber-600 bg-amber-100 ring-amber-200 animate-pulse dark:bg-amber-500/20 dark:text-amber-400'
           : isDiscussion
             ? 'bg-yellow-400 text-yellow-950 ring-yellow-200 dark:bg-yellow-500 dark:text-stone-900 dark:ring-yellow-500/30'
-            : m.glyph,
+            : activityGate
+              ? 'bg-cyan-100 text-cyan-700 ring-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300'
+              : m.glyph,
         bound
           ? 'cursor-pointer'
           : canDrag
@@ -817,6 +935,8 @@ function NodeDot({
             : 'cursor-default',
       )}
       aria-label={label}
+      role="button"
+      tabIndex={0}
     >
       <Icon className="size-3.5" />
     </span>
@@ -1026,7 +1146,9 @@ export function ActionsBar({ sceneId }: { sceneId: string }) {
     [commit],
   );
 
-  const speechCount = actions.filter((a) => a.type === 'speech').length;
+  const speechCount = actions.filter(
+    (a) => a.type === 'speech' && !isActivityPauseAction(a),
+  ).length;
   const cueCount = actions.length - speechCount;
 
   // A discussion is pinned at the end (at most one), so ordinary actions can move
@@ -1040,9 +1162,10 @@ export function ActionsBar({ sceneId }: { sceneId: string }) {
     commit((cur) => appendDiscussion(cur, id));
   }, [commit]);
 
-  let speechIndex = 0;
   const items = actions.map((action, index) => {
-    if (action.type === 'speech') speechIndex += 1;
+    const speechIndex = actions
+      .slice(0, index + 1)
+      .filter((candidate) => candidate.type === 'speech' && !isActivityPauseAction(candidate)).length;
     return { action, index, key: (action.id ?? `a-${index}`) as string, speechIndex };
   });
 
@@ -1075,6 +1198,12 @@ export function ActionsBar({ sceneId }: { sceneId: string }) {
             {t('edit.timeline.title')}
           </span>
         </button>
+
+        {actions.length > 0 && (
+          <span className="ml-3 hidden text-[10px] text-muted-foreground/55 xl:inline">
+            {t('edit.timeline.triggerHint')}
+          </span>
+        )}
 
         {!lineMode && (
           <div className="ml-3 flex items-center gap-1.5 border-l border-gray-200/70 pl-3 dark:border-gray-700/60">
@@ -1219,6 +1348,7 @@ export function ActionsBar({ sceneId }: { sceneId: string }) {
               const dot = (
                 <NodeDot
                   action={action}
+                  actionIndex={index}
                   onTip={setTip}
                   onPick={onPick}
                   onDragStart={onDragStart}
@@ -1246,7 +1376,18 @@ export function ActionsBar({ sceneId }: { sceneId: string }) {
                         {dot}
                         <div className="my-1 h-2.5 w-px bg-border" />
                         <div className="min-h-0 w-full flex-1">
-                          {action.type === 'speech' ? (
+                          {isActivityPauseAction(action) ? (
+                            <ActivityGateClip
+                              seconds={Math.round(action.activityPauseSec)}
+                              onDelete={() => commit((cur) => removeById(cur, key))}
+                              onMoveLeft={() => commit((cur) => moveByIdDir(cur, key, -1))}
+                              onMoveRight={() => commit((cur) => moveByIdDir(cur, key, 1))}
+                              canMoveLeft={index > 0}
+                              canMoveRight={index < lastMovableIndex}
+                              onDragStart={onDragStart}
+                              onDragEnd={onDragEnd}
+                            />
+                          ) : action.type === 'speech' ? (
                             <SpeechClip
                               text={(action as { text?: string }).text ?? ''}
                               index={si}
@@ -1307,6 +1448,7 @@ export function ActionsBar({ sceneId }: { sceneId: string }) {
                           ) : (
                             <CueMarker
                               action={action}
+                              actionIndex={index}
                               onTip={setTip}
                               onDelete={() => commit((cur) => removeById(cur, key))}
                               onPick={onPick}

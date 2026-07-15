@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const stageMock = vi.hoisted(() => {
@@ -38,10 +38,26 @@ const telemetryMock = vi.hoisted(() => ({
     type,
     occurredAt: "2026-07-11T10:00:00.000Z",
   })),
-  postLearningEvents: vi.fn(async (_input: { events: Array<{ type: string }> }) => undefined),
+  postLearningEvents: vi.fn(async (input: { events: Array<{ type: string }> }) => {
+    void input;
+  }),
 }));
 
-vi.mock("@openmaic/components/stage", () => ({ Stage: () => <div>stage-ready</div> }));
+const renderedStage = vi.hoisted(() => ({
+  props: null as null | {
+    onPlaybackStateChange?: (state: {
+      engineMode: "idle" | "playing" | "paused" | "live";
+      snapshot: { sceneIndex: number; actionIndex: number; consumedDiscussions: string[]; sceneId?: string };
+    }) => void;
+  },
+}));
+
+vi.mock("@openmaic/components/stage", () => ({
+  Stage: (props: typeof renderedStage.props) => {
+    renderedStage.props = props;
+    return <div>stage-ready</div>;
+  },
+}));
 vi.mock("@openmaic/components/server-providers-init", () => ({ ServerProvidersInit: () => null }));
 vi.mock("@openmaic/lib/hooks/use-theme", () => ({ ThemeProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("@openmaic/lib/hooks/use-i18n", () => ({ I18nProvider: ({ children }: { children: React.ReactNode }) => children }));
@@ -83,6 +99,7 @@ describe("StudentStageHost reporting modes", () => {
     stageMock.reset();
     telemetryMock.createLearningEvent.mockClear();
     telemetryMock.postLearningEvents.mockClear();
+    renderedStage.props = null;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/openmaic/classroom")) return classroomResponse();
@@ -139,5 +156,45 @@ describe("StudentStageHost reporting modes", () => {
     ] as unknown as import("@openmaic/lib/types/stage").Scene[];
 
     expect(selectStudentLearningScenes(scenes).map((scene) => scene.id)).toEqual(["knowledge"]);
+  });
+
+  it("reports completion only after the playback cursor exhausts the scene", async () => {
+    render(
+      <StudentStageHost
+        backHref="/student"
+        classroomId="classroom-1"
+        courseId="course-1"
+        studentId="student-1"
+      />,
+    );
+    await waitFor(() => expect(renderedStage.props?.onPlaybackStateChange).toBeTypeOf("function"));
+
+    await act(async () => {
+      renderedStage.props?.onPlaybackStateChange?.({
+        engineMode: "idle",
+        snapshot: { sceneIndex: 0, actionIndex: 0, consumedDiscussions: [], sceneId: "scene-1" },
+      });
+    });
+    const progressPostsBeforeCompletion = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([url, init]) => String(url).includes("/api/openmaic/progress") && (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(progressPostsBeforeCompletion).toHaveLength(0);
+
+    await act(async () => {
+      renderedStage.props?.onPlaybackStateChange?.({
+        engineMode: "idle",
+        snapshot: { sceneIndex: 0, actionIndex: 1, consumedDiscussions: [], sceneId: "scene-1" },
+      });
+    });
+
+    await waitFor(() => {
+      const post = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([url, init]) => String(url).includes("/api/openmaic/progress") && (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({
+        completedScenes: ["scene-1"],
+      });
+    });
   });
 });
