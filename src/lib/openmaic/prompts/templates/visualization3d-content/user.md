@@ -38,6 +38,11 @@ Generate a complete, interactive 3D visualization using Three.js with these MAND
 5. **Guided Attention**: A guided tour must stop only at instructionally necessary viewpoints, state what to inspect and why it matters, and visually isolate the current evidence. Keep labels legible and prevent occlusion on desktop and mobile.
 6. **Mastery Evidence**: End with a transfer task using a new viewpoint, object, or comparison. Record the learner's prediction/selection and explanation, check them against visible success criteria, and report which Key Points were demonstrated; completing the tour is not mastery.
 
+### Activity Completion Protocol (MANDATORY)
+1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
+2. Call `window.__maicActivity.reset()` whenever a new attempt/restart invalidates that evidence; add `data-activity-reset` to the reset control.
+3. Do not signal completion for orbiting, zooming, selecting an object, completing a tour, or any decorative interaction. Completion must mean the transfer task's prediction and explanation meet the visible success criteria.
+
 ### Scene Setup
 1. **Three.js from CDN** using importmap for ES modules
 2. **Proper lighting** (ambient + directional/point lights)

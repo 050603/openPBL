@@ -116,7 +116,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
     const submission = session.upsertSubmission({ id: `proposal-${session.studentId}`, stageKey: "proposal", type: "plan", title: "个人项目方案", content: JSON.stringify({ ...proposal, description }), groupId: project.id });
     session.updateStudentProgress("proposal", complete ? 90 : 55);
     session.addActivity(course.id, "保存个人项目方案", proposal.projectQuestion, session.studentName);
-    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey: "proposal", kind: "document-saved", artifactId: submission?.id, summary: "个人项目方案" });
+    if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey: "proposal", kind: "document-saved", artifactId: submission?.id, summary: "个人项目方案", content: [description, proposal.projectQuestion, proposal.implementationPlan].filter(Boolean).join("\n"), milestone: true });
     toast.success("个人项目方案已保存", { description: "你可以继续与 AI 伴学伙伴讨论，再提交教师校准。" });
   }
 
@@ -151,7 +151,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
         <PrimaryButton type="button" variant="outline" onClick={extractFromDescription}>
           <Wand2 size={16} /> 从描述提取结构化要点
         </PrimaryButton>
-        <span className="text-xs text-stone-400">提取后可在下方"方案详情"中修改</span>
+        <span className="text-xs text-stone-400">提取后可在下方“方案详情”中修改</span>
       </div>
     </Card>
 
@@ -215,7 +215,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
       <Card>
         <p className="text-sm font-semibold">方案完整度</p>
         <div className="mt-2 text-3xl font-bold text-[var(--pbl-student)]">{complete ? "已完整" : "待补充"}</div>
-        <p className="mt-2 text-sm leading-6 text-stone-500">教师会重点检查你能否说明"为什么这样做"。</p>
+        <p className="mt-2 text-sm leading-6 text-stone-500">教师会重点检查你能否说明“为什么这样做”。</p>
       </Card>
     </div>
 

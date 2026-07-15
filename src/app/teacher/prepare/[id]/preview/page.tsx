@@ -21,8 +21,7 @@ import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 
 const STEPS = [
-  { key: "new", label: "创建项目" },
-  { key: "verify", label: "课程核查" },
+  { key: "verify", label: "备课阶段" },
   { key: "generate", label: "生成课程" },
   { key: "preview", label: "预览发布" },
 ];
@@ -118,7 +117,7 @@ export default function PreviewCoursePage() {
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       headerSlot={
         <div className="ml-4">
-          <WizardStepper current={3} steps={STEPS} />
+          <WizardStepper current={2} steps={STEPS} />
         </div>
       }
     >
@@ -453,7 +452,7 @@ export default function PreviewCoursePage() {
           </Card>
         </aside>
       </div>}
-      <FlowActionBar back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/generate`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} state={session.saveState} onRetry={() => void session.retrySave()} />}>{!isPublished ? <Button disabled={!readyToPublish || publishing} loading={publishing} onClick={() => void publish()}>发布课程</Button> : <Button onClick={startTeaching}>开始授课</Button>}</FlowActionBar>
+      <FlowActionBar persistent back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/generate`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} state={session.saveState} onRetry={() => void session.retrySave()} />}>{!isPublished ? <Button disabled={!readyToPublish || publishing} loading={publishing} onClick={() => void publish()}>发布课程</Button> : <Button onClick={startTeaching}>开始授课</Button>}</FlowActionBar>
     </DashboardShell>
   );
 }

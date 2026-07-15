@@ -415,7 +415,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   loadFromStorage: async (stageId: string) => {
     try {
       // Skip IndexedDB load if the store already has this stage with scenes
-      // (e.g. navigated from generation-preview with fresh in-memory data)
+      // (e.g. a freshly initialized in-memory stage)
       const currentState = get();
       if (currentState.stage?.id === stageId && currentState.scenes.length > 0) {
         log.info('Stage already loaded in memory, skipping IndexedDB load:', stageId);

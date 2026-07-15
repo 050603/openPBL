@@ -2,6 +2,7 @@ import type {
   CourseContent,
 } from "../session/types";
 import type { PblCourseConfig } from "../pbl-course-config";
+import type { LearnerProfileInput } from "@/lib/openmaic/pedagogy/teaching-constraints";
 
 export type GenerateInput = {
   name: string;
@@ -10,6 +11,8 @@ export type GenerateInput = {
   hours: number;
   summary: string;
   drivingQuestion: string;
+  learningObjectives?: string[];
+  learnerProfile?: LearnerProfileInput;
   stages: { key: string; label: string; description: string }[];
   pblConfig?: PblCourseConfig;
 };

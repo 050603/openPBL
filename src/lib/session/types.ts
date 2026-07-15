@@ -322,6 +322,7 @@ export type TeacherResourceProjection = {
 export type LearningEventType =
   | "scene-enter"
   | "scene-leave"
+  | "scene-complete"
   | "heartbeat"
   | "scene-replay"
   | "interaction-result"
@@ -340,9 +341,25 @@ export type LearningEvent = {
   occurredAt: string;
   durationMs?: number;
   expectedDurationSec?: number;
+  /** Duration of generated speech measured from the actual audio files in the student player. */
+  ttsDurationSec?: number;
+  /** Planned silent time for reading, thinking, answering, or manipulating an activity. */
+  plannedStudentActivitySec?: number;
   visible?: boolean;
   progressMarker?: string;
+  content?: LearningContentReference;
   metadata?: Record<string, string | number | boolean | null>;
+};
+
+export type LearningContentReference = {
+  stageLabel?: string;
+  sceneTitle?: string;
+  sceneIndex?: number;
+  sceneType?: string;
+  activityId?: string;
+  activityTitle?: string;
+  knowledgePointIds?: string[];
+  knowledgePointLabels?: string[];
 };
 
 export type CompanionMessageVisibility = "student-and-teacher" | "teacher-only";
@@ -399,6 +416,7 @@ export type LearningSignal = {
   status: InterventionStatus;
   title: string;
   summary: string;
+  content?: LearningContentReference;
   normalizedIssueKey: string;
   evidenceEventIds: string[];
   aiInterventionAttempts: number;
@@ -415,9 +433,11 @@ export type ClassCommonIssue = {
   normalizedIssueKey: string;
   title: string;
   summary: string;
+  content?: LearningContentReference;
   severity: "warning" | "high";
   studentIds: string[];
   signalIds: string[];
+  affectedStudents?: Array<{ studentId: string; signalId: string; reason: string }>;
   status: InterventionStatus;
   firstDetectedAt: string;
   lastDetectedAt: string;
@@ -521,6 +541,8 @@ export type StudentAiProgress = {
   currentSceneIndex: number;
   totalScenes: number;
   completedScenes: string[];
+  /** v2 means scenes were completed by an exhausted PlaybackEngine cursor. */
+  completionModelVersion?: number;
   quizScore?: number;
   lastActiveAt: string;
   masteryLevel: "not-started" | "in-progress" | "completed" | "mastered";
@@ -673,10 +695,10 @@ export type CourseContent = {
   /** 教师授课资源对应的 OpenMAIC classroom ID（用于 PPT 预览播放） */
   teacherClassroomId?: string;
   /**
-   * 教师在课程核查阶段确认的生成模式开关。
+   * 教师在备课阶段确认的生成模式开关。
    * - false（默认）：保持原有方式，AI 授知以 PPT 形式呈现知识点
    * - true：仅 AI 授知互动优先；静态参考内容可保留 PPT，其他阶段仍为教师 PPT/讲稿
-   * 该值由 verify 页面编辑，generate 页面读取后传给生成 API。
+   * 该值由备课阶段页面编辑，generate 页面读取后传给生成 API。
    */
   interactiveMode?: boolean;
 };

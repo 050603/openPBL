@@ -2,7 +2,7 @@
  * `regenerate_scene_actions` agent tool
  *
  * Re-generates a scene's playback `actions` to match its (edited) content by
- * reusing the same server-side pipeline as `app/api/generate/scene-actions/route.ts`.
+ * reusing the same server-side pipeline as the canonical scene-actions route.
  *
  * The tool's `execute` runs inside the agent loop and has no access to the
  * request's resolved model, so the LLM call capability is injected via a

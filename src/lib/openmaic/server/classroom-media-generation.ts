@@ -35,6 +35,7 @@ import type { SceneOutline } from '@openmaic/lib/types/generation';
 import type { Scene } from '@openmaic/lib/types/stage';
 import type { SpeechAction } from '@openmaic/lib/types/action';
 import type { ImageProviderId } from '@openmaic/lib/media/types';
+import type { MediaGenerationRequest } from '@openmaic/lib/media/types';
 import type { VideoProviderId } from '@openmaic/lib/media/types';
 import type { TTSProviderId } from '@openmaic/lib/audio/types';
 import { splitLongSpeechActions } from '@openmaic/lib/audio/tts-utils';
@@ -50,6 +51,48 @@ import {
 } from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('ClassroomMedia');
+
+const imageProviderQueue = new Map<ImageProviderId, Promise<void>>();
+const imageProviderLastStartedAt = new Map<ImageProviderId, number>();
+
+function imageRequestSpacingMs(providerId: ImageProviderId): number {
+  if (providerId !== 'qwen-image') return 0;
+  const configured = Number(process.env.OPENMAIC_QWEN_IMAGE_MIN_INTERVAL_MS ?? 5_000);
+  return Number.isFinite(configured) && configured >= 0 ? configured : 5_000;
+}
+
+async function waitForProviderSlot(
+  providerId: ImageProviderId,
+  signal: AbortSignal | undefined,
+  operation: () => Promise<Awaited<ReturnType<typeof generateImage>>>,
+) {
+  const prior = imageProviderQueue.get(providerId) ?? Promise.resolve();
+  const run = prior.catch(() => undefined).then(async () => {
+    throwIfAborted(signal);
+    const spacingMs = imageRequestSpacingMs(providerId);
+    const remainingMs = spacingMs - (Date.now() - (imageProviderLastStartedAt.get(providerId) ?? 0));
+    if (remainingMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const finish = () => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve();
+        };
+        const timer = setTimeout(finish, remainingMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          reject(new DOMException('Aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+    throwIfAborted(signal);
+    imageProviderLastStartedAt.set(providerId, Date.now());
+    return operation();
+  });
+  imageProviderQueue.set(providerId, run.then(() => undefined, () => undefined));
+  return run;
+}
 
 type ServerTTSRuntime = {
   providerId: TTSProviderId;
@@ -94,7 +137,7 @@ async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buff
 }
 
 function mediaServingUrl(baseUrl: string, classroomId: string, subPath: string): string {
-  return `${baseUrl}/api/classroom-media/${classroomId}/${subPath}`;
+  return `${baseUrl}/api/openmaic/classroom-media/${classroomId}/${subPath}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +159,13 @@ export async function generateMediaForClassroom(
   await ensureDir(mediaDir);
 
   // Collect all media generation requests from outlines
-  const requests = outlines.flatMap((o) => o.mediaGenerations ?? []);
+  const requests = Array.from(
+    new Map(
+      outlines
+        .flatMap((o) => o.mediaGenerations ?? [])
+        .map((request) => [`${request.type}:${request.elementId}`, request] as const),
+    ).values(),
+  ) as MediaGenerationRequest[];
   if (requests.length === 0) return { mediaMap: {}, failures: [] };
 
   // Resolve providers
@@ -153,15 +202,16 @@ export async function generateMediaForClassroom(
         const providerConfig = IMAGE_PROVIDERS[providerId];
         if (providerConfig?.requiresApiKey && !apiKey) {
           log.warn(`No API key for image provider "${providerId}", skipping ${req.elementId}`);
+          failures.push({ elementId: req.elementId, type: 'image', error: '图像生成服务缺少 API 密钥' });
           continue;
         }
         const model = imageProviders[providerId]?.defaultModel || providerConfig?.models?.[0]?.id;
 
         await withGenerationRetry(async () => {
-          const result = await generateImage(
+          const result = await waitForProviderSlot(providerId, signal, () => generateImage(
             { providerId, apiKey, baseUrl: resolveImageBaseUrl(providerId), model },
             { prompt: req.prompt, aspectRatio: req.aspectRatio || '16:9' },
-          );
+          ));
           throwIfAborted(signal);
           let buf: Buffer;
           let ext: string;
@@ -179,7 +229,18 @@ export async function generateMediaForClassroom(
           await fs.writeFile(path.join(mediaDir, filename), buf);
           mediaMap[req.elementId] = mediaServingUrl(baseUrl, classroomId, `media/${filename}`);
           log.info(`Generated image: ${filename}`);
-        }, { label: `image ${req.elementId}`, signal, maxRetries: 2 });
+        }, {
+          label: `image ${req.elementId}`,
+          signal,
+          maxRetries: providerId === 'qwen-image' ? 3 : 2,
+          baseDelayMs: providerId === 'qwen-image' ? 10_000 : 1_000,
+          maxDelayMs: providerId === 'qwen-image' ? 60_000 : 16_000,
+          onRetry: ({ attempt, maxAttempts, nextDelayMs, reason }) => {
+            log.warn(
+              `Retrying image ${req.elementId} [provider=${providerId}, attempt=${attempt + 1}/${maxAttempts}, waitMs=${nextDelayMs}, reason=${reason}]`,
+            );
+          },
+        });
       } catch (err) {
         if (signal?.aborted) throw err;
         log.warn(`Image generation failed for ${req.elementId}:`, err);
@@ -196,6 +257,7 @@ export async function generateMediaForClassroom(
         const apiKey = resolveVideoApiKey(providerId);
         if (!apiKey) {
           log.warn(`No API key for video provider "${providerId}", skipping ${req.elementId}`);
+          failures.push({ elementId: req.elementId, type: 'video', error: '视频生成服务缺少 API 密钥' });
           continue;
         }
         const providerConfig = VIDEO_PROVIDERS[providerId];

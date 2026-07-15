@@ -361,6 +361,32 @@
       "fieldAction": "动作",
       "fieldElement": "元素",
       "fieldContent": "内容",
+      "fieldTrigger": "触发条件",
+      "fieldWait": "继续条件",
+      "fieldFallback": "安全兜底",
+      "fieldPurpose": "活动类型",
+      "fallbackTimeout": "最长 {{seconds}} 秒后自动继续",
+      "activityGateTitle": "等待学生活动",
+      "activityGateSummary": "页面报告学习任务真正完成后，AI 才继续讲解。",
+      "activityGateMax": "最长等待 {{seconds}} 秒",
+      "triggerHint": "悬停或点击时间线符号查看触发条件",
+      "trigger": {
+        "sceneStart": "当前页面切换并激活",
+        "previousCompleted": "时间线中的前一个动作完成"
+      },
+      "completion": {
+        "speechEnded": "讲解音频播放结束；没有音频时按文本长度计时",
+        "activityCompleted": "页面发送 activity-complete；未发送时会一直等到安全超时",
+        "immediate": "立即完成；此视觉提示不会阻塞后续动作",
+        "widgetSettled": "操作指令发给互动页面，约 0.3 秒后继续",
+        "discussionConfirmed": "教师确认或跳过讨论卡片",
+        "videoEnded": "视频播放结束（最长等待 5 分钟）",
+        "whiteboardFinished": "白板指令或动画执行完毕"
+      },
+      "purpose": {
+        "interaction": "互动学习任务",
+        "quiz": "测验任务"
+      },
       "addDiscussion": "添加讨论",
       "addDiscussionExists": "每个场景仅支持一个讨论",
       "discussionTerminal": "末尾",

@@ -15,10 +15,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@openmaic/lib/utils';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
-import { getCurrentModelConfig } from '@openmaic/lib/utils/model-config';
-import { createLogger } from '@openmaic/lib/logger';
-
-const log = createLogger('QuizView');
 import type { QuizQuestion } from '@openmaic/lib/types/stage';
 import { useDraftCache } from '@openmaic/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@openmaic/components/audio/speech-button';
@@ -36,6 +32,7 @@ import {
   dispatchPlaybackActivityComplete,
   dispatchPlaybackActivityReset,
 } from '@openmaic/lib/playback/activity-events';
+import { gradeShortAnswerQuestion } from './quiz-grade-client';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -82,61 +79,6 @@ const QuizMathText = memo(function QuizMathText({
     </span>
   );
 });
-
-/** Call /api/quiz-grade for a single short-answer question. */
-async function gradeShortAnswerQuestion(
-  q: QuizQuestion,
-  userAnswer: string,
-  language: string,
-): Promise<QuestionResult> {
-  const pts = q.points ?? 1;
-  try {
-    const modelConfig = getCurrentModelConfig();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-model': modelConfig.modelString,
-      'x-api-key': modelConfig.apiKey,
-    };
-    if (modelConfig.baseUrl) headers['x-base-url'] = modelConfig.baseUrl;
-    if (modelConfig.providerType) headers['x-provider-type'] = modelConfig.providerType;
-
-    const res = await fetch('/api/quiz-grade', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        question: q.question,
-        userAnswer,
-        points: pts,
-        commentPrompt: q.commentPrompt,
-        language,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { score: number; comment: string };
-    const earned = Math.max(0, Math.min(pts, data.score));
-    return {
-      questionId: q.id,
-      correct: earned >= pts * 0.8,
-      status: earned >= pts * 0.8 ? 'correct' : 'incorrect',
-      earned,
-      aiComment: data.comment,
-    };
-  } catch (err) {
-    log.error('[quiz-view] AI grading failed for', q.id, err);
-    // Fallback: give half credit
-    return {
-      questionId: q.id,
-      correct: null,
-      status: 'incorrect',
-      earned: Math.round(pts * 0.5),
-      aiComment:
-        language === 'zh-CN'
-          ? '评分服务暂时不可用，已给予基础分。'
-          : 'Grading service unavailable. Base score given.',
-    };
-  }
-}
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 

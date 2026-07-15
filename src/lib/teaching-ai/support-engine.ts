@@ -10,6 +10,11 @@ import type {
 import { callLLM, parseLLMJson } from "@/lib/llm/client";
 import { throwIfAborted } from "@/lib/openmaic/generation/generation-retry";
 import { buildStagePolicyPrompt } from "@/lib/companion/stage-policy";
+import {
+  deriveTeachingConstraints,
+  formatTeachingConstraintsForPrompt,
+  type LearnerProfileInput,
+} from "@/lib/openmaic/pedagogy/teaching-constraints";
 
 export type AiSupportDraft = Omit<
   AiSupportRecord,
@@ -40,6 +45,19 @@ type TeacherSignalCacheEntry = {
 
 export type SupportCallOptions = { abortSignal?: AbortSignal };
 
+export type LearnerProfileSuggestion = {
+  priorKnowledge: string;
+  learningNeeds: string;
+  familiarContexts: string;
+};
+
+export type ProjectSkeletonTarget =
+  | "courseHours"
+  | "learningObjectives"
+  | "summary"
+  | "learnerProfile"
+  | "drivingQuestions";
+
 const teacherSignalCache = new Map<string, TeacherSignalCacheEntry>();
 
 // ============================================================
@@ -68,6 +86,75 @@ async function callLLMForJson<T = unknown>(
 
 function invalidAiResult(scope: string): never {
   throw new Error(`${scope}失败：AI 返回结构不完整，请检查模型输出后重试。`);
+}
+
+export function isStrongPblDrivingQuestion(value: string): boolean {
+  const question = value.trim();
+  if (question.length < 18 || question.length > 140) return false;
+  if (!/[？?]$/.test(question) || /是否|是不是|能不能/.test(question)) return false;
+  const hasOpenSpace = /如何|怎样|哪些方案|什么样/.test(question);
+  const hasAuthenticAudience = /为|面向|帮助|改善|解决|服务|校园|社区|家庭|公众/.test(question);
+  const hasFeasibleBoundary = /方案|作品|建议|设计|模型|报告|指南|原型|证据|数据|在.{0,12}(课时|周|天)内/.test(question);
+  return hasOpenSpace && hasAuthenticAudience && hasFeasibleBoundary;
+}
+
+function cleanStringList(value: unknown, limit = 5): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function normalizeObjectiveOptions(value: unknown): string[][] {
+  if (!Array.isArray(value)) return [];
+  if (value.every((item) => typeof item === "string")) {
+    const singleOption = cleanStringList(value);
+    return singleOption.length ? [singleOption] : [];
+  }
+  return value
+    .filter((item): item is unknown[] => Array.isArray(item))
+    .map((item) => cleanStringList(item))
+    .filter((item) => item.length > 0)
+    .slice(0, 3);
+}
+
+function normalizeLearnerProfileOptions(value: unknown): LearnerProfileSuggestion[] {
+  const values = Array.isArray(value) ? value : value && typeof value === "object" ? [value] : [];
+  return values
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .map((item) => ({
+      priorKnowledge: String(item.priorKnowledge ?? item.foundation ?? "").trim(),
+      learningNeeds: String(item.learningNeeds ?? item.difficulties ?? "").trim(),
+      familiarContexts: String(item.familiarContexts ?? item.contexts ?? "").trim(),
+    }))
+    .filter((item) => item.priorKnowledge && item.learningNeeds && item.familiarContexts)
+    .slice(0, 3);
+}
+
+function normalizeCourseHourOptions(value: unknown): Array<{ hours: number; rationale: string; scope: string }> {
+  const values = Array.isArray(value) ? value : [];
+  const seen = new Set<number>();
+  return values
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .map((item) => ({
+      hours: Math.round(Number(item.hours ?? item.recommendedHours)),
+      rationale: String(item.rationale ?? item.reason ?? "").trim(),
+      scope: String(item.scope ?? item.contentScope ?? "").trim(),
+    }))
+    .filter((item) => item.hours >= 1 && item.hours <= 5 && item.rationale && item.scope)
+    .filter((item) => {
+      if (seen.has(item.hours)) return false;
+      seen.add(item.hours);
+      return true;
+    })
+    .slice(0, 3);
+}
+
+function isUsableDrivingQuestion(value: string): boolean {
+  const question = value.trim();
+  return question.length >= 12 && question.length <= 160 && /[？?]$/.test(question) && !/是否|是不是|能不能/.test(question);
 }
 
 const SYSTEM_PREAMBLE = `你是一名资深的 PBL（项目式学习）教学支架专家，擅长基于学生当前的项目进度给出具体、可执行、可验证的改进建议。
@@ -510,9 +597,9 @@ ${course.groups.map((g) => {
 
 /**
  * AI 生成项目骨架（阶段一：项目启动）。
- * 教师在 prepare/new 页面点击"AI 生成项目骨架"按钮时调用。
+ * 教师在备课阶段页面点击"AI 生成项目骨架"按钮时调用。
  *
- * 输出：3-5 个驱动问题候选、情境故事、成果形式建议、评价量规草案
+ * 输出：基础信息各字段候选、3-5 个高质量驱动问题、情境故事、成果形式建议、评价量规草案
  */
 export async function generateProjectSkeleton(input: {
   courseName: string;
@@ -521,7 +608,14 @@ export async function generateProjectSkeleton(input: {
   hours: number;
   summary?: string;
   initialDrivingQuestion?: string;
+  learningObjectives?: string[];
+  learnerProfile?: LearnerProfileInput;
+  targetPart?: ProjectSkeletonTarget;
 }, opts: SupportCallOptions = {}): Promise<{
+  courseHourOptions: Array<{ hours: number; rationale: string; scope: string }>;
+  learningObjectiveOptions: string[][];
+  summaryOptions: string[];
+  learnerProfileOptions: LearnerProfileSuggestion[];
   drivingQuestions: string[];
   scenario: string;
   suggestedForms: string[];
@@ -529,14 +623,31 @@ export async function generateProjectSkeleton(input: {
   source: "llm" | "local";
 }> {
   throwIfAborted(opts.abortSignal);
-  const llmResult = await callLLMForJson<{
-    drivingQuestions: string[];
-    scenario: string;
-    suggestedForms: string[];
-    evaluationDimensions: Array<{ name: string; weight: number; description: string }>;
-  }>(
+  const teachingConstraints = deriveTeachingConstraints({
+    grade: input.grade,
+    subject: input.subject,
+    topic: input.courseName,
+    hours: input.hours,
+    learnerProfile: input.learnerProfile,
+    learningObjectives: input.learningObjectives,
+  });
+  const targetPart = input.targetPart ?? "all";
+  const targetInstructions: Record<ProjectSkeletonTarget | "all", string> = {
+    courseHours: `只推荐课程课时，不生成其他字段。根据课程主题的概念密度、${input.grade} 学生的认知基础和可完成的个人项目深度，给出 3 个差异清晰的课时方案；只能在 1-5 课时中选择。每个方案说明为什么适合以及能覆盖到什么范围，不能为了显得完整而塞入大学专业课程内容，也不得安排团队项目。\n仅返回 JSON：{ "courseHourOptions": [{ "hours": 2, "rationale": "string", "scope": "string" }] }`,
+    learningObjectives: `只生成课程目标候选。返回 3 组，每组 3-5 条，使用可观察、可评价的行为动词，覆盖知识理解、证据运用和成果迭代。\n仅返回 JSON：{ "learningObjectiveOptions": [["string"]] }`,
+    summary: `只生成课程说明候选。返回 3 个，每个 80-160 字，说明真实情境、探究范围、学生任务与预期判断，不写宣传口号。\n仅返回 JSON：{ "summaryOptions": ["string"] }`,
+    learnerProfile: `只生成 3 组学生学情与认知边界候选。每组分别给出已有基础、典型学习困难和熟悉生活情境，不虚构测评数据。\n仅返回 JSON：{ "learnerProfileOptions": [{ "priorKnowledge": "string", "learningNeeds": "string", "familiarContexts": "string" }] }`,
+    drivingQuestions: `只生成 3-5 个 PBL 驱动问题候选。每个问题必须面向真实对象或利益相关者，以“如何/怎样/什么样”提出，允许多种有依据的方案；明确成果或证据要求，并限定在 ${input.hours} 课时、${input.grade} 学生可完成的范围内；不得是是否题、知识回忆题或唯一答案题，必须以问号结尾。\n仅返回 JSON：{ "drivingQuestions": ["string"] }`,
+    all: `生成以下四类候选：
+1. learningObjectiveOptions：3 组课程目标，每组 3-5 条
+2. summaryOptions：3 个课程说明，每个 80-160 字
+3. learnerProfileOptions：3 组学情候选
+4. drivingQuestions：3-5 个真实、开放、有成果与课时边界的 PBL 驱动问题
+仅返回 JSON：{ "learningObjectiveOptions": [["string"]], "summaryOptions": ["string"], "learnerProfileOptions": [{ "priorKnowledge": "string", "learningNeeds": "string", "familiarContexts": "string" }], "drivingQuestions": ["string"] }`,
+  };
+  const llmResult = await callLLMForJson<Record<string, unknown>>(
     stageSystemPrompt("launch"),
-    `请基于以下课程信息，生成项目骨架，帮助教师快速启动 PBL 项目。
+    `请基于以下课程信息，为教师生成当前基础信息字段的候选内容。
 
 课程名称：${input.courseName}
 学科：${input.subject}
@@ -545,27 +656,68 @@ export async function generateProjectSkeleton(input: {
 课程简介：${input.summary || "（无）"}
 教师初步想法：${input.initialDrivingQuestion || "（无，请基于课程名称与简介推断）"}
 
-要求：
-1. drivingQuestions：3-5 个候选驱动问题，每个问题应能激发学生探究，与学科和年级匹配
-2. scenario：1 段 100-200 字的情境故事，将驱动问题嵌入真实校园场景
-3. suggestedForms：3-5 个建议的成果形式（如"调研报告""科普海报""微视频""校园应用方案"）
-4. evaluationDimensions：4-6 个评价维度，权重合计 100%，每个维度附简短描述
+${(targetPart === "courseHours"
+    ? formatTeachingConstraintsForPrompt(teachingConstraints)
+        .split("\n")
+        .filter((line) => !line.startsWith("Course capacity:") && !line.startsWith("Recommended knowledge-point range:") && !line.startsWith("Scope rule:"))
+        .join("\n")
+    : formatTeachingConstraintsForPrompt(teachingConstraints))}
 
-仅返回 JSON：{ "drivingQuestions": ["string"], "scenario": "string", "suggestedForms": ["string"], "evaluationDimensions": [{ "name": "string", "weight": 20, "description": "string" }] }`,
+必须把以上学生画像、课程目标与课时容量视为硬约束：不得假定学生掌握未列出的前置知识，不得把一个短课时课程扩张成完整学期内容，也不得用少量重复活动填充长课时。
+
+${targetInstructions[targetPart]}`,
     { abortSignal: opts.abortSignal },
   );
 
-  if (llmResult?.drivingQuestions?.length) {
-    return {
-      drivingQuestions: llmResult.drivingQuestions.slice(0, 5),
-      scenario: llmResult.scenario ?? invalidAiResult("项目骨架生成"),
-      suggestedForms: llmResult.suggestedForms?.slice(0, 5) ?? invalidAiResult("项目骨架生成"),
-      evaluationDimensions:
-        llmResult.evaluationDimensions?.slice(0, 6) ?? invalidAiResult("项目骨架生成"),
-      source: "llm",
-    };
+  const learningObjectiveOptions = normalizeObjectiveOptions(
+    llmResult.learningObjectiveOptions ?? llmResult.objectiveOptions ?? llmResult.learningObjectives,
+  );
+  const courseHourOptions = normalizeCourseHourOptions(
+    llmResult.courseHourOptions ?? llmResult.hourOptions,
+  );
+  const summaryOptions = cleanStringList(
+    llmResult.summaryOptions ?? llmResult.summaries ?? llmResult.courseDescriptions ??
+      (typeof llmResult.summary === "string" ? [llmResult.summary] : []),
+    3,
+  );
+  const learnerProfileOptions = normalizeLearnerProfileOptions(
+    llmResult.learnerProfileOptions ?? llmResult.learnerProfiles ?? llmResult.learnerProfile,
+  );
+  const drivingQuestions = cleanStringList(
+    llmResult.drivingQuestions ?? llmResult.questions,
+  )
+    .filter(isUsableDrivingQuestion)
+    .sort((left, right) => Number(isStrongPblDrivingQuestion(right)) - Number(isStrongPblDrivingQuestion(left)));
+
+  const targetHasCandidates = {
+    courseHours: courseHourOptions.length > 0,
+    learningObjectives: learningObjectiveOptions.length > 0,
+    summary: summaryOptions.length > 0,
+    learnerProfile: learnerProfileOptions.length > 0,
+    drivingQuestions: drivingQuestions.length > 0,
+    all:
+      learningObjectiveOptions.length > 0 &&
+      summaryOptions.length > 0 &&
+      learnerProfileOptions.length > 0 &&
+      drivingQuestions.length > 0,
+  }[targetPart];
+  if (!targetHasCandidates) {
+    return invalidAiResult(`${targetPart === "all" ? "项目骨架" : "当前字段建议"}生成`);
   }
-  return invalidAiResult("项目骨架生成");
+
+  return {
+    courseHourOptions,
+    learningObjectiveOptions,
+    summaryOptions,
+    learnerProfileOptions,
+    drivingQuestions,
+    scenario: typeof llmResult.scenario === "string" ? llmResult.scenario.trim() : "",
+    suggestedForms: cleanStringList(llmResult.suggestedForms),
+    evaluationDimensions: Array.isArray(llmResult.evaluationDimensions)
+      ? llmResult.evaluationDimensions.slice(0, 6) as Array<{ name: string; weight: number; description: string }>
+      : [],
+    source: "llm",
+  };
 }
 
 // ============================================================

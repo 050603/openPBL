@@ -246,7 +246,6 @@ export async function POST(request: NextRequest) {
         const result = await generateClassroom(
           generationInput,
           {
-            baseUrl,
             signal,
             onProgress: (progress) => {
               throwIfAborted(signal);
@@ -268,7 +267,6 @@ export async function POST(request: NextRequest) {
           stage: result.stage,
           scenes: result.scenes,
           courseName: courseTitle,
-          baseUrl,
           pblMode:
             pblProfile?.generationTemplate === 'pbl-six-stage' ||
             Boolean(pblTeachingActivities?.length),
@@ -310,7 +308,6 @@ export async function POST(request: NextRequest) {
         send({
           type: 'done',
           id: result.id,
-          url: result.url,
           scenesCount: splitResult.studentSceneCount,
           studentSceneCount: splitResult.studentSceneCount,
           teacherSceneCount: splitResult.teacherSceneCount,

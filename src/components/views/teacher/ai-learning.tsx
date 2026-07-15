@@ -16,9 +16,12 @@ import { Card, Pill, ProgressBar } from "@/components/ui";
 import type { Course, LearningEvent, Student, StudentAiProgress } from "@/lib/session/types";
 import { AiLearningTeacherPreview } from "./ai-learning-preview";
 import { StudentLearningDetail } from "./student-learning-detail";
+import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
+import { aggregateCommonIssues, calculateToleratedDurationSec, isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
+import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
 
 function computeProgress(entry?: StudentAiProgress): number {
-  if (!entry) return 0;
+  if (!entry || !isReliableAiProgress(entry)) return 0;
   if (entry.masteryLevel === "completed" || entry.masteryLevel === "mastered") return 100;
   return Math.min(99, Math.round((entry.currentSceneIndex / Math.max(1, entry.totalScenes)) * 100));
 }
@@ -36,14 +39,25 @@ function summarizeStudent(course: Course, student: Student) {
   const expectedByScene = new Map<string, number>();
   for (const event of events) {
     if (event.sceneId && typeof event.expectedDurationSec === "number") {
-      expectedByScene.set(event.sceneId, event.expectedDurationSec * 1_000);
+      expectedByScene.set(event.sceneId, calculateToleratedDurationSec({
+        expectedDurationSec: event.expectedDurationSec,
+        ttsDurationSec: event.ttsDurationSec,
+        plannedStudentActivitySec: event.plannedStudentActivitySec,
+      }) * 1_000);
     }
   }
   const expectedDurationMs = [...expectedByScene.values()].reduce((sum, value) => sum + value, 0);
   const replayCount = events.filter((event) => event.type === "scene-replay").length;
   const lastEvent = events.at(-1);
   const signals = (course.learningSignals ?? []).filter(
-    (signal) => signal.studentId === student.id && signal.stageKey === "ai-learning" && signal.status === "open",
+    (signal) => signal.studentId === student.id
+      && signal.stageKey === "ai-learning"
+      && signal.status === "open"
+      && isLearningSignalRelevant(
+        signal,
+        course.learningEvents ?? [],
+        ["completed", "mastered"].includes(course.aiLearningProgress?.[student.id]?.masteryLevel ?? ""),
+      ),
   );
   return {
     student,
@@ -64,7 +78,7 @@ function minutes(ms: number): string {
 
 function currentScene(events: LearningEvent[]): string {
   const latest = [...events].reverse().find((event) => event.sceneId);
-  return latest?.metadata?.sceneTitle?.toString() || latest?.sceneId || "尚未开始";
+  return latest ? formatLearningContentReference(latest.content, latest.metadata?.sceneTitle?.toString() || latest.sceneId) : "尚未开始";
 }
 
 export function AiLearningTeacherView({
@@ -92,13 +106,9 @@ export function AiLearningTeacherView({
         }, 0) / evidenceStudents.length,
       )
     : undefined;
-  const repeatLearners = summaries.filter((summary) => summary.replayCount >= 2).length;
-  const unresolvedSignals = (course.learningSignals ?? []).filter(
-    (signal) => signal.stageKey === "ai-learning" && signal.status === "open",
-  );
-  const commonIssues = (course.classCommonIssues ?? []).filter(
-    (issue) => issue.stageKey === "ai-learning" && issue.status === "open",
-  );
+  const repeatLearners = summaries.filter((summary) => summary.replayCount >= 3).length;
+  const unresolvedSignals = summaries.flatMap((summary) => summary.signals);
+  const commonIssues = aggregateCommonIssues(unresolvedSignals, course.students.length);
 
   function openStudent(studentId: string) {
     setSelectedStudentId(studentId);
@@ -124,19 +134,19 @@ export function AiLearningTeacherView({
 
       <section aria-label="AI 授知班级指标" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Bot size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
-        <MetricCard icon={<Clock3 size={19} />} label="有效时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对课程设计播放时长"} />
-        <MetricCard icon={<Repeat2 size={19} />} label="重复学习学生" value={evidenceStudents.length ? `${repeatLearners} 人` : "—"} helper={evidenceStudents.length ? "同一内容重复至少 2 次" : "暂无足够证据"} />
+        <MetricCard icon={<Clock3 size={19} />} label="容忍时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对设计、实际语音与思考操作余量"} />
+        <MetricCard icon={<Repeat2 size={19} />} label="重复学习学生" value={evidenceStudents.length ? `${repeatLearners} 人` : "—"} helper={evidenceStudents.length ? "同一内容重复至少 3 次且未形成进展" : "暂无足够证据"} />
         <MetricCard icon={<CircleAlert size={19} />} label="未解决风险" value={evidenceStudents.length ? `${unresolvedSignals.length} 条` : "—"} helper={evidenceStudents.length ? "需要教师观察或介入" : "暂无足够证据"} tone={unresolvedSignals.length ? "danger" : "default"} />
       </section>
 
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-[var(--pbl-teacher)]" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">达到全班 30% 或至少 5 人时显示，适合转为全班补充教学。</p></div>
+          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-[var(--pbl-teacher)]" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">同一具体内容影响至少 30% 且不少于 2 人时显示，适合转为全班补充教学。</p></div>
           <Pill tone={commonIssues.length ? "red" : "green"}>{commonIssues.length ? `${commonIssues.length} 项` : "暂无"}</Pill>
         </div>
         {commonIssues.length ? (
           <ul className="mt-4 divide-y divide-[var(--pbl-danger-border)] border-y border-[var(--pbl-danger-border)]">
-            {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-[var(--pbl-danger)]">{issue.title}</p><p className="mt-1 text-sm text-stone-600">{issue.summary}</p></div><span className="text-sm font-bold text-[var(--pbl-danger)]">影响 {issue.studentIds.length} 人</span></li>)}
+            {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-[var(--pbl-danger)]">{issue.title}</p><p className="mt-1 text-xs font-semibold text-stone-500">{formatLearningContentReference(issue.content)}</p><p className="mt-1 text-sm text-stone-600">{issue.summary}</p><p className="mt-1 text-xs text-stone-500">涉及学生：{issue.studentIds.map((id) => course.students.find((student) => student.id === id)?.name ?? id).join("、")}</p></div><span className="text-sm font-bold text-[var(--pbl-danger)]">影响 {issue.studentIds.length} 人</span></li>)}
           </ul>
         ) : <div className="mt-4 flex items-center gap-2 border-y border-stone-100 py-5 text-sm text-stone-500"><CircleCheck className="text-[var(--pbl-success)]" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
       </Card>

@@ -25,4 +25,20 @@ describe('widget knowledge-teaching contract', () => {
     expect(user).toContain('predict');
     expect(user).toContain('transfer');
   });
+
+  it.each(widgetPromptIds)('%s reports meaningful activity completion to playback', (promptId) => {
+    const prompt = buildPrompt(promptId, {
+      title: 'Activity completion contract',
+      description: 'Learners must complete a meaningful task.',
+      keyPoints: '1. Explain the target concept\n2. Apply it in a new case',
+    });
+    const user = prompt?.user ?? '';
+
+    expect(user).toContain('Activity Completion Protocol');
+    expect(user).toContain('window.__maicActivity.complete()');
+    expect(user).toContain('window.__maicActivity.reset()');
+    expect(user).toContain('data-activity-complete');
+    expect(user).toContain('mastery evidence');
+    expect(user).toContain('Do not signal completion');
+  });
 });

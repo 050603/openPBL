@@ -26,7 +26,6 @@ export async function splitGeneratedClassroom(input: {
   stage: Stage;
   scenes: Scene[];
   courseName?: string;
-  baseUrl: string;
   pblMode?: boolean;
   signal?: AbortSignal;
 }): Promise<ServerClassroomSplitResult> {
@@ -60,7 +59,6 @@ export async function splitGeneratedClassroom(input: {
       stage: input.stage,
       scenes: studentScenes,
     },
-    input.baseUrl,
   );
 
   throwIfAborted(input.signal);
@@ -85,7 +83,6 @@ export async function splitGeneratedClassroom(input: {
         stage: teacherStage,
         scenes: normalizedTeacherScenes,
       },
-      input.baseUrl,
     );
     throwIfAborted(input.signal);
   }

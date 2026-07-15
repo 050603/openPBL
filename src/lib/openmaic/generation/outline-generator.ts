@@ -14,7 +14,7 @@ import type {
   ImageMapping,
 } from '@openmaic/lib/types/generation';
 import type { WidgetType } from '@openmaic/lib/types/widgets';
-import { buildPrompt, PROMPT_IDS } from '@openmaic/lib/prompts';
+import { buildPrompt } from '@openmaic/lib/prompts';
 import { formatPblCourseConfigForPrompt } from '@/lib/pbl-course-config';
 import {
   PBL_STAGE_DEFINITIONS,
@@ -30,6 +30,8 @@ import { uniquifyMediaElementIds } from './scene-builder';
 import type { AICallFn, GenerationResult, GenerationCallbacks } from './pipeline-types';
 import { createLogger } from '@openmaic/lib/logger';
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
+import { resolveOutlinePromptPlan } from './outline-prompt-plan';
+import { applyInteractiveModePolicy } from './interactive-mode-policy';
 const log = createLogger('Generation');
 
 /**
@@ -127,11 +129,8 @@ export async function generateSceneOutlinesFromRequirements(
 
   // Use simplified prompt variables
   const isPblCourse = requirements.pblProfile?.generationTemplate === 'pbl-six-stage';
-  const promptId = isPblCourse
-    ? PROMPT_IDS.PBL_COURSE
-    : requirements.interactiveMode
-      ? PROMPT_IDS.INTERACTIVE_OUTLINES
-      : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
+  const promptPlan = resolveOutlinePromptPlan(requirements);
+  const promptId = promptPlan.promptId;
   const prompts = buildPrompt(promptId, {
     // New simplified variables
     requirement: requirements.requirement,
@@ -142,7 +141,7 @@ export async function generateSceneOutlinesFromRequirements(
     imageEnabled,
     videoEnabled,
     mediaEnabled,
-    interactiveMode: requirements.interactiveMode ?? false,
+    interactiveMode: promptPlan.interactiveMode,
     researchContext: options?.researchContext || 'None',
     // Server-side generation populates this via options; client-side populates via formatTeacherPersonaForPrompt
     teacherContext: options?.teacherContext || '',
@@ -212,7 +211,10 @@ export async function generateSceneOutlinesFromRequirements(
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
     const result = uniquifyMediaElementIds(
       normalizeSceneOutlinesForDuration(
-        enforcePblOutlineContract(enriched, requirements),
+        applyInteractiveModePolicy(
+          enforcePblOutlineContract(enriched, requirements),
+          promptPlan.interactiveMode,
+        ),
       ),
     );
 
@@ -562,10 +564,21 @@ function normalizeInteractiveIntent(outline: SceneOutline): SceneOutline {
     .join(' ')
     .toLowerCase();
   const isAiLearningStudent = outline.stageKey === 'ai-learning' && outline.audience === 'student';
+  const hasInteractiveResource = outline.resourceTypes?.includes('interactive-demo') ||
+    outline.resourceTypes?.includes('code-interactive');
+  const isExplicitPptOnly = outline.type === 'slide' &&
+    outline.resourceTypes?.includes('ppt') &&
+    !hasInteractiveResource;
+  if (isExplicitPptOnly) {
+    const confirmedPpt = { ...outline };
+    delete confirmedPpt.widgetType;
+    delete confirmedPpt.widgetOutline;
+    delete confirmedPpt.interactiveConfig;
+    return confirmedPpt;
+  }
   const requestsCode = outline.resourceTypes?.includes('code-interactive') ||
     /\bcode\b|编程|代码|python|javascript|typescript/.test(text);
-  const requestsInteractive = outline.resourceTypes?.includes('interactive-demo') ||
-    outline.resourceTypes?.includes('code-interactive') ||
+  const requestsInteractive = hasInteractiveResource ||
     Boolean(outline.widgetType);
 
   if (!isAiLearningStudent && outline.type !== 'interactive') {

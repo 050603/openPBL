@@ -20,6 +20,7 @@ import {
   type SceneContent,
   type SlideContent,
 } from '@openmaic/lib/types/stage';
+import { normalizeStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
 
 export const CURRENT_SLIDE_CONTENT_SCHEMA_VERSION = 1;
 
@@ -84,10 +85,11 @@ export function migrateInteractiveContent(content: InteractiveContent): Interact
  */
 export function migrateScene(scene: Scene): Scene {
   const migratedContent = migrateSceneContent(scene.content);
-  if (migratedContent === scene.content) {
+  const migratedActions = normalizeStudentActivityPause(scene.actions);
+  if (migratedContent === scene.content && migratedActions === scene.actions) {
     return scene;
   }
-  return makeScene(scene, migratedContent);
+  return makeScene({ ...scene, actions: migratedActions }, migratedContent);
 }
 
 function migrateSceneContent(content: SceneContent): SceneContent {

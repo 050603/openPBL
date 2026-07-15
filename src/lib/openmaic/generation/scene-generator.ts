@@ -6,6 +6,7 @@
  */
 
 import { nanoid } from 'nanoid';
+import { addStudentActivityPause } from './activity-gate';
 import katex from 'katex';
 import { MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import type {
@@ -60,6 +61,7 @@ import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 import { buildNarrationContext, enforceNarrationContinuity } from './narration-continuity';
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { normalizeQuizQuestions, selectQuizFormats } from '@openmaic/lib/quiz/quality';
+import { normalizeWhiteboardActionLifecycle } from './whiteboard-action-lifecycle';
 const log = createLogger('Generation');
 
 const INTERACTIVE_WIDGET_ACTIONS = [
@@ -1457,7 +1459,9 @@ export async function generateSceneActions(
 
     if (actions.length > 0) {
       // Validate and fill in Action IDs
-      const processed = processActions(actions, content.elements, agents);
+      const processed = normalizeWhiteboardActionLifecycle(
+        processActions(actions, content.elements, agents),
+      );
 
       return finalizeActions(processed);
     }
@@ -1746,46 +1750,6 @@ function generateDefaultInteractiveActions(_outline: SceneOutline): Action[] {
       title: '交互引导',
       text: '现在让我们通过交互式可视化来探索这个概念。请尝试操作页面中的元素，观察变化。',
     },
-  ];
-}
-
-type ActivityPauseSpeechAction = Extract<Action, { type: 'speech' }> & {
-  activityPauseSec: number;
-  activityPausePurpose: 'interaction' | 'quiz';
-};
-
-function addStudentActivityPause(outline: SceneOutline, actions: Action[]): Action[] {
-  const activityPauseSec = Math.round(outline.timingPlan?.studentActivitySec ?? 0);
-  if (activityPauseSec <= 0) {
-    return actions;
-  }
-  const normalizedActions = actions.filter((action) => action.type === 'speech').length >= 2
-    ? actions
-    : [
-        ...actions,
-        {
-          id: `activity_feedback_${nanoid(8)}`,
-          type: 'speech' as const,
-          title: outline.type === 'quiz' ? '测验反馈与过渡' : '活动反馈与过渡',
-          text: outline.type === 'quiz'
-            ? '提交后，请对照页面解析检查自己的推理依据，确认需要巩固的步骤，再继续后面的学习。'
-            : '完成阅读或操作后，把观察到的信息和当前知识点联系起来，再带着这个证据进入下一部分。',
-        },
-      ];
-  const pauseAction: ActivityPauseSpeechAction = {
-    id: `activity_pause_${nanoid(8)}`,
-    type: 'speech',
-    title: outline.type === 'quiz' ? '学生读题、思考与作答' : '学生阅读、操作与观察',
-    text: '',
-    activityPauseSec,
-    activityPausePurpose: outline.type === 'quiz' ? 'quiz' : 'interaction',
-  };
-  const firstSpeechIndex = normalizedActions.findIndex((action) => action.type === 'speech');
-  const insertionIndex = firstSpeechIndex >= 0 ? firstSpeechIndex + 1 : 0;
-  return [
-    ...normalizedActions.slice(0, insertionIndex),
-    pauseAction,
-    ...normalizedActions.slice(insertionIndex),
   ];
 }
 

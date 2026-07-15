@@ -12,13 +12,14 @@ import {
 import { deriveTeachingConstraints } from "@openmaic/lib/pedagogy/teaching-constraints";
 
 export function buildCourseTeachingConstraints(
-  course: Pick<Course, "name" | "subject" | "grade" | "learningObjectives" | "pblConfig" | "learnerProfile">,
+  course: Pick<Course, "name" | "subject" | "grade" | "hours" | "learningObjectives" | "pblConfig" | "learnerProfile">,
   content?: Partial<CourseContent>,
 ) {
   return deriveTeachingConstraints({
     grade: course.grade,
     subject: course.subject,
     topic: course.name,
+    hours: course.hours,
     difficulty: course.pblConfig?.difficultyLevel,
     learnerProfile: course.learnerProfile,
     learningObjectives: course.learningObjectives,

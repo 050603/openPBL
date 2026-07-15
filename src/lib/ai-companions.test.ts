@@ -47,6 +47,8 @@ describe("AI companions", () => {
     expect(prompt).toContain("校园用电提醒器");
     expect(prompt).toContain("不要复述前序伙伴");
     expect(prompt).toContain("现在就能完成的动作");
+    expect(prompt).toContain("只给一个学生现在就能完成的动作");
+    expect(prompt).toContain("50-110 字");
   });
 
   it("gives reflection agents a different anti-outsourcing contract", () => {

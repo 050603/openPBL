@@ -4,7 +4,7 @@
  * Generates an image from a text prompt using the specified provider.
  * Called by the client during media generation after slides are produced.
  *
- * POST /api/generate/image
+ * POST /api/openmaic/generate/image
  *
  * Headers:
  *   x-image-provider: ImageProviderId (optional; server-configured provider is

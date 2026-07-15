@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import type { GenerateInput } from "./types";
 import { normalizeTeachingOutlineResponse } from "./client";
-import { buildTeachingOutlinePrompt } from "./prompts";
+import {
+  buildEvaluationPlanPrompt,
+  buildKnowledgeGraphPrompt,
+  buildLessonOutlinePrompt,
+  buildTeachingOutlinePrompt,
+} from "./prompts";
 import { createPblTimingSkeleton } from "@/lib/pbl-outline-normalization";
 import { buildPblModuleTimingPlan } from "@/lib/pbl-time-model";
 
@@ -22,6 +27,12 @@ const input: GenerateInput = {
   hours: 1,
   summary: "围绕真实问题完成一个个人项目。",
   drivingQuestion: "如何用证据改进自己的方案？",
+  learningObjectives: ["运用证据比较并修订方案"],
+  learnerProfile: {
+    priorKnowledge: "理解分类与简单统计图",
+    learningNeeds: "需要分步案例",
+    familiarContexts: "校园生活",
+  },
   stages,
 };
 
@@ -181,5 +192,23 @@ describe("buildTeachingOutlinePrompt", () => {
     expect(prompt).toContain("教师最终确认的时间安排（最高优先级）");
     expect(prompt).toContain(JSON.stringify(moduleTimingPlan));
     expect(prompt).toContain("多个知识点必须合并进唯一的 ai-learning 顶级阶段");
+  });
+
+  it("propagates confirmed course basics and hour capacity to every downstream prompt", () => {
+    const prompts = [
+      buildKnowledgeGraphPrompt(input).user,
+      buildTeachingOutlinePrompt(input).user,
+      buildLessonOutlinePrompt(input).user,
+      buildEvaluationPlanPrompt(input).user,
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt).toContain("教师确认的课程基础约束（最高优先级）");
+      expect(prompt).toContain("八年级 (middle-school)");
+      expect(prompt).toContain("60 分钟");
+      expect(prompt).toContain("运用证据比较并修订方案");
+      expect(prompt).toContain("理解分类与简单统计图");
+    }
+    expect(prompts[0]).toContain("知识点数量范围：5-8");
   });
 });

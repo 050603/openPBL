@@ -19,12 +19,15 @@ Use this provider/model/voice rate before deciding student AI-learning narration
 ## Output planning rules
 
 {{#if interactiveMode}}
-### Interactive mode — student AI-learning only
+### Interactive mode — mandatory explanation-practice cadence in student AI-learning
 
-- Make `ai-learning` genuinely interactive-first. Prefer `interactive` resources whenever students can learn the assigned knowledge by predicting, manipulating, testing, comparing, inspecting, coding, deciding, or receiving explanatory feedback.
-- Use a `slide` in `ai-learning` only when a dense static reference, exact definition/notation table, safety rule, learning-objective overview, or concise synthesis is materially clearer as one PPT page. Do not keep a slide merely because it is easier to generate.
+- This is a structural constraint, not a style preference. Every coherent knowledge block must follow this rhythm: `slide` explanation (one or at most two closely related semantic pages) → one related `interactive` practice. Repeat that rhythm for the next knowledge block, then optionally finish with a comprehensive `quiz` or synthesis.
+- Slides remain responsible for explaining concepts, examples, evidence, and stable references. Do not replace all slides with widgets. After each one- or two-slide explanation block, however, the next student learning detail MUST be `type: "interactive"` and MUST apply, consolidate, or check transfer of the immediately preceding `knowledgePointIds`.
+- A `quiz` is an assessment and does NOT satisfy the interaction requirement. Do not produce slide-only or slide/quiz-only AI-learning sequences while this mode is enabled.
+- If there is any student `ai-learning` knowledge content, generate at least one interactive practice. Longer AI-learning modules must contain repeated explanation-practice pairs rather than placing all interactions at the end.
 - Select the widget by teaching affordance: simulation for variable/causal models, diagram for structures and relationships, code for executable reasoning, game for applied decisions or practice, and 3D for spatial structure.
-- Every interaction must directly require the listed `knowledgePointIds`; decorative clicking, animation, points, or exploration without prediction, explanation, feedback, or a check for transfer is invalid.
+- Every interaction must reuse the preceding block's valid `parentActivityId` and `knowledgePointIds`, and directly require prediction, manipulation or decision, observation, explanation, explanatory feedback, and a check for transfer. Decorative clicking, animation, points, or unguided exploration is invalid.
+- Split the confirmed parent duration across explanation, interaction, and optional assessment. Interaction time is part of the existing module budget; never increase the parent duration to satisfy this rule.
 - This mode changes only student `ai-learning`. Keep `launch`, `proposal`, `make`, `showcase`, and `reflection` teacher-facing and PPT/script-only under the phase contract.
 {{/if}}
 

@@ -5,30 +5,7 @@ type TeachingWidgetSuggestion = {
   widgetOutline: NonNullable<SceneOutline['widgetOutline']>;
 };
 
-const PPT_ESSENTIAL_SIGNALS = [
-  '术语表',
-  '符号表',
-  '对照表',
-  '参考表',
-  '数据表',
-  '公式表',
-  '完整清单',
-  '安全规范',
-  '操作规范',
-  '评分标准',
-  '评价量规',
-  '课程导入',
-  '学习目标',
-  '本节总结',
-  '知识总结',
-  'glossary',
-  'reference table',
-  'formula sheet',
-  'safety rules',
-  'assessment rubric',
-  'learning objectives',
-  'lesson summary',
-];
+export type OutlineSource = 'confirmed' | 'generated';
 
 const CODE_SIGNALS = [
   '编程', '代码', '算法', '程序', '递归', '排序算法', '数据结构', '循环语句',
@@ -56,10 +33,6 @@ function outlineText(outline: SceneOutline): string {
 
 function hasAny(text: string, signals: ReadonlyArray<string>): boolean {
   return signals.some((signal) => text.includes(signal));
-}
-
-function isPptEssential(outline: SceneOutline): boolean {
-  return hasAny(outlineText(outline), PPT_ESSENTIAL_SIGNALS);
 }
 
 function matchesEnglish(text: string, words: string): boolean {
@@ -138,33 +111,166 @@ export function suggestTeachingWidget(outline: SceneOutline): TeachingWidgetSugg
 }
 
 /**
- * Apply the opt-in interactive-first policy after the PBL routing contract has
- * normalized phase, audience, and purpose metadata.
+ * Apply the opt-in explanation-practice cadence after the PBL routing contract
+ * has normalized phase, audience, and purpose metadata.
  */
 export function applyInteractiveModePolicy(
   outlines: ReadonlyArray<SceneOutline>,
   enabled: boolean,
+  source: OutlineSource = 'generated',
 ): SceneOutline[] {
-  if (!enabled) return [...outlines];
+  // Once the teacher has confirmed the outline, its resource types are the
+  // generation contract. Interactive mode may shape planning, but must never
+  // silently turn a confirmed PPT page into a different resource afterwards.
+  if (!enabled || source === 'confirmed') return [...outlines];
 
-  return outlines.map((outline) => {
-    const isStudentAiTeachingSlide =
-      outline.type === 'slide'
-      && outline.stageKey === 'ai-learning'
+  const result: SceneOutline[] = [];
+  const usedIds = new Set(outlines.map((outline) => outline.id).filter(Boolean));
+  let explanationBlock: SceneOutline[] = [];
+  let changed = false;
+
+  const isStudentKnowledge = (outline: SceneOutline): boolean => {
+    const isStructuredStudentScene = outline.stageKey === 'ai-learning'
       && outline.audience === 'student'
       && outline.generationPurpose === 'knowledge-teaching';
-    if (!isStudentAiTeachingSlide || isPptEssential(outline)) return outline;
+    const isUnstructuredCourseScene = !outline.stageKey && !outline.audience;
+    return isStructuredStudentScene || isUnstructuredCourseScene;
+  };
+  const sameScope = (left: SceneOutline, right: SceneOutline): boolean =>
+    (left.parentActivityId ?? left.stageKey ?? 'course')
+      === (right.parentActivityId ?? right.stageKey ?? 'course');
 
-    const { widgetType, widgetOutline } = suggestTeachingWidget(outline);
-    const resourceTypes: SceneResourceType[] = [
-      widgetType === 'code' ? 'code-interactive' : 'interactive-demo',
-    ];
-    return {
-      ...outline,
-      type: 'interactive',
-      resourceTypes,
-      widgetType,
-      widgetOutline,
-    };
-  });
+  for (let index = 0; index < outlines.length; index += 1) {
+    const outline = outlines[index];
+    const next = outlines[index + 1];
+
+    if (!isStudentKnowledge(outline)) {
+      explanationBlock = [];
+      result.push(outline);
+      continue;
+    }
+
+    if (outline.type === 'interactive') {
+      explanationBlock = [];
+      result.push(outline);
+      continue;
+    }
+
+    if (outline.type !== 'slide') {
+      explanationBlock = [];
+      result.push(outline);
+      continue;
+    }
+
+    result.push(outline);
+    explanationBlock.push(outline);
+
+    const nextIsMatchingInteraction = Boolean(
+      next
+      && isStudentKnowledge(next)
+      && next.type === 'interactive'
+      && sameScope(outline, next),
+    );
+    const blockMustClose = explanationBlock.length >= 2
+      || !next
+      || !isStudentKnowledge(next)
+      || next.type !== 'slide'
+      || !sameScope(outline, next);
+
+    if (!nextIsMatchingInteraction && blockMustClose) {
+      const lastResultIndex = result.length - 1;
+      const { explanation, interaction } = deriveInteractionPractice(
+        explanationBlock,
+        usedIds,
+      );
+      result[lastResultIndex] = explanation;
+      result.push(interaction);
+      explanationBlock = [];
+      changed = true;
+    }
+  }
+
+  return changed
+    ? result.map((outline, index) => ({ ...outline, order: index + 1 }))
+    : result;
+}
+
+function deriveInteractionPractice(
+  explanationBlock: ReadonlyArray<SceneOutline>,
+  usedIds: Set<string>,
+): { explanation: SceneOutline; interaction: SceneOutline } {
+  const source = explanationBlock[explanationBlock.length - 1];
+  const knowledgePointIds = Array.from(new Set(
+    explanationBlock.flatMap((outline) => outline.knowledgePointIds ?? []),
+  ));
+  const keyPoints = Array.from(new Set(
+    explanationBlock.flatMap((outline) => outline.keyPoints ?? []),
+  ));
+  const usesCjk = /[\u3400-\u9fff]/.test(source.title);
+  const practiceLabel = usesCjk ? '互动实践' : 'Interactive practice';
+  const description = usesCjk
+    ? `通过预测、操作、观察和解释，应用并检验前面讲解的“${source.title}”相关知识；系统提供解释性反馈和迁移检查。`
+    : `Apply and check the preceding ${source.title} knowledge through prediction, manipulation, observation, and explanation, with explanatory feedback and a transfer check.`;
+  const widgetSeed: SceneOutline = {
+    ...source,
+    title: source.title,
+    description: explanationBlock.map((outline) => outline.description).join(' '),
+    keyPoints,
+    knowledgePointIds,
+  };
+  const { widgetType, widgetOutline } = suggestTeachingWidget(widgetSeed);
+  const resourceTypes: SceneResourceType[] = [
+    widgetType === 'code' ? 'code-interactive' : 'interactive-demo',
+  ];
+  const id = uniquePracticeId(`${source.id || 'scene'}-interactive-practice`, usedIds);
+  const targetSplit = splitDuration(source.targetDurationSec);
+  const estimateSplit = splitDuration(source.estimatedDuration);
+  const explanation: SceneOutline = {
+    ...source,
+    ...(targetSplit ? { targetDurationSec: targetSplit.explanation } : {}),
+    ...(estimateSplit ? { estimatedDuration: estimateSplit.explanation } : {}),
+  };
+  const interaction: SceneOutline = {
+    ...source,
+    id,
+    type: 'interactive',
+    title: `${source.title} · ${practiceLabel}`,
+    description,
+    keyPoints,
+    knowledgePointIds,
+    detailKind: 'interactive-practice',
+    resourceTypes,
+    widgetType,
+    widgetOutline,
+    mediaGenerations: undefined,
+    suggestedImageIds: undefined,
+    ...(targetSplit ? { targetDurationSec: targetSplit.interaction } : {}),
+    ...(estimateSplit ? { estimatedDuration: estimateSplit.interaction } : {}),
+  };
+
+  return { explanation, interaction };
+}
+
+function splitDuration(
+  duration: number | undefined,
+): { explanation: number; interaction: number } | undefined {
+  if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 2) {
+    return undefined;
+  }
+  const interaction = Math.max(1, Math.round(duration * 0.35));
+  return {
+    explanation: Math.max(1, duration - interaction),
+    interaction,
+  };
+}
+
+function uniquePracticeId(base: string, usedIds: Set<string>): string {
+  let candidate = base;
+  let suffix = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
 }

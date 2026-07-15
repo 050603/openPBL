@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Scene } from '@openmaic/lib/types/stage';
 import type { SceneOutline } from '@openmaic/lib/types/generation';
 import { auditAndRepairGeneratedCourse } from './course-quality';
+import { deriveTeachingConstraints } from '../pedagogy/teaching-constraints';
 
 const outline: SceneOutline = {
   id: 'quiz-1', type: 'quiz', title: '理解检查', description: '检查核心概念', keyPoints: ['分类'],
@@ -23,11 +24,11 @@ describe('course quality audit', () => {
   });
 
   it('reports knowledge references outside the confirmed boundary', () => {
-    const result = auditAndRepairGeneratedCourse([outline], [], {
-      grade: '高一', subject: '信息技术', topic: 'NLP', gradeBand: 'high-school', supportLevel: 'balanced',
-      learnerFoundation: '', learningNeeds: [], familiarContexts: [], learningObjectives: ['理解分类'],
-      allowedKnowledgePoints: [{ id: 'kp-2', name: '情感分析' }], terminologyRule: '', abstractionRule: '', exampleRule: '', progressionRule: '', assessmentRule: '',
-    });
+    const result = auditAndRepairGeneratedCourse([outline], [], deriveTeachingConstraints({
+      grade: '高一', subject: '信息技术', topic: 'NLP', hours: 1,
+      learningObjectives: ['理解分类'],
+      knowledgePoints: [{ id: 'kp-2', name: '情感分析' }],
+    }));
     expect(result.report.warnings.join('')).toContain('kp-1');
   });
 });

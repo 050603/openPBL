@@ -26,6 +26,11 @@ Generate a complete HTML diagram with:
 5. **Cognitive Load**: Keep the current focus visually dominant, group related nodes, and progressively disclose secondary detail. A visible Key Points panel may support orientation but must not replace the guided reasoning task.
 6. **Mastery Evidence**: End with a short transfer task in which the learner predicts a missing node/edge, diagnoses a new case, or reconstructs part of the diagram. Check the response against visible success criteria and report which Key Points were demonstrated.
 
+### Activity Completion Protocol (MANDATORY)
+1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
+2. Call `window.__maicActivity.reset()` whenever a new attempt/restart invalidates that evidence; add `data-activity-reset` to the reset control.
+3. Do not signal completion for opening the page, revealing a node, advancing a guided tour, or any decorative interaction. Completion must mean the transfer task's visible success criteria have been checked.
+
 ### Visual Structure
 1. **SVG nodes** with icons, labels, and click-to-show details
 2. **Edges with arrows** connecting nodes (calculate endpoints from node dimensions)

@@ -33,14 +33,34 @@ export function PageState({ action, description, icon, title, tone = "neutral" }
   );
 }
 
-export function FlowActionBar({ back, children, saveStatus }: { back?: ReactNode; children: ReactNode; saveStatus?: ReactNode }) {
-  return (
-    <div className="pbl-safe-bottom sticky bottom-0 z-30 mt-8 border-t border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] px-4 pt-3 shadow-[0_-8px_24px_rgba(31,41,51,0.06)] backdrop-blur-sm md:px-6">
+export function FlowActionBar({
+  back,
+  children,
+  persistent = false,
+  saveStatus,
+}: {
+  back?: ReactNode;
+  children: ReactNode;
+  persistent?: boolean;
+  saveStatus?: ReactNode;
+}) {
+  const bar = (
+    <div className={cn(
+      "pbl-safe-bottom z-30 border-t border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] px-4 pt-3 shadow-[0_-8px_24px_rgba(31,41,51,0.06)] backdrop-blur-sm md:px-6",
+      persistent ? "fixed inset-x-0 bottom-0" : "sticky bottom-0 mt-8",
+    )}>
       <div className="mx-auto flex max-w-[96rem] items-center justify-between gap-3">
         <div className="min-w-0">{back}</div>
         <div className="hidden flex-1 justify-center sm:flex">{saveStatus}</div>
         <div className="flex shrink-0 items-center gap-2">{children}</div>
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {persistent ? <div aria-hidden="true" className="h-24" /> : null}
+      {bar}
+    </>
   );
 }

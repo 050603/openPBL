@@ -35,6 +35,12 @@ export type PblTimeModelContext = {
   summary?: string;
   grade?: string;
   difficulty?: PblDifficultyLevel;
+  learningObjectives?: ReadonlyArray<string>;
+  learnerProfile?: {
+    priorKnowledge?: string;
+    learningNeeds?: string;
+    familiarContexts?: string;
+  };
   knowledgePoints?: ReadonlyArray<PblKnowledgeComplexity>;
   knowledgeGraph?: {
     nodes?: ReadonlyArray<PblKnowledgeComplexity>;
@@ -300,11 +306,12 @@ export function derivePblTimeRatios(
   const maturity = parseGradeMaturity(context?.grade);
   const complexityDemand = getKnowledgeComplexity(context) - 1;
   const difficultyScore = getDifficultyScore(context);
+  const explicitSupportDemand = context?.learnerProfile?.learningNeeds?.trim() ? 1 : 0;
   const ratios = { ...PBL_TIME_RATIOS };
 
   ratios.launch += (0.5 - maturity) * 0.04;
-  ratios.knowledge += complexityDemand * 0.045 + difficultyScore * 0.015;
-  ratios.proposal += complexityDemand * 0.02;
+  ratios.knowledge += complexityDemand * 0.045 + difficultyScore * 0.015 + explicitSupportDemand * 0.025;
+  ratios.proposal += complexityDemand * 0.02 + explicitSupportDemand * 0.01;
   ratios.practice += complexityDemand * 0.065 + difficultyScore * 0.035;
   ratios.showcase += complexityDemand * 0.01;
   ratios.reflection += (0.5 - maturity) * 0.015 + difficultyScore * 0.005;

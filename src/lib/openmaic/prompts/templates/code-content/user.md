@@ -44,6 +44,11 @@ Generate a complete, interactive HTML code editor with:
 5. **Scaffolded Annotations**: Starter comments must explain intent and reasoning without completing the challenge. Progressive hints should move from concept → strategy → local cue, and preserve the student's ownership of the final code.
 6. **Mastery Evidence**: Finish with a short transfer task using a new input or constraint. Record the student's code/output, test it against visible success criteria, and show which Key Points are demonstrated; merely pressing Run or copying the starter code is not completion.
 
+### Activity Completion Protocol (MANDATORY)
+1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
+2. Call `window.__maicActivity.reset()` whenever a new attempt/restart invalidates that evidence; add `data-activity-reset` to the reset control.
+3. Do not signal completion for opening the page, pressing Run, viewing a hint, revealing content, or any decorative interaction. Completion must mean the visible success criteria for the transfer task have been checked.
+
 ### Interactive Features
 1. Code editor with syntax highlighting
 2. Run button with output display

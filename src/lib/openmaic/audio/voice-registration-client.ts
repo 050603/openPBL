@@ -4,7 +4,7 @@
  * Provider-neutral client orchestrator for the auto-voice register-once flow.
  *
  * Given a provider id + voice design, it resolves a deterministic voice id,
- * ensures the voice is registered on the backend via `POST /api/generate/voice`
+ * ensures the voice is registered on the backend via `POST /api/openmaic/generate/voice`
  * (which dispatches to the provider's adapter), and caches the reference clip
  * in IndexedDB so a GC'd voice can be re-registered. Callers decide *whether*
  * their provider supports registration; this module is provider-agnostic.
@@ -100,7 +100,7 @@ async function registerOnce(
   request: VoiceRegistrationRequestConfig,
 ): Promise<string | undefined> {
   const cached = await getCachedClip(voiceId);
-  const res = await fetch('/api/generate/voice', {
+  const res = await fetch('/api/openmaic/generate/voice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

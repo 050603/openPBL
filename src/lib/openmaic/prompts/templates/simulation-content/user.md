@@ -34,6 +34,11 @@ Generate a complete, interactive HTML simulation with these MANDATORY features:
 5. **Readable Evidence**: Label every control, axis, state, and data display in the course language with units where applicable. Provide side-by-side or trace comparison so observations are not dependent on memory alone.
 6. **Mastery Evidence**: Finish with a transfer task using unseen parameters or a new scenario. Record the prediction, result, and explanation; evaluate them against visible success criteria and report which Key Points were demonstrated. Running every preset is not completion.
 
+### Activity Completion Protocol (MANDATORY)
+1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
+2. Call `window.__maicActivity.reset()` whenever a new run/restart invalidates that evidence; add `data-activity-reset` to the reset control.
+3. Do not signal completion for starting or ending a simulation, changing a slider, using a preset, or any decorative interaction. Completion must mean the transfer prediction, observation, and explanation meet the visible success criteria.
+
 ### Structure
 1. **Embedded JSON config** in `<script type="application/json" id="widget-config">`
 2. **Control panel** with sliders for each variable

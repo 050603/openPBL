@@ -288,6 +288,36 @@ describe("PBL outline fallbacks", () => {
     });
   });
 
+  it("keeps an explicit AI-learning PPT as a slide even if stale widget metadata remains", () => {
+    const [result] = enforcePblOutlineContract(
+      [
+        {
+          id: "confirmed-ppt-with-stale-widget",
+          type: "slide",
+          title: "术语与符号对照",
+          description: "使用一页演示文稿清晰列出术语、符号和定义。",
+          keyPoints: ["术语", "符号", "定义"],
+          order: 0,
+          stageKey: "ai-learning",
+          audience: "student",
+          generationPurpose: "knowledge-teaching",
+          resourceTypes: ["ppt"],
+          widgetType: "diagram",
+          widgetOutline: { diagramType: "mindmap", concept: "旧互动配置" },
+        },
+      ],
+      {
+        requirement: "test",
+        pblProfile: DEFAULT_PBL_COURSE_CONFIG,
+      },
+    );
+
+    expect(result).toMatchObject({
+      type: "slide",
+      resourceTypes: ["ppt"],
+    });
+  });
+
   it("fails closed for an unlabelled PBL outline", () => {
     const result = enforcePblOutlineContract(
       [{

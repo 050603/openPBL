@@ -11,6 +11,12 @@ import {
 import { createLogger } from '@openmaic/lib/logger';
 import { getCourse, updateCourse } from '@/lib/session/server-store';
 import type { StudentAiProgress } from '@/lib/session/types';
+import { readClassroom } from '@openmaic/lib/server/classroom-storage';
+import { normalizeProgressUpdate } from '@openmaic/lib/progress/normalize-progress';
+import {
+  AI_PROGRESS_COMPLETION_MODEL_VERSION,
+  isReliableAiProgress,
+} from '@openmaic/lib/progress/completion-model';
 
 const log = createLogger('ProgressAPI');
 
@@ -25,6 +31,7 @@ type ProgressRequestBody = {
   currentSceneIndex?: number;
   totalScenes?: number;
   completedScenes?: string[];
+  completionModelVersion?: number;
   quizScore?: number;
 };
 
@@ -55,6 +62,7 @@ function computeMasteryLevel(
 export async function GET(request: NextRequest) {
   try {
     const courseId = request.nextUrl.searchParams.get('courseId');
+    const studentId = request.nextUrl.searchParams.get('studentId');
 
     if (!courseId) {
       return apiError(
@@ -69,7 +77,14 @@ export async function GET(request: NextRequest) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Course not found');
     }
 
-    return apiSuccess({ data: { progress: course.aiLearningProgress ?? {} } });
+    const progress = course.aiLearningProgress ?? {};
+    return apiSuccess({
+      data: {
+        progress: studentId
+          ? { ...(progress[studentId] ? { [studentId]: progress[studentId] } : {}) }
+          : progress,
+      },
+    });
   } catch (error) {
     log.error(
       `Progress retrieval failed [courseId=${request.nextUrl.searchParams.get('courseId') ?? 'unknown'}]:`,
@@ -127,13 +142,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const sceneCompleted = Array.isArray(completedScenes) ? completedScenes : [];
+    const course = await getCourse(courseId);
+    if (!course) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Course not found');
+    }
+    const linkedClassroomId = course.aiLearningClassroomId ?? course.content._openmaicClassroomId;
+    if (!linkedClassroomId || linkedClassroomId !== classroomId) {
+      return apiError(
+        API_ERROR_CODES.INVALID_REQUEST,
+        400,
+        'Classroom does not belong to this course',
+      );
+    }
+    if (!course.students.some((student) => student.id === studentId)) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 403, 'Student is not enrolled in this course');
+    }
+    const classroom = await readClassroom(classroomId);
+    if (!classroom || classroom.scenes.length === 0) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Classroom scenes not found');
+    }
+
+    const normalized = normalizeProgressUpdate({
+      validSceneIds: classroom.scenes.map((scene) => scene.id),
+      requestedCurrentSceneIndex: currentSceneIndex,
+      requestedCompletedScenes: Array.isArray(completedScenes) ? completedScenes : [],
+      previousCompletedScenes: isReliableAiProgress(course.aiLearningProgress?.[studentId])
+        ? course.aiLearningProgress?.[studentId]?.completedScenes ?? []
+        : [],
+    });
     const score =
       typeof quizScore === 'number' && !Number.isNaN(quizScore) ? quizScore : undefined;
     const masteryLevel = computeMasteryLevel(
-      currentSceneIndex,
-      totalScenes,
-      sceneCompleted,
+      normalized.currentSceneIndex,
+      normalized.totalScenes,
+      normalized.completedScenes,
       score,
     );
 
@@ -144,9 +186,10 @@ export async function POST(request: NextRequest) {
       const next: StudentAiProgress = {
         classroomId,
         studentId,
-        currentSceneIndex,
-        totalScenes,
-        completedScenes: sceneCompleted,
+        currentSceneIndex: normalized.currentSceneIndex,
+        totalScenes: normalized.totalScenes,
+        completedScenes: normalized.completedScenes,
+        completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
         lastActiveAt: now,
         masteryLevel,
         ...(score !== undefined ? { quizScore: score } : {}),

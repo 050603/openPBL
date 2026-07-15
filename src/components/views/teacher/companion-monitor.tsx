@@ -9,6 +9,8 @@ import { detectInterventionSignals, type InterventionSignal } from "@/lib/classr
 import type { Course, LearningSignal } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
 import { TeacherDirectiveForm } from "./teacher-directive-form";
+import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
+import { aggregateCommonIssues, isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
 
 type StudentSignal = LearningSignal | InterventionSignal;
 
@@ -21,7 +23,14 @@ function signalTargetsStudent(course: Course, signal: InterventionSignal, studen
 
 function getStudentSignals(course: Course, stageKey: string, studentId: string): StudentSignal[] {
   const learningSignals = (course.learningSignals ?? []).filter(
-    (signal) => signal.stageKey === stageKey && signal.studentId === studentId && signal.status === "open",
+    (signal) => signal.stageKey === stageKey
+      && signal.studentId === studentId
+      && signal.status === "open"
+      && isLearningSignalRelevant(
+        signal,
+        course.learningEvents ?? [],
+        stageKey === "ai-learning" && ["completed", "mastered"].includes(course.aiLearningProgress?.[studentId]?.masteryLevel ?? ""),
+      ),
   );
   const derivedSignals = detectInterventionSignals(course).filter(
     (signal) => (!signal.stageKey || signal.stageKey === stageKey) && signalTargetsStudent(course, signal, studentId),
@@ -51,7 +60,10 @@ export function CompanionMonitor({ course, stageKey }: { course: Course; stageKe
   const [handlingNote, setHandlingNote] = useState("");
 
   const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? students[0];
-  const commonIssues = (course.classCommonIssues ?? []).filter((issue) => issue.stageKey === stageKey && issue.status === "open");
+  const commonIssues = aggregateCommonIssues(
+    students.flatMap((student) => getStudentSignals(course, stageKey, student.id)).filter((signal): signal is LearningSignal => "normalizedIssueKey" in signal),
+    students.length,
+  );
   const selectedSignals = selectedStudent ? getStudentSignals(course, stageKey, selectedStudent.id) : [];
   const selectedMessages = (course.companionThreads ?? [])
     .filter((thread) => thread.stageKey === stageKey && thread.studentId === selectedStudent?.id)
@@ -97,7 +109,7 @@ export function CompanionMonitor({ course, stageKey }: { course: Course; stageKe
       {commonIssues.length ? (
         <section className="mt-4 rounded-lg border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-black text-[var(--pbl-danger)]"><Users size={16} />班级共性问题</div>
-          <ul className="space-y-2">{commonIssues.map((issue) => <li className="flex items-start justify-between gap-3 text-sm" key={issue.id}><span><strong>{issue.title}</strong><span className="mt-0.5 block text-stone-600">{issue.summary}</span></span><span className="shrink-0 font-bold text-[var(--pbl-danger)]">{issue.studentIds.length} 人</span></li>)}</ul>
+          <ul className="space-y-2">{commonIssues.map((issue) => <li className="flex items-start justify-between gap-3 text-sm" key={issue.id}><span><strong>{issue.title}</strong><span className="mt-0.5 block text-xs font-semibold text-stone-500">{formatLearningContentReference(issue.content)}</span><span className="mt-0.5 block text-stone-600">{issue.summary}</span><span className="mt-0.5 block text-xs text-stone-500">{issue.studentIds.map((id) => course.students.find((student) => student.id === id)?.name ?? id).join("、")}</span></span><span className="shrink-0 font-bold text-[var(--pbl-danger)]">{issue.studentIds.length} 人</span></li>)}</ul>
         </section>
       ) : null}
 
@@ -121,7 +133,7 @@ export function CompanionMonitor({ course, stageKey }: { course: Course; stageKe
           {selectedStudent ? (
             <>
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 pb-3"><div className="flex items-center gap-3"><Avatar name={selectedStudent.name} size={42} /><div><h4 className="text-lg font-black">{selectedStudent.name}</h4><p className="text-xs text-stone-500">阶段进度 {getStudentProgress(course, stageKey, selectedStudent.id)}% · {selectedSignals.length ? `${selectedSignals.length} 条待处理信号` : "当前无待处理信号"}</p></div></div>{selectedSignals.length ? <Pill tone="red"><CircleAlert size={13} />需要教师处理</Pill> : <Pill tone="green">已处理</Pill>}</div>
-              <section className="mt-4"><h5 className="flex items-center gap-2 text-sm font-black"><CircleAlert size={15} />介入详情</h5>{selectedSignals.length ? <ul className="mt-2 space-y-2">{selectedSignals.map((signal) => <li className="rounded-lg border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3" key={signal.id}><div className="flex items-center justify-between gap-2"><strong className="text-sm text-[var(--pbl-danger)]">{signal.title}</strong><span className="text-[11px] font-bold text-[var(--pbl-danger)]">{"severity" in signal ? signal.severity : signal.confidence === "high" ? "高置信" : "需核查"}</span></div><p className="mt-1 text-sm leading-6 text-stone-600">{"summary" in signal ? signal.summary : signal.whatHappened}</p><p className="mt-1 text-xs text-stone-400">依据：{"evidenceEventIds" in signal ? `${signal.evidenceEventIds.length} 条学习事件` : signal.evidence.join("；")}</p></li>)}</ul> : <p className="mt-2 rounded-lg border border-dashed border-stone-200 py-6 text-center text-sm text-stone-500">暂无未处理风险。教师处理完成后，学生卡片上的叹号会消失。</p>}</section>
+              <section className="mt-4"><h5 className="flex items-center gap-2 text-sm font-black"><CircleAlert size={15} />介入详情</h5>{selectedSignals.length ? <ul className="mt-2 space-y-2">{selectedSignals.map((signal) => <li className="rounded-lg border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3" key={signal.id}><div className="flex items-center justify-between gap-2"><strong className="text-sm text-[var(--pbl-danger)]">{signal.title}</strong><span className="text-[11px] font-bold text-[var(--pbl-danger)]">{"severity" in signal ? signal.severity : signal.confidence === "high" ? "高置信" : "需核查"}</span></div>{"content" in signal ? <p className="mt-1 text-xs font-semibold text-stone-500">{formatLearningContentReference(signal.content, signal.sceneId)}</p> : "contentLocation" in signal && signal.contentLocation ? <p className="mt-1 text-xs font-semibold text-stone-500">{signal.contentLocation}</p> : null}<p className="mt-1 text-sm leading-6 text-stone-600">{"summary" in signal ? signal.summary : signal.whatHappened}</p><p className="mt-1 text-xs text-stone-400">依据：{"evidenceEventIds" in signal ? `${signal.evidenceEventIds.length} 条学习事件` : signal.evidence.join("；")}</p></li>)}</ul> : <p className="mt-2 rounded-lg border border-dashed border-stone-200 py-6 text-center text-sm text-stone-500">暂无未处理风险。教师处理完成后，学生卡片上的叹号会消失。</p>}</section>
 
               <section className="mt-5"><h5 className="flex items-center gap-2 text-sm font-black"><MessageSquareText size={15} />AI 对话过程</h5>{selectedMessages.length ? <ol className="mt-2 max-h-64 space-y-2 overflow-y-auto">{selectedMessages.map((message) => <li className="border-l-2 border-stone-200 pl-3" key={message.id}><div className="flex justify-between gap-3 text-[11px] text-stone-400"><span>{message.authorName ?? message.companionId ?? message.role}{message.visibility === "teacher-only" ? " · 仅教师" : ""}</span><time>{new Date(message.createdAt).toLocaleString("zh-CN")}</time></div><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-700">{message.content}</p></li>)}</ol> : <p className="mt-2 text-sm text-stone-500">暂无 AI 对话记录</p>}</section>
 

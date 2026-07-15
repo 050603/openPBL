@@ -127,6 +127,12 @@ const INTERACTION_SYNC_SHIM = `<script data-iframe-interaction-sync>
   function postActivity(kind) {
     try { window.parent.postMessage({ __maicInteractive: true, kind: kind }, '*'); } catch (e) {}
   }
+  // Stable API for generated pages. A page must call complete only after the
+  // learner has produced the intended evidence, not after an arbitrary click.
+  window.__maicActivity = {
+    complete: function () { postActivity('activity-complete'); },
+    reset: function () { postActivity('activity-reset'); }
+  };
   function collectState() {
     var state = {};
     var nodes = document.querySelectorAll('[data-sync], [data-sync-region] [name], [data-sync-region] input, [data-sync-region] select, [data-sync-region] textarea');
@@ -168,15 +174,12 @@ const INTERACTION_SYNC_SHIM = `<script data-iframe-interaction-sync>
     if (t && t.closest && t.closest('[data-sync],[data-sync-region]')) scheduleBroadcast();
     if (!t || !t.closest) return;
     if (t.closest('[data-activity-reset],button[type="reset"],input[type="reset"],#reset-btn')) {
-      setTimeout(function () { postActivity('activity-reset'); }, 0);
+      setTimeout(function () { window.__maicActivity.reset(); }, 0);
       return;
     }
-    if (t.closest('[data-activity-complete],[data-complete],button[type="submit"],input[type="submit"],#submit-btn,#finish-btn,#check-answer')) {
-      setTimeout(function () { postActivity('activity-complete'); }, 0);
+    if (t.closest('[data-activity-complete],[data-complete],#finish-btn')) {
+      setTimeout(function () { window.__maicActivity.complete(); }, 0);
     }
-  }, true);
-  document.addEventListener('submit', function () {
-    setTimeout(function () { postActivity('activity-complete'); }, 0);
   }, true);
   // Initial broadcast once the DOM is ready so late-loading viewers get current state
   if (document.readyState === 'complete') broadcast();

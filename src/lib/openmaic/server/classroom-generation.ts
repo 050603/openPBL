@@ -52,6 +52,7 @@ import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-pl
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
 import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
 import type { Action } from '@openmaic/lib/types/action';
 import { validatePblKnowledgeAlignment } from '@/lib/pbl-outline-validation';
@@ -116,7 +117,6 @@ export interface ClassroomGenerationProgress {
 
 export interface GenerateClassroomResult {
   id: string;
-  url: string;
   stage: Stage;
   scenes: Scene[];
   scenesCount: number;
@@ -447,7 +447,6 @@ Return a JSON object with this exact structure:
 export async function generateClassroom(
   input: GenerateClassroomInput,
   options: {
-    baseUrl: string;
     signal?: AbortSignal;
     onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
   },
@@ -670,11 +669,13 @@ export async function generateClassroom(
     confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
     requirements,
   );
-  // When interactiveMode is enabled, convert suitable AI-learning slide scenes
-  // to interactive widget scenes so students learn by doing instead of reading.
-  if (input.interactiveMode) {
+  const outlineSource = confirmedOutlines.length > 0 ? 'confirmed' : 'generated';
+  // Interactive mode is allowed to repair only an unconfirmed model-generated
+  // plan. A teacher-confirmed outline is authoritative: PPT, quiz, and
+  // interactive markers must survive final classroom generation unchanged.
+  if (input.interactiveMode && outlineSource === 'generated') {
     const beforeCount = baseOutlines.filter((o) => o.type === 'interactive').length;
-    baseOutlines = applyInteractiveModePolicy(baseOutlines, true);
+    baseOutlines = applyInteractiveModePolicy(baseOutlines, true, outlineSource);
     const afterCount = baseOutlines.filter((o) => o.type === 'interactive').length;
     if (afterCount > beforeCount) {
       log.info(`Interactive mode: converted ${afterCount - beforeCount} slide(s) to interactive widgets`);
@@ -915,12 +916,23 @@ export async function generateClassroom(
   );
 
   throwIfAborted(options.signal);
+  const failedContentTitles = sceneDrafts.flatMap((draft, index) =>
+    draft ? [] : [outlines[index]?.title ?? `scene-${index + 1}`],
+  );
+  assertCompleteSceneGeneration({
+    expectedCount: outlines.length,
+    generatedCount: sceneDrafts.length - failedContentTitles.length,
+    failedTitles: failedContentTitles,
+    phase: 'content',
+  });
   let generatedScenes = 0;
+  const failedAssemblyTitles: string[] = [];
   for (const draft of sceneDrafts) {
     if (!draft) continue;
     const sceneId = createSceneWithActions(draft.outline, draft.content, draft.actions, api);
     if (!sceneId) {
       log.warn(`Skipping scene "${draft.outline.title}" — scene creation failed`);
+      failedAssemblyTitles.push(draft.outline.title);
       continue;
     }
 
@@ -934,6 +946,13 @@ export async function generateClassroom(
       totalScenes: outlines.length,
     });
   }
+
+  assertCompleteSceneGeneration({
+    expectedCount: outlines.length,
+    generatedCount: generatedScenes,
+    failedTitles: failedAssemblyTitles,
+    phase: 'assembly',
+  });
 
   const qualityResult = auditAndRepairGeneratedCourse(
     outlines,
@@ -968,11 +987,10 @@ export async function generateClassroom(
       stage,
       scenes,
     },
-    options.baseUrl,
   );
   throwIfAborted(options.signal);
 
-  log.info(`Classroom persisted: ${persisted.id}, URL: ${persisted.url}`);
+  log.info(`Classroom persisted: ${persisted.id}`);
 
   await reportProgress({
     step: 'completed',
@@ -984,7 +1002,6 @@ export async function generateClassroom(
 
   return {
     id: persisted.id,
-    url: persisted.url,
     stage,
     scenes,
     scenesCount: scenes.length,

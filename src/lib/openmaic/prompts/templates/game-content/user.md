@@ -34,6 +34,11 @@ Generate a FUN, INTERACTIVE HTML game with these MANDATORY features:
 5. **Fair Assessment**: Separate knowledge errors from motor/timing errors. If dexterity is not itself an objective, provide forgiving controls and do not let reaction speed determine the learning result.
 6. **Mastery Evidence**: End with a transfer challenge that changes the context or parameters. Record the player's strategy and explanation, evaluate them against visible success criteria, and show which Key Points were demonstrated; game completion alone is not mastery.
 
+### Activity Completion Protocol (MANDATORY)
+1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
+2. Call `window.__maicActivity.reset()` whenever a replay/restart invalidates that evidence; add `data-activity-reset` to the reset control.
+3. Do not signal completion for starting the game, winning by score alone, finishing an animation, or any decorative interaction. Completion must mean the transfer challenge and explanation meet the visible success criteria.
+
 ### Game Design (CRITICAL - NOT A QUIZ!)
 1. **Interactive gameplay**: Player MUST control something meaningful (NOT just click answers)
 2. **Real game mechanics**: Timing, aiming, dragging, balancing, catching, or building

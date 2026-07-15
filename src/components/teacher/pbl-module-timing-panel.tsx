@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { CheckCircle2, Clock3, Gauge, LockKeyhole, WandSparkles } from "lucide-react";
 import {
   buildPblModuleTimingPlan,
@@ -96,11 +96,12 @@ function TimeBar({
   }, []);
 
   // 计算每个模块的累计偏移量（百分比）
-  let cumPct = 0;
-  const segments = activities.map((activity) => {
+  const segments = activities.map((activity, index) => {
     const pct = totalMinutes > 0 ? (activity.durationMin / totalMinutes) * 100 : 0;
-    const left = cumPct;
-    cumPct += pct;
+    const precedingMinutes = activities
+      .slice(0, index)
+      .reduce((sum, item) => sum + item.durationMin, 0);
+    const left = totalMinutes > 0 ? (precedingMinutes / totalMinutes) * 100 : 0;
     return { activity, left, width: pct };
   });
 
@@ -145,6 +146,7 @@ function TimeBar({
 }
 
 export function PblModuleTimingPanel({
+  compact = false,
   moduleActivities,
   totalMinutes,
   timeContext,
@@ -155,6 +157,7 @@ export function PblModuleTimingPanel({
   onApplyRecommendation,
   onConfirm,
 }: {
+  compact?: boolean;
   moduleActivities: ReadonlyArray<PblTimeActivity>;
   totalMinutes: number;
   timeContext?: PblTimeModelContext;
@@ -231,7 +234,7 @@ export function PblModuleTimingPanel({
             {planConfirmed ? "教师已确认" : "AI 建议待确认"}
           </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <div className={cn("mt-4 grid gap-2", compact ? "grid-cols-2" : "sm:grid-cols-3")}>
           <div className="rounded-[6px] bg-white/80 px-3 py-2">
             <div className="flex items-center gap-1.5 text-xs text-stone-500"><Clock3 size={13} /> 课程总时长</div>
             <p className="mt-1 text-lg font-bold tabular-nums text-stone-800">{safeTotalMinutes} 分钟</p>
@@ -242,6 +245,7 @@ export function PblModuleTimingPanel({
           </div>
           <div className={cn(
             "rounded-[6px] px-3 py-2",
+            compact && "col-span-2",
             allocationDelta === 0 ? "bg-emerald-50" : "bg-amber-50",
           )}>
             <div className="text-xs text-stone-500">分配状态</div>
@@ -309,16 +313,22 @@ export function PblModuleTimingPanel({
           />
         ) : null}
 
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <div className={cn(
+          "grid gap-2",
+          compact ? "sm:grid-cols-2 xl:grid-cols-1" : "md:grid-cols-2 xl:grid-cols-3",
+        )}>
           {moduleActivities.map((activity) => {
             const kind = classifyPblActivityKind(activity);
             const recommended = recommendations.get(activity.id) ?? activity.durationMin;
             const definition = PBL_MODULE_DEFINITIONS.find((item) => item.kind === kind);
             return (
               <div className="rounded-[6px] border border-stone-100 bg-stone-50/70 px-3 py-2.5" key={activity.id}>
-                <div className="flex items-center justify-between gap-2">
+                <div className={cn("flex justify-between gap-2", compact ? "items-start" : "items-center")}>
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-stone-700">
+                    <p className={cn(
+                      "font-semibold text-stone-700",
+                      compact ? "break-words text-sm leading-5" : "truncate text-xs",
+                    )}>
                       {moduleLabel(kind, activity.title ?? definition?.label)}
                     </p>
                     <p className="mt-0.5 text-[11px] text-stone-400">AI 建议 {recommended} 分钟</p>

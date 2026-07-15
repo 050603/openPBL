@@ -44,7 +44,9 @@ export type SnippetId =
   | 'slide-generated-image-instructions'
   | 'slide-video-instructions'
   | 'speech-guidelines'
-  | 'whiteboard-reference';
+  | 'whiteboard-reference'
+  | 'instructional-presentation-policy'
+  | 'generated-whiteboard-actions';
 
 /**
  * Loaded prompt template

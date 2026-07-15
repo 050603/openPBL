@@ -2,7 +2,7 @@
  * Media Generation Orchestrator
  *
  * Dispatches media generation API calls for all mediaGenerations across outlines.
- * Runs entirely on the frontend — calls /api/generate/image and /api/generate/video,
+ * Runs entirely on the frontend — calls the canonical openPBL media APIs,
  * fetches result blobs, stores in IndexedDB, and updates the Zustand store.
  */
 
@@ -286,7 +286,7 @@ async function callImageApi(
   const { signal: timeoutSignal, cleanup } = withTimeoutSignal(abortSignal, IMAGE_API_TIMEOUT_MS);
 
   try {
-    const response = await fetch('/api/generate/image', {
+    const response = await fetch('/api/openmaic/generate/image', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -332,7 +332,7 @@ async function callVideoApi(
   const { signal: timeoutSignal, cleanup } = withTimeoutSignal(abortSignal, VIDEO_API_TIMEOUT_MS);
 
   try {
-    const response = await fetch('/api/generate/video', {
+    const response = await fetch('/api/openmaic/generate/video', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

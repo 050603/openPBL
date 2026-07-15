@@ -11,6 +11,10 @@ export interface TeachingConstraints {
   grade: string;
   subject: string;
   topic: string;
+  courseHours: number;
+  totalMinutes: number;
+  recommendedKnowledgePointRange: { min: number; max: number };
+  scopeRule: string;
   gradeBand: LearnerGradeBand;
   supportLevel: LearnerSupportLevel;
   learnerFoundation: string;
@@ -23,6 +27,52 @@ export interface TeachingConstraints {
   exampleRule: string;
   progressionRule: string;
   assessmentRule: string;
+}
+
+export function deriveCourseScope(hours?: number): Pick<
+  TeachingConstraints,
+  'courseHours' | 'totalMinutes' | 'recommendedKnowledgePointRange' | 'scopeRule'
+> {
+  const courseHours = Number.isFinite(hours) ? Math.max(1, Number(hours)) : 1;
+  const totalMinutes = Math.round(courseHours * 60);
+  if (courseHours <= 1) {
+    return {
+      courseHours,
+      totalMinutes,
+      recommendedKnowledgePointRange: { min: 5, max: 8 },
+      scopeRule: 'Keep a compact AI-literacy scope: use several fine-grained concepts to explain one coherent mechanism, include one guided application, and require one small verifiable outcome.',
+    };
+  }
+  if (courseHours <= 2) {
+    return {
+      courseHours,
+      totalMinutes,
+      recommendedKnowledgePointRange: { min: 8, max: 12 },
+      scopeRule: 'Use a focused AI-literacy scope: establish a fine-grained prerequisite chain, compare at least two examples or methods, provide guided practice, and complete one bounded application with evidence.',
+    };
+  }
+  if (courseHours <= 3) {
+    return {
+      courseHours,
+      totalMinutes,
+      recommendedKnowledgePointRange: { min: 10, max: 15 },
+      scopeRule: 'Use a moderate AI-literacy scope with foundations, mechanism explanation, comparison of methods, guided application, and one revision cycle. Depth must remain appropriate to the learner stage.',
+    };
+  }
+  if (courseHours <= 4) {
+    return {
+      courseHours,
+      totalMinutes,
+      recommendedKnowledgePointRange: { min: 12, max: 18 },
+      scopeRule: 'Use the available sessions for a complete fine-grained foundation-to-application progression, evidence collection, testing, and at least one meaningful revision.',
+    };
+  }
+  return {
+    courseHours,
+    totalMinutes,
+    recommendedKnowledgePointRange: { min: 15, max: 22 },
+    scopeRule: 'Use the course for a complete AI-literacy project with fine-grained concepts, sustained inquiry, multiple evidence cycles, testing, feedback, and iteration; avoid repetition or superficial filler.',
+  };
 }
 
 function splitItems(value?: string): string[] {
@@ -99,6 +149,7 @@ export function deriveTeachingConstraints(input: {
   grade?: string;
   subject?: string;
   topic?: string;
+  hours?: number;
   difficulty?: 'introductory' | 'standard' | 'advanced';
   learnerProfile?: LearnerProfileInput;
   learningObjectives?: string[];
@@ -107,6 +158,7 @@ export function deriveTeachingConstraints(input: {
   const grade = input.grade?.trim() || '未指定学段';
   const gradeBand = inferGradeBand(grade);
   const defaults = gradeDefaults(gradeBand);
+  const scope = deriveCourseScope(input.hours);
   const explicitPrior = input.learnerProfile?.priorKnowledge?.trim();
   const difficulty = input.difficulty ?? 'standard';
   const supportLevel: LearnerSupportLevel = difficulty === 'introductory'
@@ -119,6 +171,7 @@ export function deriveTeachingConstraints(input: {
     grade,
     subject: input.subject?.trim() || '综合课程',
     topic: input.topic?.trim() || '当前课程主题',
+    ...scope,
     gradeBand,
     supportLevel,
     learnerFoundation: explicitPrior || defaults.learnerFoundation,
@@ -145,6 +198,9 @@ export function formatTeachingConstraintsForPrompt(constraints?: TeachingConstra
     '## Student Profile and Teaching Boundary (authoritative)',
     `Grade/stage: ${constraints.grade} (${constraints.gradeBand})`,
     `Subject/topic: ${constraints.subject} / ${constraints.topic}`,
+    `Course capacity: ${constraints.courseHours} hours / ${constraints.totalMinutes} minutes`,
+    `Recommended knowledge-point range: ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max}`,
+    `Scope rule: ${constraints.scopeRule}`,
     `Scaffolding level: ${constraints.supportLevel}`,
     `Assumed prior knowledge: ${constraints.learnerFoundation}`,
     constraints.learningNeeds.length ? `Learning needs: ${constraints.learningNeeds.join('；')}` : '',

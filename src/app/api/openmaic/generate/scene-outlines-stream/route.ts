@@ -15,7 +15,7 @@
 
 import { NextRequest } from 'next/server';
 import { streamLLM } from '@openmaic/lib/ai/llm';
-import { buildPrompt, PROMPT_IDS } from '@openmaic/lib/prompts';
+import { buildPrompt } from '@openmaic/lib/prompts';
 import {
   formatImageDescription,
   formatImagePlaceholder,
@@ -29,6 +29,8 @@ import {
   enforcePblOutlineContract,
   normalizeSceneOutlinesForDuration,
 } from '@openmaic/lib/generation/outline-generator';
+import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { resolveOutlinePromptPlan } from '@openmaic/lib/generation/outline-prompt-plan';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import { nanoid } from 'nanoid';
 import type {
@@ -388,15 +390,9 @@ export async function POST(req: NextRequest) {
     const teacherContext = formatTeacherPersonaForPrompt(agents);
 
     // Check if Interactive Mode or server-enabled Task Engine mode is enabled.
-    const interactiveMode = requirements.interactiveMode ?? false;
     const taskEngineMode = resolveVocationalActive(requirements);
-    const promptId = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
-      ? PROMPT_IDS.PBL_COURSE
-      : taskEngineMode
-      ? PROMPT_IDS.TASK_ENGINE_OUTLINES
-      : interactiveMode
-        ? PROMPT_IDS.INTERACTIVE_OUTLINES
-        : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
+    const promptPlan = resolveOutlinePromptPlan(requirements, taskEngineMode);
+    const promptId = promptPlan.promptId;
 
     const prompts = buildPrompt(promptId, {
       requirement: requirements.requirement,
@@ -407,6 +403,7 @@ export async function POST(req: NextRequest) {
       imageEnabled: imageGenerationEnabled,
       videoEnabled: videoGenerationEnabled,
       mediaEnabled: mediaGenerationEnabled,
+      interactiveMode: promptPlan.interactiveMode,
       teacherContext,
       userProfile: userProfileText,
       pblProfile: requirements.pblProfile
@@ -641,7 +638,11 @@ export async function POST(req: NextRequest) {
             const contractOutlines = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
               ? enforcePblOutlineContract(parsedOutlines, requirements)
               : parsedOutlines;
-            const normalizedOutlines = normalizeSceneOutlinesForDuration(contractOutlines);
+            const modeAwareOutlines = applyInteractiveModePolicy(
+              contractOutlines,
+              promptPlan.interactiveMode,
+            );
+            const normalizedOutlines = normalizeSceneOutlinesForDuration(modeAwareOutlines);
             const uniquifiedOutlines = uniquifyMediaElementIds(normalizedOutlines);
             // Send done event with all outlines
             const doneEvent = JSON.stringify({

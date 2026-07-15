@@ -105,7 +105,7 @@ export function useTTSPreview() {
         if (options.baseUrl?.trim()) body.ttsBaseUrl = options.baseUrl;
         if (options.providerOptions) body.ttsProviderOptions = options.providerOptions;
 
-        const res = await fetch('/api/generate/tts', {
+        const res = await fetch('/api/openmaic/generate/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

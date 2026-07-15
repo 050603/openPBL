@@ -6,13 +6,17 @@ function outline(overrides: Partial<SceneOutline> = {}): SceneOutline {
   return {
     id: 'scene-1',
     type: 'slide',
-    title: '变量如何影响函数图像',
-    description: '学生调节变量，观察函数图像变化并解释原因。',
-    keyPoints: ['自变量', '因变量', '图像变化规律'],
+    title: 'How variables affect a model',
+    description: 'Explain the relationship before students test it.',
+    keyPoints: ['independent variable', 'dependent variable', 'causal pattern'],
+    estimatedDuration: 120,
+    targetDurationSec: 120,
     order: 1,
     stageKey: 'ai-learning',
     audience: 'student',
     generationPurpose: 'knowledge-teaching',
+    parentActivityId: 'ai-module',
+    knowledgePointIds: ['kp-1'],
     resourceTypes: ['ppt'],
     ...overrides,
   };
@@ -25,18 +29,74 @@ describe('interactive mode outline policy', () => {
     expect(applyInteractiveModePolicy(outlines, false)).toEqual(outlines);
   });
 
-  it('converts even a single suitable AI-learning slide into a teaching widget', () => {
-    const [result] = applyInteractiveModePolicy([outline()], true);
+  it('treats teacher-confirmed PPT, quiz, and interactive types as immutable', () => {
+    const confirmed = [
+      outline({ id: 'confirmed-ppt' }),
+      outline({ id: 'confirmed-quiz', type: 'quiz', resourceTypes: [] }),
+      outline({
+        id: 'confirmed-interactive',
+        type: 'interactive',
+        widgetType: 'diagram',
+        widgetOutline: { diagramType: 'system', concept: 'causal relationship' },
+        resourceTypes: ['interactive-demo'],
+      }),
+    ];
 
-    expect(result).toMatchObject({
-      type: 'interactive',
-      widgetType: 'simulation',
-      resourceTypes: ['interactive-demo'],
-    });
-    expect(result.widgetOutline).toBeTruthy();
+    expect(applyInteractiveModePolicy(confirmed, true, 'confirmed')).toEqual(confirmed);
   });
 
-  it('never converts launch or later teacher resources', () => {
+  it('adds a related interaction after one explanation and before the final quiz', () => {
+    const explanation = outline();
+    const quiz = outline({ id: 'quiz', type: 'quiz', title: 'Comprehensive check' });
+
+    const result = applyInteractiveModePolicy([explanation, quiz], true);
+
+    expect(result.map((item) => item.type)).toEqual(['slide', 'interactive', 'quiz']);
+    expect(result[1]).toMatchObject({
+      detailKind: 'interactive-practice',
+      parentActivityId: 'ai-module',
+      knowledgePointIds: ['kp-1'],
+      targetDurationSec: 42,
+      estimatedDuration: 42,
+    });
+    expect(result[0]).toMatchObject({ targetDurationSec: 78, estimatedDuration: 78 });
+    expect((result[0].targetDurationSec ?? 0) + (result[1].targetDurationSec ?? 0)).toBe(120);
+  });
+
+  it('creates the requested explanation-practice cadence without replacing explanation slides', () => {
+    const slides = [
+      outline({ id: 's1', title: 'Concept A', knowledgePointIds: ['a'] }),
+      outline({ id: 's2', title: 'Concept B', knowledgePointIds: ['b'] }),
+      outline({ id: 's3', title: 'Concept C', knowledgePointIds: ['c'] }),
+      outline({ id: 's4', title: 'Concept D', knowledgePointIds: ['d'] }),
+    ];
+
+    const result = applyInteractiveModePolicy(slides, true);
+
+    expect(result.map((item) => item.type)).toEqual([
+      'slide', 'slide', 'interactive', 'slide', 'slide', 'interactive',
+    ]);
+    expect(result.filter((item) => item.type === 'slide')).toHaveLength(4);
+    expect(result[2].knowledgePointIds).toEqual(['a', 'b']);
+    expect(result[5].knowledgePointIds).toEqual(['c', 'd']);
+  });
+
+  it('uses an existing matching interaction and does not add a duplicate', () => {
+    const existing = outline({
+      id: 'practice',
+      type: 'interactive',
+      widgetType: 'simulation',
+      widgetOutline: { concept: 'variable model' },
+      resourceTypes: ['interactive-demo'],
+    });
+    const sequence = [outline({ id: 'explain' }), existing];
+
+    expect(applyInteractiveModePolicy(sequence, true)).toHaveLength(2);
+    expect(applyInteractiveModePolicy(applyInteractiveModePolicy(sequence, true), true))
+      .toEqual(applyInteractiveModePolicy(sequence, true));
+  });
+
+  it('never changes teacher resources outside student AI learning', () => {
     const launch = outline({
       id: 'launch',
       stageKey: 'launch',
@@ -53,23 +113,29 @@ describe('interactive mode outline policy', () => {
     expect(applyInteractiveModePolicy([launch, make], true)).toEqual([launch, make]);
   });
 
-  it('keeps a slide when dense static reference is the clearest teaching form', () => {
-    const reference = outline({
-      title: '术语定义与安全规范对照表',
-      description: '完整列出正式定义、单位、符号和不可省略的安全规范，供后续活动持续查阅。',
-      keyPoints: ['术语表', '符号对照', '安全清单'],
+  it('supports generic non-PBL course outlines that have no stage metadata', () => {
+    const generic = outline({
+      stageKey: undefined,
+      audience: undefined,
+      generationPurpose: undefined,
+      parentActivityId: undefined,
     });
 
-    expect(applyInteractiveModePolicy([reference], true)[0]?.type).toBe('slide');
+    expect(applyInteractiveModePolicy([generic], true).map((item) => item.type))
+      .toEqual(['slide', 'interactive']);
   });
 
-  it('uses Chinese teaching-affordance signals without relying on ASCII word boundaries', () => {
+  it('selects widgets from teaching affordance', () => {
     const forTitle = (title: string) => outline({ title, description: title, keyPoints: [title] });
 
-    expect(suggestTeachingWidget(forTitle('Python 循环调试练习')).widgetType).toBe('code');
-    expect(suggestTeachingWidget(forTitle('太阳系行星空间结构')).widgetType).toBe('visualization3d');
-    expect(suggestTeachingWidget(forTitle('力与加速度变量实验')).widgetType).toBe('simulation');
-    expect(suggestTeachingWidget(forTitle('分类规则闯关挑战')).widgetType).toBe('game');
-    expect(suggestTeachingWidget(forTitle('概念之间的因果关系')).widgetType).toBe('diagram');
+    expect(suggestTeachingWidget(forTitle('Python loop debugging practice')).widgetType).toBe('code');
+    expect(suggestTeachingWidget(forTitle('Solar system spatial structure')).widgetType)
+      .toBe('visualization3d');
+    expect(suggestTeachingWidget(forTitle('Force and acceleration variable experiment')).widgetType)
+      .toBe('simulation');
+    expect(suggestTeachingWidget(forTitle('Classification rule challenge game')).widgetType)
+      .toBe('game');
+    expect(suggestTeachingWidget(forTitle('Causal relationships among concepts')).widgetType)
+      .toBe('diagram');
   });
 });

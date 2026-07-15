@@ -40,7 +40,7 @@ describe("PBL course prompt", () => {
     expect(prompt?.user).toContain("教师负责线下校准与成果评价");
   });
 
-  it("injects interactive-first rules only when interactive mode is enabled", () => {
+  it("injects the mandatory interaction cadence only when interactive mode is enabled", () => {
     const common = {
       requirement: "课程：校园节能设计",
       pblProfile: formatPblCourseConfigForPrompt(DEFAULT_PBL_COURSE_CONFIG),
@@ -59,9 +59,11 @@ describe("PBL course prompt", () => {
       interactiveMode: true,
     });
 
-    expect(normal?.user).not.toContain("Interactive mode — student AI-learning only");
-    expect(interactive?.user).toContain("Interactive mode — student AI-learning only");
+    expect(normal?.user).not.toContain("mandatory explanation-practice cadence");
+    expect(interactive?.user).toContain("mandatory explanation-practice cadence");
+    expect(interactive?.user).toContain("one or at most two closely related semantic pages");
+    expect(interactive?.user).toContain("A `quiz` is an assessment and does NOT satisfy");
     expect(interactive?.user).toContain("PPT/script-only");
-    expect(interactive?.user).toContain("decorative clicking");
+    expect(interactive?.user).toContain("Decorative clicking");
   });
 });
