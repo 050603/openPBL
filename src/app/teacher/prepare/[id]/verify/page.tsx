@@ -2574,8 +2574,8 @@ export default function VerifyCoursePage() {
                       互动模式
                       <span className="pointer-events-none absolute -top-1 right-0 translate-x-full opacity-0 transition-opacity group-hover:opacity-100 z-10 ml-2 w-64 rounded-[6px] border border-stone-200 bg-white px-3 py-2 text-xs font-normal leading-5 text-stone-500 shadow-lg">
                         {content?.interactiveMode
-                          ? "已开启：AI 授知场景优先采用互动页面（模拟、图表、代码、游戏）呈现知识点。"
-                          : "开启后，适合通过互动呈现的知识点将转为互动页面，帮助学生通过操作理解概念。"}
+                          ? "已开启：仅 AI 授知优先采用模拟、图示、代码、游戏或 3D；只有静态呈现明显更清楚时才保留 PPT。"
+                          : "默认模式保持原有 PPT 生成方式；开启后仅调整 AI 授知，项目启动和后续教师资源不变。"}
                       </span>
                     </button>
                     <button
@@ -2694,17 +2694,9 @@ function PblDetailHierarchySummary({
   });
   return (
     <section className="rounded-[var(--radius-sm)] border border-stone-200 bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-stone-500">层级深化预览</p>
-          <p className="mt-1 text-sm text-stone-600">课程模块是六个宏观时间单元，课程大纲可在同一模块下独立拆分为多个资源。</p>
-        </div>
-        <span className={cn(
-          "rounded-full px-2.5 py-1 text-xs font-bold",
-          knowledgeValidation.issues.length > 0 ? "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]" : "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
-        )}>
-          知识点 {knowledgeValidation.referencedPointIds.length}/{knowledgeValidation.referencedPointIds.length + knowledgeValidation.unreferencedPointIds.length}
-        </span>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.12em] text-stone-500">层级深化预览</p>
+        <p className="mt-1 text-sm text-stone-600">课程模块是六个宏观时间单元，课程大纲可在同一模块下独立拆分为多个资源。</p>
       </div>
       <div className="mt-3 space-y-2">
         {activities.map((activity) => {
@@ -2734,14 +2726,6 @@ function PblDetailHierarchySummary({
           <p className="text-xs font-semibold text-[var(--pbl-danger)]">有 {(detailsByParent.get("__orphan__") ?? []).length} 个课程大纲资源尚未关联课程模块。</p>
         ) : null}
       </div>
-      {knowledgeValidation.issues.length > 0 ? (
-        <div className="mt-3 space-y-1 text-xs leading-5 text-[var(--pbl-warning)]">
-          {knowledgeValidation.issues.filter((issue) => issue.code !== "missing-knowledge-coverage").slice(0, 3).map((issue) => <p key={`${issue.code}-${issue.outlineId}`}>⚠ {issue.message}</p>)}
-        </div>
-      ) : null}
-      {knowledgeValidation.unreferencedPointIds.length > 0 ? (
-        <p className="mt-2 text-xs text-stone-500">尚未被课程大纲覆盖的知识点：{knowledgeValidation.unreferencedPointIds.join("、")}</p>
-      ) : null}
     </section>
   );
 }

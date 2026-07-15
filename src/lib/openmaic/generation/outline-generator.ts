@@ -129,7 +129,9 @@ export async function generateSceneOutlinesFromRequirements(
   const isPblCourse = requirements.pblProfile?.generationTemplate === 'pbl-six-stage';
   const promptId = isPblCourse
     ? PROMPT_IDS.PBL_COURSE
-    : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
+    : requirements.interactiveMode
+      ? PROMPT_IDS.INTERACTIVE_OUTLINES
+      : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
   const prompts = buildPrompt(promptId, {
     // New simplified variables
     requirement: requirements.requirement,
@@ -140,6 +142,7 @@ export async function generateSceneOutlinesFromRequirements(
     imageEnabled,
     videoEnabled,
     mediaEnabled,
+    interactiveMode: requirements.interactiveMode ?? false,
     researchContext: options?.researchContext || 'None',
     // Server-side generation populates this via options; client-side populates via formatTeacherPersonaForPrompt
     teacherContext: options?.teacherContext || '',

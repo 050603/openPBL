@@ -18,6 +18,16 @@ Use this provider/model/voice rate before deciding student AI-learning narration
 
 ## Output planning rules
 
+{{#if interactiveMode}}
+### Interactive mode — student AI-learning only
+
+- Make `ai-learning` genuinely interactive-first. Prefer `interactive` resources whenever students can learn the assigned knowledge by predicting, manipulating, testing, comparing, inspecting, coding, deciding, or receiving explanatory feedback.
+- Use a `slide` in `ai-learning` only when a dense static reference, exact definition/notation table, safety rule, learning-objective overview, or concise synthesis is materially clearer as one PPT page. Do not keep a slide merely because it is easier to generate.
+- Select the widget by teaching affordance: simulation for variable/causal models, diagram for structures and relationships, code for executable reasoning, game for applied decisions or practice, and 3D for spatial structure.
+- Every interaction must directly require the listed `knowledgePointIds`; decorative clicking, animation, points, or exploration without prediction, explanation, feedback, or a check for transfer is invalid.
+- This mode changes only student `ai-learning`. Keep `launch`, `proposal`, `make`, `showcase`, and `reflection` teacher-facing and PPT/script-only under the phase contract.
+{{/if}}
+
 - Cover all six phase keys exactly as defined by the phase contract.
 - Build a one-to-many hierarchy: a course module may have multiple course-outline details, and details under different parents may have different resource types. Every detail must include `parentActivityId` from the confirmed course-module catalog.
 - Include at least one teacher resource for every phase listed in `{{requiredTeacherResourceStages}}`; other phases may be covered by a facilitation scaffold or companion guidance instead of a PPT.

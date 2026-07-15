@@ -632,7 +632,7 @@ export default function GenerateCoursePage() {
                 <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3">
                   <div className="text-sm font-bold text-stone-800">互动模式 · 已开启</div>
                   <div className="mt-1 text-xs leading-5 text-stone-500">
-                    AI 授知场景将优先采用互动页面（模拟、图表、代码、游戏）呈现知识点。可在课程核查 → 课程大纲步骤中关闭。
+                    仅 AI 授知优先采用模拟、图示、代码、游戏或 3D；只有静态呈现明显更清楚时保留 PPT。项目启动和后续教师资源仍为 PPT/讲稿。
                   </div>
                 </div>
               ) : null}

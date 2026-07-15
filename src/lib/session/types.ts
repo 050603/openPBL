@@ -674,8 +674,8 @@ export type CourseContent = {
   teacherClassroomId?: string;
   /**
    * 教师在课程核查阶段确认的生成模式开关。
-   * - false（默认）：正常模式，AI 授知以 PPT 形式呈现知识点
-   * - true：互动模式，适合通过互动呈现的知识点将转为互动页面
+   * - false（默认）：保持原有方式，AI 授知以 PPT 形式呈现知识点
+   * - true：仅 AI 授知互动优先；静态参考内容可保留 PPT，其他阶段仍为教师 PPT/讲稿
    * 该值由 verify 页面编辑，generate 页面读取后传给生成 API。
    */
   interactiveMode?: boolean;

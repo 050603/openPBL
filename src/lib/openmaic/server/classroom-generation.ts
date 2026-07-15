@@ -51,6 +51,7 @@ import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manife
 import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-planner';
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
+import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
 import type { Action } from '@openmaic/lib/types/action';
 import { validatePblKnowledgeAlignment } from '@/lib/pbl-outline-validation';
@@ -443,108 +444,6 @@ Return a JSON object with this exact structure:
   }));
 }
 
-/**
- * Convert appropriate slide-type outlines to interactive type when
- * interactiveMode is enabled. Targets AI-learning knowledge-teaching scenes,
- * using content keywords to suggest widget types. Preserves intro/summary
- * slides and non-ai-learning stages.
- */
-function convertOutlinesForInteractiveMode(outlines: SceneOutline[]): SceneOutline[] {
-  // Group ai-learning slide scenes by their position within the stage.
-  const aiLearningSlides = outlines.filter(
-    (o) => o.type === 'slide' && o.stageKey === 'ai-learning',
-  );
-  if (aiLearningSlides.length <= 2) return outlines; // too few to convert
-
-  // Convert all but the first and last (keep intro + summary as slides).
-  const convertible = aiLearningSlides.slice(1, -1);
-  if (convertible.length === 0) return outlines;
-
-  const convertibleIds = new Set(convertible.map((o) => o.id));
-
-  return outlines.map((outline) => {
-    if (!convertibleIds.has(outline.id)) return outline;
-
-    const { widgetType, widgetOutline } = suggestWidgetForOutline(outline);
-    return {
-      ...outline,
-      type: 'interactive' as const,
-      widgetType,
-      widgetOutline,
-    };
-  });
-}
-
-/**
- * Heuristic widget suggestion based on outline title/description/keyPoints.
- * Falls back to 'diagram' when no strong signal is found.
- */
-function suggestWidgetForOutline(outline: SceneOutline): {
-  widgetType: NonNullable<SceneOutline['widgetType']>;
-  widgetOutline: SceneOutline['widgetOutline'];
-} {
-  const text = `${outline.title} ${outline.description} ${outline.keyPoints.join(' ')}`.toLowerCase();
-
-  // Code / programming
-  if (/\b(code|编程|代码|python|javascript|java|算法|程序|函数|递归|排序|数据结构)\b/.test(text)) {
-    return {
-      widgetType: 'code',
-      widgetOutline: {
-        language: 'python',
-        challengeType: 'practice',
-        concept: outline.title,
-      },
-    };
-  }
-
-  // 3D visualization (molecules, solar system, anatomy, 3D geometry)
-  if (/\b(分子|原子|太阳系|行星|轨道|细胞|骨骼|肌肉|器官|3d|立体|晶体|dna|蛋白质|molecule|solar|planet|orbit|anatomy|organ)\b/.test(text)) {
-    return {
-      widgetType: 'visualization3d',
-      widgetOutline: {
-        visualizationType: 'custom',
-        objects: outline.keyPoints.slice(0, 5),
-        interactions: ['orbit', 'zoom'],
-        concept: outline.title,
-      },
-    };
-  }
-
-  // Simulation (physics, chemistry, biology processes)
-  if (/\b(力|运动|速度|加速度|电路|波|光|电|磁|温度|压强|化学反应|生态|实验|模拟|force|motion|velocity|circuit|wave|reaction|experiment|simulation)\b/.test(text)) {
-    return {
-      widgetType: 'simulation',
-      widgetOutline: {
-        concept: outline.title,
-        keyVariables: outline.keyPoints.slice(0, 4),
-      },
-    };
-  }
-
-  // Game (practice, challenge, application)
-  if (/\b(挑战|练习|游戏|应用|实战|计算|求解|challenge|practice|game|apply)\b/.test(text)) {
-    return {
-      widgetType: 'game',
-      widgetOutline: {
-        gameType: 'action',
-        challenge: outline.description || outline.title,
-        playerControls: ['input'],
-        concept: outline.title,
-      },
-    };
-  }
-
-  // Default: interactive diagram (processes, relationships, structures)
-  return {
-    widgetType: 'diagram',
-    widgetOutline: {
-      diagramType: 'mindmap',
-      nodeCount: Math.min(outline.keyPoints.length * 2, 12),
-      concept: outline.title,
-    },
-  };
-}
-
 export async function generateClassroom(
   input: GenerateClassroomInput,
   options: {
@@ -775,7 +674,7 @@ export async function generateClassroom(
   // to interactive widget scenes so students learn by doing instead of reading.
   if (input.interactiveMode) {
     const beforeCount = baseOutlines.filter((o) => o.type === 'interactive').length;
-    baseOutlines = convertOutlinesForInteractiveMode(baseOutlines);
+    baseOutlines = applyInteractiveModePolicy(baseOutlines, true);
     const afterCount = baseOutlines.filter((o) => o.type === 'interactive').length;
     if (afterCount > beforeCount) {
       log.info(`Interactive mode: converted ${afterCount - beforeCount} slide(s) to interactive widgets`);
