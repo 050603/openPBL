@@ -18,6 +18,7 @@ import { Card, FileBadge, Pill, PrimaryButton, TextArea } from "@/components/ui"
 import { ProjectCoverImage } from "@/components/visuals";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
+import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 export function ProjectLaunchView({ course }: { course: Course }) {
   const session = useSession();
@@ -27,6 +28,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
   const title = course?.name || "未命名项目";
   const drivingQ = course?.drivingQuestion || "暂无驱动问题，请联系教师补充。";
   const project = course.groups?.find((item) => item.members.some((member) => member.studentId === studentId));
+  const confirmation = useStudentActionConfirmation({ course, stageKey: "launch" });
 
   // 从 course.stages 派生时间表（替代 mock-data 的 projectTimeline）
   const projectTimeline = course.stages.map((stage, index) => {
@@ -36,7 +38,14 @@ export function ProjectLaunchView({ course }: { course: Course }) {
   });
 
   function completeTodo(todoId: string) {
-    session.completeTodo(course.id, todoId, true);
+    const todo = course.todos?.find((item) => item.id === todoId);
+    confirmation.request({
+      action: "mark-complete",
+      title: `标记“${todo?.title ?? "学生待办"}”完成`,
+      summary: "这会把该待办记录为你已经完成，并更新项目启动阶段的进度。",
+      payload: { todoId },
+      onConfirm: () => session.completeTodo(course.id, todoId, true),
+    });
   }
 
   function downloadResource(resourceId: string, url?: string) {
@@ -219,6 +228,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
 
         <div className="flex min-h-14 items-center gap-3 rounded-[8px] border border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] px-4 text-[var(--pbl-success)]"><UserRoundCheck size={24} /><span><span className="block font-bold">个人项目空间已准备</span><span className="text-sm">{project?.name ?? "进入方案阶段后即可开始独立构思"}</span></span></div>
       </aside>
+      <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );
 }

@@ -34,6 +34,7 @@ export type DashboardShellProps = {
   course?: string;
   children: ReactNode;
   wide?: boolean;
+  immersive?: boolean;
   variant?: "default" | "bare";
   headerSlot?: ReactNode;
   classroomBar?: ReactNode;
@@ -55,6 +56,7 @@ export function DashboardShell({
   course,
   children,
   wide = false,
+  immersive = false,
   headerSlot,
   classroomBar,
   hideCourseSwitcher = false,
@@ -102,7 +104,7 @@ export function DashboardShell({
 
   return (
     <div className={cn("min-h-screen text-[var(--pbl-text)]", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
-      <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+      {!immersive ? <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
         <div className="flex min-h-16 items-center px-3 py-2 md:px-5">
           <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
@@ -176,9 +178,9 @@ export function DashboardShell({
             {classroomBar}
           </div>
         ) : null}
-      </header>
+      </header> : null}
 
-      {openPanel ? (
+      {!immersive && openPanel ? (
         <TopPopover onClose={() => setOpenPanel(null)}>
           {openPanel === "courses" ? (
             <CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} />
@@ -216,8 +218,8 @@ export function DashboardShell({
         </TopPopover>
       ) : null}
 
-      <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
-        <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide ? "max-w-[1600px]" : "max-w-[1280px]")}>
+      <main className={immersive ? "p-0" : classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
+        <div className={immersive ? "w-full" : cn("mx-auto w-full px-4 pb-10 md:px-5", wide ? "max-w-[1600px]" : "max-w-[1280px]")}>
           {subtitle ? <p className="mb-2 text-sm font-medium text-[var(--pbl-text-muted)]">{subtitle}</p> : null}
           {children}
         </div>

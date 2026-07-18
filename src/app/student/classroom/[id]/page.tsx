@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Clock3, Hourglass, LogIn, MonitorUp, X } from "lucide-react";
+import { Clock3, Hourglass, LogIn, MonitorUp, UsersRound, X } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StudentStageView } from "@/components/views/student/stage-dispatcher";
 import { StudentLeaveButton } from "@/components/student-leave-button";
@@ -11,6 +11,8 @@ import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { isStudentOnline } from "@/lib/session/actions";
 import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { StageProgress } from "@/components/classroom/classroom-chrome";
+import { CompanionRuntimeProvider } from "@/components/views/student/companion-runtime";
+import { CompanionStudioWorkspace } from "@/components/views/student/companion-studio-workspace";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
@@ -20,6 +22,7 @@ export default function StudentClassroomPage() {
   const { user, studentName, studentId, joinedCourseId } = useSession();
   const presenceRef = useRef<{ courseId?: string; studentId?: string }>({});
   const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<"task" | "companions">("companions");
 
   useEffect(() => {
     if (!hydrated) return;
@@ -119,6 +122,7 @@ export default function StudentClassroomPage() {
       role="student"
       userName={displayName}
       variant="bare"
+      immersive={isTeaching && workspaceMode === "companions" && !forcedProjection && !optionalProjectionOpen}
       hideCourseSwitcher
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total, label: currentStage.label } : undefined}
@@ -147,9 +151,9 @@ export default function StudentClassroomPage() {
         )
       }
     >
-      {isTeaching ? <div className="mb-4"><StageProgress course={course} readonly /></div> : null}
+      {isTeaching && workspaceMode === "task" ? <div className="mb-4"><StageProgress course={course} readonly /></div> : null}
       {/* 小屏幕精简课程信息条 */}
-      {isTeaching && currentStage ? (
+      {isTeaching && currentStage && workspaceMode === "task" ? (
         <div className="mb-3 flex items-center gap-2 md:hidden">
           <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[var(--pbl-student-soft)] px-2.5 text-[12px] font-bold text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
             阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
@@ -181,12 +185,35 @@ export default function StudentClassroomPage() {
               {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
             </div>
           ) : null}
-          {!optionalProjectionOpen ? <section
-            className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
-            key={currentStage.key}
-          >
-            <StudentStageView course={course} view={currentStage.view} />
-          </section> : null}
+          {!optionalProjectionOpen ? (
+            <CompanionRuntimeProvider course={course} stageKey={currentStage.key} contextLabel={currentStage.label}>
+              <div className={workspaceMode === "task" ? "space-y-3" : ""}>
+                {workspaceMode === "task" ? (
+                  <div className="flex justify-end">
+                    <button className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]" onClick={() => setWorkspaceMode("companions")} type="button">
+                      <UsersRound size={15} /> 返回伴学教室
+                    </button>
+                  </div>
+                ) : null}
+                <div className={workspaceMode === "task" ? "" : "hidden"} role="tabpanel" aria-label="任务视图">
+                  <section
+                    className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
+                    key={currentStage.key}
+                  >
+                    <StudentStageView course={course} view={currentStage.view} />
+                  </section>
+                </div>
+                <div className={workspaceMode === "companions" ? "" : "hidden"} role="tabpanel" aria-label="伴学教室">
+                  <CompanionStudioWorkspace
+                    course={course}
+                    stageKey={currentStage.key}
+                    contextLabel={currentStage.label}
+                    onSwitchToTask={() => setWorkspaceMode("task")}
+                  />
+                </div>
+              </div>
+            </CompanionRuntimeProvider>
+          ) : null}
         </>
       ) : null}
 

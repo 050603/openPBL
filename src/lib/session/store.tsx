@@ -22,6 +22,12 @@ import type {
   AnnouncementReply,
   ClassConfig,
   ClassroomSubmission,
+  CompanionConfirmation,
+  CompanionConfirmationAction,
+  CompanionProcessRecord,
+  CompanionTask,
+  CompanionTaskKind,
+  CompanionTaskStatus,
   Course,
   CourseAnnouncement,
   CourseContent,
@@ -128,6 +134,10 @@ type SessionApi = SessionState & {
   addOfflineIntervention: (input: Omit<OfflineInterventionRecord, "id" | "teacherName" | "createdAt"> & { id?: string; teacherName?: string }) => OfflineInterventionRecord;
   resolveInterventionSignals: (courseId: string, signalIds: string[]) => void;
   upsertTeacherAgentDirective: (input: Omit<TeacherAgentDirective, "id" | "teacherName" | "createdAt" | "updatedAt"> & { id?: string; teacherName?: string; createdAt?: string }) => TeacherAgentDirective;
+  upsertCompanionTask: (input: Omit<CompanionTask, "id" | "createdAt" | "updatedAt"> & { id?: string }) => CompanionTask;
+  upsertCompanionConfirmation: (input: Omit<CompanionConfirmation, "id" | "createdAt" | "status"> & { id?: string; status?: CompanionConfirmation["status"] }) => CompanionConfirmation;
+  resolveCompanionConfirmation: (courseId: string, confirmationId: string, status: CompanionConfirmation["status"]) => void;
+  addCompanionProcessRecord: (input: Omit<CompanionProcessRecord, "id" | "createdAt"> & { id?: string }) => CompanionProcessRecord;
   setUiState: (courseId: string, patch: Partial<CourseUiState>) => void;
   addActivity: (courseId: string, action: string, detail?: string, actor?: string) => void;
   setPresentingGroup: (courseId: string, groupId: string) => void;
@@ -445,6 +455,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           uploads: [],
           teamContributions: [],
           aiSupports: [],
+          companionTasks: [],
+          companionConfirmations: [],
+          companionProcessRecords: [],
           teacherInterventions: [],
           stageTransitions: [],
           evaluations: [],
@@ -956,6 +969,51 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         };
         commit({ type: "UPSERT_TEACHER_AGENT_DIRECTIVE", payload: { courseId: input.courseId, directive } });
         return directive;
+      },
+      upsertCompanionTask(input) {
+        const now = new Date().toISOString();
+        const courseId = input.courseId;
+        const existing = state.courses
+          .find((course) => course.id === courseId)
+          ?.companionTasks?.find((task) => task.id === input.id);
+        const task: CompanionTask = {
+          ...input,
+          id: input.id ?? makeRecordId("companion-task"),
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+        commit({ type: "UPSERT_COMPANION_TASK", payload: { courseId, task } });
+        return task;
+      },
+      upsertCompanionConfirmation(input) {
+        const now = new Date().toISOString();
+        const courseId = input.courseId;
+        const existing = state.courses
+          .find((course) => course.id === courseId)
+          ?.companionConfirmations?.find((confirmation) => confirmation.id === input.id);
+        const confirmation: CompanionConfirmation = {
+          ...input,
+          id: input.id ?? makeRecordId("companion-confirmation"),
+          status: input.status ?? existing?.status ?? "pending",
+          createdAt: existing?.createdAt ?? now,
+        };
+        commit({ type: "UPSERT_COMPANION_CONFIRMATION", payload: { courseId, confirmation } });
+        return confirmation;
+      },
+      resolveCompanionConfirmation(courseId, confirmationId, status) {
+        commit({
+          type: "RESOLVE_COMPANION_CONFIRMATION",
+          payload: { courseId, confirmationId, status, resolvedAt: new Date().toISOString() },
+        });
+      },
+      addCompanionProcessRecord(input) {
+        const record: CompanionProcessRecord = {
+          ...input,
+          id: input.id ?? makeRecordId("companion-process"),
+          createdAt: new Date().toISOString(),
+        };
+        commit({ type: "ADD_COMPANION_PROCESS_RECORD", payload: { courseId: input.courseId, record } });
+        return record;
       },
       setUiState(courseId, patch) {
         commit({ type: "SET_UI_STATE", payload: { courseId, patch } });

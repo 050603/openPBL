@@ -139,6 +139,90 @@ export type WorkPlanItem = {
   progress: number;
 };
 
+/**
+ * A companion task is a piece of work the student has explicitly asked a
+ * partner to handle. It is intentionally separate from a chat message: the
+ * task can wait for input, wait for confirmation, or produce a result without
+ * claiming that a formal project operation already happened.
+ */
+export type CompanionTaskStatus =
+  | "queued"
+  | "assigned"
+  | "processing"
+  | "responding"
+  | "waiting-student"
+  | "waiting-confirmation"
+  | "result"
+  | "saved"
+  | "failed";
+
+export type CompanionTaskKind =
+  | "conversation"
+  | "knowledge"
+  | "ideation"
+  | "critique"
+  | "planning"
+  | "review"
+  | "record"
+  | "formal-action";
+
+export type CompanionTask = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  companionId?: string;
+  kind: CompanionTaskKind;
+  title: string;
+  request: string;
+  status: CompanionTaskStatus;
+  result?: string;
+  error?: string;
+  confirmationId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CompanionConfirmationAction =
+  | "save"
+  | "overwrite"
+  | "delete"
+  | "upload"
+  | "submit"
+  | "mark-complete"
+  | "adopt-draft";
+
+export type CompanionConfirmationStatus = "pending" | "confirmed" | "rejected";
+
+export type CompanionConfirmation = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  action: CompanionConfirmationAction;
+  title: string;
+  summary: string;
+  taskId?: string;
+  payload?: Record<string, unknown>;
+  status: CompanionConfirmationStatus;
+  createdAt: string;
+  resolvedAt?: string;
+};
+
+export type CompanionProcessRecord = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  title: string;
+  summary: string;
+  source: "student" | "agent" | "system";
+  companionId?: string;
+  taskId?: string;
+  evidenceIds?: string[];
+  createdAt: string;
+};
+
 export type WhiteboardNode = {
   id: string;
   groupId: string;
@@ -650,6 +734,12 @@ export type Course = {
   learningEvents?: LearningEvent[];
   /** 学生与伴学圆桌的后端持久化会话。 */
   companionThreads?: CompanionThread[];
+  /** 学生明确分配给伴学伙伴的可视化任务。 */
+  companionTasks?: CompanionTask[];
+  /** 需要学生确认后才能执行的正式项目动作。 */
+  companionConfirmations?: CompanionConfirmation[];
+  /** 记记整理的可查看过程记录。 */
+  companionProcessRecords?: CompanionProcessRecord[];
   /** 由确定性规则从学习事件和会话中派生的个体信号。 */
   learningSignals?: LearningSignal[];
   /** 达到班级阈值的共性问题。 */

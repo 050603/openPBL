@@ -17,6 +17,7 @@ import type {
 import { useSession } from "@/lib/session/store";
 import { buildReflectionEvidencePrompts } from "@/lib/teaching-ai/client-api";
 import { CompanionRoundtable } from "./companion-roundtable";
+import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 const FIVE_STAR_TOTAL = 5;
 
@@ -57,6 +58,7 @@ export function ReflectionView({ course }: { course?: Course }) {
   const title = course?.name ?? "—";
   const studentId = session.studentId ?? "guest";
   const studentName = session.studentName ?? "访客学生";
+  const confirmation = useStudentActionConfirmation({ course, stageKey: "reflection" });
 
   // ===== 真实数据：从 store 读取 =====
   const dimensions: EvaluationDimension[] = useMemo(
@@ -242,7 +244,7 @@ export function ReflectionView({ course }: { course?: Course }) {
     [course?.aiSupports, studentId, myGroup?.id],
   );
 
-  function saveReflection(improvementPlan?: string) {
+  function performSaveReflection(improvementPlan?: string) {
     if (!course) return;
     upsertReflection({
       id: existingReflection?.id,
@@ -252,6 +254,16 @@ export function ReflectionView({ course }: { course?: Course }) {
     });
     updateStudentProgress("reflection", improvementPlan ? 100 : 80);
     setSaved(true);
+  }
+
+  function saveReflection() {
+    confirmation.request({
+      action: existingReflection ? "overwrite" : "save",
+      title: existingReflection ? "覆盖个人反思记录" : "保存个人反思记录",
+      summary: "这会把你当前写下的反思保存到课堂记录，供你和伴学伙伴在后续回看。",
+      payload: { reflectionId: existingReflection?.id },
+      onConfirm: () => performSaveReflection(),
+    });
   }
 
   async function generateReflectionPrompts() {
@@ -283,14 +295,13 @@ export function ReflectionView({ course }: { course?: Course }) {
       return;
     }
     setPlanError(null);
-    upsertReflection({
-      id: existingReflection?.id,
-      content,
-      improvementPlan: plan,
-      studentName,
+    confirmation.request({
+      action: "mark-complete",
+      title: "保存改进计划并完成反思阶段",
+      summary: "这会保存当前改进计划，并将个人反思阶段标记为 100%。请确认这条行动计划是你愿意真正执行的下一步。",
+      payload: { reflectionId: existingReflection?.id, stageKey: "reflection" },
+      onConfirm: () => performSaveReflection(plan),
     });
-    updateStudentProgress("reflection", 100);
-    setSaved(true);
   }
 
   const overallStars = scoreToStars(overallScore);
@@ -535,6 +546,7 @@ export function ReflectionView({ course }: { course?: Course }) {
       {course ? (
         <CompanionRoundtable course={course} stageKey="reflection" contextLabel="评价反思" />
       ) : null}
+      <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );
 }

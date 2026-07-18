@@ -8,6 +8,7 @@ import type { Course, ProjectProposal } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { CompanionRoundtable } from "./companion-roundtable";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
+import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 const EMPTY_PROPOSAL: ProjectProposal = { projectQuestion: "", outcomeFormat: "", implementationPlan: "", requiredKnowledge: [], aiUsePlan: "", risks: [] };
 
@@ -82,6 +83,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   // 传给 CompanionRoundtable 的自动发送消息（用时间戳后缀确保每次都是新值）
   const [aiPrompt, setAiPrompt] = useState<string | null>(null);
+  const confirmation = useStudentActionConfirmation({ course, stageKey: "proposal" });
 
   const complete = Boolean(draft.projectQuestion.trim() && draft.outcomeFormat.trim() && draft.implementationPlan.trim() && knowledgeText.trim() && draft.aiUsePlan.trim());
   const myFeedback = (course.feedback ?? []).filter((item) => ["proposal", "review"].includes(item.stageKey) && (item.targetId === session.studentId || item.targetId === project?.id));
@@ -109,7 +111,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
     toast.info("已发送给 AI 伴学小组", { description: "请在下方对话面板中查看多角色反馈。" });
   }
 
-  function save() {
+  function performSave() {
     if (!project) { toast.error("个人项目空间尚未就绪，请重新进入课堂"); return; }
     const proposal = { ...draft, requiredKnowledge: knowledgeText.split(/[、,，\n]/).map((item) => item.trim()).filter(Boolean), risks: riskText.split(/[、,，\n]/).map((item) => item.trim()).filter(Boolean) };
     session.upsertGroup(course.id, { ...project, name: `${session.studentName ?? "我的"}个人项目`, topic: proposal.projectQuestion, goal: proposal.outcomeFormat, selectedForms: [proposal.outcomeFormat], proposal, teacherApproval: { status: "pending", updatedAt: new Date().toISOString() }, updatedAt: new Date().toISOString() });
@@ -118,6 +120,16 @@ export function ProposalReviewView({ course }: { course: Course }) {
     session.addActivity(course.id, "保存个人项目方案", proposal.projectQuestion, session.studentName);
     if (session.studentId) emitStudentArtifactEvent({ courseId: course.id, studentId: session.studentId, stageKey: "proposal", kind: "document-saved", artifactId: submission?.id, summary: "个人项目方案", content: [description, proposal.projectQuestion, proposal.implementationPlan].filter(Boolean).join("\n"), milestone: true });
     toast.success("个人项目方案已保存", { description: "你可以继续与 AI 伴学伙伴讨论，再提交教师校准。" });
+  }
+
+  function save() {
+    confirmation.request({
+      action: project?.proposal ? "overwrite" : "submit",
+      title: project?.proposal ? "覆盖并提交个人项目方案" : "保存并提交个人项目方案",
+      summary: "这会把当前方案写入个人项目空间，并正式提交给教师进行校准。方案中的最终方向仍由你负责。",
+      payload: { groupId: project?.id, stageKey: "proposal" },
+      onConfirm: performSave,
+    });
   }
 
   return <div className="space-y-6">
@@ -223,5 +235,6 @@ export function ProposalReviewView({ course }: { course: Course }) {
       <PrimaryButton className="min-w-44" onClick={save}><Save size={18} />保存并提交校准</PrimaryButton>
     </div>
     <CompanionRoundtable course={course} stageKey="proposal" contextLabel="方案构思与校准" autoSendMessage={aiPrompt} />
+    <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
   </div>;
 }

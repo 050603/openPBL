@@ -9,6 +9,7 @@ import type { Course, ProjectGroup } from "@/lib/session/types";
 import { diagnoseGroupIdea } from "@/lib/teaching-ai/client-api";
 import { GroupBoardEditor } from "./group-board-editor";
 import { CompanionRoundtable } from "./companion-roundtable";
+import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 const forms = [
   { label: "方案报告", icon: FileText, color: "bg-[var(--pbl-student)]" },
@@ -39,6 +40,7 @@ const commonRoles = ["组长", "调研员", "设计师", "数据分析师", "汇
 
 export function GroupView({ course }: { course: Course }) {
   const session = useSession();
+  const confirmation = useStudentActionConfirmation({ course, stageKey: "proposal" });
   const [status, setStatus] = useState<string | null>(null);
   const [editingTopic, setEditingTopic] = useState(false);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
@@ -92,7 +94,7 @@ export function GroupView({ course }: { course: Course }) {
     updateGroup({ selectedForms });
   }
 
-  function saveIdea(generated = false) {
+  function performSaveIdea(generated = false) {
     session.upsertSubmission({
       stageKey: "group",
       type: "idea",
@@ -104,6 +106,16 @@ export function GroupView({ course }: { course: Course }) {
     setStatus(generated ? "已保存 AI 方案检查记录" : "小组构思已保存");
   }
 
+  function saveIdea(generated = false) {
+    confirmation.request({
+      action: "save",
+      title: generated ? "保存 AI 方案检查记录" : "保存小组构思",
+      summary: "这会把当前小组方向、成果形式和目标写入课堂记录，成为后续伴学和教师指导可以引用的正式过程材料。",
+      payload: { groupId: group?.id, stageKey: "group" },
+      onConfirm: () => performSaveIdea(generated),
+    });
+  }
+
   async function checkIdea() {
     setStatus("AI 正在检查方案...");
     try {
@@ -113,14 +125,6 @@ export function GroupView({ course }: { course: Course }) {
         courseId: course.id,
         studentId: session.studentId,
         studentName: session.studentName ?? session.user.name,
-      });
-      session.upsertSubmission({
-        courseId: course.id,
-        stageKey: "group",
-        type: "idea",
-        title: "AI方案检查记录",
-        content: `${draft.diagnosis}\n建议：${draft.suggestions.join("；")}\n依据：${draft.evidence.join("；")}`,
-        groupId: group.id,
       });
       session.updateStudentProgress("group", 85);
       // 提醒教师有新数据可刷新
@@ -159,13 +163,37 @@ export function GroupView({ course }: { course: Course }) {
   function updateProposal(patch: Partial<typeof proposal>) {
     updateGroup({ proposal: { ...proposal, ...patch } });
   }
-  function decideSuggestion(suggestion: string, decision: "adopted" | "adopted-after-edit" | "rejected", appliedText = suggestion) {
+  function performDecideSuggestion(suggestion: string, decision: "adopted" | "adopted-after-edit" | "rejected", appliedText = suggestion) {
     if (!latestIdeaSupport) return;
     const before = proposal.implementationPlan;
     const after = decision === "rejected" ? before : `${before}${before ? "\n" : ""}${appliedText}`;
     if (decision !== "rejected") updateProposal({ implementationPlan: after });
     session.upsertAiSupport({ ...latestIdeaSupport, status: decision === "rejected" ? "dismissed" : "student-applied", adoption: { decision, reason: decision === "rejected" ? rejectionReason.trim() : undefined, before, after, handledBy: session.studentName ?? session.user.name, handledAt: new Date().toISOString() } });
     setRejectingSuggestion(undefined); setRejectionReason(""); setEditingSuggestion(undefined); setEditedSuggestion("");
+  }
+
+  function decideSuggestion(suggestion: string, decision: "adopted" | "adopted-after-edit" | "rejected", appliedText = suggestion) {
+    if (decision === "rejected") {
+      performDecideSuggestion(suggestion, decision, appliedText);
+      return;
+    }
+    confirmation.request({
+      action: "adopt-draft",
+      title: decision === "adopted-after-edit" ? "修改后采纳这条 AI 建议" : "采纳这条 AI 建议",
+      summary: "这会把建议写入小组实施计划，并记录为你的明确决定。采纳前请确认这确实符合你们的项目方向。",
+      payload: { suggestion, appliedText, decision },
+      onConfirm: () => performDecideSuggestion(suggestion, decision, appliedText),
+    });
+  }
+
+  function deleteTask(item: { id: string; task: string }) {
+    confirmation.request({
+      action: "delete",
+      title: "删除这条小组任务",
+      summary: `将从实施计划中删除“${item.task}”，这不会删除已经保存的过程记录。`,
+      payload: { workPlanItemId: item.id },
+      onConfirm: () => session.deleteWorkPlanItem(course.id, item.id),
+    });
   }
 
   return (
@@ -317,7 +345,7 @@ export function GroupView({ course }: { course: Course }) {
                   <td className="p-3">{item.memberName}</td>
                   <td className="p-3 text-stone-600">{item.task}</td>
                   <td className="p-3"><button className="flex w-full items-center gap-2" onClick={() => session.upsertWorkPlanItem(course.id, { ...item, progress: Math.min(100, item.progress + 10) })} type="button"><ProgressBar className="w-20" tone={item.progress === 100 ? "green" : "blue"} value={item.progress} /><span className="w-9 text-right">{item.progress}%</span></button></td>
-                  <td className="p-3"><button className="text-stone-400 hover:text-red-500" onClick={() => session.deleteWorkPlanItem(course.id, item.id)} type="button"><Trash2 size={15} /></button></td>
+                  <td className="p-3"><button className="text-stone-400 hover:text-red-500" onClick={() => deleteTask(item)} type="button"><Trash2 size={15} /></button></td>
                 </tr>
               ))}
             </tbody>
@@ -344,6 +372,7 @@ export function GroupView({ course }: { course: Course }) {
         <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={checkIdea}><Wand2 size={21} /> 检查方案完整性</PrimaryButton>
       </div>
       <CompanionRoundtable course={course} stageKey="group" contextLabel="小组构思" />
+      <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );
 }

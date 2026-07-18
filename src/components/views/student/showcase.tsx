@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session/store";
 import { buildShowcaseCoach } from "@/lib/teaching-ai/client-api";
 import { CompanionRoundtable } from "./companion-roundtable";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
+import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 type UploadSlot = {
   category: "artifact" | "evidence" | "presentation";
@@ -56,8 +57,9 @@ export function ShowcaseView({ course }: { course: Course }) {
   }, [timerRunning]);
   const [uploading, setUploading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const confirmation = useStudentActionConfirmation({ course, stageKey: "showcase" });
 
-  async function uploadFile(slot: UploadSlot, file: File, input?: HTMLInputElement) {
+  async function performUpload(slot: UploadSlot, file: File, input?: HTMLInputElement) {
     if (!group) return;
     setUploading(slot.title);
     setUploadError(null);
@@ -104,9 +106,28 @@ export function ShowcaseView({ course }: { course: Course }) {
     }
   }
 
+  function uploadFile(slot: UploadSlot, file: File, input?: HTMLInputElement) {
+    const existing = uploads.find((item) => item.title === slot.title);
+    confirmation.request({
+      action: existing ? "overwrite" : "upload",
+      title: existing ? `覆盖“${slot.title}”` : `上传“${slot.title}”`,
+      summary: existing ? "这会用新文件替换本阶段当前材料，并更新展示预览。" : "这会把文件写入本阶段成果材料，并形成可回看的过程证据。",
+      payload: { slot: slot.title, fileName: file.name, fileType: file.type, size: file.size },
+      onConfirm: () => performUpload(slot, file, input),
+    });
+  }
+
   function startPresentation() {
-    session.addActivity(course.id, "开始个人成果汇报", group?.name ?? "个人项目", session.studentName ?? "学生");
-    session.updateStudentProgress("showcase", 100);
+    confirmation.request({
+      action: "mark-complete",
+      title: "标记成果汇报阶段完成",
+      summary: "这会把你的成果汇报阶段进度标记为 100%，并记录你已开始正式演示。请确认展示材料和说明已经准备好。",
+      payload: { stageKey: "showcase", groupId: group?.id },
+      onConfirm: () => {
+        session.addActivity(course.id, "开始个人成果汇报", group?.name ?? "个人项目", session.studentName ?? "学生");
+        session.updateStudentProgress("showcase", 100);
+      },
+    });
   }
 
   async function prepareShowcaseCoach() {
@@ -257,6 +278,7 @@ export function ShowcaseView({ course }: { course: Course }) {
         <PrimaryButton onClick={startPresentation}>开始演示</PrimaryButton>
       </div>
       <CompanionRoundtable course={course} stageKey="showcase" contextLabel="成果汇报" />
+      <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );
 }

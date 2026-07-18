@@ -3,6 +3,9 @@ import type {
   AiSupportRecord,
   ClassConfig,
   ClassroomSubmission,
+  CompanionConfirmation,
+  CompanionProcessRecord,
+  CompanionTask,
   Course,
   CourseAnnouncement,
   CourseContent,
@@ -109,6 +112,10 @@ export type SessionAction =
   | { type: "ADD_OFFLINE_INTERVENTION"; payload: { courseId: string; intervention: OfflineInterventionRecord } }
   | { type: "RESOLVE_INTERVENTION_SIGNALS"; payload: { courseId: string; signalIds: string[] } }
   | { type: "UPSERT_TEACHER_AGENT_DIRECTIVE"; payload: { courseId: string; directive: TeacherAgentDirective } }
+  | { type: "UPSERT_COMPANION_TASK"; payload: { courseId: string; task: CompanionTask } }
+  | { type: "UPSERT_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmation: CompanionConfirmation } }
+  | { type: "RESOLVE_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmationId: string; status: CompanionConfirmation["status"]; resolvedAt: string } }
+  | { type: "ADD_COMPANION_PROCESS_RECORD"; payload: { courseId: string; record: CompanionProcessRecord } }
   | { type: "SET_UI_STATE"; payload: { courseId: string; patch: Partial<CourseUiState> } };
 
 export function initialSessionState(): SessionState {
@@ -592,6 +599,26 @@ export function applySessionAction(
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         teacherAgentDirectives: upsertById(c.teacherAgentDirectives ?? [], action.payload.directive),
       }));
+    case "UPSERT_COMPANION_TASK":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionTasks: upsertById(c.companionTasks ?? [], action.payload.task),
+      }));
+    case "UPSERT_COMPANION_CONFIRMATION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionConfirmations: upsertById(c.companionConfirmations ?? [], action.payload.confirmation),
+      }));
+    case "RESOLVE_COMPANION_CONFIRMATION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionConfirmations: (c.companionConfirmations ?? []).map((confirmation) =>
+          confirmation.id === action.payload.confirmationId
+            ? { ...confirmation, status: action.payload.status, resolvedAt: action.payload.resolvedAt }
+            : confirmation,
+        ),
+      }));
+    case "ADD_COMPANION_PROCESS_RECORD":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionProcessRecords: [action.payload.record, ...(c.companionProcessRecords ?? [])].slice(0, 160),
+      }));
     case "SET_UI_STATE":
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         uiState: { ...(c.uiState ?? {}), ...action.payload.patch },
@@ -760,6 +787,9 @@ export function normalizeCourse(course: Course): Course {
     evaluations: course.evaluations ?? [],
     learningEvents: course.learningEvents ?? [],
     companionThreads: course.companionThreads ?? [],
+    companionTasks: course.companionTasks ?? [],
+    companionConfirmations: course.companionConfirmations ?? [],
+    companionProcessRecords: course.companionProcessRecords ?? [],
     learningSignals: course.learningSignals ?? [],
     classCommonIssues: course.classCommonIssues ?? [],
     teacherAgentDirectives: course.teacherAgentDirectives ?? [],

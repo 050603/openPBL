@@ -8,6 +8,7 @@ import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { CompanionRoundtable } from "./companion-roundtable";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
+import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 const defaultDoc = "";
 
@@ -44,9 +45,10 @@ export function WorkspaceView({ course }: { course: Course }) {
   const existing = course.submissions?.find((item) => item.groupId === group?.id && item.stageKey === stageKey && item.type === "document");
   const [documentText, setDocumentText] = useState(existing?.content ?? defaultDoc);
   const [status, setStatus] = useState<string | null>(null);
+  const confirmation = useStudentActionConfirmation({ course, stageKey });
   const feedback = (course.feedback ?? []).filter((item) => item.targetId === group?.id || item.targetId === session.studentId);
 
-  function saveDocument(action = "保存项目文档") {
+  function performSaveDocument(action = "保存项目文档") {
     const submission = session.upsertSubmission({
       courseId: course.id,
       stageKey,
@@ -61,7 +63,17 @@ export function WorkspaceView({ course }: { course: Course }) {
     setStatus("已保存");
   }
 
-  function submitDocument() {
+  function requestSaveDocument() {
+    confirmation.request({
+      action: existing ? "overwrite" : "save",
+      title: existing ? "覆盖当前项目文档" : "保存当前项目文档",
+      summary: existing ? "这会覆盖课堂中当前阶段已有的项目设计报告，并形成新的过程记录。" : "这会把当前编辑器中的项目设计报告写入课堂记录，供伴学伙伴和教师继续参考。",
+      payload: { submissionId: existing?.id, title: "项目设计报告" },
+      onConfirm: () => performSaveDocument(),
+    });
+  }
+
+  function performSubmitDocument() {
     const submission = session.upsertSubmission({
       courseId: course.id,
       stageKey,
@@ -76,7 +88,17 @@ export function WorkspaceView({ course }: { course: Course }) {
     setStatus("已提交");
   }
 
-  async function handleFileUpload(file: File) {
+  function requestSubmitDocument() {
+    confirmation.request({
+      action: "submit",
+      title: stageMode.submitLabel,
+      summary: "提交后会把当前文档标记为本阶段正式成果，并将阶段进度推进到 100%。请确认文档中的内容已经代表你的当前判断。",
+      payload: { title: "项目设计报告", stageKey },
+      onConfirm: performSubmitDocument,
+    });
+  }
+
+  async function performFileUpload(file: File) {
     if (!group) return;
     setStatus("上传中...");
     try {
@@ -116,6 +138,16 @@ export function WorkspaceView({ course }: { course: Course }) {
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "上传失败");
     }
+  }
+
+  function requestFileUpload(file: File) {
+    confirmation.request({
+      action: "upload",
+      title: `上传“${file.name}”`,
+      summary: "这会把文件作为本阶段过程材料写入课堂记录，并触发伴学伙伴的材料跟进。",
+      payload: { fileName: file.name, fileType: file.type, size: file.size },
+      onConfirm: () => performFileUpload(file),
+    });
   }
 
   return (
@@ -163,7 +195,7 @@ export function WorkspaceView({ course }: { course: Course }) {
             <div className="p-6">
               <h1 className="text-[26px] font-bold">{stageMode.editorTitle}</h1>
               <div className="mt-5">
-                <RichTextEditor value={documentText} onChange={setDocumentText} onFileUpload={handleFileUpload} placeholder={stageMode.placeholder} />
+                <RichTextEditor value={documentText} onChange={setDocumentText} onFileUpload={requestFileUpload} placeholder={stageMode.placeholder} />
               </div>
             </div>
             <div className="flex h-10 items-center justify-between border-t border-stone-100 px-5 text-sm text-stone-500">
@@ -190,10 +222,11 @@ export function WorkspaceView({ course }: { course: Course }) {
       </div>
       <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-3 rounded-[10px] border border-stone-200/80 bg-white/95 px-4 py-3 shadow-[0_16px_44px_rgba(15,23,42,0.12)] backdrop-blur">
         {status ? <Pill tone="green">{status}</Pill> : null}
-        <PrimaryButton variant="outline" onClick={() => saveDocument()}>保存当前项目文档</PrimaryButton>
-        <PrimaryButton tone="green" onClick={submitDocument}>{stageMode.submitLabel}</PrimaryButton>
+        <PrimaryButton variant="outline" onClick={requestSaveDocument}>保存当前项目文档</PrimaryButton>
+        <PrimaryButton tone="green" onClick={requestSubmitDocument}>{stageMode.submitLabel}</PrimaryButton>
       </div>
       <CompanionRoundtable course={course} stageKey="make" contextLabel="项目实践" />
+      <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );
 }

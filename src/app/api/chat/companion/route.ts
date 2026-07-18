@@ -34,6 +34,7 @@ type CompanionChatRequest = {
   courseId?: string;
   studentId?: string;
   studentName?: string;
+  preferredCompanionId?: AiCompanionId;
   trigger?: { kind: CompanionTriggerKind; reason?: string; preferredCompanionId?: AiCompanionId };
 };
 
@@ -98,6 +99,7 @@ function buildDirectorPrompt(input: {
   companions: { id: AiCompanionId; name: string; role: string; description: string; canQuestion: boolean }[];
   stageLabel: string;
   trigger?: CompanionTriggerKind;
+  preferredCompanionId?: AiCompanionId;
 }): { system: string; user: string } {
   const companionList = input.companions
     .map((c) => `- ${c.id}（${c.name}，${c.role}）：${c.description}${c.canQuestion ? " [唯一可提问角色]" : " [仅陈述]"}`)
@@ -125,6 +127,7 @@ ${companionList}
 
   const user = `本轮来源：${input.trigger ? `系统主动介入（${input.trigger}）` : "学生主动请求"}
 学生最新消息：${input.message}
+${input.preferredCompanionId ? `学生点名希望先听${input.preferredCompanionId}的意见；如果该角色可用，必须让其先发言。` : ""}
 ${recentHistory ? `最近对话：\n${recentHistory}` : ""}
 
 请决定哪些伴学角色应该回应，返回 JSON。`;
@@ -281,6 +284,7 @@ export async function POST(req: NextRequest) {
         companions: availableCompanions,
         stageLabel: body.stageLabel,
         trigger: body.trigger?.kind,
+        preferredCompanionId: body.preferredCompanionId,
       });
 
       let directorResult: DirectorResult;
@@ -297,8 +301,9 @@ export async function POST(req: NextRequest) {
           ? parsed.speakers.filter((id) => effectiveCompanionIds.includes(id))
           : [];
         const selectedSpeakers = speakers.length ? speakers : [effectiveCompanionIds[0]];
-        if (body.trigger?.preferredCompanionId && effectiveCompanionIds.includes(body.trigger.preferredCompanionId)) {
-          selectedSpeakers.unshift(body.trigger.preferredCompanionId);
+        const preferredCompanionId = body.preferredCompanionId ?? body.trigger?.preferredCompanionId;
+        if (preferredCompanionId && effectiveCompanionIds.includes(preferredCompanionId)) {
+          selectedSpeakers.unshift(preferredCompanionId);
         }
         if (
           shouldUseReviewer(body.trigger?.kind) &&
