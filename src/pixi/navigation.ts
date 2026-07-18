@@ -30,9 +30,21 @@ export function compactNavigationRoute(
 export function walkingDuration(
   from: NavigationPoint,
   to: NavigationPoint,
-  speed = 185,
+  speed = 140,
 ): number {
   return Math.max(180, Math.round((distanceBetween(from, to) / speed) * 1000))
+}
+
+export function classroomAisleRoute(
+  from: NavigationPoint,
+  to: NavigationPoint,
+  aisleX: number,
+): NavigationPoint[] {
+  return compactNavigationRoute(from, [
+    { x: aisleX, y: from.y },
+    { x: aisleX, y: to.y },
+    to,
+  ])
 }
 
 function distanceBetween(from: NavigationPoint, to: NavigationPoint): number {

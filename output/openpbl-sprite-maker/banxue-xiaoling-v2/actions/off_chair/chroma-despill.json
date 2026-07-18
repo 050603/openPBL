@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "algorithm": "official edge-local-chroma-spill-suppression",
+  "chroma_key": "#FF00FF",
+  "frames": [
+    {
+      "frame": "00.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1312,
+      "decontaminated_pixels": 1235,
+      "spill_suppressed_pixels": 1312,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1312
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "01.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1308,
+      "decontaminated_pixels": 1269,
+      "spill_suppressed_pixels": 1308,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1308
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "02.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1385,
+      "decontaminated_pixels": 1359,
+      "spill_suppressed_pixels": 1385,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1385
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "03.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1401,
+      "decontaminated_pixels": 1387,
+      "spill_suppressed_pixels": 1401,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1401
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "04.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1467,
+      "decontaminated_pixels": 1443,
+      "spill_suppressed_pixels": 1467,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1467
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "05.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1495,
+      "decontaminated_pixels": 1477,
+      "spill_suppressed_pixels": 1495,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1495
+      },
+      "alpha_preserved": true
+    }
+  ],
+  "ok": true
+}

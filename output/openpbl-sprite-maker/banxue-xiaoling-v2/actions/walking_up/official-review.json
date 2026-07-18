@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+  "ok": true,
+  "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized",
+  "states": [
+    "walking_up"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "walking_up",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11315,
+          "bbox": [
+            50,
+            8,
+            127,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11756,
+          "bbox": [
+            43,
+            8,
+            140,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10758,
+          "bbox": [
+            59,
+            8,
+            155,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13387,
+          "bbox": [
+            54,
+            8,
+            143,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 4,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12577,
+          "bbox": [
+            55,
+            8,
+            135,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 5,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10245,
+          "bbox": [
+            36,
+            8,
+            134,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 6,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11363,
+          "bbox": [
+            53,
+            8,
+            152,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 7,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\walking_up\\normalized\\07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11373,
+          "bbox": [
+            63,
+            8,
+            145,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ]
+    }
+  ]
+}

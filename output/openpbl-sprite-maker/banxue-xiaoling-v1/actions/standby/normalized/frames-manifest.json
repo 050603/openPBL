@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "method": "official-normalize_cells_to_reference",
+  "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png",
+  "scale": 0.9696969696969697,
+  "frames": [
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\00.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\01.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\02.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\03.png"
+  ],
+  "metrics": [
+    {
+      "index": 0,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\00.png",
+      "bbox": [
+        26,
+        8,
+        166,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\00.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "62a7b97445af6cf95ad5ee632ea3140cb22dd1be1e098dc2ec532d9cbe2a2096",
+        "alpha_pixels": 18506
+      }
+    },
+    {
+      "index": 1,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\01.png",
+      "bbox": [
+        27,
+        8,
+        166,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\01.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "9c94ecf872506e9c61ae241abb540619048566dd6e55f52944d90bcdeee29609",
+        "alpha_pixels": 18410
+      }
+    },
+    {
+      "index": 2,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\02.png",
+      "bbox": [
+        27,
+        8,
+        167,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\02.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "7a7ff3a512b4bbf4d2fd9d55a6aef60a72ed74401b0c4cd70212245502b2e9fa",
+        "alpha_pixels": 18522
+      }
+    },
+    {
+      "index": 3,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\03.png",
+      "bbox": [
+        27,
+        8,
+        166,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\03.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "c3d8fbcdae279abb0d882d4b3f5a8fb66fd6380b81acb1f5568298da84cc7954",
+        "alpha_pixels": 18504
+      }
+    }
+  ]
+}

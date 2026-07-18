@@ -20,7 +20,7 @@ function plainTextLength(html: string): number {
   return (div.textContent ?? "").trim().length;
 }
 
-export function WorkspaceView({ course }: { course: Course }) {
+export function WorkspaceView({ course, embedded = false }: { course: Course; embedded?: boolean }) {
   const session = useSession();
   const stageKey = course.stages[course.currentStageIndex]?.key ?? "make";
   const isReviewStage = stageKey === "proposal";
@@ -225,7 +225,7 @@ export function WorkspaceView({ course }: { course: Course }) {
         <PrimaryButton variant="outline" onClick={requestSaveDocument}>保存当前项目文档</PrimaryButton>
         <PrimaryButton tone="green" onClick={requestSubmitDocument}>{stageMode.submitLabel}</PrimaryButton>
       </div>
-      <CompanionRoundtable course={course} stageKey="make" contextLabel="项目实践" />
+      {!embedded ? <CompanionRoundtable course={course} stageKey="make" contextLabel="项目实践" /> : null}
       <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );

@@ -52,7 +52,7 @@ function scoreToStars(score: number): number {
   return 1;
 }
 
-export function ReflectionView({ course }: { course?: Course }) {
+export function ReflectionView({ course, embedded = false }: { course?: Course; embedded?: boolean }) {
   const session = useSession();
   const { upsertReflection, updateStudentProgress } = session;
   const title = course?.name ?? "—";
@@ -543,7 +543,7 @@ export function ReflectionView({ course }: { course?: Course }) {
           <PenLine size={21} /> 保存改进计划
         </PrimaryButton>
       </div>
-      {course ? (
+      {course && !embedded ? (
         <CompanionRoundtable course={course} stageKey="reflection" contextLabel="评价反思" />
       ) : null}
       <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />

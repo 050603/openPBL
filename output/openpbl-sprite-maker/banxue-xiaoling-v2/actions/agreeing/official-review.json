@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+  "ok": true,
+  "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\agreeing\\normalized",
+  "states": [
+    "agreeing"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "agreeing",
+      "expected_frames": 4,
+      "actual_frames": 4,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\agreeing\\normalized\\00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17965,
+          "bbox": [
+            27,
+            9,
+            164,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\agreeing\\normalized\\01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20131,
+          "bbox": [
+            17,
+            8,
+            175,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\agreeing\\normalized\\02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18496,
+          "bbox": [
+            23,
+            9,
+            164,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\agreeing\\normalized\\03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17975,
+          "bbox": [
+            27,
+            9,
+            164,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ]
+    }
+  ]
+}

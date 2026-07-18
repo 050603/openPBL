@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "run_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2",
+  "created_at": "2026-07-18T04:53:00.949255+00:00",
+  "action_count": 26,
+  "complete_count": 0,
+  "complete": false,
+  "ok": true,
+  "incomplete_actions": [
+    "standby",
+    "selected",
+    "working",
+    "thinking",
+    "waiting_user",
+    "completed",
+    "error",
+    "talking_on_seat",
+    "talking_on_stand_a",
+    "talking_on_stand_b",
+    "listening",
+    "agreeing",
+    "questioning",
+    "walking_horizontal",
+    "walking_up",
+    "off_chair",
+    "sit_down",
+    "leaving",
+    "reading_book",
+    "searching_info",
+    "planning_board",
+    "brainstorming",
+    "writing_notes",
+    "reviewing_work",
+    "presenting",
+    "organizing_files"
+  ],
+  "missing_outputs": [],
+  "deterministic_failures": [],
+  "overview_contact_sheet": {
+    "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\contact-sheets\\all-actions.png",
+    "actions": [
+      "standby",
+      "selected",
+      "working",
+      "thinking",
+      "waiting_user",
+      "completed",
+      "error",
+      "talking_on_seat",
+      "talking_on_stand_a",
+      "talking_on_stand_b",
+      "listening",
+      "agreeing",
+      "questioning",
+      "walking_horizontal",
+      "walking_up",
+      "off_chair",
+      "sit_down",
+      "leaving",
+      "reading_book",
+      "searching_info",
+      "planning_board",
+      "brainstorming",
+      "writing_notes",
+      "reviewing_work",
+      "presenting",
+      "organizing_files"
+    ],
+    "scale": 0.5
+  },
+  "preview_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\previews",
+  "actions": [
+    {
+      "action": "standby",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "selected",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "working",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "thinking",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "waiting_user",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "completed",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "error",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "talking_on_seat",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "talking_on_stand_a",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "talking_on_stand_b",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "listening",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "agreeing",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "questioning",
+      "status": "qa",
+      "expected_frames": 4,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "walking_horizontal",
+      "status": "qa",
+      "expected_frames": 8,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "walking_up",
+      "status": "qa",
+      "expected_frames": 8,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "off_chair",
+      "status": "qa",
+      "expected_frames": 6,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "sit_down",
+      "status": "qa",
+      "expected_frames": 6,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "leaving",
+      "status": "qa",
+      "expected_frames": 6,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "reading_book",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "searching_info",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "planning_board",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "brainstorming",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "writing_notes",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "reviewing_work",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "presenting",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    },
+    {
+      "action": "organizing_files",
+      "status": "qa",
+      "expected_frames": 5,
+      "qa_ok": true,
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      },
+      "missing_outputs": []
+    }
+  ]
+}

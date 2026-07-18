@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "method": "official-normalize_cells_to_reference+openpbl-safe-margin",
+  "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\canonical\\canonical-base.png",
+  "scale": 0.9696969696969697,
+  "frames": [
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\00.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\01.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\02.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\03.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\04.png"
+  ],
+  "metrics": [
+    {
+      "index": 0,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\00.png",
+      "bbox": [
+        22,
+        8,
+        163,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\00.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "73fab3e7cbb680c6af7bda08d3297f085b560a23fe9b5eeb6d8f0668ff8784b1",
+        "alpha_pixels": 18629
+      }
+    },
+    {
+      "index": 1,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\01.png",
+      "bbox": [
+        18,
+        8,
+        173,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\01.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "b9572bbe2de597441915501994dc06674a15fe243256943089b1474aa54fb62f",
+        "alpha_pixels": 17399
+      }
+    },
+    {
+      "index": 2,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\02.png",
+      "bbox": [
+        23,
+        8,
+        163,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\02.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "d231dd6295778d2be9fc6c27ca9479329e2dde271d902a86ef7b5a6f153d3150",
+        "alpha_pixels": 18035
+      }
+    },
+    {
+      "index": 3,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\03.png",
+      "bbox": [
+        14,
+        8,
+        158,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\03.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "46aaf148b3c641c65823b3d02b9dcf68b423380487b60adb61831443c694aa3b",
+        "alpha_pixels": 17157
+      }
+    },
+    {
+      "index": 4,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\04.png",
+      "bbox": [
+        8,
+        8,
+        183,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_b\\normalized\\04.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "e06e16557d2eb5f9a06c8a63397501ed12ef5c70e9ec4a6b9538857d430231d8",
+        "alpha_pixels": 19519
+      }
+    }
+  ]
+}

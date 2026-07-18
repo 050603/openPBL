@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "source": "canonical/source/generated.png",
+  "output": "canonical/canonical-base.png",
+  "source_kind": "imagegen",
+  "chroma_key": "#FF00FF",
+  "despill": {
+    "algorithm": "edge-local-chroma-spill-suppression",
+    "strength": 1,
+    "edge_radius": 5,
+    "spill_tolerance": 0.15,
+    "minimum_saturation": 0.1,
+    "changed_pixels": 1836,
+    "decontaminated_pixels": 1831,
+    "spill_suppressed_pixels": 1836,
+    "rejected_pixels": 0,
+    "changed_by_cell": {
+      "r0c0": 1836
+    },
+    "alpha_preserved": true
+  },
+  "qa": {
+    "ok": true,
+    "errors": [],
+    "bbox": [
+      26,
+      8,
+      166,
+      200
+    ]
+  },
+  "archived_previous": null,
+  "created_at": "2026-07-18T04:05:37.384164+00:00"
+}

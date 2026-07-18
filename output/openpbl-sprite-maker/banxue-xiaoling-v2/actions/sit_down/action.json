@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "sit_down",
+  "category": "移动与姿态切换",
+  "definition": "坐回座位。",
+  "frames": 6,
+  "duration_ms": [
+    120,
+    120,
+    140,
+    140,
+    160,
+    300
+  ],
+  "loop": true,
+  "anchor": "seat",
+  "source": "actions/sit_down/source/generated.png",
+  "outputs": {
+    "source": "actions/sit_down/source/generated.png",
+    "frames": "actions/sit_down/frames",
+    "normalized": "actions/sit_down/normalized",
+    "preview_gif": "actions/sit_down/preview.gif",
+    "preview_webp": "actions/sit_down/preview.webp",
+    "contact_sheet": "actions/sit_down/contact-sheet.png",
+    "action_manifest": "actions/sit_down/action.json",
+    "qa": "actions/sit_down/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/sit_down/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:51:05.109698+00:00"
+}

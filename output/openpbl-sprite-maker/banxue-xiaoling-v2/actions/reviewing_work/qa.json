@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "action": "reviewing_work",
+  "definition": "检查作品或成果。",
+  "source": "actions/reviewing_work/source/generated.png",
+  "canonical_base": "canonical/canonical-base.png",
+  "input_images": [
+    {
+      "path": "references/standard-view-01.png",
+      "role": "standard-view"
+    },
+    {
+      "path": "canonical/canonical-base.png",
+      "role": "canonical-base"
+    },
+    {
+      "path": "references/layout-guides/reviewing_work.png",
+      "role": "layout-only"
+    }
+  ],
+  "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+  "checked_at": "2026-07-18T04:52:02.200331+00:00",
+  "expected_frames": 5,
+  "actual_frames": 5,
+  "frame_metrics": [
+    {
+      "index": 0,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\00.png",
+      "bbox": [
+        26,
+        8,
+        165,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 826,
+      "errors": []
+    },
+    {
+      "index": 1,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\01.png",
+      "bbox": [
+        25,
+        8,
+        157,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 1013,
+      "errors": []
+    },
+    {
+      "index": 2,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\02.png",
+      "bbox": [
+        13,
+        8,
+        151,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 1162,
+      "errors": []
+    },
+    {
+      "index": 3,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\03.png",
+      "bbox": [
+        12,
+        8,
+        154,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 1190,
+      "errors": []
+    },
+    {
+      "index": 4,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\04.png",
+      "bbox": [
+        28,
+        8,
+        161,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 855,
+      "errors": []
+    }
+  ],
+  "baseline_spread": 0,
+  "height_spread": 0,
+  "distinct_frame_count": 5,
+  "adjacent_diff_pixels": [
+    18740,
+    19293,
+    19188,
+    19851
+  ],
+  "scarf_master_color": "#2E6BCB",
+  "scarf_master_pixels": [
+    826,
+    1013,
+    1162,
+    1190,
+    855
+  ],
+  "official_review": {
+    "schema_version": 1,
+    "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+    "ok": true,
+    "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized",
+    "states": [
+      "reviewing_work"
+    ],
+    "errors": [],
+    "warnings": [],
+    "rows": [
+      {
+        "state": "reviewing_work",
+        "expected_frames": 5,
+        "actual_frames": 5,
+        "extraction_method": null,
+        "ok": true,
+        "errors": [],
+        "warnings": [],
+        "frames": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\00.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18100,
+            "bbox": [
+              26,
+              8,
+              165,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\01.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 17529,
+            "bbox": [
+              25,
+              8,
+              157,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\02.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 17896,
+            "bbox": [
+              13,
+              8,
+              151,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\03.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18534,
+            "bbox": [
+              12,
+              8,
+              154,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 4,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reviewing_work\\normalized\\04.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 17738,
+            "bbox": [
+              28,
+              8,
+              161,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          }
+        ]
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": [],
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "ok": true
+}

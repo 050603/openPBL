@@ -1,0 +1,573 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "canvas": {
+    "width": 192,
+    "height": 208,
+    "safe_margin": 8,
+    "baseline_tolerance": 6,
+    "scale_tolerance": 0.1
+  },
+  "scarf": {
+    "master_color": "#2E6BCB",
+    "color_tolerance": 72,
+    "replaceable_region": "scarf",
+    "rule": "Keep this blue family visually separate from the deep blue-gray body in every frame."
+  },
+  "actions": [
+    {
+      "id": "standby",
+      "category": "基础状态",
+      "definition": "待机、呼吸、轻微身体起伏和眨眼。",
+      "frames": 4,
+      "duration_ms": [
+        220,
+        120,
+        120,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "large gesture",
+        "new prop",
+        "detached effect",
+        "walking",
+        "talking"
+      ]
+    },
+    {
+      "id": "selected",
+      "category": "基础状态",
+      "definition": "被选中后抬头、回应或轻微挥手。",
+      "frames": 4,
+      "duration_ms": [
+        140,
+        140,
+        180,
+        260
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "large jump",
+        "new prop",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "working",
+      "category": "基础状态",
+      "definition": "坐着或站着专注工作。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        140,
+        260,
+        220
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "literal running",
+        "new prop",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "thinking",
+      "category": "基础状态",
+      "definition": "思考、停顿或整理思路。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        140,
+        180,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "thought bubble",
+        "text",
+        "floating symbol"
+      ]
+    },
+    {
+      "id": "waiting_user",
+      "category": "基础状态",
+      "definition": "期待地等待用户回应。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        150,
+        150,
+        320
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "ordinary idle",
+        "text",
+        "speech bubble"
+      ]
+    },
+    {
+      "id": "completed",
+      "category": "基础状态",
+      "definition": "任务完成和温和庆祝。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "confetti",
+        "detached star",
+        "text",
+        "glow"
+      ]
+    },
+    {
+      "id": "error",
+      "category": "基础状态",
+      "definition": "困惑、失败或暂时无法继续。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        140,
+        180,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "red X",
+        "floating punctuation",
+        "detached smoke"
+      ]
+    },
+    {
+      "id": "talking_on_seat",
+      "category": "发言与互动",
+      "definition": "坐着发言。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        120,
+        280
+      ],
+      "loop": true,
+      "anchor": "seat",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "text",
+        "speech bubble",
+        "large prop"
+      ]
+    },
+    {
+      "id": "talking_on_stand_a",
+      "category": "发言与互动",
+      "definition": "站立发言动作 A。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        120,
+        280
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "text",
+        "speech bubble",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "talking_on_stand_b",
+      "category": "发言与互动",
+      "definition": "站立发言动作 B。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        120,
+        280
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "text",
+        "speech bubble",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "listening",
+      "category": "发言与互动",
+      "definition": "认真倾听。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        160,
+        160,
+        320
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "talking mouth loop",
+        "new prop",
+        "text"
+      ]
+    },
+    {
+      "id": "agreeing",
+      "category": "发言与互动",
+      "definition": "点头或表示赞同。",
+      "frames": 4,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        280
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "text",
+        "thumb-up symbol",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "questioning",
+      "category": "发言与互动",
+      "definition": "歪头、举手或表达疑问。",
+      "frames": 4,
+      "duration_ms": [
+        160,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "question mark",
+        "text",
+        "thought bubble"
+      ]
+    },
+    {
+      "id": "walking_horizontal",
+      "category": "移动与姿态切换",
+      "definition": "横向行走。",
+      "frames": 8,
+      "duration_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        220
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 5,
+      "prohibited": [
+        "speed line",
+        "dust",
+        "floor shadow",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "walking_up",
+      "category": "移动与姿态切换",
+      "definition": "背向或向上移动。",
+      "frames": 8,
+      "duration_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        220
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 5,
+      "prohibited": [
+        "speed line",
+        "dust",
+        "floor shadow",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "off_chair",
+      "category": "移动与姿态切换",
+      "definition": "从座位起身。",
+      "frames": 6,
+      "duration_ms": [
+        120,
+        120,
+        140,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 4,
+      "prohibited": [
+        "chair duplication",
+        "scene background",
+        "motion blur"
+      ]
+    },
+    {
+      "id": "sit_down",
+      "category": "移动与姿态切换",
+      "definition": "坐回座位。",
+      "frames": 6,
+      "duration_ms": [
+        120,
+        120,
+        140,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "seat",
+      "min_distinct_frames": 4,
+      "prohibited": [
+        "chair duplication",
+        "scene background",
+        "motion blur"
+      ]
+    },
+    {
+      "id": "leaving",
+      "category": "移动与姿态切换",
+      "definition": "转身或离开当前位置。",
+      "frames": 6,
+      "duration_ms": [
+        120,
+        120,
+        140,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 4,
+      "prohibited": [
+        "speed line",
+        "dust",
+        "scene background",
+        "detached effect"
+      ]
+    },
+    {
+      "id": "reading_book",
+      "category": "学习活动",
+      "definition": "拿书、翻书和阅读。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "new book design",
+        "text",
+        "scene background"
+      ]
+    },
+    {
+      "id": "searching_info",
+      "category": "学习活动",
+      "definition": "查找和筛选资料。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "readable text",
+        "UI panel",
+        "floating icon"
+      ]
+    },
+    {
+      "id": "planning_board",
+      "category": "学习活动",
+      "definition": "在白板或看板前规划。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "board background",
+        "readable text",
+        "scene"
+      ]
+    },
+    {
+      "id": "brainstorming",
+      "category": "学习活动",
+      "definition": "构思、画草图或产生灵感。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "light bulb symbol",
+        "text",
+        "floating effect"
+      ]
+    },
+    {
+      "id": "writing_notes",
+      "category": "学习活动",
+      "definition": "书写和整理记录。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "readable text",
+        "new stationery design",
+        "scene"
+      ]
+    },
+    {
+      "id": "reviewing_work",
+      "category": "学习活动",
+      "definition": "检查作品或成果。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "magnifying glass",
+        "readable text",
+        "UI panel"
+      ]
+    },
+    {
+      "id": "presenting",
+      "category": "学习活动",
+      "definition": "展示方案或成果。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "presentation slide",
+        "readable text",
+        "speech bubble"
+      ]
+    },
+    {
+      "id": "organizing_files",
+      "category": "学习活动",
+      "definition": "整理文件、资料或档案。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "file UI",
+        "readable text",
+        "scene background"
+      ]
+    }
+  ],
+  "_path": "C:\\Users\\21140\\.codex\\skills\\openpbl-sprite-maker\\references\\action-catalog.json"
+}

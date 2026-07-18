@@ -371,6 +371,18 @@ export type CourseUiState = {
   teacherResourceProjection?: TeacherResourceProjection | null;
 };
 
+/** Student-facing workspace surfaces available during a classroom stage. */
+export type StageWorkspaceMode = "task" | "companions";
+
+/** Which workspace surfaces the teacher makes available for one stage. */
+export type StageWorkspaceAccess = "task-only" | "companions-only" | "student-choice";
+
+export type StageWorkspacePolicy = {
+  access: StageWorkspaceAccess;
+  /** Used when students may choose and have not made a stage-scoped choice yet. */
+  defaultMode: StageWorkspaceMode;
+};
+
 export type ProjectionMode = "forced" | "optional";
 export type ProjectedEngineMode = "idle" | "playing" | "paused" | "live";
 
@@ -695,6 +707,8 @@ export type Course = {
   content: CourseContent;
   /** Structured configuration for the personal-project AI-companion mode. */
   pblConfig?: PblCourseConfig;
+  /** Teacher-authored student workspace availability, keyed by stage.key. */
+  stageWorkspacePolicies?: Record<string, StageWorkspacePolicy>;
   classConfig?: ClassConfig;
   inviteCode?: string;
   /** AI 生成的项目封面图 URL */

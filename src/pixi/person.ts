@@ -14,6 +14,44 @@ export type VisualAnchorName = 'center' | 'bottomCenter'
 export type PersonPosture = 'normal' | 'crouched'
 export type PersonFacing = 'left' | 'right'
 
+export function getFacingScaleSign(
+  facing: PersonFacing,
+  authoredFacing: PersonFacing,
+): 1 | -1 {
+  return facing === authoredFacing ? 1 : -1
+}
+
+export function getActionAuthoredFacing(
+  actionName: AgentActionName,
+  legacyArt: boolean,
+): PersonFacing {
+  if (legacyArt) {
+    return 'left'
+  }
+
+  // The horizontal walking strip was drawn facing right. The interaction
+  // strips and the canonical character were drawn facing left. Tracking this
+  // per action prevents a correct walk fix from mirroring shelf interactions
+  // back toward the room.
+  return actionName === 'fc_walking_h' ? 'right' : 'left'
+}
+
+export function getActionFrameBodyOffset(
+  actionName: AgentActionName,
+  frameIndex: number,
+  reverse = false,
+): { x: number; y: number } {
+  const offsets = getAgentActionDefinition(actionName).frameBodyOffsets
+  if (!offsets?.length) {
+    return { x: 0, y: 0 }
+  }
+
+  const sourceFrameIndex = reverse
+    ? offsets.length - 1 - frameIndex
+    : frameIndex
+  return offsets[sourceFrameIndex] ?? { x: 0, y: 0 }
+}
+
 export type PersonController = {
   container: Container
   role: AgentId
@@ -21,6 +59,7 @@ export type PersonController = {
   play: (actionName: AgentActionName, options?: PersonPlaybackOptions) => Promise<void>
   moveTo: (x: number, y: number, duration?: number) => Promise<void>
   moveVisualAnchorTo: (x: number, y: number, options?: { duration?: number; anchor?: VisualAnchorName }) => Promise<void>
+  placeVisualAnchorAt: (x: number, y: number, anchor?: VisualAnchorName) => void
   cancelMovement: () => void
   getVisualAnchorPosition: (anchor?: VisualAnchorName) => { x: number; y: number }
   setFacing: (facing: PersonFacing) => void
@@ -49,17 +88,20 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     const spriteLayer = new Container()
     const spritesByLayer = new Map<'body', AnimatedSprite>()
     const visualAnchorOffsets = new Map<'body', VisualAnchorOffset>()
+    const frameBodyCorrections = new Map<AnimatedSprite, VisualAnchorOffset>()
     // The 1x atlas metadata keeps the same logical frame size as @2x, while
     // using one quarter of the GPU memory.
-    const baseScale = 0.45
+    const baseScale = process.env.NEXT_PUBLIC_AGENT_ART === 'legacy' ? 0.45 : 0.78
     const textureOptions = { replaceDefaultRedWith: roleProfile.scarfColor }
-    let animationSpeed = 0.35
+    let animationSpeed = 0.12
     let currentAction: AgentActionName = actions.default
     let currentTextureAction: AgentActionName | null = null
     let facing: PersonFacing = 'left'
     let playbackRequest = 0
     let movementRequest = 0
     let disposed = false
+    let settleCurrentPlayback: (() => void) | null = null
+    let applyCurrentFrameCorrection: (() => void) | null = null
     const movementFrameIds = new Set<number>()
     const movementCancels = new Set<() => void>()
 
@@ -91,28 +133,45 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       offset: VisualAnchorOffset = { x: 0, y: 0 },
     ) {
       const bounds = getSpriteLocalBounds(sprite)
+      // Frame stabilization moves the rendered canvas inside spriteLayer, but
+      // it must not move the person's logical feet/label/navigation anchor.
+      const frameCorrection = frameBodyCorrections.get(sprite) ?? { x: 0, y: 0 }
       return anchor === 'bottomCenter'
-        ? { x: bounds.centerX + offset.x, y: bounds.bottom + offset.y }
-        : { x: bounds.centerX + offset.x, y: bounds.centerY + offset.y }
+        ? {
+            x: bounds.centerX - frameCorrection.x + offset.x,
+            y: bounds.bottom - frameCorrection.y + offset.y,
+          }
+        : {
+            x: bounds.centerX - frameCorrection.x + offset.x,
+            y: bounds.centerY - frameCorrection.y + offset.y,
+          }
     }
 
     function removeBody(): void {
+      settleCurrentPlayback?.()
+      settleCurrentPlayback = null
       const previous = spritesByLayer.get('body')
       if (!previous) {
         return
       }
 
       spriteLayer.removeChild(previous)
+      frameBodyCorrections.delete(previous)
       previous.destroy()
       spritesByLayer.delete('body')
+      applyCurrentFrameCorrection = null
       if (currentTextureAction) {
         textureLoader.releaseActionTextures(currentTextureAction, textureOptions)
         currentTextureAction = null
       }
     }
 
-    function applyFacing(sprite: AnimatedSprite): void {
-      const direction = facing === 'right' ? -1 : 1
+    function applyFacing(sprite: AnimatedSprite, actionName: AgentActionName): void {
+      const legacyArt = process.env.NEXT_PUBLIC_AGENT_ART === 'legacy'
+      const direction = getFacingScaleSign(
+        facing,
+        getActionAuthoredFacing(actionName, legacyArt),
+      )
       sprite.scale.x = Math.abs(sprite.scale.x) * direction
     }
 
@@ -124,6 +183,8 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       }
 
       const request = ++playbackRequest
+      settleCurrentPlayback?.()
+      settleCurrentPlayback = null
       const previous = spritesByLayer.get('body')
       const previousOffset = visualAnchorOffsets.get('body')
       const preserveAnchor = options.preserveVisualAnchor && previous
@@ -154,20 +215,56 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       nextSprite.animationSpeed = playback.animationSpeed ?? animationSpeed
       nextSprite.loop = playback.loop ?? true
 
+      const completed = nextSprite.loop
+        ? null
+        : new Promise<void>((resolve) => {
+            let settled = false
+            const settle = () => {
+              if (settled) return
+              settled = true
+              if (settleCurrentPlayback === settle) settleCurrentPlayback = null
+              resolve()
+            }
+            settleCurrentPlayback = settle
+            nextSprite.onComplete = settle
+          })
+
       if (typeof playback.scale === 'number') {
         nextSprite.scale.set(playback.scale)
       } else if (playback.scale) {
         nextSprite.scale.set(playback.scale.x, playback.scale.y)
       }
-      applyFacing(nextSprite)
+      applyFacing(nextSprite, actionName)
+
+      const authoredPosition = { x: nextSprite.x, y: nextSprite.y }
+      const applyNextFrameCorrection = () => {
+        const offset = getActionFrameBodyOffset(
+          actionName,
+          nextSprite.currentFrame,
+          Boolean(options.reverse),
+        )
+        // Sprite scale carries the facing mirror. Multiplying the authored
+        // correction by the signed scale keeps the same feet fixed when the
+        // action is mirrored toward the opposite side of the room.
+        nextSprite.x = authoredPosition.x + offset.x * nextSprite.scale.x
+        nextSprite.y = authoredPosition.y + offset.y * nextSprite.scale.y
+        frameBodyCorrections.set(nextSprite, {
+          x: nextSprite.x - authoredPosition.x,
+          y: nextSprite.y - authoredPosition.y,
+        })
+      }
+      nextSprite.onFrameChange = applyNextFrameCorrection
+      applyNextFrameCorrection()
 
       nextSprite.play()
       spriteLayer.addChild(nextSprite)
       spritesByLayer.set('body', nextSprite)
+      applyCurrentFrameCorrection = applyNextFrameCorrection
       visualAnchorOffsets.set('body', nextOffset)
 
       if (previous) {
         spriteLayer.removeChild(previous)
+        frameBodyCorrections.delete(previous)
         previous.destroy()
       }
       if (currentTextureAction) {
@@ -182,6 +279,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       }
 
       currentAction = actionName
+      if (completed) await completed
     }
 
     function setFacing(nextFacing: PersonFacing): void {
@@ -198,7 +296,8 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
         return
       }
 
-      applyFacing(sprite)
+      applyFacing(sprite, currentAction)
+      applyCurrentFrameCorrection?.()
       const nextAnchor = getVisualAnchorPosition('bottomCenter')
       container.x += previousAnchor.x - nextAnchor.x
       container.y += previousAnchor.y - nextAnchor.y
@@ -313,6 +412,17 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       )
     }
 
+    function placeVisualAnchorAt(
+      x: number,
+      y: number,
+      anchor: VisualAnchorName = 'bottomCenter',
+    ): void {
+      cancelMovement()
+      const current = getVisualAnchorPosition(anchor)
+      container.x += x - current.x
+      container.y += y - current.y
+    }
+
     await play(currentAction)
 
     return {
@@ -322,6 +432,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       play,
       moveTo,
       moveVisualAnchorTo,
+      placeVisualAnchorAt,
       cancelMovement,
       getVisualAnchorPosition,
       setFacing,

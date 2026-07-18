@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "talking_on_stand_b",
+  "category": "发言与互动",
+  "definition": "站立发言动作 B。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    120,
+    120,
+    120,
+    280
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/talking_on_stand_b/source/generated.png",
+  "outputs": {
+    "source": "actions/talking_on_stand_b/source/generated.png",
+    "frames": "actions/talking_on_stand_b/frames",
+    "normalized": "actions/talking_on_stand_b/normalized",
+    "preview_gif": "actions/talking_on_stand_b/preview.gif",
+    "preview_webp": "actions/talking_on_stand_b/preview.webp",
+    "contact_sheet": "actions/talking_on_stand_b/contact-sheet.png",
+    "action_manifest": "actions/talking_on_stand_b/action.json",
+    "qa": "actions/talking_on_stand_b/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/talking_on_stand_b/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:39:27.690192+00:00"
+}

@@ -1,0 +1,3879 @@
+{
+  "schema_version": 1,
+  "skill": "openpbl-sprite-maker",
+  "character": "伴学小灵",
+  "created_at": "2026-07-18T03:58:31.390215+00:00",
+  "updated_at": "2026-07-18T04:22:43.160396+00:00",
+  "run_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1",
+  "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+  "generation_skill": "$imagegen",
+  "catalog_path": "manifests/action-catalog.json",
+  "references": [
+    {
+      "path": "references/standard-view-01.png",
+      "source_path": "C:\\code\\openPBL\\docs\\research\\character-redesign\\banxue-xiaoling-user-standard.png",
+      "role": "standard-view"
+    }
+  ],
+  "standard_view_count": 1,
+  "chroma_key": {
+    "hex": "#FF00FF",
+    "role": "generation-only removable key"
+  },
+  "canvas": {
+    "width": 192,
+    "height": 208,
+    "safe_margin": 8,
+    "baseline_tolerance": 6,
+    "scale_tolerance": 0.1
+  },
+  "scarf": {
+    "master_color": "#2E6BCB",
+    "color_tolerance": 72,
+    "replaceable_region": "scarf",
+    "rule": "Keep this blue family visually separate from the deep blue-gray body in every frame."
+  },
+  "style_notes": "",
+  "canonical_base": {
+    "id": "canonical-base",
+    "status": "complete",
+    "prompt_file": "prompts/canonical-base.md",
+    "input_images": [
+      {
+        "path": "references/standard-view-01.png",
+        "role": "standard-view"
+      }
+    ],
+    "output_path": "canonical/canonical-base.png",
+    "source_dir": "canonical/source",
+    "steps": {
+      "generation": {
+        "status": "complete",
+        "at": "2026-07-18T04:05:36.421798+00:00",
+        "source_path": "canonical/source/generated.png",
+        "source_kind": "imagegen"
+      },
+      "background_cleanup": {
+        "status": "complete",
+        "at": "2026-07-18T04:05:37.367172+00:00",
+        "report": {
+          "algorithm": "edge-local-chroma-spill-suppression",
+          "strength": 1,
+          "edge_radius": 5,
+          "spill_tolerance": 0.15,
+          "minimum_saturation": 0.1,
+          "changed_pixels": 1836,
+          "decontaminated_pixels": 1831,
+          "spill_suppressed_pixels": 1836,
+          "rejected_pixels": 0,
+          "changed_by_cell": {
+            "r0c0": 1836
+          },
+          "alpha_preserved": true
+        }
+      },
+      "normalization": {
+        "status": "complete",
+        "at": "2026-07-18T04:05:37.367172+00:00",
+        "method": "official-fit_to_cell+openpbl-safe-margin"
+      },
+      "identity_qa": {
+        "status": "complete",
+        "at": "2026-07-18T04:05:37.384164+00:00",
+        "ok": true,
+        "errors": [],
+        "bbox": [
+          26,
+          8,
+          166,
+          200
+        ]
+      }
+    },
+    "retries": 0,
+    "source_path": "canonical/source/generated.png",
+    "qa": {
+      "ok": true,
+      "errors": [],
+      "bbox": [
+        26,
+        8,
+        166,
+        200
+      ]
+    },
+    "status_history": [
+      {
+        "from": "pending",
+        "to": "generating",
+        "at": "2026-07-18T04:03:48.152719+00:00",
+        "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-f758c5b9-cbb0-4968-898d-600e70f1c9f3.png",
+        "error": ""
+      },
+      {
+        "from": "generating",
+        "to": "processing",
+        "at": "2026-07-18T04:03:48.212224+00:00",
+        "note": "removing chroma and fitting canonical base",
+        "error": ""
+      },
+      {
+        "from": "processing",
+        "to": "qa",
+        "at": "2026-07-18T04:03:48.797019+00:00",
+        "note": "checking canonical base geometry and transparency",
+        "error": ""
+      },
+      {
+        "from": "qa",
+        "to": "repair_required",
+        "at": "2026-07-18T04:03:48.807432+00:00",
+        "note": "canonical QA failed",
+        "error": "canonical base violates safe margin: (24, 5, 168, 203)"
+      },
+      {
+        "from": "repair_required",
+        "to": "generating",
+        "at": "2026-07-18T04:05:36.335057+00:00",
+        "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-f758c5b9-cbb0-4968-898d-600e70f1c9f3.png",
+        "error": ""
+      },
+      {
+        "from": "generating",
+        "to": "processing",
+        "at": "2026-07-18T04:05:36.430807+00:00",
+        "note": "removing chroma and fitting canonical base",
+        "error": ""
+      },
+      {
+        "from": "processing",
+        "to": "qa",
+        "at": "2026-07-18T04:05:37.372165+00:00",
+        "note": "checking canonical base geometry and transparency",
+        "error": ""
+      },
+      {
+        "from": "qa",
+        "to": "complete",
+        "at": "2026-07-18T04:05:37.385159+00:00",
+        "note": "canonical base passed geometry and transparency QA",
+        "error": ""
+      }
+    ],
+    "last_note": "canonical base passed geometry and transparency QA",
+    "source_kind": "imagegen",
+    "source_metadata": {
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\source\\generated.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "format": "PNG",
+      "sha256": "6676f9e8fc07db61a98d09ce247de05cc9fa0aace9411b831c7075b49bc33903",
+      "alpha_pixels": 1572516
+    },
+    "output_metadata": {
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png",
+      "width": 192,
+      "height": 208,
+      "mode": "RGBA",
+      "format": "PNG",
+      "sha256": "32462724f75fcc2bfea27de370dbb750dbb3f7c66da5e4d507a3725470b6f878",
+      "alpha_pixels": 18580
+    },
+    "despill": {
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1836,
+      "decontaminated_pixels": 1831,
+      "spill_suppressed_pixels": 1836,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1836
+      },
+      "alpha_preserved": true
+    }
+  },
+  "actions": [
+    {
+      "id": "standby",
+      "category": "基础状态",
+      "definition": "待机、呼吸、轻微身体起伏和眨眼。",
+      "frames": 4,
+      "duration_ms": [
+        220,
+        120,
+        120,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "large gesture",
+        "new prop",
+        "detached effect",
+        "walking",
+        "talking"
+      ],
+      "status": "qa",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/standby.md",
+      "retry_prompt_file": "prompts/retries/standby.md",
+      "layout_guide": "references/layout-guides/standby.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/standby.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/standby/source/generated.png",
+      "outputs": {
+        "source": "actions/standby/source/generated.png",
+        "frames": "actions/standby/frames",
+        "normalized": "actions/standby/normalized",
+        "preview_gif": "actions/standby/preview.gif",
+        "preview_webp": "actions/standby/preview.webp",
+        "contact_sheet": "actions/standby/contact-sheet.png",
+        "action_manifest": "actions/standby/action.json",
+        "qa": "actions/standby/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:14.827127+00:00",
+          "source_path": "actions/standby/source/generated.png"
+        },
+        "frame_extraction": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:15.857464+00:00",
+          "method": "components",
+          "manifest": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\frames\\frames-manifest.json"
+        },
+        "normalization": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:16.170523+00:00",
+          "scale": 0.9696969696969697,
+          "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png"
+        },
+        "background_cleanup": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:16.568141+00:00",
+          "report": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\chroma-despill.json"
+        },
+        "frame_qa": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:16.807588+00:00",
+          "warnings": []
+        },
+        "preview": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:24.206679+00:00",
+          "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\preview.gif",
+          "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\preview.webp",
+          "frames": 4,
+          "durations_ms": [
+            220,
+            120,
+            120,
+            300
+          ],
+          "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+        },
+        "contact_sheet": {
+          "status": "complete",
+          "at": "2026-07-18T04:09:24.229467+00:00",
+          "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\contact-sheet.png",
+          "frames": 4,
+          "scale": 0.5
+        }
+      },
+      "retries": 0,
+      "source_path": "actions/standby/source/generated.png",
+      "qa": {
+        "schema_version": 1,
+        "action": "standby",
+        "definition": "待机、呼吸、轻微身体起伏和眨眼。",
+        "source": "actions/standby/source/generated.png",
+        "canonical_base": "canonical/canonical-base.png",
+        "input_images": [
+          {
+            "path": "references/standard-view-01.png",
+            "role": "standard-view"
+          },
+          {
+            "path": "canonical/canonical-base.png",
+            "role": "canonical-base"
+          },
+          {
+            "path": "references/layout-guides/standby.png",
+            "role": "layout-only"
+          }
+        ],
+        "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+        "checked_at": "2026-07-18T04:09:16.796062+00:00",
+        "expected_frames": 4,
+        "actual_frames": 4,
+        "frame_metrics": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\00.png",
+            "bbox": [
+              26,
+              8,
+              166,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2857,
+            "errors": []
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\01.png",
+            "bbox": [
+              27,
+              8,
+              166,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2859,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\02.png",
+            "bbox": [
+              27,
+              8,
+              167,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2907,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\03.png",
+            "bbox": [
+              27,
+              8,
+              166,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2970,
+            "errors": []
+          }
+        ],
+        "baseline_spread": 0,
+        "height_spread": 0,
+        "distinct_frame_count": 4,
+        "adjacent_diff_pixels": [
+          18510,
+          18513,
+          18448
+        ],
+        "scarf_master_color": "#2E6BCB",
+        "scarf_master_pixels": [
+          2857,
+          2859,
+          2907,
+          2970
+        ],
+        "official_review": {
+          "schema_version": 1,
+          "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+          "ok": true,
+          "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized",
+          "states": [
+            "standby"
+          ],
+          "errors": [],
+          "warnings": [],
+          "rows": [
+            {
+              "state": "standby",
+              "expected_frames": 4,
+              "actual_frames": 4,
+              "extraction_method": null,
+              "ok": true,
+              "errors": [],
+              "warnings": [],
+              "frames": [
+                {
+                  "index": 0,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\00.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18506,
+                  "bbox": [
+                    26,
+                    8,
+                    166,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 1
+                },
+                {
+                  "index": 1,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\01.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18410,
+                  "bbox": [
+                    27,
+                    8,
+                    166,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 2,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\02.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18522,
+                  "bbox": [
+                    27,
+                    8,
+                    167,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 3,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\normalized\\03.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18504,
+                  "bbox": [
+                    27,
+                    8,
+                    166,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 2
+                }
+              ]
+            }
+          ]
+        },
+        "errors": [],
+        "warnings": [],
+        "visual_verdict": {
+          "status": "pending_independent_review"
+        },
+        "ok": true
+      },
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:09:14.816122+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-fc5633d4-2a80-48d2-bf29-93274762a292.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "processing",
+          "at": "2026-07-18T04:09:14.830126+00:00",
+          "note": "extracting and normalizing frames",
+          "error": ""
+        },
+        {
+          "from": "processing",
+          "to": "qa",
+          "at": "2026-07-18T04:09:16.572145+00:00",
+          "note": "running deterministic frame QA",
+          "error": ""
+        }
+      ],
+      "last_note": "running deterministic frame QA",
+      "source_metadata": {
+        "source_path": "C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-fc5633d4-2a80-48d2-bf29-93274762a292.png",
+        "selected_at": "2026-07-18T04:09:14.827127+00:00"
+      },
+      "qa_path": "actions/standby/qa.json",
+      "archived_previous": null,
+      "preview": {
+        "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\preview.gif",
+        "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\preview.webp",
+        "frames": 4,
+        "durations_ms": [
+          220,
+          120,
+          120,
+          300
+        ],
+        "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+      },
+      "contact_sheet": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\standby\\contact-sheet.png",
+        "frames": 4,
+        "scale": 0.5
+      },
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      }
+    },
+    {
+      "id": "selected",
+      "category": "基础状态",
+      "definition": "被选中后抬头、回应或轻微挥手。",
+      "frames": 4,
+      "duration_ms": [
+        140,
+        140,
+        180,
+        260
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "large jump",
+        "new prop",
+        "detached effect"
+      ],
+      "status": "generating",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/selected.md",
+      "retry_prompt_file": "prompts/retries/selected.md",
+      "layout_guide": "references/layout-guides/selected.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/selected.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/selected/source/generated.png",
+      "outputs": {
+        "source": "actions/selected/source/generated.png",
+        "frames": "actions/selected/frames",
+        "normalized": "actions/selected/normalized",
+        "preview_gif": "actions/selected/preview.gif",
+        "preview_webp": "actions/selected/preview.webp",
+        "contact_sheet": "actions/selected/contact-sheet.png",
+        "action_manifest": "actions/selected/action.json",
+        "qa": "actions/selected/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\selected",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:22:40.879197+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-0059196c-e831-4b71-9c29-621929b50392.png",
+          "error": ""
+        }
+      ],
+      "last_note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-0059196c-e831-4b71-9c29-621929b50392.png"
+    },
+    {
+      "id": "working",
+      "category": "基础状态",
+      "definition": "坐着或站着专注工作。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        140,
+        260,
+        220
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "literal running",
+        "new prop",
+        "detached effect"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/working.md",
+      "retry_prompt_file": "prompts/retries/working.md",
+      "layout_guide": "references/layout-guides/working.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/working.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/working/source/generated.png",
+      "outputs": {
+        "source": "actions/working/source/generated.png",
+        "frames": "actions/working/frames",
+        "normalized": "actions/working/normalized",
+        "preview_gif": "actions/working/preview.gif",
+        "preview_webp": "actions/working/preview.webp",
+        "contact_sheet": "actions/working/contact-sheet.png",
+        "action_manifest": "actions/working/action.json",
+        "qa": "actions/working/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\working"
+    },
+    {
+      "id": "thinking",
+      "category": "基础状态",
+      "definition": "思考、停顿或整理思路。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        140,
+        180,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "thought bubble",
+        "text",
+        "floating symbol"
+      ],
+      "status": "failed",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/thinking.md",
+      "retry_prompt_file": "prompts/retries/thinking.md",
+      "layout_guide": "references/layout-guides/thinking.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/thinking.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/thinking/source/generated.png",
+      "outputs": {
+        "source": "actions/thinking/source/generated.png",
+        "frames": "actions/thinking/frames",
+        "normalized": "actions/thinking/normalized",
+        "preview_gif": "actions/thinking/preview.gif",
+        "preview_webp": "actions/thinking/preview.webp",
+        "contact_sheet": "actions/thinking/contact-sheet.png",
+        "action_manifest": "actions/thinking/action.json",
+        "qa": "actions/thinking/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\thinking",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:22:40.903593+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-1f4d48b7-f984-4ad2-acec-891915f4f3a6.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "failed",
+          "at": "2026-07-18T04:22:40.909588+00:00",
+          "note": "processing exception",
+          "error": "[Errno 13] Permission denied: 'C:\\\\code\\\\openPBL\\\\output\\\\openpbl-sprite-maker\\\\banxue-xiaoling-v1\\\\manifests\\\\run.json.tmp'"
+        }
+      ],
+      "last_note": "processing exception",
+      "last_error": "[Errno 13] Permission denied: 'C:\\\\code\\\\openPBL\\\\output\\\\openpbl-sprite-maker\\\\banxue-xiaoling-v1\\\\manifests\\\\run.json.tmp'"
+    },
+    {
+      "id": "waiting_user",
+      "category": "基础状态",
+      "definition": "期待地等待用户回应。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        150,
+        150,
+        320
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "ordinary idle",
+        "text",
+        "speech bubble"
+      ],
+      "status": "repair_required",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/waiting_user.md",
+      "retry_prompt_file": "prompts/retries/waiting_user.md",
+      "layout_guide": "references/layout-guides/waiting_user.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/waiting_user.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/waiting_user/source/generated.png",
+      "outputs": {
+        "source": "actions/waiting_user/source/generated.png",
+        "frames": "actions/waiting_user/frames",
+        "normalized": "actions/waiting_user/normalized",
+        "preview_gif": "actions/waiting_user/preview.gif",
+        "preview_webp": "actions/waiting_user/preview.webp",
+        "contact_sheet": "actions/waiting_user/contact-sheet.png",
+        "action_manifest": "actions/waiting_user/action.json",
+        "qa": "actions/waiting_user/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "complete",
+          "at": "2026-07-18T04:22:40.986026+00:00",
+          "source_path": "actions/waiting_user/source/generated.png"
+        },
+        "frame_extraction": {
+          "status": "complete",
+          "at": "2026-07-18T04:22:42.124923+00:00",
+          "method": "stable-slots",
+          "manifest": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\frames\\frames-manifest.json"
+        },
+        "normalization": {
+          "status": "complete",
+          "at": "2026-07-18T04:22:42.439045+00:00",
+          "scale": 0.9795918367346939,
+          "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png"
+        },
+        "background_cleanup": {
+          "status": "complete",
+          "at": "2026-07-18T04:22:42.890837+00:00",
+          "report": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\chroma-despill.json"
+        },
+        "frame_qa": {
+          "status": "failed",
+          "at": "2026-07-18T04:22:43.160396+00:00",
+          "errors": [
+            "frame 00: unsafe/cropped bbox (25, 6, 167, 200)",
+            "frame 03: unsafe/cropped bbox (26, 6, 168, 200)"
+          ]
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "actions/waiting_user/source/generated.png",
+      "qa": {
+        "schema_version": 1,
+        "action": "waiting_user",
+        "definition": "期待地等待用户回应。",
+        "source": "actions/waiting_user/source/generated.png",
+        "canonical_base": "canonical/canonical-base.png",
+        "input_images": [
+          {
+            "path": "references/standard-view-01.png",
+            "role": "standard-view"
+          },
+          {
+            "path": "canonical/canonical-base.png",
+            "role": "canonical-base"
+          },
+          {
+            "path": "references/layout-guides/waiting_user.png",
+            "role": "layout-only"
+          }
+        ],
+        "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+        "checked_at": "2026-07-18T04:22:43.146371+00:00",
+        "expected_frames": 4,
+        "actual_frames": 4,
+        "frame_metrics": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\00.png",
+            "bbox": [
+              25,
+              6,
+              167,
+              200
+            ],
+            "height": 194,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2907,
+            "errors": [
+              "unsafe/cropped bbox (25, 6, 167, 200)"
+            ]
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\01.png",
+            "bbox": [
+              25,
+              19,
+              167,
+              200
+            ],
+            "height": 181,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 1905,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\02.png",
+            "bbox": [
+              27,
+              16,
+              169,
+              200
+            ],
+            "height": 184,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2072,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\03.png",
+            "bbox": [
+              26,
+              6,
+              168,
+              200
+            ],
+            "height": 194,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2815,
+            "errors": [
+              "unsafe/cropped bbox (26, 6, 168, 200)"
+            ]
+          }
+        ],
+        "baseline_spread": 0,
+        "height_spread": 13,
+        "distinct_frame_count": 4,
+        "adjacent_diff_pixels": [
+          18925,
+          17220,
+          18853
+        ],
+        "scarf_master_color": "#2E6BCB",
+        "scarf_master_pixels": [
+          2907,
+          1905,
+          2072,
+          2815
+        ],
+        "official_review": {
+          "schema_version": 1,
+          "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+          "ok": true,
+          "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized",
+          "states": [
+            "waiting_user"
+          ],
+          "errors": [],
+          "warnings": [],
+          "rows": [
+            {
+              "state": "waiting_user",
+              "expected_frames": 4,
+              "actual_frames": 4,
+              "extraction_method": null,
+              "ok": true,
+              "errors": [],
+              "warnings": [],
+              "frames": [
+                {
+                  "index": 0,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\00.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18412,
+                  "bbox": [
+                    25,
+                    6,
+                    167,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 1
+                },
+                {
+                  "index": 1,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\01.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 16553,
+                  "bbox": [
+                    25,
+                    19,
+                    167,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 2,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\02.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 16524,
+                  "bbox": [
+                    27,
+                    16,
+                    169,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 3,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user\\normalized\\03.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18313,
+                  "bbox": [
+                    26,
+                    6,
+                    168,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                }
+              ]
+            }
+          ]
+        },
+        "errors": [
+          "frame 00: unsafe/cropped bbox (25, 6, 167, 200)",
+          "frame 03: unsafe/cropped bbox (26, 6, 168, 200)"
+        ],
+        "warnings": [],
+        "visual_verdict": {
+          "status": "pending_independent_review"
+        },
+        "ok": false
+      },
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\waiting_user",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:22:40.964592+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-2b6120c8-f8ec-4e26-b1e5-0c3d9d9d4296.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "processing",
+          "at": "2026-07-18T04:22:40.993038+00:00",
+          "note": "extracting and normalizing frames",
+          "error": ""
+        },
+        {
+          "from": "processing",
+          "to": "qa",
+          "at": "2026-07-18T04:22:42.896639+00:00",
+          "note": "running deterministic frame QA",
+          "error": ""
+        },
+        {
+          "from": "qa",
+          "to": "repair_required",
+          "at": "2026-07-18T04:22:43.160396+00:00",
+          "note": "deterministic frame QA failed",
+          "error": "frame 00: unsafe/cropped bbox (25, 6, 167, 200); frame 03: unsafe/cropped bbox (26, 6, 168, 200)"
+        }
+      ],
+      "last_note": "deterministic frame QA failed",
+      "source_metadata": {
+        "source_path": "C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-2b6120c8-f8ec-4e26-b1e5-0c3d9d9d4296.png",
+        "selected_at": "2026-07-18T04:22:40.986026+00:00"
+      },
+      "qa_path": "actions/waiting_user/qa.json",
+      "archived_previous": null,
+      "last_error": "frame 00: unsafe/cropped bbox (25, 6, 167, 200); frame 03: unsafe/cropped bbox (26, 6, 168, 200)"
+    },
+    {
+      "id": "completed",
+      "category": "基础状态",
+      "definition": "任务完成和温和庆祝。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "confetti",
+        "detached star",
+        "text",
+        "glow"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/completed.md",
+      "retry_prompt_file": "prompts/retries/completed.md",
+      "layout_guide": "references/layout-guides/completed.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/completed.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/completed/source/generated.png",
+      "outputs": {
+        "source": "actions/completed/source/generated.png",
+        "frames": "actions/completed/frames",
+        "normalized": "actions/completed/normalized",
+        "preview_gif": "actions/completed/preview.gif",
+        "preview_webp": "actions/completed/preview.webp",
+        "contact_sheet": "actions/completed/contact-sheet.png",
+        "action_manifest": "actions/completed/action.json",
+        "qa": "actions/completed/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\completed"
+    },
+    {
+      "id": "error",
+      "category": "基础状态",
+      "definition": "困惑、失败或暂时无法继续。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        140,
+        180,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "red X",
+        "floating punctuation",
+        "detached smoke"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/error.md",
+      "retry_prompt_file": "prompts/retries/error.md",
+      "layout_guide": "references/layout-guides/error.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/error.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/error/source/generated.png",
+      "outputs": {
+        "source": "actions/error/source/generated.png",
+        "frames": "actions/error/frames",
+        "normalized": "actions/error/normalized",
+        "preview_gif": "actions/error/preview.gif",
+        "preview_webp": "actions/error/preview.webp",
+        "contact_sheet": "actions/error/contact-sheet.png",
+        "action_manifest": "actions/error/action.json",
+        "qa": "actions/error/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\error"
+    },
+    {
+      "id": "talking_on_seat",
+      "category": "发言与互动",
+      "definition": "坐着发言。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        120,
+        280
+      ],
+      "loop": true,
+      "anchor": "seat",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "text",
+        "speech bubble",
+        "large prop"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/talking_on_seat.md",
+      "retry_prompt_file": "prompts/retries/talking_on_seat.md",
+      "layout_guide": "references/layout-guides/talking_on_seat.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/talking_on_seat.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/talking_on_seat/source/generated.png",
+      "outputs": {
+        "source": "actions/talking_on_seat/source/generated.png",
+        "frames": "actions/talking_on_seat/frames",
+        "normalized": "actions/talking_on_seat/normalized",
+        "preview_gif": "actions/talking_on_seat/preview.gif",
+        "preview_webp": "actions/talking_on_seat/preview.webp",
+        "contact_sheet": "actions/talking_on_seat/contact-sheet.png",
+        "action_manifest": "actions/talking_on_seat/action.json",
+        "qa": "actions/talking_on_seat/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_seat"
+    },
+    {
+      "id": "talking_on_stand_a",
+      "category": "发言与互动",
+      "definition": "站立发言动作 A。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        120,
+        280
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "text",
+        "speech bubble",
+        "detached effect"
+      ],
+      "status": "qa",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/talking_on_stand_a.md",
+      "retry_prompt_file": "prompts/retries/talking_on_stand_a.md",
+      "layout_guide": "references/layout-guides/talking_on_stand_a.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/talking_on_stand_a.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/talking_on_stand_a/source/generated.png",
+      "outputs": {
+        "source": "actions/talking_on_stand_a/source/generated.png",
+        "frames": "actions/talking_on_stand_a/frames",
+        "normalized": "actions/talking_on_stand_a/normalized",
+        "preview_gif": "actions/talking_on_stand_a/preview.gif",
+        "preview_webp": "actions/talking_on_stand_a/preview.webp",
+        "contact_sheet": "actions/talking_on_stand_a/contact-sheet.png",
+        "action_manifest": "actions/talking_on_stand_a/action.json",
+        "qa": "actions/talking_on_stand_a/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:48.141880+00:00",
+          "source_path": "actions/talking_on_stand_a/source/generated.png"
+        },
+        "frame_extraction": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:49.758057+00:00",
+          "method": "components",
+          "manifest": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\frames\\frames-manifest.json"
+        },
+        "normalization": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:50.114812+00:00",
+          "scale": 0.9696969696969697,
+          "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png"
+        },
+        "background_cleanup": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:50.568118+00:00",
+          "report": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\chroma-despill.json"
+        },
+        "frame_qa": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:50.834758+00:00",
+          "warnings": []
+        },
+        "preview": {
+          "status": "complete",
+          "at": "2026-07-18T04:12:00.711346+00:00",
+          "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\preview.gif",
+          "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\preview.webp",
+          "frames": 5,
+          "durations_ms": [
+            140,
+            120,
+            120,
+            120,
+            280
+          ],
+          "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+        },
+        "contact_sheet": {
+          "status": "complete",
+          "at": "2026-07-18T04:12:00.738349+00:00",
+          "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\contact-sheet.png",
+          "frames": 5,
+          "scale": 0.5
+        }
+      },
+      "retries": 0,
+      "source_path": "actions/talking_on_stand_a/source/generated.png",
+      "qa": {
+        "schema_version": 1,
+        "action": "talking_on_stand_a",
+        "definition": "站立发言动作 A。",
+        "source": "actions/talking_on_stand_a/source/generated.png",
+        "canonical_base": "canonical/canonical-base.png",
+        "input_images": [
+          {
+            "path": "references/standard-view-01.png",
+            "role": "standard-view"
+          },
+          {
+            "path": "canonical/canonical-base.png",
+            "role": "canonical-base"
+          },
+          {
+            "path": "references/layout-guides/talking_on_stand_a.png",
+            "role": "layout-only"
+          }
+        ],
+        "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+        "checked_at": "2026-07-18T04:11:50.822757+00:00",
+        "expected_frames": 5,
+        "actual_frames": 5,
+        "frame_metrics": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\00.png",
+            "bbox": [
+              26,
+              8,
+              166,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2797,
+            "errors": []
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\01.png",
+            "bbox": [
+              14,
+              8,
+              161,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2675,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\02.png",
+            "bbox": [
+              13,
+              8,
+              175,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2648,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\03.png",
+            "bbox": [
+              21,
+              8,
+              161,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2748,
+            "errors": []
+          },
+          {
+            "index": 4,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\04.png",
+            "bbox": [
+              28,
+              8,
+              165,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2762,
+            "errors": []
+          }
+        ],
+        "baseline_spread": 0,
+        "height_spread": 0,
+        "distinct_frame_count": 5,
+        "adjacent_diff_pixels": [
+          19415,
+          19289,
+          19359,
+          19235
+        ],
+        "scarf_master_color": "#2E6BCB",
+        "scarf_master_pixels": [
+          2797,
+          2675,
+          2648,
+          2748,
+          2762
+        ],
+        "official_review": {
+          "schema_version": 1,
+          "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+          "ok": true,
+          "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized",
+          "states": [
+            "talking_on_stand_a"
+          ],
+          "errors": [],
+          "warnings": [],
+          "rows": [
+            {
+              "state": "talking_on_stand_a",
+              "expected_frames": 5,
+              "actual_frames": 5,
+              "extraction_method": null,
+              "ok": true,
+              "errors": [],
+              "warnings": [],
+              "frames": [
+                {
+                  "index": 0,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\00.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18662,
+                  "bbox": [
+                    26,
+                    8,
+                    166,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 1,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\01.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18339,
+                  "bbox": [
+                    14,
+                    8,
+                    161,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 2,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\02.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18681,
+                  "bbox": [
+                    13,
+                    8,
+                    175,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 3,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\03.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18362,
+                  "bbox": [
+                    21,
+                    8,
+                    161,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 4,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\04.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 18339,
+                  "bbox": [
+                    28,
+                    8,
+                    165,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                }
+              ]
+            }
+          ]
+        },
+        "errors": [],
+        "warnings": [],
+        "visual_verdict": {
+          "status": "pending_independent_review"
+        },
+        "ok": true
+      },
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:11:48.122313+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-2b25dccd-616f-4fb3-a415-1ac0b6cf72b3.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "processing",
+          "at": "2026-07-18T04:11:48.151389+00:00",
+          "note": "extracting and normalizing frames",
+          "error": ""
+        },
+        {
+          "from": "processing",
+          "to": "qa",
+          "at": "2026-07-18T04:11:50.573322+00:00",
+          "note": "running deterministic frame QA",
+          "error": ""
+        }
+      ],
+      "last_note": "running deterministic frame QA",
+      "source_metadata": {
+        "source_path": "C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-2b25dccd-616f-4fb3-a415-1ac0b6cf72b3.png",
+        "selected_at": "2026-07-18T04:11:48.141880+00:00"
+      },
+      "qa_path": "actions/talking_on_stand_a/qa.json",
+      "archived_previous": null,
+      "preview": {
+        "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\preview.gif",
+        "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\preview.webp",
+        "frames": 5,
+        "durations_ms": [
+          140,
+          120,
+          120,
+          120,
+          280
+        ],
+        "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+      },
+      "contact_sheet": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\contact-sheet.png",
+        "frames": 5,
+        "scale": 0.5
+      },
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      }
+    },
+    {
+      "id": "talking_on_stand_b",
+      "category": "发言与互动",
+      "definition": "站立发言动作 B。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        120,
+        120,
+        120,
+        280
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "text",
+        "speech bubble",
+        "detached effect"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/talking_on_stand_b.md",
+      "retry_prompt_file": "prompts/retries/talking_on_stand_b.md",
+      "layout_guide": "references/layout-guides/talking_on_stand_b.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/talking_on_stand_b.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/talking_on_stand_b/source/generated.png",
+      "outputs": {
+        "source": "actions/talking_on_stand_b/source/generated.png",
+        "frames": "actions/talking_on_stand_b/frames",
+        "normalized": "actions/talking_on_stand_b/normalized",
+        "preview_gif": "actions/talking_on_stand_b/preview.gif",
+        "preview_webp": "actions/talking_on_stand_b/preview.webp",
+        "contact_sheet": "actions/talking_on_stand_b/contact-sheet.png",
+        "action_manifest": "actions/talking_on_stand_b/action.json",
+        "qa": "actions/talking_on_stand_b/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_b"
+    },
+    {
+      "id": "listening",
+      "category": "发言与互动",
+      "definition": "认真倾听。",
+      "frames": 4,
+      "duration_ms": [
+        180,
+        160,
+        160,
+        320
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "talking mouth loop",
+        "new prop",
+        "text"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/listening.md",
+      "retry_prompt_file": "prompts/retries/listening.md",
+      "layout_guide": "references/layout-guides/listening.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/listening.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/listening/source/generated.png",
+      "outputs": {
+        "source": "actions/listening/source/generated.png",
+        "frames": "actions/listening/frames",
+        "normalized": "actions/listening/normalized",
+        "preview_gif": "actions/listening/preview.gif",
+        "preview_webp": "actions/listening/preview.webp",
+        "contact_sheet": "actions/listening/contact-sheet.png",
+        "action_manifest": "actions/listening/action.json",
+        "qa": "actions/listening/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\listening"
+    },
+    {
+      "id": "agreeing",
+      "category": "发言与互动",
+      "definition": "点头或表示赞同。",
+      "frames": 4,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        280
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "text",
+        "thumb-up symbol",
+        "detached effect"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/agreeing.md",
+      "retry_prompt_file": "prompts/retries/agreeing.md",
+      "layout_guide": "references/layout-guides/agreeing.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/agreeing.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/agreeing/source/generated.png",
+      "outputs": {
+        "source": "actions/agreeing/source/generated.png",
+        "frames": "actions/agreeing/frames",
+        "normalized": "actions/agreeing/normalized",
+        "preview_gif": "actions/agreeing/preview.gif",
+        "preview_webp": "actions/agreeing/preview.webp",
+        "contact_sheet": "actions/agreeing/contact-sheet.png",
+        "action_manifest": "actions/agreeing/action.json",
+        "qa": "actions/agreeing/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\agreeing"
+    },
+    {
+      "id": "questioning",
+      "category": "发言与互动",
+      "definition": "歪头、举手或表达疑问。",
+      "frames": 4,
+      "duration_ms": [
+        160,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 2,
+      "prohibited": [
+        "question mark",
+        "text",
+        "thought bubble"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/questioning.md",
+      "retry_prompt_file": "prompts/retries/questioning.md",
+      "layout_guide": "references/layout-guides/questioning.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/questioning.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/questioning/source/generated.png",
+      "outputs": {
+        "source": "actions/questioning/source/generated.png",
+        "frames": "actions/questioning/frames",
+        "normalized": "actions/questioning/normalized",
+        "preview_gif": "actions/questioning/preview.gif",
+        "preview_webp": "actions/questioning/preview.webp",
+        "contact_sheet": "actions/questioning/contact-sheet.png",
+        "action_manifest": "actions/questioning/action.json",
+        "qa": "actions/questioning/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\questioning"
+    },
+    {
+      "id": "walking_horizontal",
+      "category": "移动与姿态切换",
+      "definition": "横向行走。",
+      "frames": 8,
+      "duration_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        220
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 5,
+      "prohibited": [
+        "speed line",
+        "dust",
+        "floor shadow",
+        "detached effect"
+      ],
+      "status": "qa",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/walking_horizontal.md",
+      "retry_prompt_file": "prompts/retries/walking_horizontal.md",
+      "layout_guide": "references/layout-guides/walking_horizontal.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/walking_horizontal.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/walking_horizontal/source/generated.png",
+      "outputs": {
+        "source": "actions/walking_horizontal/source/generated.png",
+        "frames": "actions/walking_horizontal/frames",
+        "normalized": "actions/walking_horizontal/normalized",
+        "preview_gif": "actions/walking_horizontal/preview.gif",
+        "preview_webp": "actions/walking_horizontal/preview.webp",
+        "contact_sheet": "actions/walking_horizontal/contact-sheet.png",
+        "action_manifest": "actions/walking_horizontal/action.json",
+        "qa": "actions/walking_horizontal/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:30.416175+00:00",
+          "source_path": "actions/walking_horizontal/source/generated.png"
+        },
+        "frame_extraction": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:31.704311+00:00",
+          "method": "components",
+          "manifest": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\frames\\frames-manifest.json"
+        },
+        "normalization": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:32.461227+00:00",
+          "scale": 0.9696969696969697,
+          "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png"
+        },
+        "background_cleanup": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:33.527368+00:00",
+          "report": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\chroma-despill.json"
+        },
+        "frame_qa": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:34.004577+00:00",
+          "warnings": []
+        },
+        "preview": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:47.881593+00:00",
+          "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\preview.gif",
+          "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\preview.webp",
+          "frames": 8,
+          "durations_ms": [
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            220
+          ],
+          "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+        },
+        "contact_sheet": {
+          "status": "complete",
+          "at": "2026-07-18T04:11:47.910594+00:00",
+          "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\contact-sheet.png",
+          "frames": 8,
+          "scale": 0.5
+        }
+      },
+      "retries": 0,
+      "source_path": "actions/walking_horizontal/source/generated.png",
+      "qa": {
+        "schema_version": 1,
+        "action": "walking_horizontal",
+        "definition": "横向行走。",
+        "source": "actions/walking_horizontal/source/generated.png",
+        "canonical_base": "canonical/canonical-base.png",
+        "input_images": [
+          {
+            "path": "references/standard-view-01.png",
+            "role": "standard-view"
+          },
+          {
+            "path": "canonical/canonical-base.png",
+            "role": "canonical-base"
+          },
+          {
+            "path": "references/layout-guides/walking_horizontal.png",
+            "role": "layout-only"
+          }
+        ],
+        "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+        "checked_at": "2026-07-18T04:11:33.988575+00:00",
+        "expected_frames": 8,
+        "actual_frames": 8,
+        "frame_metrics": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\00.png",
+            "bbox": [
+              37,
+              8,
+              158,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2434,
+            "errors": []
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\01.png",
+            "bbox": [
+              35,
+              8,
+              147,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2653,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\02.png",
+            "bbox": [
+              47,
+              8,
+              146,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2329,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\03.png",
+            "bbox": [
+              32,
+              8,
+              147,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2750,
+            "errors": []
+          },
+          {
+            "index": 4,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\04.png",
+            "bbox": [
+              50,
+              8,
+              145,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2217,
+            "errors": []
+          },
+          {
+            "index": 5,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\05.png",
+            "bbox": [
+              42,
+              8,
+              147,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2417,
+            "errors": []
+          },
+          {
+            "index": 6,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\06.png",
+            "bbox": [
+              41,
+              8,
+              148,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2232,
+            "errors": []
+          },
+          {
+            "index": 7,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\07.png",
+            "bbox": [
+              38,
+              8,
+              156,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 2384,
+            "errors": []
+          }
+        ],
+        "baseline_spread": 0,
+        "height_spread": 0,
+        "distinct_frame_count": 8,
+        "adjacent_diff_pixels": [
+          16358,
+          15489,
+          15661,
+          15627,
+          14942,
+          15041,
+          15672
+        ],
+        "scarf_master_color": "#2E6BCB",
+        "scarf_master_pixels": [
+          2434,
+          2653,
+          2329,
+          2750,
+          2217,
+          2417,
+          2232,
+          2384
+        ],
+        "official_review": {
+          "schema_version": 1,
+          "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+          "ok": true,
+          "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized",
+          "states": [
+            "walking_horizontal"
+          ],
+          "errors": [],
+          "warnings": [],
+          "rows": [
+            {
+              "state": "walking_horizontal",
+              "expected_frames": 8,
+              "actual_frames": 8,
+              "extraction_method": null,
+              "ok": true,
+              "errors": [],
+              "warnings": [],
+              "frames": [
+                {
+                  "index": 0,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\00.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 15600,
+                  "bbox": [
+                    37,
+                    8,
+                    158,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 1,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\01.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 15223,
+                  "bbox": [
+                    35,
+                    8,
+                    147,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 2,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\02.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 14846,
+                  "bbox": [
+                    47,
+                    8,
+                    146,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 3,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\03.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 15391,
+                  "bbox": [
+                    32,
+                    8,
+                    147,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 4,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\04.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 14184,
+                  "bbox": [
+                    50,
+                    8,
+                    145,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 2
+                },
+                {
+                  "index": 5,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\05.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 14566,
+                  "bbox": [
+                    42,
+                    8,
+                    147,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 1
+                },
+                {
+                  "index": 6,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\06.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 14731,
+                  "bbox": [
+                    41,
+                    8,
+                    148,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 1
+                },
+                {
+                  "index": 7,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\normalized\\07.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 15287,
+                  "bbox": [
+                    38,
+                    8,
+                    156,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                }
+              ]
+            }
+          ]
+        },
+        "errors": [],
+        "warnings": [],
+        "visual_verdict": {
+          "status": "pending_independent_review"
+        },
+        "ok": true
+      },
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:09:24.368996+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-c100f027-d32b-46e0-aa16-3bad5a150e70.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "processing",
+          "at": "2026-07-18T04:09:24.381698+00:00",
+          "note": "extracting and normalizing frames",
+          "error": ""
+        },
+        {
+          "from": "processing",
+          "to": "qa",
+          "at": "2026-07-18T04:09:26.570262+00:00",
+          "note": "running deterministic frame QA",
+          "error": ""
+        },
+        {
+          "from": "qa",
+          "to": "repair_required",
+          "at": "2026-07-18T04:09:26.947532+00:00",
+          "note": "deterministic frame QA failed",
+          "error": "frame 01: possible accidental transparent interior hole rows: [{'row': 191, 'transparent_pixels': 35, 'span_pixels': 87}, {'row': 192, 'transparent_pixels': 38, 'span_pixels': 85}, {'row': 193, 'transparent_pixels': 38, 'span_pixels': 84}]; frame 02: possible accidental transparent interior hole rows: [{'row': 190, 'transparent_pixels': 35, 'span_pixels': 90}, {'row': 191, 'transparent_pixels': 37, 'span_pixels': 88}, {'row': 192, 'transparent_pixels': 40, 'span_pixels': 87}]; frame 03: possible accidental transparent interior hole rows: [{'row': 190, 'transparent_pixels': 35, 'span_pixels': 93}, {'row': 191, 'transparent_pixels': 39, 'span_pixels': 92}, {'row': 192, 'transparent_pixels': 43, 'span_pixels': 90}]"
+        },
+        {
+          "from": "repair_required",
+          "to": "generating",
+          "at": "2026-07-18T04:11:30.401229+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-c100f027-d32b-46e0-aa16-3bad5a150e70.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "processing",
+          "at": "2026-07-18T04:11:30.424175+00:00",
+          "note": "extracting and normalizing frames",
+          "error": ""
+        },
+        {
+          "from": "processing",
+          "to": "qa",
+          "at": "2026-07-18T04:11:33.535367+00:00",
+          "note": "running deterministic frame QA",
+          "error": ""
+        }
+      ],
+      "last_note": "running deterministic frame QA",
+      "source_metadata": {
+        "source_path": "C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-c100f027-d32b-46e0-aa16-3bad5a150e70.png",
+        "selected_at": "2026-07-18T04:11:30.416175+00:00"
+      },
+      "qa_path": "actions/walking_horizontal/qa.json",
+      "archived_previous": null,
+      "preview": {
+        "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\preview.gif",
+        "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\preview.webp",
+        "frames": 8,
+        "durations_ms": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          220
+        ],
+        "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+      },
+      "contact_sheet": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_horizontal\\contact-sheet.png",
+        "frames": 8,
+        "scale": 0.5
+      },
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      }
+    },
+    {
+      "id": "walking_up",
+      "category": "移动与姿态切换",
+      "definition": "背向或向上移动。",
+      "frames": 8,
+      "duration_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        220
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 5,
+      "prohibited": [
+        "speed line",
+        "dust",
+        "floor shadow",
+        "detached effect"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/walking_up.md",
+      "retry_prompt_file": "prompts/retries/walking_up.md",
+      "layout_guide": "references/layout-guides/walking_up.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/walking_up.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/walking_up/source/generated.png",
+      "outputs": {
+        "source": "actions/walking_up/source/generated.png",
+        "frames": "actions/walking_up/frames",
+        "normalized": "actions/walking_up/normalized",
+        "preview_gif": "actions/walking_up/preview.gif",
+        "preview_webp": "actions/walking_up/preview.webp",
+        "contact_sheet": "actions/walking_up/contact-sheet.png",
+        "action_manifest": "actions/walking_up/action.json",
+        "qa": "actions/walking_up/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\walking_up"
+    },
+    {
+      "id": "off_chair",
+      "category": "移动与姿态切换",
+      "definition": "从座位起身。",
+      "frames": 6,
+      "duration_ms": [
+        120,
+        120,
+        140,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 4,
+      "prohibited": [
+        "chair duplication",
+        "scene background",
+        "motion blur"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/off_chair.md",
+      "retry_prompt_file": "prompts/retries/off_chair.md",
+      "layout_guide": "references/layout-guides/off_chair.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/off_chair.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/off_chair/source/generated.png",
+      "outputs": {
+        "source": "actions/off_chair/source/generated.png",
+        "frames": "actions/off_chair/frames",
+        "normalized": "actions/off_chair/normalized",
+        "preview_gif": "actions/off_chair/preview.gif",
+        "preview_webp": "actions/off_chair/preview.webp",
+        "contact_sheet": "actions/off_chair/contact-sheet.png",
+        "action_manifest": "actions/off_chair/action.json",
+        "qa": "actions/off_chair/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\off_chair"
+    },
+    {
+      "id": "sit_down",
+      "category": "移动与姿态切换",
+      "definition": "坐回座位。",
+      "frames": 6,
+      "duration_ms": [
+        120,
+        120,
+        140,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "seat",
+      "min_distinct_frames": 4,
+      "prohibited": [
+        "chair duplication",
+        "scene background",
+        "motion blur"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/sit_down.md",
+      "retry_prompt_file": "prompts/retries/sit_down.md",
+      "layout_guide": "references/layout-guides/sit_down.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/sit_down.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/sit_down/source/generated.png",
+      "outputs": {
+        "source": "actions/sit_down/source/generated.png",
+        "frames": "actions/sit_down/frames",
+        "normalized": "actions/sit_down/normalized",
+        "preview_gif": "actions/sit_down/preview.gif",
+        "preview_webp": "actions/sit_down/preview.webp",
+        "contact_sheet": "actions/sit_down/contact-sheet.png",
+        "action_manifest": "actions/sit_down/action.json",
+        "qa": "actions/sit_down/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\sit_down"
+    },
+    {
+      "id": "leaving",
+      "category": "移动与姿态切换",
+      "definition": "转身或离开当前位置。",
+      "frames": 6,
+      "duration_ms": [
+        120,
+        120,
+        140,
+        140,
+        160,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 4,
+      "prohibited": [
+        "speed line",
+        "dust",
+        "scene background",
+        "detached effect"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/leaving.md",
+      "retry_prompt_file": "prompts/retries/leaving.md",
+      "layout_guide": "references/layout-guides/leaving.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/leaving.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/leaving/source/generated.png",
+      "outputs": {
+        "source": "actions/leaving/source/generated.png",
+        "frames": "actions/leaving/frames",
+        "normalized": "actions/leaving/normalized",
+        "preview_gif": "actions/leaving/preview.gif",
+        "preview_webp": "actions/leaving/preview.webp",
+        "contact_sheet": "actions/leaving/contact-sheet.png",
+        "action_manifest": "actions/leaving/action.json",
+        "qa": "actions/leaving/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\leaving"
+    },
+    {
+      "id": "reading_book",
+      "category": "学习活动",
+      "definition": "拿书、翻书和阅读。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "new book design",
+        "text",
+        "scene background"
+      ],
+      "status": "qa",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/reading_book.md",
+      "retry_prompt_file": "prompts/retries/reading_book.md",
+      "layout_guide": "references/layout-guides/reading_book.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/reading_book.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/reading_book/source/generated.png",
+      "outputs": {
+        "source": "actions/reading_book/source/generated.png",
+        "frames": "actions/reading_book/frames",
+        "normalized": "actions/reading_book/normalized",
+        "preview_gif": "actions/reading_book/preview.gif",
+        "preview_webp": "actions/reading_book/preview.webp",
+        "contact_sheet": "actions/reading_book/contact-sheet.png",
+        "action_manifest": "actions/reading_book/action.json",
+        "qa": "actions/reading_book/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:45.516261+00:00",
+          "source_path": "actions/reading_book/source/generated.png"
+        },
+        "frame_extraction": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:46.450009+00:00",
+          "method": "components",
+          "manifest": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\frames\\frames-manifest.json"
+        },
+        "normalization": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:46.819112+00:00",
+          "scale": 0.9696969696969697,
+          "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png"
+        },
+        "background_cleanup": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:47.315325+00:00",
+          "report": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\chroma-despill.json"
+        },
+        "frame_qa": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:47.586534+00:00",
+          "warnings": []
+        },
+        "preview": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:55.634145+00:00",
+          "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\preview.gif",
+          "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\preview.webp",
+          "frames": 5,
+          "durations_ms": [
+            140,
+            140,
+            140,
+            140,
+            300
+          ],
+          "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+        },
+        "contact_sheet": {
+          "status": "complete",
+          "at": "2026-07-18T04:13:55.668874+00:00",
+          "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\contact-sheet.png",
+          "frames": 5,
+          "scale": 0.5
+        }
+      },
+      "retries": 0,
+      "source_path": "actions/reading_book/source/generated.png",
+      "qa": {
+        "schema_version": 1,
+        "action": "reading_book",
+        "definition": "拿书、翻书和阅读。",
+        "source": "actions/reading_book/source/generated.png",
+        "canonical_base": "canonical/canonical-base.png",
+        "input_images": [
+          {
+            "path": "references/standard-view-01.png",
+            "role": "standard-view"
+          },
+          {
+            "path": "canonical/canonical-base.png",
+            "role": "canonical-base"
+          },
+          {
+            "path": "references/layout-guides/reading_book.png",
+            "role": "layout-only"
+          }
+        ],
+        "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+        "checked_at": "2026-07-18T04:13:47.573533+00:00",
+        "expected_frames": 5,
+        "actual_frames": 5,
+        "frame_metrics": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\00.png",
+            "bbox": [
+              30,
+              8,
+              161,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 1114,
+            "errors": []
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\01.png",
+            "bbox": [
+              29,
+              8,
+              159,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 1069,
+            "errors": []
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\02.png",
+            "bbox": [
+              29,
+              8,
+              158,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 1329,
+            "errors": []
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\03.png",
+            "bbox": [
+              29,
+              8,
+              157,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 1189,
+            "errors": []
+          },
+          {
+            "index": 4,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\04.png",
+            "bbox": [
+              29,
+              8,
+              157,
+              200
+            ],
+            "height": 192,
+            "baseline": 200,
+            "edge_pixels": 0,
+            "scarf_master_pixels": 1182,
+            "errors": []
+          }
+        ],
+        "baseline_spread": 0,
+        "height_spread": 0,
+        "distinct_frame_count": 5,
+        "adjacent_diff_pixels": [
+          17847,
+          17879,
+          17756,
+          17515
+        ],
+        "scarf_master_color": "#2E6BCB",
+        "scarf_master_pixels": [
+          1114,
+          1069,
+          1329,
+          1189,
+          1182
+        ],
+        "official_review": {
+          "schema_version": 1,
+          "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+          "ok": true,
+          "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized",
+          "states": [
+            "reading_book"
+          ],
+          "errors": [],
+          "warnings": [],
+          "rows": [
+            {
+              "state": "reading_book",
+              "expected_frames": 5,
+              "actual_frames": 5,
+              "extraction_method": null,
+              "ok": true,
+              "errors": [],
+              "warnings": [],
+              "frames": [
+                {
+                  "index": 0,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\00.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 17180,
+                  "bbox": [
+                    30,
+                    8,
+                    161,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 1,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\01.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 17411,
+                  "bbox": [
+                    29,
+                    8,
+                    159,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 1
+                },
+                {
+                  "index": 2,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\02.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 17426,
+                  "bbox": [
+                    29,
+                    8,
+                    158,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 3,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\03.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 17489,
+                  "bbox": [
+                    29,
+                    8,
+                    157,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                },
+                {
+                  "index": 4,
+                  "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\04.png",
+                  "width": 192,
+                  "height": 208,
+                  "nontransparent_pixels": 17343,
+                  "bbox": [
+                    29,
+                    8,
+                    157,
+                    200
+                  ],
+                  "edge_pixels": 0,
+                  "chroma_adjacent_pixels": 0
+                }
+              ]
+            }
+          ]
+        },
+        "errors": [],
+        "warnings": [],
+        "visual_verdict": {
+          "status": "pending_independent_review"
+        },
+        "ok": true
+      },
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book",
+      "status_history": [
+        {
+          "from": "pending",
+          "to": "generating",
+          "at": "2026-07-18T04:13:45.506296+00:00",
+          "note": "selected source: C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-74557bd2-837a-4b52-b9d5-258bc30dc0a4.png",
+          "error": ""
+        },
+        {
+          "from": "generating",
+          "to": "processing",
+          "at": "2026-07-18T04:13:45.521260+00:00",
+          "note": "extracting and normalizing frames",
+          "error": ""
+        },
+        {
+          "from": "processing",
+          "to": "qa",
+          "at": "2026-07-18T04:13:47.320365+00:00",
+          "note": "running deterministic frame QA",
+          "error": ""
+        }
+      ],
+      "last_note": "running deterministic frame QA",
+      "source_metadata": {
+        "source_path": "C:\\Users\\21140\\.codex\\generated_images\\019f6692-6657-71d1-80f3-240fb587b78d\\exec-74557bd2-837a-4b52-b9d5-258bc30dc0a4.png",
+        "selected_at": "2026-07-18T04:13:45.516261+00:00"
+      },
+      "qa_path": "actions/reading_book/qa.json",
+      "archived_previous": null,
+      "preview": {
+        "gif": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\preview.gif",
+        "webp": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\preview.webp",
+        "frames": 5,
+        "durations_ms": [
+          140,
+          140,
+          140,
+          140,
+          300
+        ],
+        "official_gif_writer": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\render_animation_previews.py"
+      },
+      "contact_sheet": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\contact-sheet.png",
+        "frames": 5,
+        "scale": 0.5
+      },
+      "visual_verdict": {
+        "status": "pending_independent_review"
+      }
+    },
+    {
+      "id": "searching_info",
+      "category": "学习活动",
+      "definition": "查找和筛选资料。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "readable text",
+        "UI panel",
+        "floating icon"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/searching_info.md",
+      "retry_prompt_file": "prompts/retries/searching_info.md",
+      "layout_guide": "references/layout-guides/searching_info.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/searching_info.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/searching_info/source/generated.png",
+      "outputs": {
+        "source": "actions/searching_info/source/generated.png",
+        "frames": "actions/searching_info/frames",
+        "normalized": "actions/searching_info/normalized",
+        "preview_gif": "actions/searching_info/preview.gif",
+        "preview_webp": "actions/searching_info/preview.webp",
+        "contact_sheet": "actions/searching_info/contact-sheet.png",
+        "action_manifest": "actions/searching_info/action.json",
+        "qa": "actions/searching_info/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\searching_info"
+    },
+    {
+      "id": "planning_board",
+      "category": "学习活动",
+      "definition": "在白板或看板前规划。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "board background",
+        "readable text",
+        "scene"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/planning_board.md",
+      "retry_prompt_file": "prompts/retries/planning_board.md",
+      "layout_guide": "references/layout-guides/planning_board.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/planning_board.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/planning_board/source/generated.png",
+      "outputs": {
+        "source": "actions/planning_board/source/generated.png",
+        "frames": "actions/planning_board/frames",
+        "normalized": "actions/planning_board/normalized",
+        "preview_gif": "actions/planning_board/preview.gif",
+        "preview_webp": "actions/planning_board/preview.webp",
+        "contact_sheet": "actions/planning_board/contact-sheet.png",
+        "action_manifest": "actions/planning_board/action.json",
+        "qa": "actions/planning_board/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\planning_board"
+    },
+    {
+      "id": "brainstorming",
+      "category": "学习活动",
+      "definition": "构思、画草图或产生灵感。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "light bulb symbol",
+        "text",
+        "floating effect"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/brainstorming.md",
+      "retry_prompt_file": "prompts/retries/brainstorming.md",
+      "layout_guide": "references/layout-guides/brainstorming.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/brainstorming.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/brainstorming/source/generated.png",
+      "outputs": {
+        "source": "actions/brainstorming/source/generated.png",
+        "frames": "actions/brainstorming/frames",
+        "normalized": "actions/brainstorming/normalized",
+        "preview_gif": "actions/brainstorming/preview.gif",
+        "preview_webp": "actions/brainstorming/preview.webp",
+        "contact_sheet": "actions/brainstorming/contact-sheet.png",
+        "action_manifest": "actions/brainstorming/action.json",
+        "qa": "actions/brainstorming/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\brainstorming"
+    },
+    {
+      "id": "writing_notes",
+      "category": "学习活动",
+      "definition": "书写和整理记录。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "readable text",
+        "new stationery design",
+        "scene"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/writing_notes.md",
+      "retry_prompt_file": "prompts/retries/writing_notes.md",
+      "layout_guide": "references/layout-guides/writing_notes.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/writing_notes.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/writing_notes/source/generated.png",
+      "outputs": {
+        "source": "actions/writing_notes/source/generated.png",
+        "frames": "actions/writing_notes/frames",
+        "normalized": "actions/writing_notes/normalized",
+        "preview_gif": "actions/writing_notes/preview.gif",
+        "preview_webp": "actions/writing_notes/preview.webp",
+        "contact_sheet": "actions/writing_notes/contact-sheet.png",
+        "action_manifest": "actions/writing_notes/action.json",
+        "qa": "actions/writing_notes/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\writing_notes"
+    },
+    {
+      "id": "reviewing_work",
+      "category": "学习活动",
+      "definition": "检查作品或成果。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "magnifying glass",
+        "readable text",
+        "UI panel"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/reviewing_work.md",
+      "retry_prompt_file": "prompts/retries/reviewing_work.md",
+      "layout_guide": "references/layout-guides/reviewing_work.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/reviewing_work.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/reviewing_work/source/generated.png",
+      "outputs": {
+        "source": "actions/reviewing_work/source/generated.png",
+        "frames": "actions/reviewing_work/frames",
+        "normalized": "actions/reviewing_work/normalized",
+        "preview_gif": "actions/reviewing_work/preview.gif",
+        "preview_webp": "actions/reviewing_work/preview.webp",
+        "contact_sheet": "actions/reviewing_work/contact-sheet.png",
+        "action_manifest": "actions/reviewing_work/action.json",
+        "qa": "actions/reviewing_work/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reviewing_work"
+    },
+    {
+      "id": "presenting",
+      "category": "学习活动",
+      "definition": "展示方案或成果。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "presentation slide",
+        "readable text",
+        "speech bubble"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/presenting.md",
+      "retry_prompt_file": "prompts/retries/presenting.md",
+      "layout_guide": "references/layout-guides/presenting.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/presenting.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/presenting/source/generated.png",
+      "outputs": {
+        "source": "actions/presenting/source/generated.png",
+        "frames": "actions/presenting/frames",
+        "normalized": "actions/presenting/normalized",
+        "preview_gif": "actions/presenting/preview.gif",
+        "preview_webp": "actions/presenting/preview.webp",
+        "contact_sheet": "actions/presenting/contact-sheet.png",
+        "action_manifest": "actions/presenting/action.json",
+        "qa": "actions/presenting/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\presenting"
+    },
+    {
+      "id": "organizing_files",
+      "category": "学习活动",
+      "definition": "整理文件、资料或档案。",
+      "frames": 5,
+      "duration_ms": [
+        140,
+        140,
+        140,
+        140,
+        300
+      ],
+      "loop": true,
+      "anchor": "grounded",
+      "min_distinct_frames": 3,
+      "prohibited": [
+        "file UI",
+        "readable text",
+        "scene background"
+      ],
+      "status": "pending",
+      "kind": "action-strip",
+      "prompt_file": "prompts/actions/organizing_files.md",
+      "retry_prompt_file": "prompts/retries/organizing_files.md",
+      "layout_guide": "references/layout-guides/organizing_files.png",
+      "input_images": [
+        {
+          "path": "references/standard-view-01.png",
+          "role": "standard-view"
+        },
+        {
+          "path": "canonical/canonical-base.png",
+          "role": "canonical-base"
+        },
+        {
+          "path": "references/layout-guides/organizing_files.png",
+          "role": "layout-only"
+        }
+      ],
+      "output_path": "actions/organizing_files/source/generated.png",
+      "outputs": {
+        "source": "actions/organizing_files/source/generated.png",
+        "frames": "actions/organizing_files/frames",
+        "normalized": "actions/organizing_files/normalized",
+        "preview_gif": "actions/organizing_files/preview.gif",
+        "preview_webp": "actions/organizing_files/preview.webp",
+        "contact_sheet": "actions/organizing_files/contact-sheet.png",
+        "action_manifest": "actions/organizing_files/action.json",
+        "qa": "actions/organizing_files/qa.json"
+      },
+      "steps": {
+        "generation": {
+          "status": "pending"
+        },
+        "frame_extraction": {
+          "status": "pending"
+        },
+        "normalization": {
+          "status": "pending"
+        },
+        "background_cleanup": {
+          "status": "pending"
+        },
+        "frame_qa": {
+          "status": "pending"
+        },
+        "preview": {
+          "status": "pending"
+        },
+        "contact_sheet": {
+          "status": "pending"
+        }
+      },
+      "retries": 0,
+      "source_path": "",
+      "qa": null,
+      "style_notes": "",
+      "action_dir": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\organizing_files"
+    }
+  ],
+  "events_path": "qa/events.jsonl",
+  "ready_tasks": [
+    "selected",
+    "working",
+    "thinking",
+    "waiting_user",
+    "completed",
+    "error",
+    "talking_on_seat",
+    "talking_on_stand_b",
+    "listening",
+    "agreeing",
+    "questioning",
+    "walking_up",
+    "off_chair",
+    "sit_down",
+    "leaving",
+    "searching_info",
+    "planning_board",
+    "brainstorming",
+    "writing_notes",
+    "reviewing_work",
+    "presenting",
+    "organizing_files"
+  ],
+  "notes": "Generic sprite-material run; no application integration or Codex pet atlas packaging.",
+  "last_event": {
+    "at": "2026-07-18T04:22:43.160396+00:00",
+    "task": "waiting_user",
+    "from": "qa",
+    "to": "repair_required",
+    "note": "deterministic frame QA failed",
+    "error": "frame 00: unsafe/cropped bbox (25, 6, 167, 200); frame 03: unsafe/cropped bbox (26, 6, 168, 200)"
+  }
+}

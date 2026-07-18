@@ -79,6 +79,7 @@ import {
   normalizePblTeachingOutline,
 } from "@/lib/pbl-outline-normalization";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
+import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 import { getTtsTimingProfile } from "@/lib/openmaic/audio/tts-timing";
 import {
@@ -1950,6 +1951,11 @@ export default function VerifyCoursePage() {
       key: "lessonOutline",
       node: (
         <div className="space-y-4">
+          <StageWorkspacePolicyPanel
+            onChange={(stageWorkspacePolicies) => updateCourse(course.id, { stageWorkspacePolicies })}
+            policies={course.stageWorkspacePolicies}
+            stages={course.stages}
+          />
           <PblDetailHierarchySummary
             activities={content?.teachingOutline ?? []}
             details={sceneOutlines}

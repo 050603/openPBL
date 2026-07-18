@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "action": "reading_book",
+  "definition": "拿书、翻书和阅读。",
+  "source": "actions/reading_book/source/generated.png",
+  "canonical_base": "canonical/canonical-base.png",
+  "input_images": [
+    {
+      "path": "references/standard-view-01.png",
+      "role": "standard-view"
+    },
+    {
+      "path": "canonical/canonical-base.png",
+      "role": "canonical-base"
+    },
+    {
+      "path": "references/layout-guides/reading_book.png",
+      "role": "layout-only"
+    }
+  ],
+  "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+  "checked_at": "2026-07-18T05:46:17.468971+00:00",
+  "expected_frames": 5,
+  "actual_frames": 5,
+  "frame_metrics": [
+    {
+      "index": 0,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\00.png",
+      "bbox": [
+        30,
+        8,
+        151,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2829,
+      "errors": []
+    },
+    {
+      "index": 1,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\01.png",
+      "bbox": [
+        20,
+        8,
+        149,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2798,
+      "errors": []
+    },
+    {
+      "index": 2,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\02.png",
+      "bbox": [
+        12,
+        8,
+        150,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2370,
+      "errors": []
+    },
+    {
+      "index": 3,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\03.png",
+      "bbox": [
+        17,
+        8,
+        149,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2791,
+      "errors": []
+    },
+    {
+      "index": 4,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\04.png",
+      "bbox": [
+        29,
+        8,
+        151,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2923,
+      "errors": []
+    }
+  ],
+  "baseline_spread": 0,
+  "height_spread": 0,
+  "distinct_frame_count": 5,
+  "adjacent_diff_pixels": [
+    16721,
+    16509,
+    16554,
+    16727
+  ],
+  "scarf_master_color": "#2E6BCB",
+  "scarf_master_pixels": [
+    2829,
+    2798,
+    2370,
+    2791,
+    2923
+  ],
+  "official_review": {
+    "schema_version": 1,
+    "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+    "ok": true,
+    "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized",
+    "states": [
+      "reading_book"
+    ],
+    "errors": [],
+    "warnings": [],
+    "rows": [
+      {
+        "state": "reading_book",
+        "expected_frames": 5,
+        "actual_frames": 5,
+        "extraction_method": null,
+        "ok": true,
+        "errors": [],
+        "warnings": [],
+        "frames": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\00.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 15815,
+            "bbox": [
+              30,
+              8,
+              151,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\01.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 15920,
+            "bbox": [
+              20,
+              8,
+              149,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\02.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 16348,
+            "bbox": [
+              12,
+              8,
+              150,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\03.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 15859,
+            "bbox": [
+              17,
+              8,
+              149,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 4,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\reading_book\\normalized\\04.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 15831,
+            "bbox": [
+              29,
+              8,
+              151,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          }
+        ]
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": [],
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "ok": true
+}

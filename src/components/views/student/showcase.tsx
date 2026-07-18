@@ -25,7 +25,7 @@ const uploadSlots: UploadSlot[] = [
   { category: "artifact", type: "XLSX", title: "数据表（可选）", rule: "要求：XLSX，≤ 50MB" },
 ];
 
-export function ShowcaseView({ course }: { course: Course }) {
+export function ShowcaseView({ course, embedded = false }: { course: Course; embedded?: boolean }) {
   const session = useSession();
   const group = useMemo(() => course.groups?.find((item) => item.members.some((member) => member.studentId === session.studentId)) ?? course.groups?.[0], [course.groups, session.studentId]);
   const uploads = (course.uploads ?? []).filter((item) => item.groupId === group?.id);
@@ -277,7 +277,7 @@ export function ShowcaseView({ course }: { course: Course }) {
         <PrimaryButton onClick={() => session.setPreviewUpload(course.id, uploads[0]?.id)} variant="outline"><UploadCloud size={21} /> 预览演示</PrimaryButton>
         <PrimaryButton onClick={startPresentation}>开始演示</PrimaryButton>
       </div>
-      <CompanionRoundtable course={course} stageKey="showcase" contextLabel="成果汇报" />
+      {!embedded ? <CompanionRoundtable course={course} stageKey="showcase" contextLabel="成果汇报" /> : null}
       <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );

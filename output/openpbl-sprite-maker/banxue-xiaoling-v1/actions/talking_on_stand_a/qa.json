@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "action": "talking_on_stand_a",
+  "definition": "站立发言动作 A。",
+  "source": "actions/talking_on_stand_a/source/generated.png",
+  "canonical_base": "canonical/canonical-base.png",
+  "input_images": [
+    {
+      "path": "references/standard-view-01.png",
+      "role": "standard-view"
+    },
+    {
+      "path": "canonical/canonical-base.png",
+      "role": "canonical-base"
+    },
+    {
+      "path": "references/layout-guides/talking_on_stand_a.png",
+      "role": "layout-only"
+    }
+  ],
+  "official_skill_dir": "C:\\Users\\21140\\.codex\\skills\\hatch-pet",
+  "checked_at": "2026-07-18T04:11:50.822757+00:00",
+  "expected_frames": 5,
+  "actual_frames": 5,
+  "frame_metrics": [
+    {
+      "index": 0,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\00.png",
+      "bbox": [
+        26,
+        8,
+        166,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2797,
+      "errors": []
+    },
+    {
+      "index": 1,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\01.png",
+      "bbox": [
+        14,
+        8,
+        161,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2675,
+      "errors": []
+    },
+    {
+      "index": 2,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\02.png",
+      "bbox": [
+        13,
+        8,
+        175,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2648,
+      "errors": []
+    },
+    {
+      "index": 3,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\03.png",
+      "bbox": [
+        21,
+        8,
+        161,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2748,
+      "errors": []
+    },
+    {
+      "index": 4,
+      "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\04.png",
+      "bbox": [
+        28,
+        8,
+        165,
+        200
+      ],
+      "height": 192,
+      "baseline": 200,
+      "edge_pixels": 0,
+      "scarf_master_pixels": 2762,
+      "errors": []
+    }
+  ],
+  "baseline_spread": 0,
+  "height_spread": 0,
+  "distinct_frame_count": 5,
+  "adjacent_diff_pixels": [
+    19415,
+    19289,
+    19359,
+    19235
+  ],
+  "scarf_master_color": "#2E6BCB",
+  "scarf_master_pixels": [
+    2797,
+    2675,
+    2648,
+    2748,
+    2762
+  ],
+  "official_review": {
+    "schema_version": 1,
+    "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+    "ok": true,
+    "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized",
+    "states": [
+      "talking_on_stand_a"
+    ],
+    "errors": [],
+    "warnings": [],
+    "rows": [
+      {
+        "state": "talking_on_stand_a",
+        "expected_frames": 5,
+        "actual_frames": 5,
+        "extraction_method": null,
+        "ok": true,
+        "errors": [],
+        "warnings": [],
+        "frames": [
+          {
+            "index": 0,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\00.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18662,
+            "bbox": [
+              26,
+              8,
+              166,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 1,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\01.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18339,
+            "bbox": [
+              14,
+              8,
+              161,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 2,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\02.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18681,
+            "bbox": [
+              13,
+              8,
+              175,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 3,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\03.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18362,
+            "bbox": [
+              21,
+              8,
+              161,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          },
+          {
+            "index": 4,
+            "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\normalized\\04.png",
+            "width": 192,
+            "height": 208,
+            "nontransparent_pixels": 18339,
+            "bbox": [
+              28,
+              8,
+              165,
+              200
+            ],
+            "edge_pixels": 0,
+            "chroma_adjacent_pixels": 0
+          }
+        ]
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": [],
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "ok": true
+}

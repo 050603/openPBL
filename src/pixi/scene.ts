@@ -12,6 +12,12 @@ import { createWorkstationFactory, type WorkstationController } from './workstat
 export const sceneWidth = 1200
 export const sceneHeight = 900
 
+export type SceneCameraLayout = {
+  pivotX: number
+  pivotY: number
+  scale: number
+}
+
 export type SceneController = {
   container: Container
   viewport: Container
@@ -45,6 +51,8 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
     planningTexture,
     archiveTexture,
     archiveClosedTexture,
+    classroomDeskTexture,
+    classroomChairTexture,
   ] = await Promise.all([
     Assets.load<Texture>(pixiResources.workstationImageUrl),
     fetchSheet(pixiResources.workstationSheetUrl),
@@ -52,6 +60,8 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
     Assets.load<Texture>(pixiResources.studyZoneImageUrls.planning),
     Assets.load<Texture>(pixiResources.studyZoneImageUrls.archive),
     Assets.load<Texture>(pixiResources.studyZoneImageUrls.archiveClosed),
+    Assets.load<Texture>(pixiResources.classroomFurnitureImageUrls.desk),
+    Assets.load<Texture>(pixiResources.classroomFurnitureImageUrls.chair),
   ])
   reportProgress(onLoadProgress, 0.25)
 
@@ -66,6 +76,10 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
     textureLoader,
     textures,
     actorLayer,
+    classroomTextures: {
+      desk: classroomDeskTexture,
+      chair: classroomChairTexture,
+    },
   })
 
   const createdWorkstations = await Promise.all(
@@ -95,12 +109,15 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
 
   agentRoles.forEach((role) => {
     const workstation = workstations[role.id]
-    workstation.container.on('pointertap', (event: FederatedPointerEvent) => {
-      event.stopPropagation()
-      onSelectAgent(role.id, { x: event.global.x, y: event.global.y })
-    })
     workstation.person.container.eventMode = 'static'
     workstation.person.container.cursor = 'pointer'
+    const personBounds = workstation.person.container.getLocalBounds()
+    workstation.person.container.hitArea = new Rectangle(
+      personBounds.x,
+      personBounds.y,
+      personBounds.width,
+      personBounds.height,
+    )
     workstation.person.container.on('pointertap', (event: FederatedPointerEvent) => {
       event.stopPropagation()
       onSelectAgent(role.id, { x: event.global.x, y: event.global.y })
@@ -154,14 +171,33 @@ function reportProgress(callback: ((progress: number) => void) | undefined, prog
   callback?.(Math.max(0, Math.min(1, progress)))
 }
 
+export function getSceneCameraLayout(width: number, height: number): SceneCameraLayout {
+  const isPortraitClassroom = width < 640 && height > width * 1.25
+  if (isPortraitClassroom) {
+    // Portrait screens prioritize the six-person collaboration area. Peripheral
+    // study zones remain available from the compact "小组动态" navigation.
+    return {
+      pivotX: 700,
+      pivotY: 450,
+      scale: Math.min(width / 560, height / 820) * 0.98,
+    }
+  }
+
+  return {
+    pivotX: sceneWidth / 2,
+    pivotY: sceneHeight / 2,
+    scale: Math.min(width / sceneWidth, height / sceneHeight) * 0.98,
+  }
+}
+
 function layoutScene(viewport: Container, width: number, height: number): void {
   if (width <= 0 || height <= 0) {
     return
   }
 
-  const scale = Math.min(width / sceneWidth, height / sceneHeight) * 0.98
-  viewport.pivot.set(sceneWidth / 2, sceneHeight / 2)
-  viewport.scale.set(scale)
+  const camera = getSceneCameraLayout(width, height)
+  viewport.pivot.set(camera.pivotX, camera.pivotY)
+  viewport.scale.set(camera.scale)
   viewport.position.set(width / 2, height / 2)
 }
 

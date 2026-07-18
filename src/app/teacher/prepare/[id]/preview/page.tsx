@@ -19,6 +19,7 @@ import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { hasBothScoredRoles, resolveDimensionRole } from "@/lib/evaluation/responsibility";
 import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
+import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -30,7 +31,7 @@ export default function PreviewCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const session = useSession();
-  const { user, publishCourse } = session;
+  const { user, publishCourse, updateCourse } = session;
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
   const [publishing, setPublishing] = useState(false);
@@ -246,6 +247,12 @@ export default function PreviewCoursePage() {
               <p className="text-sm text-stone-500">暂无课程模块。</p>
             )}
           </Card>
+
+          <StageWorkspacePolicyPanel
+            onChange={(stageWorkspacePolicies) => updateCourse(course.id, { stageWorkspacePolicies })}
+            policies={course.stageWorkspacePolicies}
+            stages={course.stages}
+          />
 
           <Card>
             <h2 className="mb-4 text-xl font-bold">阶段安排</h2>

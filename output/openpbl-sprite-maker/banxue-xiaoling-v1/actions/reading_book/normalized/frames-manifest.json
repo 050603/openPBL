@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "method": "official-normalize_cells_to_reference",
+  "reference": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\canonical\\canonical-base.png",
+  "scale": 0.9696969696969697,
+  "frames": [
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\00.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\01.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\02.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\03.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\04.png"
+  ],
+  "metrics": [
+    {
+      "index": 0,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\00.png",
+      "bbox": [
+        30,
+        8,
+        161,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\00.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "3ea4cefb5e55e76c6faed1436f76a924a2de6c2c228481b92dd252c6d642b69b",
+        "alpha_pixels": 17180
+      }
+    },
+    {
+      "index": 1,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\01.png",
+      "bbox": [
+        29,
+        8,
+        159,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\01.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "2ee39638e6a6a5e7a495cf196a7b137cb149b48d50848659f500d64d769be04a",
+        "alpha_pixels": 17411
+      }
+    },
+    {
+      "index": 2,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\02.png",
+      "bbox": [
+        29,
+        8,
+        158,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\02.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "a33d0a44b2bbf1d1a94480cb1c2fb18aa4353805d2c7c289f4173de94152fed0",
+        "alpha_pixels": 17426
+      }
+    },
+    {
+      "index": 3,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\03.png",
+      "bbox": [
+        29,
+        8,
+        157,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\03.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "530ef129726ae67fbfc3bc4fea447c4d39d806367f60eeeca98d12ee749e9a74",
+        "alpha_pixels": 17489
+      }
+    },
+    {
+      "index": 4,
+      "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\04.png",
+      "bbox": [
+        29,
+        8,
+        157,
+        200
+      ],
+      "metadata": {
+        "path": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\reading_book\\normalized\\04.png",
+        "width": 192,
+        "height": 208,
+        "mode": "RGBA",
+        "format": "PNG",
+        "sha256": "d465fc9695596c530518e45c5fb62637957cee55ce5435164183520c335136d3",
+        "alpha_pixels": 17343
+      }
+    }
+  ]
+}

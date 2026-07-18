@@ -1,9 +1,10 @@
-import { AnimatedSprite, Container, Graphics, Rectangle, Text, Texture } from 'pixi.js'
+import { AnimatedSprite, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
+import type { FederatedPointerEvent, FederatedWheelEvent } from 'pixi.js'
 import type { AgentActionName } from '@/assets/agent'
 import { getAgentActionDefinition } from '@/assets/agent'
 import type { AgentRoleProfile } from '@/assets/agent/roles'
-import type { AgentId, PartnerState } from '@/domain/studio'
-import { getRoleScreenAction, getStatePresentation, type ScreenActionName } from './status-presentation'
+import type { PartnerState } from '@/domain/studio'
+import { getStatePresentation, type ScreenActionName } from './status-presentation'
 import type { ActionTextureLoader } from './action-textures'
 import { createPersonFactory, type PersonController } from './person'
 import type { SpriteFactory } from './sprite-factory'
@@ -16,6 +17,8 @@ export type WorkstationController = {
   screen: WorkstationScreenController
   effect: WorkstationEffectController
   roleProfile: AgentRoleProfile
+  seatAnchor: { x: number; y: number }
+  seatExitAnchor: { x: number; y: number }
   homeAnchor: { x: number; y: number }
   setState: (state: PartnerState) => void
   setSelected: (selected: boolean) => void
@@ -46,30 +49,16 @@ type WorkstationFactoryOptions = {
   textureLoader: ActionTextureLoader
   textures: Record<string, Texture>
   actorLayer: Container
+  classroomTextures: {
+    desk: Texture
+    chair: Texture
+  }
 }
 
 const roleScreenPositions = {
   x: 0,
   y: 15,
   scale: 0.45,
-}
-
-const deskIdleActionCycles: Record<AgentId, readonly AgentActionName[]> = {
-  zhizhi: ['sleeping', 'working', 'standby', 'talking_on_seat'],
-  wenwen: ['talking_on_seat', 'working', 'sleeping', 'peek', 'standby'],
-  lingling: ['peek', 'working', 'standby', 'sleeping', 'talking_on_seat'],
-  cece: ['talking_on_seat', 'working', 'standby', 'peek', 'sleeping'],
-  pingping: ['sleeping', 'working', 'standby', 'talking_on_seat', 'peek'],
-  jiji: ['talking_on_seat', 'working', 'peek', 'sleeping', 'standby'],
-}
-
-const deskIdleStartDelays: Record<AgentId, number> = {
-  zhizhi: 2800,
-  wenwen: 4500,
-  lingling: 3600,
-  cece: 5600,
-  pingping: 6800,
-  jiji: 3200,
 }
 
 class AnimatedLayer implements WorkstationScreenController, WorkstationEffectController {
@@ -166,12 +155,39 @@ export function createWorkstationFactory({
   textureLoader,
   textures,
   actorLayer,
+  classroomTextures,
 }: WorkstationFactoryOptions) {
   const personFactory = createPersonFactory({ textureLoader })
+  const useClassroomFurniture = process.env.NEXT_PUBLIC_AGENT_ART !== 'legacy'
+
+  function getClassroomDeskY(role: AgentRoleProfile): number {
+    if (role.deskPosition.y < 150) return 128
+    if (role.deskPosition.y < 500) return 389
+    return 650
+  }
 
   function createDeskGroup(role: AgentRoleProfile): { desk: Container; chair: Container } {
-    const desk = new Container({ x: role.deskPosition.x, y: role.deskPosition.y })
-    const chair = new Container({ x: role.deskPosition.x, y: role.deskPosition.y })
+    const deskY = useClassroomFurniture ? getClassroomDeskY(role) : role.deskPosition.y
+    const desk = new Container({ x: role.deskPosition.x, y: deskY })
+    const chair = new Container({ x: role.deskPosition.x, y: deskY })
+
+    if (useClassroomFurniture) {
+      const deskShadow = new Graphics()
+        .ellipse(0, 94, 112, 18)
+        .fill({ color: 0x6f7c84, alpha: 0.1 })
+      const deskSprite = new Sprite(classroomTextures.desk)
+      deskSprite.anchor.set(0.5)
+      deskSprite.scale.set(0.2)
+      const chairSprite = new Sprite(classroomTextures.chair)
+      chairSprite.anchor.set(0.5)
+      chairSprite.position.set(0, 24)
+      chairSprite.scale.set(0.1)
+
+      desk.addChild(deskShadow, deskSprite)
+      chair.addChild(chairSprite)
+      return { desk, chair }
+    }
+
     const isBoss = role.deskVariant === 'boss'
     const scale = 0.3
 
@@ -224,7 +240,23 @@ export function createWorkstationFactory({
   async function createWorkstation(roleProfile: AgentRoleProfile): Promise<WorkstationController> {
     const { desk, chair } = createDeskGroup(roleProfile)
     const person = await personFactory.createPerson(roleProfile)
-    const homeAnchor = person.getVisualAnchorPosition('bottomCenter')
+    if (useClassroomFurniture) {
+      const currentAnchor = person.getVisualAnchorPosition('bottomCenter')
+      const seatedAnchor = {
+        x: roleProfile.deskPosition.x,
+        y: getClassroomDeskY(roleProfile) + 30,
+      }
+      person.container.x += seatedAnchor.x - currentAnchor.x
+      person.container.y += seatedAnchor.y - currentAnchor.y
+    }
+    const seatAnchor = person.getVisualAnchorPosition('bottomCenter')
+    const exitDirection = roleProfile.deskPosition.x < 700 ? 1 : -1
+    const seatExitAnchor = useClassroomFurniture
+      ? { x: seatAnchor.x + exitDirection * 138, y: seatAnchor.y }
+      : seatAnchor
+    const homeAnchor = useClassroomFurniture
+      ? { x: seatExitAnchor.x, y: seatExitAnchor.y + 76 }
+      : seatAnchor
     const screen = new AnimatedLayer(
       textureLoader,
       'screen',
@@ -232,6 +264,7 @@ export function createWorkstationFactory({
       roleProfile.position.y + roleScreenPositions.y,
       roleScreenPositions.scale,
     )
+    screen.container.visible = !useClassroomFurniture
     const effect = new AnimatedLayer(
       textureLoader,
       'effect',
@@ -244,9 +277,8 @@ export function createWorkstationFactory({
     // person's measured visual anchor instead of the nominal role position.
     const feedback = new Container()
     const infoPanel = new Graphics()
-      .roundRect(-92, 4, 184, 76, 12)
-      .fill({ color: 0xfffdf8, alpha: 0.95 })
-      .stroke({ width: 1, color: roleAccentNumber(roleProfile.accent), alpha: 0.36 })
+      .roundRect(-102, 5, 4, 67, 2)
+      .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.72 })
     const nameLabel = new Text({
       text: roleProfile.name,
       style: {
@@ -285,10 +317,26 @@ export function createWorkstationFactory({
       x: 0,
       y: 59,
     })
-    const messageCenterX = roleProfile.deskPosition.x < 700 ? -240 : 240
-    const messageTextX = messageCenterX - 126
-    const messageTop = -180
-    const messageTextTop = messageTop + 12
+    const messageCenterX = roleProfile.deskPosition.x < 700 ? -220 : 220
+    const messageWidth = 256
+    const messageHeight = 124
+    const messageViewportWidth = 222
+    const messageViewportHeight = 78
+    const messageTextX = messageCenterX - messageViewportWidth / 2
+    const messageTop = -166
+    const messageTextTop = messageTop + 35
+    const messageNameLabel = new Text({
+      text: roleProfile.name,
+      style: {
+        fill: roleProfile.accent,
+        fontFamily: 'Avenir Next, PingFang SC, sans-serif',
+        fontSize: 12,
+        fontWeight: '700',
+        letterSpacing: 1,
+      },
+      x: messageCenterX - messageViewportWidth / 2,
+      y: messageTop + 11,
+    })
     const messageText = new Text({
       text: '',
       style: {
@@ -297,16 +345,30 @@ export function createWorkstationFactory({
         fontSize: 14,
         breakWords: true,
         wordWrap: true,
-        wordWrapWidth: 252,
-        lineHeight: 21,
+        wordWrapWidth: messageViewportWidth,
+        lineHeight: 20,
       },
       x: messageTextX,
       y: messageTextTop,
     })
     const messageBubble = new Graphics()
     const messageViewport = new Container()
+    const messageScrollbar = new Graphics()
+    const messageScrollHint = new Text({
+      text: '滚动查看',
+      style: {
+        fill: '#7b898f',
+        fontFamily: 'Avenir Next, PingFang SC, sans-serif',
+        fontSize: 9,
+        fontWeight: '600',
+        letterSpacing: 0.5,
+      },
+      anchor: { x: 1, y: 0 },
+      x: messageCenterX + messageViewportWidth / 2,
+      y: messageTop + 12,
+    })
     const messageMask = new Graphics()
-      .rect(messageCenterX - 128, messageTop + 10, 256, 126)
+      .rect(messageCenterX - messageViewportWidth / 2, messageTextTop, messageViewportWidth, messageViewportHeight)
       .fill({ color: 0xffffff, alpha: 0.001 })
     messageViewport.addChild(messageText)
     messageViewport.mask = messageMask
@@ -315,81 +377,86 @@ export function createWorkstationFactory({
     let infoVisible = false
     let awayFromDesk = false
     let conversationActive = false
-    let idleTimer: number | null = null
-    let idleCycle = 0
     let idleRequest = 0
-    let messageScrollFrame: number | null = null
+    let messageScrollOffset = 0
+    let messageDragY: number | null = null
     const messageBaseY = messageTextTop
 
-    function stopMessageScroll(): void {
-      if (messageScrollFrame !== null) {
-        window.cancelAnimationFrame(messageScrollFrame)
-        messageScrollFrame = null
-      }
+    function getMessageScrollLimit(): number {
+      return Math.max(0, messageText.height - messageViewportHeight)
     }
 
-    function startMessageScroll(): void {
-      stopMessageScroll()
-      const overflow = Math.max(0, messageText.height - 126)
-      if (!overflow) return
-      const startsAt = performance.now() + 1_200
-      const tick = (now: number) => {
-        const elapsed = Math.max(0, now - startsAt)
-        const offset = Math.min(overflow, elapsed * 0.014)
-        messageText.y = messageBaseY - offset
-        if (offset < overflow && currentState === 'speaking') {
-          messageScrollFrame = window.requestAnimationFrame(tick)
-        } else {
-          messageScrollFrame = null
-        }
-      }
-      messageScrollFrame = window.requestAnimationFrame(tick)
+    function redrawMessageScrollbar(): void {
+      messageScrollbar.clear()
+      const limit = getMessageScrollLimit()
+      const hasOverflow = limit > 0
+      messageScrollHint.visible = hasOverflow
+      messageViewport.cursor = hasOverflow ? (messageDragY === null ? 'grab' : 'grabbing') : 'default'
+      if (!hasOverflow) return
+
+      const trackX = messageCenterX + messageViewportWidth / 2 + 7
+      const thumbHeight = Math.max(18, messageViewportHeight * (messageViewportHeight / messageText.height))
+      const thumbTravel = messageViewportHeight - thumbHeight
+      const thumbY = messageTextTop + thumbTravel * (messageScrollOffset / limit)
+      messageScrollbar
+        .roundRect(trackX, messageTextTop, 2, messageViewportHeight, 1)
+        .fill({ color: 0x738087, alpha: 0.16 })
+        .roundRect(trackX - 1, thumbY, 4, thumbHeight, 2)
+        .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.58 })
     }
+
+    function setMessageScrollOffset(nextOffset: number): void {
+      messageScrollOffset = Math.max(0, Math.min(getMessageScrollLimit(), nextOffset))
+      messageText.y = messageBaseY - messageScrollOffset
+      redrawMessageScrollbar()
+    }
+
+    messageViewport.eventMode = 'static'
+    messageViewport.hitArea = new Rectangle(
+      messageCenterX - messageViewportWidth / 2,
+      messageTextTop,
+      messageViewportWidth,
+      messageViewportHeight,
+    )
+    messageViewport.on('wheel', (event: FederatedWheelEvent) => {
+      if (getMessageScrollLimit() <= 0) return
+      event.stopPropagation()
+      setMessageScrollOffset(messageScrollOffset + event.deltaY * 0.55)
+    })
+    messageViewport.on('pointerdown', (event: FederatedPointerEvent) => {
+      if (getMessageScrollLimit() <= 0) return
+      event.stopPropagation()
+      messageDragY = event.global.y
+      redrawMessageScrollbar()
+    })
+    messageViewport.on('pointermove', (event: FederatedPointerEvent) => {
+      if (messageDragY === null) return
+      event.stopPropagation()
+      const nextY = event.global.y
+      setMessageScrollOffset(messageScrollOffset + messageDragY - nextY)
+      messageDragY = nextY
+    })
+    const endMessageDrag = () => {
+      messageDragY = null
+      redrawMessageScrollbar()
+    }
+    messageViewport.on('pointerup', endMessageDrag)
+    messageViewport.on('pointerupoutside', endMessageDrag)
 
     function stopIdleActivity(): void {
       idleRequest += 1
-      if (idleTimer !== null) {
-        window.clearTimeout(idleTimer)
-        idleTimer = null
-      }
     }
 
     function startIdleActivity(): void {
       stopIdleActivity()
       const request = idleRequest
-      const actions = deskIdleActionCycles[roleProfile.id]
-
-      const scheduleNext = (delay: number): void => {
-        if (currentState !== 'idle' || awayFromDesk || conversationActive || request !== idleRequest) {
-          return
-        }
-
-        idleTimer = window.setTimeout(() => {
-          idleTimer = null
-          if (currentState !== 'idle' || awayFromDesk || conversationActive || request !== idleRequest) {
-            return
-          }
-
-          const action = actions[idleCycle % actions.length]
-          idleCycle += 1
-          void person.play(action, {
-            loop: true,
-            preserveVisualAnchor: 'bottomCenter',
-          }).finally(() => {
-            if (currentState !== 'idle' || awayFromDesk || conversationActive || request !== idleRequest) {
-              return
-            }
-            if (action === 'working') {
-              void screen.play(getRoleScreenAction(roleProfile.id))
-            } else {
-              screen.clear()
-            }
-            scheduleNext(3500 + (idleCycle % 3) * 900 + Math.round(Math.random() * 900))
-          })
-        }, delay)
-      }
-
-      scheduleNext(deskIdleStartDelays[roleProfile.id] + Math.round(Math.random() * 1200))
+      if (currentState !== 'idle' || awayFromDesk || conversationActive) return
+      void person.play('working', {
+        loop: true,
+        preserveVisualAnchor: 'bottomCenter',
+      }).then(() => {
+        if (request === idleRequest) syncFeedbackPosition()
+      })
     }
 
     function syncFeedbackPosition(): void {
@@ -403,20 +470,21 @@ export function createWorkstationFactory({
         return
       }
 
-      const width = 282
-      const height = 150
-      const left = messageCenterX - width / 2
-      const right = messageCenterX + width / 2
+      const left = messageCenterX - messageWidth / 2
+      const right = messageCenterX + messageWidth / 2
       const tailEdge = messageCenterX < 0 ? right : left
-      const tailTip = messageCenterX < 0 ? -72 : 72
+      const tailTip = messageCenterX < 0 ? -68 : 68
       messageBubble
-        .roundRect(left, messageTop, width, height, 14)
-        .fill({ color: 0xfffdf8, alpha: 0.96 })
-        .stroke({ width: 2, color: roleAccentNumber(roleProfile.accent), alpha: 0.54 })
-        .moveTo(tailEdge, -122)
-        .lineTo(tailTip, -105)
-        .lineTo(tailEdge, -88)
-        .fill({ color: 0xfffdf8, alpha: 0.96 })
+        .roundRect(left + 3, messageTop + 5, messageWidth, messageHeight, 16)
+        .fill({ color: 0x24343b, alpha: 0.08 })
+        .roundRect(left, messageTop, messageWidth, messageHeight, 16)
+        .fill({ color: 0xfffdf9, alpha: 0.97 })
+        .roundRect(left, messageTop + 15, 3, messageHeight - 30, 2)
+        .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.76 })
+        .moveTo(tailEdge, messageTop + messageHeight - 47)
+        .lineTo(tailTip, messageTop + messageHeight - 30)
+        .lineTo(tailEdge, messageTop + messageHeight - 17)
+        .fill({ color: 0xfffdf9, alpha: 0.97 })
     }
 
     function applyStateVisuals(state: PartnerState): void {
@@ -456,8 +524,6 @@ export function createWorkstationFactory({
       currentState = state
       stopIdleActivity()
       applyStateVisuals(state)
-      if (state === 'speaking') startMessageScroll()
-      else stopMessageScroll()
       feedback.visible = state === 'speaking' || state === 'celebrating' || (selected && infoVisible)
       if (state === 'idle' && !awayFromDesk) {
         startIdleActivity()
@@ -495,10 +561,17 @@ export function createWorkstationFactory({
         return
       }
 
-      let chairIndex = container.getChildIndex(chair)
-      container.addChildAt(feedback, chairIndex)
-      chairIndex = container.getChildIndex(chair)
-      container.addChildAt(person.container, chairIndex)
+      if (useClassroomFurniture) {
+        const deskIndex = container.getChildIndex(desk)
+        container.addChildAt(person.container, deskIndex)
+        const effectIndex = container.getChildIndex(effect.container)
+        container.addChildAt(feedback, effectIndex)
+      } else {
+        let chairIndex = container.getChildIndex(chair)
+        container.addChildAt(feedback, chairIndex)
+        chairIndex = container.getChildIndex(chair)
+        container.addChildAt(person.container, chairIndex)
+      }
 
       if (currentState) {
         applyStateVisuals(currentState)
@@ -520,7 +593,7 @@ export function createWorkstationFactory({
       }
 
       if (currentState === 'idle' && !awayFromDesk) {
-        void person.play('standby', {
+        void person.play('working', {
           loop: true,
           preserveVisualAnchor: 'bottomCenter',
         })
@@ -530,9 +603,8 @@ export function createWorkstationFactory({
 
     function setMessage(message: string): void {
       messageText.text = message
-      messageText.y = messageBaseY
+      setMessageScrollOffset(0)
       redrawMessage()
-      if (currentState === 'speaking') startMessageScroll()
     }
 
     function setTask(task: string): void {
@@ -542,13 +614,16 @@ export function createWorkstationFactory({
 
     syncFeedbackPosition()
     feedback.visible = false
-    container.addChild(desk, screen.container, feedback, person.container, chair, effect.container)
-    feedback.addChild(messageBubble, messageViewport, messageMask, infoPanel, nameLabel, stateLabel, taskLabel)
+    if (useClassroomFurniture) {
+      container.addChild(chair, person.container, desk, screen.container, feedback, effect.container)
+    } else {
+      container.addChild(desk, screen.container, feedback, person.container, chair, effect.container)
+    }
+    feedback.addChild(messageBubble, messageNameLabel, messageScrollHint, messageViewport, messageMask, messageScrollbar, infoPanel, nameLabel, stateLabel, taskLabel)
 
-    const bounds = container.getLocalBounds()
-    container.eventMode = 'static'
-    container.cursor = 'pointer'
-    container.hitArea = new Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
+    // The workstation itself stays passive so the large desk bounds do not
+    // swallow hover events intended for the smaller interactive character.
+    container.eventMode = 'passive'
 
     return {
       container,
@@ -558,6 +633,8 @@ export function createWorkstationFactory({
       screen,
       effect,
       roleProfile,
+      seatAnchor,
+      seatExitAnchor,
       homeAnchor,
       setState,
       setSelected,
@@ -568,7 +645,7 @@ export function createWorkstationFactory({
       setTask,
       destroy: () => {
         stopIdleActivity()
-        stopMessageScroll()
+        messageDragY = null
         person.destroy()
         screen.clear()
         effect.clear()

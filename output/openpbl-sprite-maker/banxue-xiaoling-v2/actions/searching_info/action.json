@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "searching_info",
+  "category": "学习活动",
+  "definition": "查找和筛选资料。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    140,
+    140,
+    140,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/searching_info/source/generated.png",
+  "outputs": {
+    "source": "actions/searching_info/source/generated.png",
+    "frames": "actions/searching_info/frames",
+    "normalized": "actions/searching_info/normalized",
+    "preview_gif": "actions/searching_info/preview.gif",
+    "preview_webp": "actions/searching_info/preview.webp",
+    "contact_sheet": "actions/searching_info/contact-sheet.png",
+    "action_manifest": "actions/searching_info/action.json",
+    "qa": "actions/searching_info/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/searching_info/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:51:27.119786+00:00"
+}

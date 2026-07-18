@@ -97,4 +97,23 @@ describe("companion TTS pipeline", () => {
     expect(FakeAudio.instances[1]?.src).toContain("SECOND");
     unmount();
   });
+
+  it("keeps serial text presentation but makes no audio request when voice is disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onItemStart = vi.fn();
+    const { result, unmount } = renderHook(() => useCompanionTTS({ onItemStart }));
+
+    await act(async () => {
+      result.current.toggle();
+      await Promise.resolve();
+    });
+    act(() => result.current.enqueue("这条消息只显示文字，不生成语音。", "planner"));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.currentTTS?.companionId).toBe("planner");
+    expect(result.current.speaking).toBe(true);
+    expect(onItemStart).toHaveBeenCalledWith(expect.objectContaining({ companionId: "planner" }));
+    unmount();
+  });
 });

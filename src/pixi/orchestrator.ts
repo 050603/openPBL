@@ -7,10 +7,18 @@ import {
 } from './study-zones'
 import type { WorkstationController } from './workstation'
 import {
+  classroomAisleRoute,
   compactNavigationRoute,
   walkingDuration,
   type NavigationPoint,
 } from './navigation'
+
+const classroomMainAisleX = 690
+
+type OfficeOrchestratorOptions = {
+  random?: () => number
+  idleStartDelays?: Partial<Record<AgentId, number>>
+}
 
 export type PixiOfficeController = {
   wait: (ms: number) => Promise<void>
@@ -33,6 +41,7 @@ export type PixiOfficeController = {
 export function createOfficeOrchestrator(
   workstations: Record<AgentId, WorkstationController>,
   studyZones: StudyZoneController,
+  options: OfficeOrchestratorOptions = {},
 ): PixiOfficeController {
   const stateByAgent = new Map<AgentId, PartnerState>()
   const motionRequests = new Map<AgentId, number>()
@@ -93,12 +102,13 @@ export function createOfficeOrchestrator(
   }
 
   const idleStartDelays: Record<AgentId, number> = {
-    zhizhi: 3200,
-    wenwen: 5000,
-    lingling: 4100,
-    cece: 6100,
-    pingping: 7200,
-    jiji: 4600,
+    zhizhi: 9_000,
+    wenwen: 13_000,
+    lingling: 17_000,
+    cece: 11_000,
+    pingping: 19_000,
+    jiji: 15_000,
+    ...options.idleStartDelays,
   }
 
   function nextMotionRequest(agentId: AgentId): number {
@@ -114,7 +124,7 @@ export function createOfficeOrchestrator(
 
   function nextIdleRandom(agentId: AgentId): number {
     void agentId
-    return Math.random()
+    return options.random?.() ?? Math.random()
   }
 
   function isCurrentIdleRequest(agentId: AgentId, request: number): boolean {
@@ -152,11 +162,14 @@ export function createOfficeOrchestrator(
     })
   }
 
-  function pickIdleActivity(agentId: AgentId): IdleActivity {
+  function pickIdleActivity(agentId: AgentId): IdleActivity | null {
     const available = idleActivityMenus[agentId].filter((activity) => (
-      activity.kind !== 'zone' || studyZones.getOccupant(activity.zoneId) === null
+      activity.kind === 'zone'
+        ? studyZones.getOccupant(activity.zoneId) === null
+        : engagedAgents.size === 0
     ))
-    const menu = available.length > 0 ? available : idleActivityMenus[agentId].filter((activity) => activity.kind === 'chat')
+    if (available.length === 0) return null
+    const menu = available
     const previousKey = previousIdleActivities.get(agentId)
     const alternatives = menu.filter((activity) => idleActivityKey(activity) !== previousKey)
     const candidates = alternatives.length > 0 ? alternatives : menu
@@ -194,10 +207,6 @@ export function createOfficeOrchestrator(
       if (!isCurrentIdleRoam(agentId, request)) {
         return
       }
-      if (activeIdleActivities.size >= 2) {
-        scheduleIdleRoaming(agentId, 2200 + Math.round(nextIdleRandom(agentId) * 1800))
-        return
-      }
       void runIdleActivity(agentId, request).catch((error: unknown) => {
         console.error(`Idle activity failed for ${agentId}`, error)
       })
@@ -215,21 +224,98 @@ export function createOfficeOrchestrator(
   async function walkVisualAnchorTo(agentId: AgentId, x: number, y: number): Promise<void> {
     const person = workstations[agentId].person
     const current = person.getVisualAnchorPosition('bottomCenter')
+    const deltaX = x - current.x
+    const deltaY = y - current.y
     if (Math.abs(x - current.x) > 8) {
       person.setFacing(x > current.x ? 'right' : 'left')
     }
+    const walkAction: AgentActionName = deltaY < -8 && Math.abs(deltaY) > Math.abs(deltaX) * 0.72
+      ? 'fc_walking_up'
+      : getRoleActionName(agentId, 'walk')
+    await person.play(walkAction, {
+      loop: true,
+      animationSpeed: walkAction === 'fc_walking_up' ? 0.12 : 0.14,
+      preserveVisualAnchor: 'bottomCenter',
+    })
     await person.moveVisualAnchorTo(x, y, {
       duration: walkingDuration(current, { x, y }),
       anchor: 'bottomCenter',
     })
   }
 
-  async function playWalk(agentId: AgentId): Promise<void> {
-    await workstations[agentId].person.play(getRoleActionName(agentId, 'walk'), {
+  async function riseFromDesk(agentId: AgentId, request: number): Promise<boolean> {
+    const workstation = workstations[agentId]
+    const exitFacing = workstation.seatExitAnchor.x > workstation.seatAnchor.x ? 'right' : 'left'
+    workstation.person.setFacing(exitFacing)
+    await Promise.all([
+      workstation.person.play('off_chair', {
+        loop: false,
+        animationSpeed: 0.09,
+        preserveVisualAnchor: 'bottomCenter',
+      }),
+      workstation.person.moveVisualAnchorTo(
+        workstation.seatExitAnchor.x,
+        workstation.seatExitAnchor.y,
+        { duration: 980, anchor: 'bottomCenter' },
+      ),
+    ])
+    if (!isCurrentMotion(agentId, request)) return false
+    awayAgents.add(agentId)
+    workstation.setAway(true)
+    await walkVisualAnchorTo(agentId, workstation.homeAnchor.x, workstation.homeAnchor.y)
+    if (!isCurrentMotion(agentId, request)) return false
+    return true
+  }
+
+  async function sitAtDesk(agentId: AgentId, request: number): Promise<boolean> {
+    const workstation = workstations[agentId]
+    // Move behind the furniture before approaching the chair so the desk keeps
+    // its natural foreground occlusion throughout the whole seating motion.
+    workstation.setAway(false)
+    await walkVisualAnchorTo(
+      agentId,
+      workstation.seatExitAnchor.x,
+      workstation.seatExitAnchor.y,
+    )
+    if (!isCurrentMotion(agentId, request)) return false
+    workstation.person.setFacing(workstation.seatAnchor.x > workstation.seatExitAnchor.x ? 'right' : 'left')
+
+    // Mount the authored sitting strip before calculating the chair tween.
+    // Starting both operations together lets the walking sprite's old local
+    // anchor leak into the new strip and can send the actor toward a different
+    // workstation before it snaps back to its own chair.
+    await workstation.person.play('sit_down', {
       loop: true,
-      animationSpeed: 0.22,
+      animationSpeed: 0.09,
       preserveVisualAnchor: 'bottomCenter',
     })
+    workstation.person.placeVisualAnchorAt(
+      workstation.seatExitAnchor.x,
+      workstation.seatExitAnchor.y,
+    )
+    await workstation.person.moveVisualAnchorTo(
+      workstation.seatAnchor.x,
+      workstation.seatAnchor.y,
+      { duration: 1_040, anchor: 'bottomCenter' },
+    )
+    if (!isCurrentMotion(agentId, request)) return false
+
+    // Commit the chair anchor after the transition. The off-chair and seated
+    // strips have different frame bounds, so the tween endpoint alone is not
+    // a reliable final resting position.
+    workstation.person.placeVisualAnchorAt(
+      workstation.seatAnchor.x,
+      workstation.seatAnchor.y,
+    )
+    await workstation.person.play('working', {
+      loop: true,
+      preserveVisualAnchor: 'bottomCenter',
+    })
+    workstation.person.placeVisualAnchorAt(
+      workstation.seatAnchor.x,
+      workstation.seatAnchor.y,
+    )
+    return isCurrentMotion(agentId, request)
   }
 
   async function walkRoute(
@@ -245,9 +331,6 @@ export function createOfficeOrchestrator(
     if (route.length === 0) {
       return isCurrentMotion(agentId, request)
     }
-
-    await playWalk(agentId)
-    if (!isCurrentMotion(agentId, request)) return false
 
     for (const point of route) {
       await walkVisualAnchorTo(agentId, point.x, point.y)
@@ -286,14 +369,27 @@ export function createOfficeOrchestrator(
         return
       }
 
-      workstations[agentId].person.setFacing(definition.facing)
-      await workstations[agentId].person.play(actions[actionIndex % actions.length], {
+      const person = workstations[agentId].person
+      person.setFacing(definition.facing)
+      await person.play(actions[actionIndex % actions.length], {
         loop: true,
-        reverse: actionIndex % 2 === 1,
+        reverse: actions.length > 1 && actionIndex % 2 === 1,
         preserveVisualAnchor: 'bottomCenter',
       })
+      // Interaction strips may have different transparent canvas margins. Keep
+      // their world-space feet fixed on the authored interaction point.
+      person.placeVisualAnchorAt(
+        definition.interactionPoint.x,
+        definition.interactionPoint.y,
+      )
       actionIndex += 1
       if (!isCurrentZoneInteraction(agentId, zoneId, request)) {
+        return
+      }
+
+      // A single action is already looping in Pixi. Re-mounting it on a timer
+      // caused the archive-reading pose to visibly reset and jump every cycle.
+      if (actions.length === 1) {
         return
       }
 
@@ -311,6 +407,9 @@ export function createOfficeOrchestrator(
   }
 
   function findChatTarget(agentId: AgentId, preferredTarget?: AgentId): AgentId | null {
+    if (engagedAgents.size > 0) {
+      return null
+    }
     const candidates = Object.keys(workstations).filter((candidateId) => {
       const targetId = candidateId as AgentId
       return targetId !== agentId
@@ -334,7 +433,7 @@ export function createOfficeOrchestrator(
   }
 
   function beginConversation(agentId: AgentId, targetAgentId: AgentId): boolean {
-    if (engagedAgents.has(agentId) || engagedAgents.has(targetAgentId)) {
+    if (engagedAgents.size > 0 || engagedAgents.has(agentId) || engagedAgents.has(targetAgentId)) {
       return false
     }
 
@@ -343,6 +442,7 @@ export function createOfficeOrchestrator(
     chatPartnerByAgent.set(agentId, targetAgentId)
     chatPartnerByAgent.set(targetAgentId, agentId)
     stopIdleRoaming(targetAgentId)
+    workstations[agentId].setConversationActive(true)
     workstations[targetAgentId].setConversationActive(true)
     return true
   }
@@ -358,10 +458,11 @@ export function createOfficeOrchestrator(
     engagedAgents.delete(agentId)
     engagedAgents.delete(targetAgentId)
     const target = workstations[targetAgentId]
+    workstations[agentId].setConversationActive(false)
     target.person.setFacing('left')
     target.setConversationActive(false)
     if (stateByAgent.get(targetAgentId) === 'idle') {
-      scheduleIdleRoaming(targetAgentId, 3800 + Math.round(nextIdleRandom(targetAgentId) * 2800))
+      scheduleIdleRoaming(targetAgentId, 14_000 + Math.round(nextIdleRandom(targetAgentId) * 8_000))
     }
   }
 
@@ -376,31 +477,32 @@ export function createOfficeOrchestrator(
     stopZoneInteraction(agentId)
     const workstation = workstations[agentId]
     const target = workstations[targetAgentId]
-    const targetAnchor = target.person.getVisualAnchorPosition('bottomCenter')
-    const sourceAnchor = workstation.person.getVisualAnchorPosition('bottomCenter')
-    const side = sourceAnchor.x <= targetAnchor.x ? -1 : 1
-    const chatPoint = { x: targetAnchor.x + side * 132, y: targetAnchor.y + 4 }
+    const targetExitDirection = target.homeAnchor.x > target.seatAnchor.x ? 1 : -1
+    const chatPoint = { ...target.homeAnchor }
     const request = nextMotionRequest(agentId)
 
     movingAgents.add(agentId)
-    awayAgents.add(agentId)
-    workstation.setAway(true)
     workstation.person.setPosture('normal')
 
     try {
-      // A partner conversation is a direct, readable goal. Routing every actor
-      // through the left-side study aisle caused the visible step-left/reverse
-      // bug when the target was sitting to the right.
-      if (!await walkRoute(agentId, request, [chatPoint])) return
+      if (!await riseFromDesk(agentId, request)) return
+      const route = classroomAisleRoute(
+        workstation.person.getVisualAnchorPosition('bottomCenter'),
+        chatPoint,
+        classroomMainAisleX,
+      )
+      if (!await walkRoute(agentId, request, route)) return
       if (!isCurrentIdleRequest(agentId, idleRequest)) return
 
-      workstation.person.setFacing(side < 0 ? 'right' : 'left')
-      target.person.setFacing(side < 0 ? 'left' : 'right')
-      await target.person.play('talking_on_seat', {
-        loop: true,
-        preserveVisualAnchor: 'bottomCenter',
-      })
-      await playBody(agentId, 'talking_on_stand-0')
+      workstation.person.setFacing(targetExitDirection > 0 ? 'left' : 'right')
+      target.person.setFacing(targetExitDirection > 0 ? 'right' : 'left')
+      await Promise.all([
+        target.person.play('talking_on_seat', {
+          loop: true,
+          preserveVisualAnchor: 'bottomCenter',
+        }),
+        playBody(agentId, 'talking_on_stand-0'),
+      ])
     } finally {
       if (isCurrentMotion(agentId, request)) {
         movingAgents.delete(agentId)
@@ -416,10 +518,13 @@ export function createOfficeOrchestrator(
     activeIdleActivities.add(agentId)
     const activity = pickIdleActivity(agentId)
     try {
+      if (!activity) {
+        return
+      }
       if (activity.kind === 'zone') {
         await goToStudyZone(agentId, activity.zoneId)
         if (isCurrentIdleRoam(agentId, idleRequest) && currentZoneByAgent.get(agentId) === activity.zoneId) {
-          const canContinue = await waitForIdleRoam(agentId, idleRequest, 3200 + Math.round(nextIdleRandom(agentId) * 1800))
+          const canContinue = await waitForIdleRoam(agentId, idleRequest, 8_000 + Math.round(nextIdleRandom(agentId) * 4_000))
           if (canContinue) {
             await returnAgentToDesk(agentId)
           }
@@ -429,8 +534,9 @@ export function createOfficeOrchestrator(
         if (targetAgentId) {
           await moveToChatPartner(agentId, targetAgentId, idleRequest)
           if (isCurrentIdleRoam(agentId, idleRequest)) {
-            const canContinue = await waitForIdleRoam(agentId, idleRequest, 2800 + Math.round(nextIdleRandom(agentId) * 1600))
+            const canContinue = await waitForIdleRoam(agentId, idleRequest, 6_500 + Math.round(nextIdleRandom(agentId) * 2_500))
             if (canContinue) {
+              endConversation(agentId)
               await returnAgentToDesk(agentId)
             }
           }
@@ -445,7 +551,7 @@ export function createOfficeOrchestrator(
         && !awayAgents.has(agentId)
         && !currentZoneByAgent.has(agentId)
       ) {
-        scheduleIdleRoaming(agentId, 4200 + Math.round(nextIdleRandom(agentId) * 3200))
+        scheduleIdleRoaming(agentId, 14_000 + Math.round(nextIdleRandom(agentId) * 8_000))
       }
     }
   }
@@ -471,9 +577,6 @@ export function createOfficeOrchestrator(
       currentZoneByAgent.delete(agentId)
     }
 
-    awayAgents.add(agentId)
-    workstation.setAway(true)
-
     if (previousZone === zoneId && !movingAgents.has(agentId)) {
       workstation.person.setPosture(definition.posture)
       await startZoneInteraction(agentId, zoneId)
@@ -484,10 +587,13 @@ export function createOfficeOrchestrator(
     workstation.person.setPosture('normal')
 
     try {
-      if (!await walkRoute(agentId, request, [
-        definition.approachPoint,
+      if (!awayAgents.has(agentId) && !await riseFromDesk(agentId, request)) return
+      const current = workstation.person.getVisualAnchorPosition('bottomCenter')
+      const route = [
+        ...classroomAisleRoute(current, definition.approachPoint, classroomMainAisleX),
         definition.interactionPoint,
-      ])) return
+      ]
+      if (!await walkRoute(agentId, request, route)) return
 
       currentZoneByAgent.set(agentId, zoneId)
       studyZones.setAgentActive(zoneId, agentId, true)
@@ -544,11 +650,19 @@ export function createOfficeOrchestrator(
     try {
       workstation.person.setPosture('normal')
       const route = previousZoneDefinition
-        ? [previousZoneDefinition.approachPoint, workstation.homeAnchor]
+        ? [
+            previousZoneDefinition.approachPoint,
+            ...classroomAisleRoute(
+              previousZoneDefinition.approachPoint,
+              workstation.homeAnchor,
+              classroomMainAisleX,
+            ),
+          ]
         : [workstation.homeAnchor]
       if (!await walkRoute(agentId, request, route)) return
 
       workstation.person.setFacing('left')
+      if (!await sitAtDesk(agentId, request)) return
       awayAgents.delete(agentId)
       workstation.setAway(false)
     } finally {

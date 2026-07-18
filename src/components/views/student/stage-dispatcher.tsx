@@ -10,9 +10,11 @@ import { ProjectMakingView } from "./project-making";
 export function StudentStageView({
   view,
   course,
+  embedded = false,
 }: {
   view: StageViewKey;
   course: Course;
+  embedded?: boolean;
 }) {
   switch (view) {
     case "project-launch":
@@ -20,17 +22,17 @@ export function StudentStageView({
     case "ai-learning":
       return <AiLearningView course={course} />;
     case "group":
-      return <ProposalReviewView course={course} />;
+      return <ProposalReviewView course={course} embedded={embedded} />;
     case "workspace":
-      return <WorkspaceView course={course} />;
+      return <WorkspaceView course={course} embedded={embedded} />;
     case "proposal-review":
-      return <ProposalReviewView course={course} />;
+      return <ProposalReviewView course={course} embedded={embedded} />;
     case "project-making":
       return <ProjectMakingView course={course} />;
     case "showcase":
-      return <ShowcaseView course={course} />;
+      return <ShowcaseView course={course} embedded={embedded} />;
     case "reflection":
-      return <ReflectionView course={course} />;
+      return <ReflectionView course={course} embedded={embedded} />;
     default:
       return <ProjectLaunchView course={course} />;
   }

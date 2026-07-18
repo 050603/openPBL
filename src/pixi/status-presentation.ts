@@ -33,12 +33,12 @@ export function getRoleScreenAction(agentId: AgentId): ScreenActionName {
 }
 
 export const statePresentationByState: Record<PartnerState, Omit<StatePresentation, 'screen'>> = {
-  idle: { body: 'standby', label: '空闲等待', tone: 0x718087, ring: 0x718087 },
-  selected: { body: 'standby', label: '已选择', tone: 0x2c9b91, ring: 0x2c9b91 },
+  idle: { body: 'working', label: '在座位上学习', tone: 0x718087, ring: 0x718087 },
+  selected: { body: 'working', label: '已选择', tone: 0x2c9b91, ring: 0x2c9b91 },
   working: { body: 'working', label: '正在处理', tone: 0x2c9b91, ring: 0x2c9b91 },
   speaking: { body: 'talking_on_seat', label: '正在发言', tone: 0xe6a53b, ring: 0xe6a53b },
   celebrating: { body: 'cheer1_sub', label: '发言完成', tone: 0x48a56a, ring: 0x48a56a },
-  waiting_user: { body: 'standby', label: '等待你确认', tone: 0x6f7fd3, ring: 0x6f7fd3 },
+  waiting_user: { body: 'working', label: '等待你确认', tone: 0x6f7fd3, ring: 0x6f7fd3 },
   completed: { body: 'cheer1_sub', label: '已完成', tone: 0x48a56a, ring: 0x48a56a },
   error: { body: 'standby', label: '任务失败', tone: 0xd55d56, ring: 0xd55d56 },
 }

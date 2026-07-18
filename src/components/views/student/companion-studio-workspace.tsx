@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
-  FileText,
   FolderOpen,
   History,
   LayoutDashboard,
@@ -28,12 +27,14 @@ import {
 import { agentRoleById, agentRoles } from "@/assets/agent/roles";
 import type { AgentId, PartnerRuntime, PartnerState } from "@/domain/studio";
 import { getCompanion, type AiCompanionId } from "@/lib/ai-companions";
-import { getCompanionStagePolicy } from "@/lib/companion/stage-policy";
+import { emitStudentArtifactEvent } from "@/lib/companion/events";
+import { appendCompanionContribution } from "@/lib/companion/workspace-operation";
 import type { CompanionConfirmation, CompanionTask, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import type { StudyZoneId } from "@/pixi/study-zones";
 import PixiStage, { type StudyZoneCommand } from "./companion-studio-pixi-stage";
 import { useCompanionRuntime } from "./companion-runtime";
+import { StudioProjectWorkbench } from "./studio-project-workbench";
 import "./companion-studio-workspace.css";
 
 type StudioModal = StudyZoneId | "history" | null;
@@ -94,6 +95,7 @@ export function CompanionStudioWorkspace(props: {
   course: Course;
   stageKey: string;
   contextLabel: string;
+  canSwitchMode?: boolean;
   onSwitchToTask: () => void;
 }) {
   const runtime = useCompanionRuntime();
@@ -105,20 +107,20 @@ function CompanionStudioRuntime({
   course,
   stageKey,
   contextLabel,
+  canSwitchMode = true,
   onSwitchToTask,
   runtime,
 }: {
   course: Course;
   stageKey: string;
   contextLabel: string;
+  canSwitchMode?: boolean;
   onSwitchToTask: () => void;
   runtime: NonNullable<ReturnType<typeof useCompanionRuntime>>;
 }) {
   const session = useSession();
-  const policy = getCompanionStagePolicy(stageKey);
   const activeTaskIdRef = useRef<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
-  const [selectedZoneId, setSelectedZoneId] = useState<StudyZoneId | null>(null);
   const [studioModal, setStudioModal] = useState<StudioModal>(null);
   const [studyZoneCommand, setStudyZoneCommand] = useState<StudyZoneCommand | null>(null);
   const [railView, setRailView] = useState<RailView>("overview");
@@ -134,6 +136,10 @@ function CompanionStudioRuntime({
   }, [railOpen]);
 
   const studentId = session.studentId ?? "";
+  const studentGroup = useMemo(
+    () => course.groups?.find((group) => group.members.some((member) => member.studentId === studentId)),
+    [course.groups, studentId],
+  );
   const stageTasks = useMemo(
     () => (course.companionTasks ?? [])
       .filter((task) => task.studentId === studentId && task.stageKey === stageKey)
@@ -186,7 +192,6 @@ function CompanionStudioRuntime({
       else if (isPreparing) state = "working";
       else if (task?.status === "waiting-student" || task?.status === "waiting-confirmation") state = "waiting_user";
       else if (task && ["queued", "assigned", "processing", "responding"].includes(task.status)) state = "working";
-      else if (runtime.lastCompletedRound?.speakerIds.includes(companionId)) state = "completed";
       else if (selectedAgentId === role.id) state = "selected";
 
       const partner: PartnerRuntime = {
@@ -202,7 +207,7 @@ function CompanionStudioRuntime({
       };
       return [role.id, partner];
     })) as Record<AgentId, PartnerRuntime>;
-  }, [availableIds, runtime.error, runtime.generatingCompanionId, runtime.lastCompletedRound, runtime.messages, runtime.selectedCompanionId, runtime.tts.currentTTS, runtime.tts.preparingCompanionId, runtime.tts.speaking, selectedAgentId, stageTasks]);
+  }, [availableIds, runtime.error, runtime.generatingCompanionId, runtime.messages, runtime.selectedCompanionId, runtime.tts.currentTTS, runtime.tts.preparingCompanionId, runtime.tts.speaking, selectedAgentId, stageTasks]);
 
   useEffect(() => {
     if (!activeTaskIdRef.current) return;
@@ -213,10 +218,66 @@ function CompanionStudioRuntime({
     } else if (runtime.phase === "speaking" && task.status !== "responding") {
       session.upsertCompanionTask({ ...task, status: "responding" });
     } else if (runtime.phase === "idle" && runtime.lastCompletedRound?.taskId === task.id && task.status !== "waiting-student") {
-      session.upsertCompanionTask({ ...task, status: "waiting-student", result: runtime.lastCompletedRound.text });
+      const patches = runtime.lastCompletedRound.workspacePatches;
+      if (patches.length) {
+        let document = (course.submissions ?? []).find((submission) =>
+          submission.stageKey === stageKey
+          && submission.type === "document"
+          && (submission.studentId === studentId || (studentGroup && submission.groupId === studentGroup.id)),
+        );
+        let content = document?.content ?? "";
+        patches.forEach((patch) => {
+          const companion = getCompanion(patch.companionId);
+          content = appendCompanionContribution({
+            existingContent: content,
+            patch,
+            companionId: patch.companionId,
+            companionName: companion.name,
+            taskId: task.id,
+          });
+          session.addCompanionProcessRecord({
+            courseId: course.id,
+            studentId,
+            stageKey,
+            title: `${companion.name}补充了“${patch.title}”`,
+            summary: `已追加到项目工作台的协作文档。${patch.reviewInstruction}`,
+            source: "agent",
+            companionId: patch.companionId,
+            taskId: task.id,
+          });
+        });
+        document = session.upsertSubmission({
+          id: document?.id ?? `studio-document-${studentId}-${stageKey}`,
+          courseId: course.id,
+          studentId,
+          studentName: session.studentName ?? session.user.name,
+          groupId: studentGroup?.id,
+          stageKey,
+          type: "document",
+          title: "项目协作文档",
+          content,
+        });
+        session.addActivity(course.id, "智能体补充项目文档", patches.map((patch) => patch.title).join("、"), session.studentName ?? "学生");
+        emitStudentArtifactEvent({
+          courseId: course.id,
+          studentId,
+          stageKey,
+          kind: "document-saved",
+          artifactId: document?.id,
+          summary: `智能体已补充项目协作文档：${patches.map((patch) => patch.title).join("、")}`,
+          content,
+        });
+        session.upsertCompanionTask({
+          ...task,
+          status: "saved",
+          result: `${runtime.lastCompletedRound.text}\n已写入：项目工作台 → 协作文档`,
+        });
+      } else {
+        session.upsertCompanionTask({ ...task, status: "waiting-student", result: runtime.lastCompletedRound.text });
+      }
       activeTaskIdRef.current = null;
     }
-  }, [runtime.lastCompletedRound, runtime.phase, session, stageTasks]);
+  }, [course.id, course.submissions, runtime.lastCompletedRound, runtime.phase, session, stageKey, stageTasks, studentGroup, studentId]);
 
   const sendRequest = useCallback(async (request: string, companionId?: AiCompanionId) => {
     const clean = request.trim();
@@ -243,7 +304,6 @@ function CompanionStudioRuntime({
   }, [availableIds, course.id, runtime, session, stageKey, studentId]);
 
   const selectAgent = useCallback((agentId: AgentId) => {
-    setSelectedZoneId(null);
     setSelectedAgentId(agentId);
     setRailView("agent");
     setRailOpen(true);
@@ -254,7 +314,6 @@ function CompanionStudioRuntime({
   const selectZone = useCallback((zoneId: StudyZoneId) => {
     const zone = ZONE_COPY[zoneId];
     setSelectedAgentId(null);
-    setSelectedZoneId(zoneId);
     setStudioModal(zoneId);
     runtime.setSelectedCompanionId(null);
     setStudyZoneCommand({ agentId: zone.agentId, zoneId, token: Date.now() });
@@ -262,7 +321,6 @@ function CompanionStudioRuntime({
 
   const clearSelection = useCallback(() => {
     setSelectedAgentId(null);
-    setSelectedZoneId(null);
     setRailView("overview");
     runtime.setSelectedCompanionId(null);
   }, [runtime]);
@@ -299,7 +357,7 @@ function CompanionStudioRuntime({
           <small>阶段 {course.currentStageIndex + 1}/{course.stages.length} · {projectProgress}%</small>
         </div>
 
-        <button className="studio-settings-trigger" onClick={() => { setRailView("settings"); setRailOpen(true); }} type="button">
+        <button aria-label="课堂设置" className="studio-settings-trigger" onClick={() => { setRailView("settings"); setRailOpen(true); }} type="button">
           <Settings size={17} /><span>设置</span>
         </button>
 
@@ -315,6 +373,13 @@ function CompanionStudioRuntime({
           onStop={runtime.stop}
           selectedCompanionId={selectedCompanionId}
         />
+        {activeTask?.status === "waiting-student" ? (
+          <button className="studio-review-cue" onClick={() => setStudioModal("planning")} type="button">
+            <CheckCircle2 size={16} />
+            <span><strong>伙伴贡献已返回</strong><small>请由你审核、修改并完成最终提交</small></span>
+            <ArrowUpRight size={15} />
+          </button>
+        ) : null}
       </section>
 
       {railOpen ? <button aria-label="关闭信息栏" className="studio-rail-scrim" onClick={() => setRailOpen(false)} type="button" /> : null}
@@ -336,7 +401,7 @@ function CompanionStudioRuntime({
         ) : railView === "activity" ? (
           <ActivityRail onBack={() => setRailView("overview")} records={records} tasks={stageTasks} />
         ) : railView === "settings" ? (
-          <SettingsRail onBack={() => setRailView("overview")} onHistory={() => setStudioModal("history")} onSwitchToTask={onSwitchToTask} runtime={runtime} />
+          <SettingsRail canSwitchMode={canSwitchMode} onBack={() => setRailView("overview")} onHistory={() => setStudioModal("history")} onSwitchToTask={onSwitchToTask} runtime={runtime} />
         ) : (
           <OverviewRail
             activeTask={activeTask}
@@ -354,11 +419,11 @@ function CompanionStudioRuntime({
       </aside>
 
       {studioModal ? (
-        <StudioDialog onClose={() => { setStudioModal(null); setSelectedZoneId(null); }} title={studioModal === "history" ? "完整对话历史" : ZONE_COPY[studioModal].title}>
+        <StudioDialog onClose={() => setStudioModal(null)} title={studioModal === "history" ? "完整对话历史" : ZONE_COPY[studioModal].title} wide={studioModal === "planning"}>
           {studioModal === "library" ? (
             <LibraryPanel disabled={!availableIds.has("knowledge")} onAsk={(text) => sendRequest(text, "knowledge")} />
           ) : studioModal === "planning" ? (
-            <PlanningPanel confirmations={pendingConfirmations} onSwitchToTask={onSwitchToTask} products={recentProducts} stageGoal={policy.objective} />
+            <PlanningPanel course={course} stageKey={stageKey} />
           ) : studioModal === "archive" ? (
             <ArchivePanel messages={runtime.messages} products={recentProducts} records={records} tasks={stageTasks} />
           ) : (
@@ -454,13 +519,14 @@ function ActivityRail({ tasks, records, onBack }: { tasks: CompanionTask[]; reco
   return <div className="studio-rail-content"><RailHeading eyebrow="LIVE ACTIVITY" onBack={onBack} title="项目动态" /><section className="studio-rail-section"><div className="studio-section-title"><strong>伙伴任务</strong><span>{tasks.length}</span></div>{tasks.length ? <div className="studio-task-list">{tasks.slice(0, 7).map((task) => <TaskItem key={task.id} task={task} />)}</div> : <EmptyLine>还没有伙伴任务。</EmptyLine>}</section><section className="studio-rail-section"><div className="studio-section-title"><strong>过程记录</strong><span>{records?.length ?? 0}</span></div><div className="studio-record-list">{records?.slice(0, 8).map((record) => <article key={record.id}><i /><div><strong>{record.title}</strong><p>{record.summary}</p><small>{formatTime(record.createdAt)}</small></div></article>)}</div></section></div>;
 }
 
-function SettingsRail({ runtime, onBack, onHistory, onSwitchToTask }: {
+function SettingsRail({ runtime, onBack, onHistory, onSwitchToTask, canSwitchMode }: {
   runtime: NonNullable<ReturnType<typeof useCompanionRuntime>>;
   onBack: () => void;
   onHistory: () => void;
   onSwitchToTask: () => void;
+  canSwitchMode: boolean;
 }) {
-  return <div className="studio-rail-content"><RailHeading eyebrow="CLASSROOM SETTINGS" onBack={onBack} title="课堂设置" /><section className="studio-responsibility-note"><strong>你是项目负责人</strong><p>伙伴可以整理、建议、评审和形成可修改草稿；你负责判断、核验、修改与最终提交。</p></section><section className="studio-mode-switch"><div className="studio-section-title"><strong>学习界面</strong><span>随时切换</span></div><button aria-current="page" className="is-active" disabled type="button"><UsersRound size={17} /><span><strong>沉浸伴学模式</strong><small>以智能体小组与课堂场景为中心</small></span></button><button onClick={onSwitchToTask} type="button"><ListTodo size={17} /><span><strong>稳定版任务模式</strong><small>使用原有表单式页面编辑与提交</small></span></button></section><section className="studio-settings-list"><button onClick={runtime.tts.toggle} type="button">{runtime.tts.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}<span><strong>伙伴朗读</strong><small>{runtime.tts.enabled ? "已开启" : "已关闭"}</small></span></button><button onClick={onHistory} type="button"><History size={17} /><span><strong>对话历史</strong><small>查看本阶段完整讨论</small></span></button></section></div>;
+  return <div className="studio-rail-content"><RailHeading eyebrow="CLASSROOM SETTINGS" onBack={onBack} title="课堂设置" /><section className="studio-responsibility-note"><strong>你是项目负责人</strong><p>伙伴可以整理、建议、评审和形成可修改草稿；你负责判断、核验、修改与最终提交。</p></section><section className="studio-mode-switch"><div className="studio-section-title"><strong>学习界面</strong><span>{canSwitchMode ? "随时切换" : "教师已指定"}</span></div><button aria-current="page" className="is-active" disabled type="button"><UsersRound size={17} /><span><strong>沉浸伴学模式</strong><small>以智能体小组与课堂场景为中心</small></span></button>{canSwitchMode ? <button onClick={onSwitchToTask} type="button"><ListTodo size={17} /><span><strong>普通课堂模式</strong><small>使用传统任务页面编辑与提交</small></span></button> : null}</section><section className="studio-settings-list"><button onClick={runtime.tts.toggle} type="button">{runtime.tts.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}<span><strong>伙伴朗读</strong><small>{runtime.tts.enabled ? "已开启" : "已关闭"}</small></span></button><button onClick={onHistory} type="button"><History size={17} /><span><strong>对话历史</strong><small>查看本阶段完整讨论</small></span></button></section></div>;
 }
 
 function StudioComposer({ selectedCompanionId, isActive, disabled, onSend, onStop }: { selectedCompanionId: AiCompanionId | null; isActive: boolean; disabled: boolean; onSend: (text: string) => Promise<boolean>; onStop: () => void }) {
@@ -470,9 +536,9 @@ function StudioComposer({ selectedCompanionId, isActive, disabled, onSend, onSto
   return <form className="studio-composer" onSubmit={submit}><span className="studio-composer__target">{companion ? companion.shortName : <UsersRound size={16} />}</span><div><span>{companion ? `对${companion.name}说` : "交给伴学小组"}</span><input aria-label="给伴学伙伴的任务" disabled={disabled || isActive} onChange={(event) => setDraft(event.target.value)} placeholder="说出你现在最想解决的一个问题…" value={draft} /></div>{isActive ? <button aria-label="停止本轮回应" className="is-stop" onClick={onStop} type="button"><Square fill="currentColor" size={13} />停止</button> : <button aria-label="发送" disabled={disabled || !draft.trim()} type="submit"><Send size={16} /></button>}</form>;
 }
 
-function StudioDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function StudioDialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
-  return <div className="studio-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} role="presentation"><section aria-labelledby="studio-dialog-title" aria-modal="true" className="studio-dialog" role="dialog"><header><div><span>OPENPBL WORKSPACE</span><h2 id="studio-dialog-title">{title}</h2></div><button aria-label="关闭" onClick={onClose} type="button"><X size={18} /></button></header><div className="studio-dialog__body">{children}</div></section></div>;
+  return <div className="studio-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} role="presentation"><section aria-labelledby="studio-dialog-title" aria-modal="true" className={`studio-dialog${wide ? " is-wide" : ""}`} role="dialog"><header><div><span>OPENPBL WORKSPACE</span><h2 id="studio-dialog-title">{title}</h2></div><button aria-label="关闭" onClick={onClose} type="button"><X size={18} /></button></header><div className="studio-dialog__body">{children}</div></section></div>;
 }
 
 function LibraryPanel({ disabled, onAsk }: { disabled: boolean; onAsk: (text: string) => Promise<boolean> }) {
@@ -480,8 +546,8 @@ function LibraryPanel({ disabled, onAsk }: { disabled: boolean; onAsk: (text: st
   return <div className="studio-modal-panel"><div className="studio-modal-intro"><span><Library size={20} /></span><div><strong>让知知帮你找到可用的知识线索</strong><p>结果来自当前课程配置的真实大模型与学习上下文；系统不会把未发生的检索伪装成已完成。</p></div></div><form className="studio-search-form" onSubmit={(event) => { event.preventDefault(); const text = query.trim(); if (!text) return; setQuery(""); void onAsk(`请围绕这个问题解释概念、补充背景，并给出可继续查证的资料线索：${text}`); }}><Search size={18} /><input disabled={disabled} onChange={(event) => setQuery(event.target.value)} placeholder={disabled ? "知知在本阶段未启用" : "输入要咨询的概念或资料问题"} value={query} /><button disabled={disabled || !query.trim()} type="submit">交给知知</button></form><div className="studio-prompt-grid">{["解释当前阶段最关键的概念", "帮我判断一条证据是否可信", "给我三个继续查证的关键词"].map((prompt) => <button disabled={disabled} key={prompt} onClick={() => setQuery(prompt)} type="button">{prompt}<ArrowUpRight size={14} /></button>)}</div></div>;
 }
 
-function PlanningPanel({ stageGoal, products, confirmations, onSwitchToTask }: { stageGoal: string; products: Array<{ id: string; title: string; kind: string; time: string }>; confirmations: CompanionConfirmation[]; onSwitchToTask: () => void }) {
-  return <div className="studio-modal-panel"><div className="studio-board-goal"><span>本阶段目标</span><strong>{stageGoal}</strong></div><div className="studio-modal-columns"><section><div className="studio-section-title"><strong>最近产物</strong><span>{products.length}</span></div>{products.length ? <div className="studio-product-list">{products.map((item) => <article key={item.id}><FileText size={17} /><span><strong>{item.title}</strong><small>{item.kind} · {formatTime(item.time)}</small></span></article>)}</div> : <EmptyLine>当前阶段还没有保存产物。</EmptyLine>}</section><section><div className="studio-section-title"><strong>等待确认</strong><span>{confirmations.length}</span></div>{confirmations.length ? <div className="studio-confirm-list">{confirmations.map((item) => <article key={item.id}><CheckCircle2 size={17} /><span><strong>{item.title}</strong><p>{item.summary}</p></span></article>)}</div> : <EmptyLine>没有等待确认的正式操作。</EmptyLine>}</section></div><button className="studio-primary-action" onClick={onSwitchToTask} type="button"><ListTodo size={16} />打开任务视图继续编辑<ArrowUpRight size={15} /></button></div>;
+function PlanningPanel({ course, stageKey }: { course: Course; stageKey: string }) {
+  return <StudioProjectWorkbench course={course} stageKey={stageKey} />;
 }
 
 function ArchivePanel({ messages, tasks, records, products }: { messages: NonNullable<ReturnType<typeof useCompanionRuntime>>["messages"]; tasks: CompanionTask[]; records: Course["companionProcessRecords"]; products: Array<{ id: string; title: string; kind: string; time: string }> }) {

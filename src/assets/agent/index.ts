@@ -16,7 +16,9 @@ export const agentActionNames = [
   'fc_walking_h',
   'fc_walking_up',
   'off_chair',
+  'sit_down',
   'organizing_files',
+  'planning_board',
   'peek',
   'reading_book',
   'salute',
@@ -62,6 +64,11 @@ export interface AgentActionDefinition {
   group: AgentActionGroup
   layer: AgentActionLayer
   playback?: AgentActionPlaybackOptions
+  /**
+   * Per-frame source-pixel corrections that keep the character's lower body
+   * fixed while arms or props extend beyond the canonical silhouette.
+   */
+  frameBodyOffsets?: readonly { x: number; y: number }[]
 }
 
 export interface RoleSpriteActions {
@@ -88,10 +95,11 @@ export const agentActions = Object.fromEntries(
 
 const actionGroups: Record<AgentActionGroup, readonly AgentActionName[]> = {
   base: ['sleeping', 'standby', 'working'],
-  move: ['fc_walking_h', 'fc_walking_up', 'off_chair'],
+  move: ['fc_walking_h', 'fc_walking_up', 'off_chair', 'sit_down'],
   work: [
     'reading_book',
     'organizing_files',
+    'planning_board',
     'fc_screen_working_main',
     'fc_screen_working_file_use',
     'fc_screen_working_search_or_browser_use',
@@ -107,8 +115,45 @@ const actionGroups: Record<AgentActionGroup, readonly AgentActionName[]> = {
 const actionDefinitionOverrides: Partial<
   Record<AgentActionName, Partial<Omit<AgentActionDefinition, 'name' | 'group'>>>
 > = {
-  working: { playback: { x: -8 } },
-  talking_on_seat: { playback: { x: -8 } },
+  sleeping: { playback: { animationSpeed: 0.07 } },
+  standby: { playback: { animationSpeed: 0.08 } },
+  working: { playback: { animationSpeed: 0.075 } },
+  off_chair: { playback: { animationSpeed: 0.09, loop: false } },
+  sit_down: { playback: { animationSpeed: 0.09 } },
+  reading_book: { playback: { animationSpeed: 0.08 } },
+  organizing_files: {
+    playback: { animationSpeed: 0.08 },
+    // Frame 0 was authored with the complete body 21 px to the right; frame
+    // 3 has a smaller 2 px drift. Counteract those shifts without moving the
+    // reaching arm or the file prop independently.
+    frameBodyOffsets: [
+      { x: -21, y: 0 },
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: -2, y: 0 },
+      { x: 0, y: 0 },
+    ],
+  },
+  planning_board: {
+    playback: { animationSpeed: 0.075 },
+    // Frames 1 and 2 move the complete lower body about 19 px to the right.
+    // Keep the feet aligned and let only the arm gesture toward the board.
+    frameBodyOffsets: [
+      { x: 0, y: 0 },
+      { x: -19, y: 0 },
+      { x: -19, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 0 },
+    ],
+  },
+  talking_on_seat: { playback: { animationSpeed: 0.1 } },
+  'talking_on_stand-0': { playback: { animationSpeed: 0.1 } },
+  'talking_on_stand-1': { playback: { animationSpeed: 0.1 } },
+  peek: { playback: { animationSpeed: 0.08 } },
+  cheer_main: { playback: { animationSpeed: 0.1 } },
+  cheer1_sub: { playback: { animationSpeed: 0.1 } },
+  cheer2_sub: { playback: { animationSpeed: 0.1 } },
+  fc_high_press: { playback: { animationSpeed: 0.1 } },
   fc_screen_working_main: {
     layer: 'screen',
     // Keep the previous bottom edge fixed while expanding into the monitor
@@ -164,6 +209,7 @@ export const agentActionDefinitions = Object.fromEntries(
       group: getAgentActionGroup(name),
       layer: override?.layer ?? getDefaultAgentActionLayer(name),
       playback: override?.playback,
+      frameBodyOffsets: override?.frameBodyOffsets,
     } satisfies AgentActionDefinition]
   }),
 ) as Record<AgentActionName, AgentActionDefinition>

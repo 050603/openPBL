@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "walking_up",
+  "category": "移动与姿态切换",
+  "definition": "背向或向上移动。",
+  "frames": 6,
+  "duration_ms": [
+    125,
+    125,
+    125,
+    125,
+    125,
+    125
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/walking_up/source/generated.png",
+  "outputs": {
+    "source": "actions/walking_up/source/generated.png",
+    "frames": "actions/walking_up/frames",
+    "normalized": "actions/walking_up/normalized",
+    "preview_gif": "actions/walking_up/preview.gif",
+    "preview_webp": "actions/walking_up/preview.webp",
+    "contact_sheet": "actions/walking_up/contact-sheet.png",
+    "action_manifest": "actions/walking_up/action.json",
+    "qa": "actions/walking_up/qa.json"
+  },
+  "status": "repair_required",
+  "retries": 0,
+  "qa": "actions/walking_up/qa.json",
+  "visual_verdict": {
+    "status": "fail",
+    "reviewer": "codex-visual-qa",
+    "note": "Source contains only six usable rear-view poses; processed frames include split, partial, and duplicated bodies. Deterministic QA produced a false positive.",
+    "repair_notes": "",
+    "recorded_at": "2026-07-18T09:06:24.962191+00:00"
+  },
+  "generated_at": "2026-07-18T09:06:25.016200+00:00",
+  "repair_method": "manual-six-slot-extraction"
+}

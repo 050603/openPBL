@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "waiting_user",
+  "category": "基础状态",
+  "definition": "期待地等待用户回应。",
+  "frames": 4,
+  "duration_ms": [
+    180,
+    150,
+    150,
+    320
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/waiting_user/source/generated.png",
+  "outputs": {
+    "source": "actions/waiting_user/source/generated.png",
+    "frames": "actions/waiting_user/frames",
+    "normalized": "actions/waiting_user/normalized",
+    "preview_gif": "actions/waiting_user/preview.gif",
+    "preview_webp": "actions/waiting_user/preview.webp",
+    "contact_sheet": "actions/waiting_user/contact-sheet.png",
+    "action_manifest": "actions/waiting_user/action.json",
+    "qa": "actions/waiting_user/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/waiting_user/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:26:20.842991+00:00"
+}

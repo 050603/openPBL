@@ -10,6 +10,8 @@ import { STUDENT_ARTIFACT_EVENT, type StudentArtifactEvent } from "@/lib/compani
 import { deriveStudentLearningProfile, studentProfilePrompt } from "@/lib/companion/student-profile";
 import { shouldAllowProactiveIntervention, shouldProactivelyReviewArtifact } from "@/lib/companion/orchestrator";
 import { getCompanionStagePolicy, stageArtifactFollowUp } from "@/lib/companion/stage-policy";
+import { sanitizeCompanionResponse } from "@/lib/companion/response";
+import type { CompanionWorkspacePatch } from "@/lib/companion/workspace-operation";
 
 export type CompanionChatMessage = {
   role: "user" | "assistant";
@@ -36,6 +38,7 @@ export type CompletedCompanionRound = {
   speakerIds: AiCompanionId[];
   lastCompanionId?: AiCompanionId;
   taskId?: string;
+  workspacePatches: Array<CompanionWorkspacePatch & { companionId: AiCompanionId; taskId?: string }>;
   createdAt: string;
 };
 
@@ -44,6 +47,7 @@ type SSEEvent =
   | { type: "director_result"; speakers: AiCompanionId[] }
   | { type: "agent_start"; companionId: AiCompanionId }
   | { type: "text_delta"; companionId: AiCompanionId; delta: string }
+  | { type: "workspace_patch"; companionId: AiCompanionId; taskId?: string; patch: CompanionWorkspacePatch }
   | { type: "agent_end"; companionId: AiCompanionId }
   | { type: "cue_user" }
   | { type: "done" }
@@ -247,7 +251,9 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
     const providerId = enabledRef.current ? (ttsProviderId || "browser-native-tts") : "silent";
     const speed = ttsSpeed || 1;
     const item: TTSQueueItem = { text: clean, companionId, seq: sequenceRef.current, providerId, speed };
-    if (providerId !== "browser-native-tts") item.preparedAudio = prepareServerAudio(item, providerId, speed);
+    if (providerId !== "browser-native-tts" && providerId !== "silent") {
+      item.preparedAudio = prepareServerAudio(item, providerId, speed);
+    }
     return item;
   }, [prepareServerAudio, ttsProviderId, ttsSpeed]);
 
@@ -410,7 +416,7 @@ export function CompanionRuntimeProvider({
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    const partialText = streamingTextRef.current.trim();
+    const partialText = sanitizeCompanionResponse(streamingTextRef.current);
     if (partialText) {
       const companionId = streamingSpeakerRef.current ?? currentSpeakerRef.current ?? "knowledge";
       setMessages((current) => appendMessage(current, { role: "assistant", companionId, content: partialText, ts: new Date().toISOString() }));
@@ -490,6 +496,7 @@ export function CompanionRuntimeProvider({
           studentId: session.studentId,
           studentName: session.studentName,
           trigger: options?.trigger,
+          taskId: options?.taskId,
         }),
         signal: controller.signal,
       });
@@ -504,6 +511,7 @@ export function CompanionRuntimeProvider({
       let allReplies = "";
       let lastCompanionId: AiCompanionId | undefined;
       let completed = false;
+      const workspacePatches: CompletedCompanionRound["workspacePatches"] = [];
       const processEvent = (event: SSEEvent) => {
         switch (event.type) {
           case "director_start":
@@ -527,8 +535,11 @@ export function CompanionRuntimeProvider({
             allReplies += event.delta;
             lastCompanionId = event.companionId;
             break;
+          case "workspace_patch":
+            workspacePatches.push({ ...event.patch, companionId: event.companionId, taskId: event.taskId });
+            break;
           case "agent_end": {
-            const fullText = streamingTextRef.current.trim();
+            const fullText = sanitizeCompanionResponse(streamingTextRef.current);
             if (fullText) {
               setMessages((current) => appendMessage(current, {
                 role: "assistant",
@@ -605,6 +616,7 @@ export function CompanionRuntimeProvider({
           speakerIds: [...speakerIdsRef.current],
           lastCompanionId,
           taskId: options?.taskId,
+          workspacePatches,
           createdAt: new Date().toISOString(),
         };
         setLastCompletedRound(round);
@@ -658,7 +670,11 @@ export function CompanionRuntimeProvider({
           .filter((message) => message.visibility === "student-and-teacher" && ["student", "agent", "teacher-guidance"].includes(message.role))
           .map((message): CompanionChatMessage => ({
             role: message.role === "student" ? "user" : "assistant",
-            content: message.role === "teacher-guidance" ? `教师指导：${message.content}` : message.content,
+            content: message.role === "teacher-guidance"
+              ? `教师指导：${message.content}`
+              : message.role === "agent"
+                ? sanitizeCompanionResponse(message.content)
+                : message.content,
             ts: message.createdAt,
             companionId: message.companionId,
           }));

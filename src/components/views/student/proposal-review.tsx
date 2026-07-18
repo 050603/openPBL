@@ -59,7 +59,7 @@ function extractProposalFromText(raw: string): ProjectProposal {
   };
 }
 
-export function ProposalReviewView({ course }: { course: Course }) {
+export function ProposalReviewView({ course, embedded = false }: { course: Course; embedded?: boolean }) {
   const session = useSession();
   const project = useMemo(() => course.groups?.find((item) => item.members.some((member) => member.studentId === session.studentId)), [course.groups, session.studentId]);
   const [draft, setDraft] = useState<ProjectProposal>(() => project?.proposal ?? EMPTY_PROPOSAL);
@@ -234,7 +234,7 @@ export function ProposalReviewView({ course }: { course: Course }) {
     <div className="flex justify-end">
       <PrimaryButton className="min-w-44" onClick={save}><Save size={18} />保存并提交校准</PrimaryButton>
     </div>
-    <CompanionRoundtable course={course} stageKey="proposal" contextLabel="方案构思与校准" autoSendMessage={aiPrompt} />
+    {!embedded ? <CompanionRoundtable course={course} stageKey="proposal" contextLabel="方案构思与校准" autoSendMessage={aiPrompt} /> : null}
     <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
   </div>;
 }

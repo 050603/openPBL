@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "brainstorming",
+  "category": "学习活动",
+  "definition": "构思、画草图或产生灵感。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    140,
+    140,
+    140,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/brainstorming/source/generated.png",
+  "outputs": {
+    "source": "actions/brainstorming/source/generated.png",
+    "frames": "actions/brainstorming/frames",
+    "normalized": "actions/brainstorming/normalized",
+    "preview_gif": "actions/brainstorming/preview.gif",
+    "preview_webp": "actions/brainstorming/preview.webp",
+    "contact_sheet": "actions/brainstorming/contact-sheet.png",
+    "action_manifest": "actions/brainstorming/action.json",
+    "qa": "actions/brainstorming/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/brainstorming/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:51:47.897242+00:00"
+}

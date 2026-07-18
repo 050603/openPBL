@@ -20,7 +20,7 @@ const course: Course = {
 describe("CompanionMonitor", () => {
   it("groups signals by student and separates class common issues", () => {
     render(<CompanionMonitor course={course} stageKey="proposal" />);
-    expect(screen.getByText("共性问题")).toBeTruthy();
+    expect(screen.getByText("暂无共性问题")).toBeTruthy();
     expect(screen.getAllByText("张三").length).toBeGreaterThan(0);
     expect(screen.getAllByText("李四").length).toBeGreaterThan(0);
     expect(screen.getByText("教师目标表单")).toBeTruthy();

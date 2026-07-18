@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "reading_book",
+  "category": "学习活动",
+  "definition": "拿书、翻书和阅读。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    140,
+    140,
+    140,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/reading_book/source/generated.png",
+  "outputs": {
+    "source": "actions/reading_book/source/generated.png",
+    "frames": "actions/reading_book/frames",
+    "normalized": "actions/reading_book/normalized",
+    "preview_gif": "actions/reading_book/preview.gif",
+    "preview_webp": "actions/reading_book/preview.webp",
+    "contact_sheet": "actions/reading_book/contact-sheet.png",
+    "action_manifest": "actions/reading_book/action.json",
+    "qa": "actions/reading_book/qa.json"
+  },
+  "status": "qa",
+  "retries": 1,
+  "qa": "actions/reading_book/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T05:46:39.078336+00:00"
+}

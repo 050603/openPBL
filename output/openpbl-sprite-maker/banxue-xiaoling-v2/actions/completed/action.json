@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "completed",
+  "category": "基础状态",
+  "definition": "任务完成和温和庆祝。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    120,
+    120,
+    140,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/completed/source/generated.png",
+  "outputs": {
+    "source": "actions/completed/source/generated.png",
+    "frames": "actions/completed/frames",
+    "normalized": "actions/completed/normalized",
+    "preview_gif": "actions/completed/preview.gif",
+    "preview_webp": "actions/completed/preview.webp",
+    "contact_sheet": "actions/completed/contact-sheet.png",
+    "action_manifest": "actions/completed/action.json",
+    "qa": "actions/completed/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/completed/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:24:50.733856+00:00"
+}

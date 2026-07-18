@@ -29,6 +29,7 @@ import type {
 } from "./types";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
 import { DEFAULT_STAGES } from "./types";
+import { getStageWorkspacePolicy, normalizeStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 
 export type SessionState = {
@@ -751,9 +752,18 @@ export function normalizeCourse(course: Course): Course {
     : stageKey === "workspace"
       ? "make"
       : stageKey;
+  const migratedWorkspacePolicies = Object.fromEntries(
+    Object.entries(course.stageWorkspacePolicies ?? {}).map(([stageKey, policy]) => [
+      migrateStageKey(stageKey),
+      normalizeStageWorkspacePolicy(policy),
+    ]),
+  );
   return {
     ...course,
     pblConfig: normalizePblCourseConfig(course.pblConfig),
+    stageWorkspacePolicies: Object.fromEntries(
+      stages.map((stage) => [stage.key, getStageWorkspacePolicy(migratedWorkspacePolicies, stage.key)]),
+    ),
     stages,
     currentStageIndex: migratedStageIndex,
     classConfig: course.classConfig

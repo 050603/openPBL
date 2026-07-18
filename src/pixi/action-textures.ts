@@ -113,21 +113,33 @@ function toRgb(color: string): [number, number, number] {
   return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff]
 }
 
-function shouldReplaceDefaultRed(
+function getRoleScarfShade(
   red: number,
   green: number,
   blue: number,
   alpha: number,
-): boolean {
+): number | null {
   if (alpha < 24) {
-    return false
+    return null
   }
 
-  return red > 90
+  const legacyRed = red > 90
     && red > green * 1.45
     && red > blue * 1.45
     && green < 110
     && blue < 110
+  const openPblBlue = blue > 105
+    && blue > red * 1.25
+    && blue > green * 1.08
+    && red < 105
+
+  if (legacyRed) {
+    return red / 229
+  }
+  if (openPblBlue) {
+    return blue / 203
+  }
+  return null
 }
 
 async function createRedReplacedTexture(imageUrl: string, color: string): Promise<Texture> {
@@ -153,11 +165,12 @@ async function createRedReplacedTexture(imageUrl: string, color: string): Promis
     const blue = data[index + 2]
     const alpha = data[index + 3]
 
-    if (!shouldReplaceDefaultRed(red, green, blue, alpha)) {
+    const sourceShade = getRoleScarfShade(red, green, blue, alpha)
+    if (sourceShade === null) {
       continue
     }
 
-    const shade = Math.min(1.25, Math.max(0.25, red / 229))
+    const shade = Math.min(1.25, Math.max(0.25, sourceShade))
     data[index] = Math.min(255, Math.round(targetRed * shade))
     data[index + 1] = Math.min(255, Math.round(targetGreen * shade))
     data[index + 2] = Math.min(255, Math.round(targetBlue * shade))

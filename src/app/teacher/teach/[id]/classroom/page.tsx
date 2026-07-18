@@ -30,7 +30,7 @@ import { DashboardShell, Avatar } from "@/components/dashboard-shell";
 import { TeacherClassroomBanner } from "@/components/classroom-ux";
 import { StageGateDialog, StageProgress } from "@/components/classroom/classroom-chrome";
 import { TeacherStageView } from "@/components/views/teacher/stage-dispatcher";
-import { AiChatStageToggle } from "@/components/views/teacher/ai-chat-stage-toggle";
+import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 import { TeacherStageResources } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, Button, FlowActionBar, ProgressBar, SaveStatus } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
@@ -339,6 +339,13 @@ export default function TeachClassroomPage() {
 
         {/* 右侧：数据面板（完成度分布 + 风险预警 + AI 建议） */}
         {!focusMode ? <aside className="space-y-3">
+          <StageWorkspacePolicyPanel
+            compact
+            currentStageKey={currentStage?.key}
+            onChange={(stageWorkspacePolicies) => updateCourse(course.id, { stageWorkspacePolicies })}
+            policies={course.stageWorkspacePolicies}
+            stages={course.stages}
+          />
           <DataPanelCard
             icon={<Users size={15} />}
             title="完成度分布"
@@ -470,8 +477,6 @@ export default function TeachClassroomPage() {
             )}
           </DataPanelCard>
 
-          {/* AI 对话开关：保留功能，置入右栏底部 */}
-          <AiChatStageToggle course={course} />
         </aside> : null}
       </div>
 

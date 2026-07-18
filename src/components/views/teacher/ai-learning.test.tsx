@@ -22,10 +22,10 @@ const course: Course = {
 describe("AiLearningTeacherView", () => {
   it("shows evidence-based metrics and removes duplicate status cards", () => {
     render(<AiLearningTeacherView course={course} />);
-    expect(screen.getByText("有效时长偏差")).toBeTruthy();
+    expect(screen.getByText("容忍时长偏差")).toBeTruthy();
     expect(screen.getByText("重复学习学生")).toBeTruthy();
     expect(screen.getByText("未解决风险")).toBeTruthy();
-    expect(screen.getByLabelText("有干预信号")).toBeTruthy();
+    expect(screen.getByText("暂无风险")).toBeTruthy();
     expect(screen.queryByText("AI 课堂状态")).toBeNull();
     expect(screen.queryByText("有学习记录的学生")).toBeNull();
   });

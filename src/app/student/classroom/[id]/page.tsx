@@ -13,6 +13,8 @@ import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/te
 import { StageProgress } from "@/components/classroom/classroom-chrome";
 import { CompanionRuntimeProvider } from "@/components/views/student/companion-runtime";
 import { CompanionStudioWorkspace } from "@/components/views/student/companion-studio-workspace";
+import { useStudentWorkspaceMode } from "@/components/views/student/workspace-mode";
+import { getStageWorkspacePolicy, resolveStageWorkspaceMode } from "@/lib/classroom/stage-workspace-policy";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
@@ -22,7 +24,16 @@ export default function StudentClassroomPage() {
   const { user, studentName, studentId, joinedCourseId } = useSession();
   const presenceRef = useRef<{ courseId?: string; studentId?: string }>({});
   const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
-  const [workspaceMode, setWorkspaceMode] = useState<"task" | "companions">("companions");
+  const activeStageKey = course?.stages[course.currentStageIndex]?.key;
+  const workspacePolicy = getStageWorkspacePolicy(course?.stageWorkspacePolicies, activeStageKey);
+  const [workspacePreference, setWorkspacePreference] = useStudentWorkspaceMode(
+    params?.id ?? "classroom",
+    studentId,
+    activeStageKey,
+    workspacePolicy.defaultMode,
+  );
+  const workspaceMode = resolveStageWorkspaceMode(workspacePolicy, workspacePreference);
+  const canSwitchWorkspace = workspacePolicy.access === "student-choice";
 
   useEffect(() => {
     if (!hydrated) return;
@@ -116,6 +127,7 @@ export default function StudentClassroomPage() {
       : null;
   const forcedProjection = projectedResource && projectedResource.mode !== "optional" ? projectedResource : null;
   const optionalProjection = projectedResource?.mode === "optional" ? projectedResource : null;
+  const workspaceSuppressed = Boolean(forcedProjection || optionalProjectionOpen);
 
   return (
     <DashboardShell
@@ -172,10 +184,9 @@ export default function StudentClassroomPage() {
         <FinishedState course={course} />
       ) : !isTeaching ? (
         <WaitingState status={course.status} />
-      ) : forcedProjection ? (
-        <StudentProjectedTeacherResource projection={forcedProjection} />
       ) : currentStage ? (
-        <>
+        <CompanionRuntimeProvider course={course} stageKey={currentStage.key} contextLabel={currentStage.label}>
+          {forcedProjection ? <StudentProjectedTeacherResource projection={forcedProjection} /> : null}
           {optionalProjection ? (
             <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -185,17 +196,16 @@ export default function StudentClassroomPage() {
               {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
             </div>
           ) : null}
-          {!optionalProjectionOpen ? (
-            <CompanionRuntimeProvider course={course} stageKey={currentStage.key} contextLabel={currentStage.label}>
+          <div aria-hidden={workspaceSuppressed} hidden={workspaceSuppressed}>
               <div className={workspaceMode === "task" ? "space-y-3" : ""}>
-                {workspaceMode === "task" ? (
+                {workspaceMode === "task" && canSwitchWorkspace ? (
                   <div className="flex justify-end">
-                    <button className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]" onClick={() => setWorkspaceMode("companions")} type="button">
+                    <button className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]" onClick={() => setWorkspacePreference("companions")} type="button">
                       <UsersRound size={15} /> 返回伴学教室
                     </button>
                   </div>
                 ) : null}
-                <div className={workspaceMode === "task" ? "" : "hidden"} role="tabpanel" aria-label="任务视图">
+                <div aria-hidden={workspaceMode !== "task"} hidden={workspaceMode !== "task"} role="tabpanel" aria-label="任务视图">
                   <section
                     className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
                     key={currentStage.key}
@@ -203,18 +213,18 @@ export default function StudentClassroomPage() {
                     <StudentStageView course={course} view={currentStage.view} />
                   </section>
                 </div>
-                <div className={workspaceMode === "companions" ? "" : "hidden"} role="tabpanel" aria-label="伴学教室">
+                <div aria-hidden={workspaceMode !== "companions"} hidden={workspaceMode !== "companions"} role="tabpanel" aria-label="伴学教室">
                   <CompanionStudioWorkspace
                     course={course}
                     stageKey={currentStage.key}
                     contextLabel={currentStage.label}
-                    onSwitchToTask={() => setWorkspaceMode("task")}
+                    canSwitchMode={canSwitchWorkspace}
+                    onSwitchToTask={() => setWorkspacePreference("task")}
                   />
                 </div>
               </div>
-            </CompanionRuntimeProvider>
-          ) : null}
-        </>
+          </div>
+        </CompanionRuntimeProvider>
       ) : null}
 
       <style jsx>{`

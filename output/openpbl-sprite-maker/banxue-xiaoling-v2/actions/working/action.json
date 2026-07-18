@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "working",
+  "category": "基础状态",
+  "definition": "坐着或站着专注工作。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    120,
+    140,
+    260,
+    220
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/working/source/generated.png",
+  "outputs": {
+    "source": "actions/working/source/generated.png",
+    "frames": "actions/working/frames",
+    "normalized": "actions/working/normalized",
+    "preview_gif": "actions/working/preview.gif",
+    "preview_webp": "actions/working/preview.webp",
+    "contact_sheet": "actions/working/contact-sheet.png",
+    "action_manifest": "actions/working/action.json",
+    "qa": "actions/working/qa.json"
+  },
+  "status": "qa",
+  "retries": 2,
+  "qa": "actions/working/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T06:49:54.680827+00:00"
+}

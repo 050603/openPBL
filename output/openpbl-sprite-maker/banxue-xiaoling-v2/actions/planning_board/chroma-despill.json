@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "algorithm": "official edge-local-chroma-spill-suppression",
+  "chroma_key": "#FF00FF",
+  "frames": [
+    {
+      "frame": "00.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1412,
+      "decontaminated_pixels": 1393,
+      "spill_suppressed_pixels": 1412,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1412
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "01.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1599,
+      "decontaminated_pixels": 1583,
+      "spill_suppressed_pixels": 1599,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1599
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "02.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1600,
+      "decontaminated_pixels": 1584,
+      "spill_suppressed_pixels": 1600,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1600
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "03.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1534,
+      "decontaminated_pixels": 1516,
+      "spill_suppressed_pixels": 1534,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1534
+      },
+      "alpha_preserved": true
+    },
+    {
+      "frame": "04.png",
+      "algorithm": "edge-local-chroma-spill-suppression",
+      "strength": 1,
+      "edge_radius": 5,
+      "spill_tolerance": 0.15,
+      "minimum_saturation": 0.1,
+      "changed_pixels": 1418,
+      "decontaminated_pixels": 1396,
+      "spill_suppressed_pixels": 1418,
+      "rejected_pixels": 0,
+      "changed_by_cell": {
+        "r0c0": 1418
+      },
+      "alpha_preserved": true
+    }
+  ],
+  "ok": true
+}

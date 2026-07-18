@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compactNavigationRoute, walkingDuration } from './navigation'
+import { classroomAisleRoute, compactNavigationRoute, walkingDuration } from './navigation'
 
 describe('compactNavigationRoute', () => {
   it('keeps a direct partner route pointed at the destination', () => {
@@ -15,9 +15,28 @@ describe('compactNavigationRoute', () => {
   })
 })
 
+describe('classroomAisleRoute', () => {
+  it('keeps same-row movement on the marked horizontal aisle', () => {
+    expect(classroomAisleRoute({ x: 700, y: 220 }, { x: 920, y: 226 }, 840))
+      .toEqual([
+        { x: 840, y: 220 },
+        { x: 920, y: 226 },
+      ])
+  })
+
+  it('routes cross-row movement through the clear central aisle', () => {
+    expect(classroomAisleRoute({ x: 700, y: 220 }, { x: 920, y: 720 }, 840))
+      .toEqual([
+        { x: 840, y: 220 },
+        { x: 840, y: 720 },
+        { x: 920, y: 720 },
+      ])
+  })
+})
+
 describe('walkingDuration', () => {
   it('uses one steady world speed with a short-segment floor', () => {
-    expect(walkingDuration({ x: 0, y: 0 }, { x: 185, y: 0 })).toBe(1000)
+    expect(walkingDuration({ x: 0, y: 0 }, { x: 140, y: 0 })).toBe(1000)
     expect(walkingDuration({ x: 0, y: 0 }, { x: 1, y: 0 })).toBe(180)
   })
 })

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "off_chair",
+  "category": "移动与姿态切换",
+  "definition": "从座位起身。",
+  "frames": 6,
+  "duration_ms": [
+    120,
+    120,
+    140,
+    140,
+    160,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/off_chair/source/generated.png",
+  "outputs": {
+    "source": "actions/off_chair/source/generated.png",
+    "frames": "actions/off_chair/frames",
+    "normalized": "actions/off_chair/normalized",
+    "preview_gif": "actions/off_chair/preview.gif",
+    "preview_webp": "actions/off_chair/preview.webp",
+    "contact_sheet": "actions/off_chair/contact-sheet.png",
+    "action_manifest": "actions/off_chair/action.json",
+    "qa": "actions/off_chair/qa.json"
+  },
+  "status": "qa",
+  "retries": 3,
+  "qa": "actions/off_chair/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T06:53:49.283259+00:00"
+}

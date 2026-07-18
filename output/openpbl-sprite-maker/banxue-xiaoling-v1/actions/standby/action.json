@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "standby",
+  "category": "基础状态",
+  "definition": "待机、呼吸、轻微身体起伏和眨眼。",
+  "frames": 4,
+  "duration_ms": [
+    220,
+    120,
+    120,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/standby/source/generated.png",
+  "outputs": {
+    "source": "actions/standby/source/generated.png",
+    "frames": "actions/standby/frames",
+    "normalized": "actions/standby/normalized",
+    "preview_gif": "actions/standby/preview.gif",
+    "preview_webp": "actions/standby/preview.webp",
+    "contact_sheet": "actions/standby/contact-sheet.png",
+    "action_manifest": "actions/standby/action.json",
+    "qa": "actions/standby/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/standby/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:09:24.230473+00:00"
+}

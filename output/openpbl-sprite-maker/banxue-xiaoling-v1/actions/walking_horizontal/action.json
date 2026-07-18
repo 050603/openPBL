@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "walking_horizontal",
+  "category": "移动与姿态切换",
+  "definition": "横向行走。",
+  "frames": 8,
+  "duration_ms": [
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    220
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/walking_horizontal/source/generated.png",
+  "outputs": {
+    "source": "actions/walking_horizontal/source/generated.png",
+    "frames": "actions/walking_horizontal/frames",
+    "normalized": "actions/walking_horizontal/normalized",
+    "preview_gif": "actions/walking_horizontal/preview.gif",
+    "preview_webp": "actions/walking_horizontal/preview.webp",
+    "contact_sheet": "actions/walking_horizontal/contact-sheet.png",
+    "action_manifest": "actions/walking_horizontal/action.json",
+    "qa": "actions/walking_horizontal/qa.json"
+  },
+  "status": "qa",
+  "retries": 0,
+  "qa": "actions/walking_horizontal/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T04:11:47.910594+00:00"
+}

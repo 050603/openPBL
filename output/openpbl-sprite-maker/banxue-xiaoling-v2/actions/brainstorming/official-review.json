@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+  "ok": true,
+  "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\brainstorming\\normalized",
+  "states": [
+    "brainstorming"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "brainstorming",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\brainstorming\\normalized\\00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16801,
+          "bbox": [
+            36,
+            8,
+            158,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\brainstorming\\normalized\\01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17483,
+          "bbox": [
+            27,
+            8,
+            160,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\brainstorming\\normalized\\02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18940,
+          "bbox": [
+            8,
+            8,
+            184,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\brainstorming\\normalized\\03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18145,
+          "bbox": [
+            24,
+            8,
+            163,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 4,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\brainstorming\\normalized\\04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17287,
+          "bbox": [
+            29,
+            8,
+            164,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ]
+    }
+  ]
+}

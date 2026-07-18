@@ -12,6 +12,9 @@ import { buildCompanionSystemPrompt, getCompanion, type AiCompanionId } from "@/
 import { activeDirectivesForStudent, isSubstantiallyRepeatedResponse, maxSpeakersForTurn, recorderVisibility, shouldUseReviewer } from "@/lib/companion/orchestrator";
 import { buildCompanionContext, type CompanionContextSnapshot } from "@/lib/companion/context";
 import { appendCompanionMessages, companionMessage, getCompanionThread } from "@/lib/companion/server-store";
+import { sanitizeCompanionResponse } from "@/lib/companion/response";
+import { buildStageBoundaryInstruction } from "@/lib/companion/stage-policy";
+import { buildWorkspaceEditInstruction, extractWorkspacePatch, type CompanionWorkspacePatch } from "@/lib/companion/workspace-operation";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type { CompanionTriggerKind } from "@/lib/session/types";
 import { aggregateCommonIssues } from "@/lib/learning-analytics/analyzer";
@@ -35,6 +38,7 @@ type CompanionChatRequest = {
   studentId?: string;
   studentName?: string;
   preferredCompanionId?: AiCompanionId;
+  taskId?: string;
   trigger?: { kind: CompanionTriggerKind; reason?: string; preferredCompanionId?: AiCompanionId };
 };
 
@@ -48,6 +52,7 @@ type SSEEvent =
   | { type: "director_result"; speakers: AiCompanionId[] }
   | { type: "agent_start"; companionId: AiCompanionId }
   | { type: "text_delta"; companionId: AiCompanionId; delta: string }
+  | { type: "workspace_patch"; companionId: AiCompanionId; taskId?: string; patch: CompanionWorkspacePatch }
   | { type: "agent_end"; companionId: AiCompanionId }
   | { type: "cue_user" }
   | { type: "done" }
@@ -178,7 +183,9 @@ export async function POST(req: NextRequest) {
       .slice(-12)
       .map((message) => ({
         role: message.role === "student" ? "user" as const : "assistant" as const,
-        content: message.content,
+        content: message.role === "student"
+          ? message.content
+          : sanitizeCompanionResponse(message.content),
       }));
     const directives = activeDirectivesForStudent(
       course.teacherAgentDirectives ?? [],
@@ -346,10 +353,20 @@ export async function POST(req: NextRequest) {
           context: companionContext,
           peerResponses,
         });
+        const boundaryInstruction = buildStageBoundaryInstruction(body.stageKey, body.message);
+        const workspaceEditInstruction = speakerIndex === 0
+          ? buildWorkspaceEditInstruction(body.stageKey, body.message)
+          : undefined;
 
         // 构建该角色的对话历史（包含其他角色的发言作为上下文）
         const agentMessages: ChatMessage[] = [
           { role: "system", content: systemPrompt },
+          ...(boundaryInstruction
+            ? [{ role: "system" as const, content: boundaryInstruction }]
+            : []),
+          ...(workspaceEditInstruction
+            ? [{ role: "system" as const, content: workspaceEditInstruction }]
+            : []),
           ...conversationHistory,
         ];
 
@@ -358,25 +375,29 @@ export async function POST(req: NextRequest) {
           for await (const delta of callLLMStream(agentMessages, { abortSignal: signal })) {
             if (signal.aborted) return;
             fullResponse += delta;
-            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta });
+            // Buffer the complete reply so role/stage directions can be removed
+            // before any text reaches the classroom or TTS queue.
           }
         } catch {
           // 单个角色流式失败时，用非流式降级
           if (signal.aborted) return;
           try {
             fullResponse = await callLLM(agentMessages, { abortSignal: signal });
-            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta: fullResponse });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta: `（${companion.name}暂时无法回应：${msg}）` });
-            fullResponse = "";
+            fullResponse = `（${companion.name}暂时无法回应：${msg}）`;
           }
         }
 
+        const workspaceResult = extractWorkspacePatch(fullResponse);
+        fullResponse = sanitizeCompanionResponse(workspaceResult.speech);
         const repeated = speakerIndex > 0 && isSubstantiallyRepeatedResponse(fullResponse, peerResponses);
-        if (speakerIndex > 0 && fullResponse && !repeated) {
-          await write({ type: "agent_start", companionId });
+        if (fullResponse && !repeated) {
+          if (speakerIndex > 0) await write({ type: "agent_start", companionId });
           await write({ type: "text_delta", companionId, delta: fullResponse });
+          if (workspaceResult.patch) {
+            await write({ type: "workspace_patch", companionId, taskId: body.taskId, patch: workspaceResult.patch });
+          }
         }
         if (!repeated) await write({ type: "agent_end", companionId });
 

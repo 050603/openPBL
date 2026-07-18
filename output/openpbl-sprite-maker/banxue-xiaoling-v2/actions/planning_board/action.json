@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "character": "伴学小灵",
+  "action": "planning_board",
+  "category": "学习活动",
+  "definition": "在白板或看板前规划。",
+  "frames": 5,
+  "duration_ms": [
+    140,
+    140,
+    140,
+    140,
+    300
+  ],
+  "loop": true,
+  "anchor": "grounded",
+  "source": "actions/planning_board/source/generated.png",
+  "outputs": {
+    "source": "actions/planning_board/source/generated.png",
+    "frames": "actions/planning_board/frames",
+    "normalized": "actions/planning_board/normalized",
+    "preview_gif": "actions/planning_board/preview.gif",
+    "preview_webp": "actions/planning_board/preview.webp",
+    "contact_sheet": "actions/planning_board/contact-sheet.png",
+    "action_manifest": "actions/planning_board/action.json",
+    "qa": "actions/planning_board/qa.json"
+  },
+  "status": "qa",
+  "retries": 1,
+  "qa": "actions/planning_board/qa.json",
+  "visual_verdict": {
+    "status": "pending_independent_review"
+  },
+  "generated_at": "2026-07-18T07:01:01.271319+00:00"
+}

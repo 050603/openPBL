@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "official_inspector": "C:\\Users\\21140\\.codex\\skills\\hatch-pet\\scripts\\inspect_frames.py",
+  "ok": true,
+  "frames_root": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_a\\normalized",
+  "states": [
+    "talking_on_stand_a"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "talking_on_stand_a",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_a\\normalized\\00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18662,
+          "bbox": [
+            26,
+            8,
+            166,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 1,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_a\\normalized\\01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18339,
+          "bbox": [
+            14,
+            8,
+            161,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 2,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_a\\normalized\\02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18681,
+          "bbox": [
+            13,
+            8,
+            175,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 3,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_a\\normalized\\03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18362,
+          "bbox": [
+            21,
+            8,
+            161,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        },
+        {
+          "index": 4,
+          "file": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v2\\actions\\talking_on_stand_a\\normalized\\04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18339,
+          "bbox": [
+            28,
+            8,
+            165,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 0
+        }
+      ]
+    }
+  ]
+}

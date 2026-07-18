@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "state": "talking_on_stand_a",
+  "frame_count": 5,
+  "method": "components",
+  "source": "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\source\\generated.png",
+  "chroma_key": {
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ],
+    "threshold": 96.0
+  },
+  "frames": [
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\frames\\00.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\frames\\01.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\frames\\02.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\frames\\03.png",
+    "C:\\code\\openPBL\\output\\openpbl-sprite-maker\\banxue-xiaoling-v1\\actions\\talking_on_stand_a\\frames\\04.png"
+  ]
+}

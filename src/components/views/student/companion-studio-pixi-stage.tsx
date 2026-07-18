@@ -220,17 +220,25 @@ function SceneHoverLabel({
   const label = target.kind === 'agent'
     ? agentRoleById[target.id].name
     : studyZoneDefinitions[target.id].title
+  const summary = target.kind === 'agent'
+    ? agentRoleById[target.id].title
+    : studyZoneDefinitions[target.id].subtitle
   const accent = target.kind === 'agent' ? agentRoleById[target.id].accent : '#0a8d84'
-  const width = Math.max(72, label.length * 18 + 32)
+  const width = Math.max(118, Math.min(230, Math.max(label.length * 17, summary.length * 12) + 30))
   const left = Math.max(width / 2 + 10, Math.min(stageSize.width - width / 2 - 10, target.x))
-  const top = Math.max(12, Math.min(stageSize.height - 48, target.y + 16))
+  const preferredTop = target.kind === 'agent' ? target.y - 42 : target.y + 16
+  const top = Math.max(12, Math.min(stageSize.height - 38, preferredTop))
 
   return (
     <div
-      className="pointer-events-none absolute z-20 -translate-x-1/2 rounded-full border bg-white/96 px-3 py-1.5 text-xs font-bold text-slate-800 shadow-[0_8px_24px_rgba(24,37,45,0.14)] backdrop-blur"
-      style={{ left, top, width, borderColor: `${accent}55` }}
+      className="pointer-events-none absolute z-20 flex -translate-x-1/2 items-start justify-center gap-2 px-1 py-1 text-slate-700"
+      style={{ left, top, width }}
     >
-      {label}
+      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.9)]" style={{ backgroundColor: accent }} />
+      <span className="min-w-0 text-left [text-shadow:-1px_-1px_0_#fff,1px_-1px_0_#fff,-1px_1px_0_#fff,1px_1px_0_#fff,0_2px_10px_rgba(24,37,45,0.22)]">
+        <strong className="block text-[12px] font-bold tracking-[0.08em] text-slate-800">{label}</strong>
+        <small className="mt-0.5 block truncate text-[10px] font-medium tracking-[0.03em] text-slate-600">{summary}</small>
+      </span>
     </div>
   )
 }
