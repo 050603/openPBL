@@ -64,10 +64,17 @@ export default function StudentClassroomPage() {
       const { courseId, studentId } = presenceRef.current;
       if (!courseId || !studentId) return;
       const url = `/api/session/presence?courseId=${encodeURIComponent(courseId)}&studentId=${encodeURIComponent(studentId)}`;
-      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-        navigator.sendBeacon(url, "");
-      } else {
-        fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+      // visibilitychange hidden / beforeunload 时浏览器会中止大部分 inflight
+      // 请求，sendBeacon 是专门为这种场景设计的 API。如果它返回 false
+      // （被中止或配额超限），不再降级到 fetch —— fetch keepalive 同样会被
+      // 浏览器中止，只会再产生一条 net::ERR_ABORTED 网络错误。直接依赖
+      // 服务器心跳超时机制（HEARTBEAT_TIMEOUT_MS）兜底标记离线即可。
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        try {
+          navigator.sendBeacon(url, "");
+        } catch {
+          // sendBeacon 不可用或被中止 —— 静默失败，依赖心跳超时。
+        }
       }
     };
 
@@ -83,7 +90,9 @@ export default function StudentClassroomPage() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityHidden);
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      sendOffline();
+      // 组件卸载时不主动调用 sendOffline —— 这通常是 React StrictMode
+      // 双 mount 或路由切换产生的清理，主动上报会触发 net::ERR_ABORTED。
+      // 依赖服务器心跳超时机制兜底。
     };
   }, [hydrated, course, studentId, joinedCourseId]);
 

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
-  AlertCircle,
-  ArrowRight,
+  BookOpen,
+  CheckCircle2,
   Clock3,
   Plus,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { CourseCard } from "@/components/course-card";
@@ -24,15 +25,13 @@ import {
   Input,
   PageState,
 } from "@/components/ui";
-import { detectInterventionSignals } from "@/lib/classroom/stage-gates";
 import { useHydrated, useSession } from "@/lib/session/store";
 import type { Course } from "@/lib/session/types";
 
 type Filter = "all" | "preparing" | "ready" | "teaching" | "finished";
-type Tab = "courses" | "todo";
 
 const FILTERS: Array<{ key: Filter; label: string }> = [
-  { key: "all", label: "全部课程" },
+  { key: "all", label: "全部" },
   { key: "preparing", label: "备课中" },
   { key: "ready", label: "待开课" },
   { key: "teaching", label: "授课中" },
@@ -52,7 +51,6 @@ export default function TeacherHomePage() {
   const session = useSession();
   const hydrated = useHydrated();
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("courses");
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [nameOpen, setNameOpen] = useState(false);
@@ -88,15 +86,9 @@ export default function TeacherHomePage() {
     [sorted, filter, query],
   );
 
-  // 待办事项数据
   const active = sorted.filter((course) => course.status === "teaching");
   const unfinished = sorted.filter(isPreparing);
-  const attention = active
-    .flatMap((course) =>
-      detectInterventionSignals(course).map((signal) => ({ course, signal })),
-    )
-    .slice(0, 8);
-  const todoCount = unfinished.length + active.length + attention.length;
+  const finished = sorted.filter((course) => course.status === "finished");
 
   return (
     <DashboardShell
@@ -106,189 +98,164 @@ export default function TeacherHomePage() {
       userName={session.user.name}
       variant="bare"
     >
-      <div className="mx-auto max-w-[1280px] py-7">
-        {/* 精简头部 */}
-        <header className="flex flex-col gap-5 border-b border-[var(--pbl-border)] pb-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="font-editorial text-3xl font-semibold md:text-4xl">
-              {session.user.name}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">
-              管理课程、备课与课堂
-            </p>
+      <div className="mx-auto max-w-[1280px] px-4 pb-12 pt-6 md:px-6">
+        {/* ===== Hero 区 ===== */}
+        <section className="pbl-aurora-light relative mb-6 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
+          <div className="pbl-aurora" />
+          <div className="pbl-grid-light" />
+
+          <div className="relative z-10 grid gap-6 p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)] lg:gap-8">
+            {/* 左：欢迎语 + 主操作 */}
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--pbl-border-strong)] bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--pbl-text-muted)] backdrop-blur-sm">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--pbl-teacher)] opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--pbl-teacher)]" />
+                </span>
+                Teacher Workspace · 教师工作台
+              </div>
+              <h1 className="mt-4 text-[clamp(28px,3.6vw,40px)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
+                欢迎回来，<span className="pbl-display-gradient">{session.user.name}</span>
+              </h1>
+              <p className="mt-3 max-w-xl text-[14px] leading-6 text-[var(--pbl-text-muted)] md:text-[15px]">
+                教师与 AI 协同管理课堂、AI 授课、AI 伴学——在这里推进六阶段 PBL 闭环。
+              </p>
+
+              {/* 主操作按钮组 */}
+              <div className="mt-5 flex flex-wrap items-center gap-2.5">
+                <button
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(29,78,216,0.25)] transition hover:-translate-y-0.5 hover:bg-[var(--pbl-teacher-hover)] hover:shadow-[0_8px_22px_rgba(29,78,216,0.35)] disabled:opacity-60"
+                  disabled={creating}
+                  onClick={createAndOpenProject}
+                  type="button"
+                >
+                  <Plus size={17} /> 创建项目课程
+                </button>
+                <Link
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] border border-[var(--pbl-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--pbl-text)] transition hover:-translate-y-0.5 hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)] hover:shadow-md"
+                  href="/teacher/settings"
+                >
+                  <Sparkles size={15} /> AI 设置
+                </Link>
+              </div>
+            </div>
+
+            {/* 右：3 个指标卡片（移除介入提醒，仅保留状态统计） */}
+            <div className="grid grid-cols-3 gap-2.5 self-center">
+              <StatCard
+                icon={<BookOpen size={15} />}
+                label="授课中"
+                value={active.length}
+                tone="teacher"
+              />
+              <StatCard
+                icon={<Clock3 size={15} />}
+                label="备课中"
+                value={unfinished.length}
+                tone="warning"
+              />
+              <StatCard
+                icon={<CheckCircle2 size={15} />}
+                label="已结束"
+                value={finished.length}
+                tone="muted"
+              />
+            </div>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
+        </section>
+
+        {/* ===== 课程区 ===== */}
+        <section>
+          {/* 工具条 */}
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-editorial text-xl font-semibold text-[var(--pbl-text-strong)]">
+                我的课程
+              </h2>
+              <p className="mt-0.5 text-[12px] text-[var(--pbl-text-muted)]">
+                共 {sorted.length} 个课程
+              </p>
+            </div>
             <label className="relative">
               <Search
                 aria-hidden="true"
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--pbl-text-muted)]"
-                size={16}
+                size={15}
               />
               <Input
                 aria-label="搜索课程"
-                className="pl-9 sm:w-60"
+                className="h-10 pl-9 sm:w-64"
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索课程、学科或年级"
+                placeholder="搜索课程 / 学科 / 年级"
                 value={query}
               />
             </label>
-            <button
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] disabled:opacity-60"
-              disabled={creating}
-              onClick={createAndOpenProject}
-              type="button"
-            >
-              <Plus size={17} />创建项目
-            </button>
           </div>
-        </header>
 
-        {/* 标签页导航 */}
-        <nav className="mt-6 flex gap-1 border-b border-[var(--pbl-border)]">
-          <TabButton active={tab === "courses"} onClick={() => setTab("courses")}>
-            我的课程
-          </TabButton>
-          <TabButton active={tab === "todo"} onClick={() => setTab("todo")}>
-            待办
-            {todoCount > 0 ? (
-              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--pbl-danger-soft)] px-1.5 text-xs font-bold text-[var(--pbl-danger)]">
-                {todoCount}
-              </span>
-            ) : null}
-          </TabButton>
-        </nav>
-
-        {/* 我的课程标签页 */}
-        {tab === "courses" ? (
-          <div className="pt-6">
-            <nav aria-label="课程筛选" className="mb-5 flex gap-1 overflow-x-auto border-b border-[var(--pbl-border)]">
-              {FILTERS.map((item) => (
+          {/* Inline 筛选 chips */}
+          <nav
+            aria-label="课程筛选"
+            className="mb-5 flex flex-wrap gap-1.5"
+          >
+            {FILTERS.map((item) => {
+              const count =
+                item.key === "all"
+                  ? sorted.length
+                  : item.key === "preparing"
+                    ? unfinished.length
+                    : sorted.filter((c) => c.status === item.key).length;
+              const isActive = filter === item.key;
+              return (
                 <button
-                  aria-current={filter === item.key ? "page" : undefined}
-                  className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm font-semibold transition ${
-                    filter === item.key
-                      ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]"
-                      : "border-transparent text-[var(--pbl-text-muted)] hover:text-[var(--pbl-text)]"
+                  aria-current={isActive ? "page" : undefined}
+                  className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition ${
+                    isActive
+                      ? "bg-[var(--pbl-teacher)] text-white shadow-[0_2px_8px_rgba(29,78,216,0.2)]"
+                      : "border border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[var(--pbl-text-muted)] hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
                   }`}
                   key={item.key}
                   onClick={() => setFilter(item.key)}
                   type="button"
                 >
                   {item.label}
-                </button>
-              ))}
-            </nav>
-            {!hydrated ? (
-              <PageState description="正在读取课程档案。" title="加载课程" />
-            ) : courses.length ? (
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {courses.map((course) => (
-                  <CourseCard course={course} key={course.id} />
-                ))}
-              </div>
-            ) : (
-              <PageState
-                action={
-                  <button
-                    className="inline-flex min-h-11 items-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] disabled:opacity-60"
-                    disabled={creating}
-                    onClick={createAndOpenProject}
-                    type="button"
+                  <span
+                    className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                      isActive ? "bg-white/25 text-white" : "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-subtle)]"
+                    }`}
                   >
-                    创建第一个项目
-                  </button>
-                }
-                description="可以调整筛选条件，或从一个真实问题开始创建课程。"
-                title="这里还没有匹配的课程"
-              />
-            )}
-          </div>
-        ) : null}
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
 
-        {/* 待办标签页 */}
-        {tab === "todo" ? (
-          <div className="space-y-8 pt-6">
-            {/* 正在进行的课堂 */}
-            {active.length ? (
-              <section>
-                <SectionHeader
-                  title="正在进行的课堂"
-                  description="优先返回当前阶段，继续课堂组织与介入。"
-                  count={active.length}
-                />
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {active.map((course) => (
-                    <CurrentClass course={course} key={course.id} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {/* 未完成的备课 */}
-            {unfinished.length ? (
-              <section>
-                <SectionHeader
-                  title="未完成的备课"
-                  description="从上次确认的位置继续，不需要重新开始。"
-                  count={unfinished.length}
-                />
-                <div className="divide-y divide-[var(--pbl-border)] rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] shadow-[var(--shadow-soft)]">
-                  {unfinished.map((course) => (
-                    <WorkRow course={course} key={course.id} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {/* 需要教师关注 */}
-            {attention.length ? (
-              <section>
-                <SectionHeader
-                  title="需要教师关注"
-                  description="出现需要教师决策或价值判断的问题时，AI 建议会在这里突出。"
-                  count={attention.length}
-                />
-                <div className="divide-y divide-[var(--pbl-border)] rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] shadow-[var(--shadow-soft)]">
-                  {attention.map(({ course, signal }) => (
-                    <Link
-                      className="block p-4 transition hover:bg-[var(--pbl-surface-soft)]"
-                      href={`/teacher/teach/${course.id}/classroom`}
-                      key={`${course.id}-${signal.id}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <AlertCircle size={16} className="shrink-0 text-[var(--pbl-warning)]" />
-                            <p className="font-semibold">{signal.title}</p>
-                          </div>
-                          <p className="mt-1 text-sm leading-6 text-[var(--pbl-text-muted)]">
-                            {signal.whatHappened}
-                          </p>
-                          <p className="mt-2 text-sm">
-                            <strong className="font-semibold">建议：</strong>
-                            {signal.suggestedAction}
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-xs font-semibold text-[var(--pbl-warning)]">
-                          {course.name}
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {/* 空状态 */}
-            {!active.length && !unfinished.length && !attention.length ? (
-              <PageState
-                description="当前没有待处理的课堂、备课或介入任务。"
-                title="待办清单已清空"
-              />
-            ) : null}
-          </div>
-        ) : null}
-
+          {/* 课程列表 */}
+          {!hydrated ? (
+            <PageState description="正在读取课程档案。" title="加载课程" />
+          ) : courses.length ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {courses.map((course) => (
+                <CourseCard course={course} key={course.id} />
+              ))}
+            </div>
+          ) : (
+            <PageState
+              action={
+                <button
+                  className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-5 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] disabled:opacity-60"
+                  disabled={creating}
+                  onClick={createAndOpenProject}
+                  type="button"
+                >
+                  <Plus size={16} /> 创建第一个项目
+                </button>
+              }
+              description="可以调整筛选条件，或从一个真实问题开始创建课程。"
+              title="这里还没有匹配的课程"
+            />
+          )}
+        </section>
       </div>
       <Dialog onOpenChange={setNameOpen} open={nameOpen}>
         <DialogContent>
@@ -319,92 +286,50 @@ export default function TeacherHomePage() {
   );
 }
 
-function TabButton({
-  active,
-  children,
-  onClick,
+/* ===== 子组件 ===== */
+
+function StatCard({
+  icon,
+  label,
+  value,
+  tone,
 }: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone: "teacher" | "warning" | "muted";
 }) {
-  return (
-    <button
-      aria-current={active ? "page" : undefined}
-      className={`flex min-h-11 items-center gap-1.5 border-b-2 px-5 text-sm font-semibold transition ${
-        active
-          ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]"
-          : "border-transparent text-[var(--pbl-text-muted)] hover:text-[var(--pbl-text)]"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      {children}
-    </button>
-  );
-}
+  const toneMap = {
+    teacher: {
+      bg: "bg-[var(--pbl-teacher-soft)]",
+      text: "text-[var(--pbl-teacher)]",
+      ring: "ring-[var(--pbl-teacher-border)]",
+    },
+    warning: {
+      bg: "bg-[var(--pbl-warning-soft)]",
+      text: "text-[var(--pbl-warning)]",
+      ring: "ring-[var(--pbl-warning-border)]",
+    },
+    muted: {
+      bg: "bg-[var(--pbl-surface-soft)]",
+      text: "text-[var(--pbl-text-muted)]",
+      ring: "ring-[var(--pbl-border)]",
+    },
+  }[tone];
 
-function SectionHeader({
-  description,
-  title,
-  count,
-}: {
-  description: string;
-  title: string;
-  count?: number;
-}) {
   return (
-    <header className="mb-4">
-      <div className="flex items-center gap-2">
-        <h2 className="font-editorial text-2xl font-semibold">{title}</h2>
-        {count !== undefined ? (
-          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--pbl-teacher-soft)] px-2 text-xs font-bold text-[var(--pbl-teacher)]">
-            {count}
-          </span>
-        ) : null}
-      </div>
-      <p className="mt-1 text-sm leading-6 text-[var(--pbl-text-muted)]">{description}</p>
-    </header>
-  );
-}
-
-function CurrentClass({ course }: { course: Course }) {
-  const stage = course.stages[course.currentStageIndex];
-  return (
-    <Link
-      className="group flex min-h-36 flex-col justify-between border-l-2 border-[var(--pbl-teacher)] bg-[var(--pbl-surface)] p-5 shadow-[var(--shadow-soft)] transition hover:bg-[var(--pbl-surface-soft)] hover:shadow-[var(--shadow-raised)]"
-      href={`/teacher/teach/${course.id}/classroom`}
-    >
-      <div>
-        <p className="text-xs font-semibold text-[var(--pbl-teacher)]">
-          {stage?.label ?? "课堂进行中"} · {course.students.length} 名学生
-        </p>
-        <h3 className="font-editorial mt-2 text-xl font-semibold">{course.name}</h3>
-        <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--pbl-text-muted)]">
-          {course.drivingQuestion}
-        </p>
-      </div>
-      <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold">
-        进入当前课堂 <ArrowRight className="transition-transform group-hover:translate-x-1" size={15} />
-      </span>
-    </Link>
-  );
-}
-
-function WorkRow({ course }: { course: Course }) {
-  return (
-    <Link
-      className="flex min-h-16 items-center gap-3 p-4 transition hover:bg-[var(--pbl-surface-soft)]"
-      href={`/teacher/prepare/${course.id}/verify`}
-    >
-      <Clock3 className="shrink-0 text-[var(--pbl-text-muted)]" size={16} />
-      <span className="min-w-0 flex-1">
-        <strong className="block truncate font-semibold">{course.name}</strong>
-        <span className="mt-1 block text-xs text-[var(--pbl-text-muted)]">
-          {course.subject} · {course.grade} · 修改于 {new Date(course.updatedAt).toLocaleDateString("zh-CN")}
+    <div className="group relative overflow-hidden rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white/80 p-3 backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-[var(--pbl-border-strong)] hover:shadow-md">
+      <div className="flex items-center gap-1.5">
+        <span className={`grid h-6 w-6 place-items-center rounded-[var(--radius-xs)] ring-1 ${toneMap.bg} ${toneMap.text} ${toneMap.ring}`}>
+          {icon}
         </span>
-      </span>
-      <span className="text-sm font-semibold text-[var(--pbl-teacher)]">继续备课</span>
-    </Link>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--pbl-text-muted)]">
+          {label}
+        </span>
+      </div>
+      <div className="mt-2">
+        <span className={`text-[22px] font-extrabold leading-none ${toneMap.text}`}>{value}</span>
+      </div>
+    </div>
   );
 }

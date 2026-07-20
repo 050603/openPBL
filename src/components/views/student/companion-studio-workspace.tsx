@@ -279,28 +279,65 @@ function CompanionStudioRuntime({
     }
   }, [course.id, course.submissions, runtime.lastCompletedRound, runtime.phase, session, stageKey, stageTasks, studentGroup, studentId]);
 
-  const sendRequest = useCallback(async (request: string, companionId?: AiCompanionId) => {
+  const sendRequest = useCallback(async (request: string, companionIds?: AiCompanionId[]) => {
     const clean = request.trim();
     if (!clean || runtime.isActive || !studentId) return false;
-    const companion = companionId ? getCompanion(companionId) : null;
-    if (companionId && !availableIds.has(companionId)) return false;
-    const task = session.upsertCompanionTask({
-      courseId: course.id,
-      studentId,
-      stageKey,
-      companionId,
-      kind: companionId ? TASK_KIND[companionId] : "conversation",
-      title: companion ? `请${companion.name}处理` : "请伴学小组一起讨论",
-      request: clean,
-      status: "assigned",
-    });
-    activeTaskIdRef.current = task.id;
-    const ok = await runtime.send(clean, { preferredCompanionId: companionId, taskId: task.id });
-    if (!ok) {
-      session.upsertCompanionTask({ ...task, status: "failed", error: "本轮请求没有完成" });
-      activeTaskIdRef.current = null;
+
+    // 选 0 人：全体发送（单次 group conversation）
+    // 选 1 人：发给那个人
+    // 选多人：依次发给每个人。runtime.isActive 会在每轮回复期间阻止
+    // 下一次发送，所以多选时只有第一个能立即发出，后续需要等当前回复
+    // 完成后再由用户手动重发。这是当前架构的限制（runtime.send 只
+    // 支持单个 preferredCompanionId 且 phase 必须为 idle）。
+    const ids = companionIds?.filter((id) => availableIds.has(id)) ?? [];
+    if (companionIds && companionIds.length > 0 && ids.length === 0) return false;
+
+    if (ids.length <= 1) {
+      const companionId = ids[0];
+      const companion = companionId ? getCompanion(companionId) : null;
+      const task = session.upsertCompanionTask({
+        courseId: course.id,
+        studentId,
+        stageKey,
+        companionId,
+        kind: companionId ? TASK_KIND[companionId] : "conversation",
+        title: companion ? `请${companion.name}处理` : "请伴学小组一起讨论",
+        request: clean,
+        status: "assigned",
+      });
+      activeTaskIdRef.current = task.id;
+      const ok = await runtime.send(clean, { preferredCompanionId: companionId, taskId: task.id });
+      if (!ok) {
+        session.upsertCompanionTask({ ...task, status: "failed", error: "本轮请求没有完成" });
+        activeTaskIdRef.current = null;
+      }
+      return ok;
     }
-    return ok;
+
+    // 多人：依次发送，第一个失败则整体失败。后续发送可能被 isActive
+    // 阻止（返回 false），此处直接跳过不视为整体失败。
+    let lastOk = true;
+    for (const companionId of ids) {
+      const companion = getCompanion(companionId);
+      const task = session.upsertCompanionTask({
+        courseId: course.id,
+        studentId,
+        stageKey,
+        companionId,
+        kind: TASK_KIND[companionId],
+        title: `请${companion.name}处理`,
+        request: clean,
+        status: "assigned",
+      });
+      activeTaskIdRef.current = task.id;
+      const ok = await runtime.send(clean, { preferredCompanionId: companionId, taskId: task.id });
+      if (!ok) {
+        session.upsertCompanionTask({ ...task, status: "failed", error: "本轮请求没有完成" });
+        activeTaskIdRef.current = null;
+      }
+      lastOk = lastOk && ok;
+    }
+    return lastOk;
   }, [availableIds, course.id, runtime, session, stageKey, studentId]);
 
   const selectAgent = useCallback((agentId: AgentId) => {
@@ -367,11 +404,12 @@ function CompanionStudioRuntime({
         </button>
 
         <StudioComposer
+          availableCompanions={runtime.available.map((item) => ({ id: item.id, name: getCompanion(item.id).name, shortName: getCompanion(item.id).shortName, color: getCompanion(item.id).color }))}
           disabled={!runtime.stageEnabled}
+          initialSelectedIds={selectedCompanionId ? [selectedCompanionId] : []}
           isActive={runtime.isActive}
-          onSend={(text) => sendRequest(text, selectedCompanionId ?? undefined)}
+          onSend={(text, companionIds) => sendRequest(text, companionIds)}
           onStop={runtime.stop}
-          selectedCompanionId={selectedCompanionId}
         />
         {activeTask?.status === "waiting-student" ? (
           <button className="studio-review-cue" onClick={() => setStudioModal("planning")} type="button">
@@ -393,7 +431,7 @@ function CompanionStudioRuntime({
             agentId={selectedAgentId}
             available={availableIds.has(VISUAL_TO_COMPANION[selectedAgentId])}
             onBack={clearSelection}
-            onSend={(text) => sendRequest(text, VISUAL_TO_COMPANION[selectedAgentId])}
+            onSend={(text) => sendRequest(text, [VISUAL_TO_COMPANION[selectedAgentId]])}
             runtime={runtime}
             state={partnerStates[selectedAgentId]}
             tasks={stageTasks.filter((task) => task.companionId === VISUAL_TO_COMPANION[selectedAgentId])}
@@ -421,7 +459,7 @@ function CompanionStudioRuntime({
       {studioModal ? (
         <StudioDialog onClose={() => setStudioModal(null)} title={studioModal === "history" ? "完整对话历史" : ZONE_COPY[studioModal].title} wide={studioModal === "planning"}>
           {studioModal === "library" ? (
-            <LibraryPanel disabled={!availableIds.has("knowledge")} onAsk={(text) => sendRequest(text, "knowledge")} />
+            <LibraryPanel disabled={!availableIds.has("knowledge")} onAsk={(text) => sendRequest(text, ["knowledge"])} />
           ) : studioModal === "planning" ? (
             <PlanningPanel course={course} stageKey={stageKey} />
           ) : studioModal === "archive" ? (
@@ -529,11 +567,109 @@ function SettingsRail({ runtime, onBack, onHistory, onSwitchToTask, canSwitchMod
   return <div className="studio-rail-content"><RailHeading eyebrow="CLASSROOM SETTINGS" onBack={onBack} title="课堂设置" /><section className="studio-responsibility-note"><strong>你是项目负责人</strong><p>伙伴可以整理、建议、评审和形成可修改草稿；你负责判断、核验、修改与最终提交。</p></section><section className="studio-mode-switch"><div className="studio-section-title"><strong>学习界面</strong><span>{canSwitchMode ? "随时切换" : "教师已指定"}</span></div><button aria-current="page" className="is-active" disabled type="button"><UsersRound size={17} /><span><strong>沉浸伴学模式</strong><small>以智能体小组与课堂场景为中心</small></span></button>{canSwitchMode ? <button onClick={onSwitchToTask} type="button"><ListTodo size={17} /><span><strong>普通课堂模式</strong><small>使用传统任务页面编辑与提交</small></span></button> : null}</section><section className="studio-settings-list"><button onClick={runtime.tts.toggle} type="button">{runtime.tts.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}<span><strong>伙伴朗读</strong><small>{runtime.tts.enabled ? "已开启" : "已关闭"}</small></span></button><button onClick={onHistory} type="button"><History size={17} /><span><strong>对话历史</strong><small>查看本阶段完整讨论</small></span></button></section></div>;
 }
 
-function StudioComposer({ selectedCompanionId, isActive, disabled, onSend, onStop }: { selectedCompanionId: AiCompanionId | null; isActive: boolean; disabled: boolean; onSend: (text: string) => Promise<boolean>; onStop: () => void }) {
+type ComposerCompanion = { id: AiCompanionId; name: string; shortName: string; color: string };
+
+function StudioComposer({ availableCompanions, initialSelectedIds, isActive, disabled, onSend, onStop }: { availableCompanions: ComposerCompanion[]; initialSelectedIds: AiCompanionId[]; isActive: boolean; disabled: boolean; onSend: (text: string, companionIds: AiCompanionId[]) => Promise<boolean>; onStop: () => void }) {
   const [draft, setDraft] = useState("");
-  const companion = selectedCompanionId ? getCompanion(selectedCompanionId) : null;
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const text = draft.trim(); if (!text) return; setDraft(""); void onSend(text); }
-  return <form className="studio-composer" onSubmit={submit}><span className="studio-composer__target">{companion ? companion.shortName : <UsersRound size={16} />}</span><div><span>{companion ? `对${companion.name}说` : "交给伴学小组"}</span><input aria-label="给伴学伙伴的任务" disabled={disabled || isActive} onChange={(event) => setDraft(event.target.value)} placeholder="说出你现在最想解决的一个问题…" value={draft} /></div>{isActive ? <button aria-label="停止本轮回应" className="is-stop" onClick={onStop} type="button"><Square fill="currentColor" size={13} />停止</button> : <button aria-label="发送" disabled={disabled || !draft.trim()} type="submit"><Send size={16} /></button>}</form>;
+  const [selectedIds, setSelectedIds] = useState<AiCompanionId[]>(initialSelectedIds);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [pickerOpen]);
+
+  // selectedIds 与外部 initialSelectedIds 同步：当 initialSelectedIds 变化
+  // 时（用户在场景里选了别的 agent），重置内部选择
+  useEffect(() => {
+    setSelectedIds(initialSelectedIds);
+  }, [initialSelectedIds]);
+
+  function toggleId(id: AiCompanionId) {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  function clearAll() {
+    setSelectedIds([]);
+  }
+
+  const targetLabel = selectedIds.length === 0
+    ? <UsersRound size={16} />
+    : selectedIds.length === 1
+      ? availableCompanions.find((c) => c.id === selectedIds[0])?.shortName ?? <UsersRound size={16} />
+      : `${selectedIds.length}人`;
+
+  const targetHint = selectedIds.length === 0
+    ? "交给伴学小组"
+    : selectedIds.length === 1
+      ? `对${availableCompanions.find((c) => c.id === selectedIds[0])?.name ?? ""}说`
+      : `对${selectedIds.length}位伙伴说`;
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    void onSend(text, selectedIds);
+  }
+
+  return (
+    <div className="studio-composer-wrap" ref={pickerRef}>
+      <form className="studio-composer" onSubmit={submit}>
+        <button
+          aria-label="选择发送对象"
+          className="studio-composer__target"
+          onClick={() => setPickerOpen((v) => !v)}
+          type="button"
+          data-active={pickerOpen ? "" : undefined}
+        >
+          {targetLabel}
+        </button>
+        <div>
+          <span>{targetHint}</span>
+          <input aria-label="给伴学伙伴的任务" disabled={disabled || isActive} onChange={(event) => setDraft(event.target.value)} placeholder="说出你现在最想解决的一个问题…" value={draft} />
+        </div>
+        {isActive ? <button aria-label="停止本轮回应" className="is-stop" onClick={onStop} type="button"><Square fill="currentColor" size={13} />停止</button> : <button aria-label="发送" disabled={disabled || !draft.trim()} type="submit"><Send size={16} /></button>}
+      </form>
+      {pickerOpen ? (
+        <div className="studio-composer-picker" role="listbox" aria-label="选择发送对象">
+          <button
+            className="studio-composer-picker__item"
+            data-selected={selectedIds.length === 0 ? "" : undefined}
+            onClick={clearAll}
+            type="button"
+            role="option"
+            aria-selected={selectedIds.length === 0}
+          >
+            <UsersRound size={15} />
+            <span><strong>全体伙伴</strong><small>交给伴学小组一起讨论</small></span>
+          </button>
+          {availableCompanions.map((c) => (
+            <button
+              key={c.id}
+              className="studio-composer-picker__item"
+              data-selected={selectedIds.includes(c.id) ? "" : undefined}
+              onClick={() => toggleId(c.id)}
+              type="button"
+              role="option"
+              aria-selected={selectedIds.includes(c.id)}
+            >
+              <span className="studio-composer-picker__badge" style={{ background: c.color }}>{c.shortName}</span>
+              <span><strong>{c.name}</strong><small>仅发给TA</small></span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function StudioDialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {

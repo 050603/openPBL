@@ -687,13 +687,27 @@ export function createOfficeOrchestrator(
         endConversation(agentId)
       }
     }
+
+    // 行走中被发言打断：立即取消行走 tween，原地停下。
+    // nextMotionRequest 会调用 person.cancelMovement() 让进行中的
+    // walkRoute 立即退出（isCurrentMotion 返回 false）。但
+    // returnAgentToDesk 的 finally 块因为 isCurrentMotion 为 false
+    // 不会清理 movingAgents，所以这里手动删除。发言结束后由下方
+    // idle/completed/error 分支的 returnAgentToDesk 处理回座。
+    if (state === 'speaking' && movingAgents.has(agentId)) {
+      nextMotionRequest(agentId)
+      movingAgents.delete(agentId)
+    }
+
     workstations[agentId].setState(state)
 
     if (previousState === state) {
       return
     }
 
-    if (previousState === 'idle' && wasAwayFromDesk) {
+    // speaking 时不触发返回座位 —— 让 agent 原地站着发言。
+    // 发言结束（state 变 idle/completed/error）时下方分支会处理回座。
+    if (previousState === 'idle' && wasAwayFromDesk && state !== 'speaking') {
       void returnAgentToDesk(agentId)
     }
 

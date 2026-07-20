@@ -276,13 +276,15 @@ export function createWorkstationFactory({
     // Sprite frames use different canvas bounds, so labels must follow the
     // person's measured visual anchor instead of the nominal role position.
     const feedback = new Container()
+    // 角色提示框：圆角暖白背景，去掉原来的左侧竖条装饰。
+    // 角色色彩改由 nameLabel 的彩色文字体现，更柔和也更符合场景风格。
     const infoPanel = new Graphics()
-      .roundRect(-102, 5, 4, 67, 2)
-      .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.72 })
+      .roundRect(-104, 2, 208, 72, 12)
+      .fill({ color: 0xfffdf9, alpha: 0.85 })
     const nameLabel = new Text({
       text: roleProfile.name,
       style: {
-        fill: '#18252d',
+        fill: roleProfile.accent,
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
         fontSize: 22,
         fontWeight: '700',
@@ -328,7 +330,7 @@ export function createWorkstationFactory({
     const messageNameLabel = new Text({
       text: roleProfile.name,
       style: {
-        fill: roleProfile.accent,
+        fill: '#ffffff',
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
         fontSize: 12,
         fontWeight: '700',
@@ -474,13 +476,20 @@ export function createWorkstationFactory({
       const right = messageCenterX + messageWidth / 2
       const tailEdge = messageCenterX < 0 ? right : left
       const tailTip = messageCenterX < 0 ? -68 : 68
+      // 角色名药丸：测量文字宽度后画一个彩色圆角背景，白色文字浮在上面。
+      // 替代原来气泡左侧的彩色竖条装饰，更柔和也更符合场景风格。
+      const namePillPadX = 9
+      const namePillWidth = messageNameLabel.width + namePillPadX * 2
+      const namePillHeight = 20
+      const namePillX = messageNameLabel.x - namePillPadX
+      const namePillY = messageTop + 7
       messageBubble
         .roundRect(left + 3, messageTop + 5, messageWidth, messageHeight, 16)
         .fill({ color: 0x24343b, alpha: 0.08 })
         .roundRect(left, messageTop, messageWidth, messageHeight, 16)
         .fill({ color: 0xfffdf9, alpha: 0.97 })
-        .roundRect(left, messageTop + 15, 3, messageHeight - 30, 2)
-        .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.76 })
+        .roundRect(namePillX, namePillY, namePillWidth, namePillHeight, 10)
+        .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.92 })
         .moveTo(tailEdge, messageTop + messageHeight - 47)
         .lineTo(tailTip, messageTop + messageHeight - 30)
         .lineTo(tailEdge, messageTop + messageHeight - 17)
@@ -495,6 +504,15 @@ export function createWorkstationFactory({
       if (awayFromDesk) {
         screen.clear()
         effect.clear()
+        // 行走中被发言打断：原地切换到站立发言动作，而不是直接跳过
+        // body 动作切换。talking_on_seat 需要坐在座位上，离开座位时
+        // 用 talking_on_stand-0 代替。其他状态保持原行为（不切换 body）。
+        if (state === 'speaking') {
+          void person.play('talking_on_stand-0', {
+            loop: true,
+            preserveVisualAnchor: 'bottomCenter',
+          }).then(syncFeedbackPosition)
+        }
         return
       }
 
@@ -602,8 +620,27 @@ export function createWorkstationFactory({
     }
 
     function setMessage(message: string): void {
+      const previousText = messageText.text
+      // 流式追加检测：新消息以旧消息为前缀，说明是同一次发言的流式更新。
+      // 此时不能重置滚动到 0，否则用户手动滑动后会被拉回顶部。
+      const isAppending = previousText.length > 0 && message.startsWith(previousText)
+      // 记录用户是否停留在底部（用于决定追加后是否跟随到新底部）
+      const previousLimit = getMessageScrollLimit()
+      const wasAtBottom = previousLimit > 0 && messageScrollOffset >= previousLimit
+
       messageText.text = message
-      setMessageScrollOffset(0)
+
+      if (!isAppending) {
+        // 新发言（或完全不同的消息）：重置到顶部
+        setMessageScrollOffset(0)
+      } else if (wasAtBottom) {
+        // 流式追加且用户在底部：跟随到新底部，保持"自动滚到最新"
+        setMessageScrollOffset(getMessageScrollLimit())
+      } else {
+        // 流式追加且用户在中间：保持当前滚动位置，只重绘滚动条
+        // messageText.y 已经基于 messageScrollOffset 设置过，无需再改
+        redrawMessageScrollbar()
+      }
       redrawMessage()
     }
 

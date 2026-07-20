@@ -9,10 +9,12 @@ export function JoinClassForm({
   onSubmit,
   busy,
   errorMessage,
+  variant = "card",
 }: {
   onSubmit: (code: string, name: string) => void;
   busy?: boolean;
   errorMessage?: string;
+  variant?: "card" | "bare";
 }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -35,9 +37,14 @@ export function JoinClassForm({
 
   const error = localError ?? errorMessage;
 
+  const formClassName =
+    variant === "bare"
+      ? "mx-auto flex w-full flex-col gap-5"
+      : "mx-auto flex w-full max-w-md flex-col gap-5 rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-8 shadow-[var(--shadow-raised)]";
+
   return (
     <form
-      className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-8 shadow-[var(--shadow-raised)]"
+      className={formClassName}
       onSubmit={submit}
     >
       <div className="text-center">

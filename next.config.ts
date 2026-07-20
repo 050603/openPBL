@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   // Produces `.next/standalone` with only the files needed to run the
   // production server (no `node_modules` install required at runtime).
   output: "standalone",
+  // dev 模式下关闭 React Strict Mode。PixiStage 的 useEffect 会加载 PIXI
+  // v8 的 Assets.load（模块级单例 cache），StrictMode 的双 mount 会污染
+  // cache 状态导致 Promise.all 永久挂起，伴学工作室卡在 0%。
+  // 生产环境本来就只 mount 一次，关闭 StrictMode 不影响生产行为。
+  reactStrictMode: false,
   transpilePackages: [
     "@openmaic/dsl",
     "@openmaic/importer",
@@ -98,6 +103,9 @@ const nextConfig: NextConfig = {
           // inline styles (Tailwind / styled-components need this), data:
           // images, and https: media. `connect-src` includes ws:/wss: so the
           // realtime WebSocket (Stage 4) can connect.
+          // `worker-src` 允许 blob: —— PIXI v8 的 WorkerManager 用
+          // URL.createObjectURL(new Blob(...)) 创建图片解码 worker，
+          // 禁止 blob: worker 会导致 Assets.load 永久挂起。
           {
             key: "Content-Security-Policy",
             value: [
@@ -109,6 +117,7 @@ const nextConfig: NextConfig = {
               "font-src 'self' data:",
               "connect-src 'self' https: ws: wss:",
               "frame-src 'self' blob: data:",
+              "worker-src 'self' blob:",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",

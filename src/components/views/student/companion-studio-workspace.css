@@ -43,8 +43,11 @@
 .studio-stage-card > div i { z-index: 1; grid-column: 1; grid-row: 1; height: 4px; border-radius: 9px; background: var(--studio-teal); }
 .studio-stage-card > div small { color: #6c777a; font-size: 9px; font-weight: 800; }
 
-.studio-composer { position: absolute; z-index: 31; right: 22px; bottom: 18px; left: 22px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; min-height: 68px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.84); border-radius: 19px; background: rgba(255,255,255,.91); box-shadow: 0 18px 46px rgba(24,37,45,.16); backdrop-filter: blur(18px); }
-.studio-composer__target { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 13px; color: #fff; background: #17333a; font-family: var(--font-serif); font-size: 14px; font-weight: 900; }
+.studio-composer-wrap { position: absolute; z-index: 31; right: 22px; bottom: 18px; left: 22px; }
+.studio-composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; min-height: 68px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.84); border-radius: 19px; background: rgba(255,255,255,.91); box-shadow: 0 18px 46px rgba(24,37,45,.16); backdrop-filter: blur(18px); }
+.studio-composer__target { display: grid; width: 40px; height: 40px; place-items: center; padding: 0; border: 0; border-radius: 13px; color: #fff; background: #17333a; font-family: var(--font-serif); font-size: 14px; font-weight: 900; cursor: pointer; transition: background .15s ease, transform .15s ease; }
+.studio-composer__target:hover { background: #0d2128; }
+.studio-composer__target[data-active] { background: var(--studio-teal); transform: scale(.96); }
 .studio-composer > div { display: grid; min-width: 0; }
 .studio-composer > div > span { color: #78848a; font-size: 9px; font-weight: 800; }
 .studio-composer input { width: 100%; min-width: 0; margin-top: 2px; border: 0; outline: 0; color: #26373e; background: transparent; font-size: 12px; }
@@ -52,6 +55,16 @@
 .studio-composer > button { display: grid; min-width: 40px; height: 40px; place-items: center; border: 0; border-radius: 13px; color: white; background: var(--studio-teal); }
 .studio-composer > button:disabled { cursor: not-allowed; opacity: .42; }
 .studio-composer > button.is-stop { display: inline-flex; width: auto; align-items: center; gap: 6px; padding: 0 12px; color: #a9473f; background: #fff0ed; font-size: 10px; font-weight: 900; }
+.studio-composer-picker { position: absolute; bottom: calc(100% + 8px); left: 10px; z-index: 32; min-width: 220px; max-width: 320px; padding: 6px; border: 1px solid rgba(255,255,255,.84); border-radius: 14px; background: rgba(255,253,249,.98); box-shadow: 0 14px 38px rgba(24,37,45,.18); backdrop-filter: blur(18px); }
+.studio-composer-picker__item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; text-align: left; transition: background .12s ease; }
+.studio-composer-picker__item:hover { background: rgba(8,127,121,.08); }
+.studio-composer-picker__item[data-selected] { background: rgba(8,127,121,.14); }
+.studio-composer-picker__item > svg { flex-shrink: 0; color: #526168; }
+.studio-composer-picker__item[data-selected] > svg { color: var(--studio-teal); }
+.studio-composer-picker__item > span { display: grid; min-width: 0; }
+.studio-composer-picker__item > span > strong { color: #18252d; font-size: 12px; font-weight: 800; }
+.studio-composer-picker__item > span > small { color: #8a9498; font-size: 9px; font-weight: 700; }
+.studio-composer-picker__badge { display: grid; flex-shrink: 0; width: 26px; height: 26px; place-items: center; border-radius: 8px; color: #fff; font-family: var(--font-serif); font-size: 11px; font-weight: 900; }
 .studio-mobile-rail { display: none; }
 
 .companion-studio-rail { min-width: 0; overflow-y: auto; border-left: 1px solid var(--studio-line); background: rgba(255,255,255,.97); box-shadow: -18px 0 50px rgba(24,37,45,.06); }
@@ -250,7 +263,7 @@
   .studio-hud__actions button span { display: none; }
   .studio-hud__actions button { width: 34px; padding: 0; }
   .studio-stage-card { top: 77px; left: 10px; }
-  .studio-composer { right: 10px; bottom: 10px; left: 10px; }
+  .studio-composer-wrap { right: 10px; bottom: 10px; left: 10px; }
   .studio-mobile-rail { position: absolute; z-index: 32; right: 12px; bottom: 91px; display: inline-flex; min-height: 35px; align-items: center; gap: 7px; border: 1px solid rgba(255,255,255,.78); border-radius: 11px; padding: 0 10px; color: #526168; background: rgba(255,255,255,.9); box-shadow: 0 10px 26px rgba(24,37,45,.12); font-size: 9px; font-weight: 900; }
   .studio-mobile-rail span { display: grid; min-width: 17px; height: 17px; place-items: center; border-radius: 50%; color: white; background: #c15d48; }
   .studio-modal-columns, .studio-prompt-grid { grid-template-columns: 1fr; }
@@ -332,7 +345,7 @@
 .studio-overview-trigger { right: 18px; bottom: 102px; }
 .studio-overview-trigger > span { display: grid; min-width: 18px; height: 18px; place-items: center; border-radius: 999px; color: white; background: #bd5a48; font-size: 8px; }
 
-.studio-composer {
+.studio-composer-wrap {
   right: auto;
   bottom: 18px;
   left: 50%;
@@ -391,7 +404,7 @@
   .studio-settings-trigger { top: 10px; right: 10px; width: 40px; padding: 0; }
   .studio-settings-trigger span { display: none; }
   .studio-overview-trigger { right: 10px; bottom: 84px; }
-  .studio-composer { right: auto; bottom: 10px; left: 50%; width: calc(100% - 20px); min-height: 62px; transform: translateX(-50%); }
+  .studio-composer-wrap { right: auto; bottom: 10px; left: 50%; width: calc(100% - 20px); min-height: 62px; transform: translateX(-50%); }
   .studio-review-cue { right: 132px; bottom: 84px; left: 14px; width: auto; transform: none; }
   .companion-studio-rail { top: 8px; right: 8px; bottom: 8px; width: calc(100% - 16px); border-radius: 18px; }
   .studio-rail-scrim { backdrop-filter: none; }
