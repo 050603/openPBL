@@ -1,0 +1,87 @@
+# OpenPBL Docker build context filter.
+#
+# Excludes anything that isn't needed for `next build` so the build context
+# stays small and the build cache isn't invalidated by local artifacts.
+
+# ---- Dependencies & build artifacts (regenerated inside the image) ----
+node_modules
+**/node_modules
+.next
+out
+dist
+build
+coverage
+.nyc_output
+
+# ---- Local runtime data (must NOT ship inside the image) ----
+.openpbl-data
+output
+
+# ---- Secrets — never bake into a layer ----
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+*.pem
+*.key
+*.crt
+
+# ---- Version control / IDE ----
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Test & QA artifacts ----
+playwright-report
+playwright/.cache
+test-results
+.turbo
+*.lcov
+
+# ---- Docs & metadata not consumed by the build ----
+docs
+.trae
+CLAUDE.md
+AGENTS.md
+DESIGN-SYSTEM.md
+VERSIONING.md
+README.md
+**/README.md
+**/CHANGELOG.md
+**/LICENSE
+SECURITY.md
+CONTRIBUTING.md
+
+# ---- Upstream reference repo (not part of this build) ----
+OpenMAIC-main
+
+# ---- Misc files that don't affect the build ----
+.vercel
+.eslintcache
+*.tsbuildinfo
+server-providers.example.yml
+AI伴学项目式课堂模式_说明文档*.md
+
+# ---- Docker artifacts themselves (avoid recursive context bloat) ----
+Dockerfile
+docker-compose*.yml
+.dockerignore
+deploy
+
+# ---- Examples / sample data ----
+*.example.yml

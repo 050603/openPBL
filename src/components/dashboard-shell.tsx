@@ -109,7 +109,9 @@ export function DashboardShell({
           <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
-              <div className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</div>
+              <div className="flex items-baseline gap-1">
+                <span className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</span>
+              </div>
               <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
             </div>
           </Link>
@@ -332,13 +334,26 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
 }
 
 export function LogoMark({ role = "teacher" }: { role?: Role }) {
-  const isTeacher = role === "teacher";
+  // 使用统一品牌 Logo 图标（不再按 role 切换颜色，保持品牌一致性）
   return (
-    <div className="relative h-9 w-9 shrink-0">
-      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-hover)]" : "bg-[var(--pbl-student-hover)]")} />
-      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]")} />
-      <div className="absolute bottom-0 left-[12px] h-3 w-3 rotate-45 bg-white" />
-    </div>
+    <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/logo-icon.png"
+        alt="openPBL"
+        width={36}
+        height={36}
+        className="h-9 w-9 object-contain"
+        draggable={false}
+      />
+      {/* 角色 dot 标识 */}
+      <span
+        className={cn(
+          "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white",
+          role === "teacher" ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]"
+        )}
+      />
+    </span>
   );
 }
 

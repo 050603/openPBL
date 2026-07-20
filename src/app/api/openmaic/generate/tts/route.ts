@@ -21,12 +21,26 @@ import { createLogger } from '@openmaic/lib/logger';
 import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
 import { validateUrlForSSRF } from '@openmaic/lib/server/ssrf-guard';
 import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@openmaic/lib/audio/voxcpm';
+import {
+  ttsLimiter,
+  getClientIp,
+  rateLimitKey,
+  rateLimitedResponse,
+} from '@/lib/auth/rate-limit';
+import { isAuthConfigured } from '@/lib/auth/session';
 
 const log = createLogger('TTS API');
 
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
+  // Stage 3: rate limit TTS (30/min/user).
+  if (isAuthConfigured()) {
+    const ip = getClientIp(req);
+    const rl = ttsLimiter.check(rateLimitKey(req, ip));
+    if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
+  }
+
   let ttsProviderId: string | undefined;
   let ttsVoice: string | undefined;
   let audioId: string | undefined;

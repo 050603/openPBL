@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import type { GenerateInput } from "./types";
 import { normalizeTeachingOutlineResponse } from "./client";
+import { LlmOutputIncompleteError } from "./errors";
 import {
   buildEvaluationPlanPrompt,
   buildKnowledgeGraphPrompt,
@@ -85,12 +86,18 @@ describe("normalizeTeachingOutlineResponse", () => {
   });
 
   it("fills editable defaults when a model omits operational role fields", () => {
+    // Provide 4 of the 6 role fields so the section stays under the
+    // MISSING_FIELDS_THRESHOLD (>3) and exercises the transparent
+    // normalizationNote path rather than the hard-failure path.
     const result = normalizeTeachingOutlineResponse(
       {
         teachingOutline: [
           {
             stageKey: "ai-learning",
             title: "核心知识建构",
+            teacherRole: "教师组织学习并答疑",
+            platformRole: "平台展示学习资源",
+            studentActivity: "学生独立完成任务并提交",
           },
         ],
       },
@@ -103,9 +110,35 @@ describe("normalizeTeachingOutlineResponse", () => {
       openMaicUse: "student-ai-learning",
       resourceTypes: ["ppt"],
     });
+    // teachingGoal + aiRole are the two missing fields → defaults are filled in.
     expect(result[0]?.teachingGoal).toContain("核心知识建构");
     expect(result[0]?.aiRole).toContain("不直接给出最终答案");
     expect(result[0]?.notes).toContain("AI 输出缺少字段");
+  });
+
+  it("throws LlmOutputIncompleteError when a section is missing more than 3 role fields", () => {
+    // Only stageKey + title are provided → 5 role fields missing (>3) → throw.
+    try {
+      normalizeTeachingOutlineResponse(
+        {
+          teachingOutline: [
+            {
+              stageKey: "ai-learning",
+              title: "核心知识建构",
+            },
+          ],
+        },
+        input,
+      );
+      expect.fail("Expected normalizeTeachingOutlineResponse to throw LlmOutputIncompleteError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(LlmOutputIncompleteError);
+      const incomplete = err as LlmOutputIncompleteError;
+      expect(incomplete.missingFields).toEqual(
+        expect.arrayContaining(["teachingGoal", "aiRole", "platformRole", "teacherRole", "studentActivity"]),
+      );
+      expect(incomplete.message).toContain("LLM_OUTPUT_INCOMPLETE");
+    }
   });
 
   it("unwraps a JSON string returned under a data envelope", () => {

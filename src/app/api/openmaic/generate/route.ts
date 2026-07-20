@@ -21,6 +21,14 @@ import {
   isAbortError,
   throwIfAborted,
 } from '@openmaic/lib/generation/generation-retry';
+import {
+  generateLimiter,
+  getClientIp,
+  rateLimitKey,
+  rateLimitedResponse,
+} from '@/lib/auth/rate-limit';
+import { isAuthConfigured, readAuthFromRequest } from '@/lib/auth/session';
+import { isShuttingDown } from '@/lib/runtime/lifecycle';
 
 const log = createLogger('GenerateAPI');
 
@@ -64,6 +72,28 @@ function normalizeAgentMode(input: unknown): 'default' | 'generate' {
 }
 
 export async function POST(request: NextRequest) {
+  // Reject new requests immediately during graceful shutdown (Stage 7).
+  // Returning 503 here keeps clients from starting a 5-minute SSE stream
+  // that would be killed mid-way when the process exits.
+  if (isShuttingDown()) {
+    return Response.json(
+      {
+        error: 'SERVER_SHUTTING_DOWN',
+        message: '服务器维护中,请稍后重试',
+      },
+      { status: 503 },
+    );
+  }
+
+  // Stage 3: rate limit course generation (2/min/teacher).
+  if (isAuthConfigured()) {
+    const claims = await readAuthFromRequest(request);
+    const ip = getClientIp(request);
+    const userKey = claims?.role === "teacher" ? claims.sub : ip;
+    const rl = generateLimiter.check(rateLimitKey(request, userKey));
+    if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -137,7 +167,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const baseUrl = buildRequestOrigin(request);
+  let baseUrl: string;
+  try {
+    baseUrl = buildRequestOrigin(request);
+  } catch {
+    return apiError(
+      API_ERROR_CODES.INVALID_REQUEST,
+      500,
+      'MISSING_PUBLIC_BASE_URL: set PUBLIC_BASE_URL or run behind a reverse proxy that sets x-forwarded-* headers',
+    );
+  }
   const sceneOutlines = normalizeSceneOutlines(rawSceneOutlines);
   const encoder = new TextEncoder();
   const generationController = new AbortController();
@@ -237,8 +276,38 @@ export async function POST(request: NextRequest) {
         }
       };
 
+      // Graceful shutdown (Stage 7): when the server starts draining, push a
+      // dedicated `shutdown` SSE event so the client can surface "服务器维护中"
+      // and abort the generation. The `shutdown` event uses the SSE `event:`
+      // field so it is distinguishable from regular `data:` progress events.
+      const sendShutdownEvent = () => {
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `event: shutdown\ndata: ${JSON.stringify({
+                reason: 'server_shutting_down',
+                message: '服务器维护中,请稍后重试',
+              })}\n\n`,
+            ),
+          );
+        } catch {
+          // controller already closed — nothing more we can do.
+        }
+      };
+
+      // Returns true (and triggers abort + shutdown event) when the process
+      // is shutting down. Callers should `return` from `start()` immediately
+      // after a truthy result so the finally block can close the stream.
+      const checkShutdown = (): boolean => {
+        if (!isShuttingDown()) return false;
+        sendShutdownEvent();
+        abortGeneration();
+        return true;
+      };
+
       try {
         throwIfAborted(signal);
+        if (checkShutdown()) return;
         log.info(
           `Starting classroom generation [courseId=${courseId ?? 'none'}, reqLen=${requirement.length}]`,
         );
@@ -249,6 +318,7 @@ export async function POST(request: NextRequest) {
             signal,
             onProgress: (progress) => {
               throwIfAborted(signal);
+              if (checkShutdown()) return;
               log.info(
                 `[Generation progress] ${progress.step}: ${progress.progress}% - ${progress.message}`,
               );
@@ -263,6 +333,7 @@ export async function POST(request: NextRequest) {
         );
 
         throwIfAborted(signal);
+        if (checkShutdown()) return;
         const splitResult = await splitGeneratedClassroom({
           stage: result.stage,
           scenes: result.scenes,
@@ -277,6 +348,7 @@ export async function POST(request: NextRequest) {
         // 把含教师资源的原始全量课堂暴露给学生端。
         if (courseId) {
           throwIfAborted(signal);
+          if (checkShutdown()) return;
           await linkClassroomToCourse(courseId, splitResult.studentClassroomId, {
             scenesCount: splitResult.studentSceneCount,
             stageName: result.stage.name,
@@ -301,6 +373,7 @@ export async function POST(request: NextRequest) {
         });
 
         throwIfAborted(signal);
+        if (checkShutdown()) return;
         log.info(
           `Classroom generation completed [id=${result.id}, scenes=${result.scenesCount}]`,
         );
@@ -355,6 +428,16 @@ export async function POST(request: NextRequest) {
 }
 
 function buildRequestOrigin(request: NextRequest): string {
+  // Stage 3: prefer the explicit PUBLIC_BASE_URL env var, then standard
+  // reverse-proxy headers, then the Host header. The legacy
+  // `http://localhost:3000` fallback was removed — in production behind a
+  // reverse proxy at least one of these must be present, otherwise we throw
+  // so the caller surfaces MISSING_PUBLIC_BASE_URL instead of generating
+  // callback URLs that point at localhost.
+  const envBase = process.env.PUBLIC_BASE_URL;
+  if (envBase && /^https?:\/\//.test(envBase)) {
+    return envBase.replace(/\/$/, "");
+  }
   const forwardedProto = request.headers.get('x-forwarded-proto');
   const forwardedHost = request.headers.get('x-forwarded-host');
   if (forwardedProto && forwardedHost) {
@@ -365,5 +448,5 @@ function buildRequestOrigin(request: NextRequest): string {
     const proto = host.startsWith('localhost') ? 'http' : 'https';
     return `${proto}://${host}`;
   }
-  return 'http://localhost:3000';
+  throw new Error('MISSING_PUBLIC_BASE_URL');
 }

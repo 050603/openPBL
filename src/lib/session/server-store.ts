@@ -1,3 +1,11 @@
+// Server-side session store.
+//
+// When DATABASE_URL is configured, delegates to the PostgreSQL repository
+// (src/lib/db/session-repository.ts) for persistence and concurrency control.
+// When DATABASE_URL is missing (demo mode), falls back to the JSON file store
+// with the original process-level promise chain. A startup warning is logged
+// so operators know to migrate.
+
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -5,11 +13,80 @@ import path from "node:path";
 import { applySessionAction, initialSessionState } from "./actions";
 import type { SessionAction, SessionState } from "./actions";
 import type { Course } from "./types";
+import { isDatabaseConfigured } from "@/lib/db/client";
+import {
+  loadSessionState as dbLoadSessionState,
+  loadCourse as dbLoadCourse,
+  saveCourse as dbSaveCourse,
+  deleteCourse as dbDeleteCourse,
+  dispatchAction as dbDispatchAction,
+  updateCourse as dbUpdateCourse,
+} from "@/lib/db/session-repository";
+import { buildPatch } from "@/lib/realtime/patch-builder";
+import { publishCourseEvent } from "@/lib/realtime/event-bus";
+import { getWebSocketServer } from "@/lib/realtime/websocket-server";
+
+/**
+ * Push a realtime event for the given action's courseId, but only when the
+ * WebSocket server is actually running. Avoids needless event-bus work in
+ * demo/standalone mode where no clients are listening.
+ */
+function maybePublishRealtimePatch(
+  before: SessionState,
+  after: SessionState,
+  action: SessionAction,
+): void {
+  if (!getWebSocketServer()) return;
+  try {
+    const patch = buildPatch(before, after, action);
+    if (!patch.courseId || patch.events.length === 0) return;
+    for (const event of patch.events) {
+      publishCourseEvent(patch.courseId, event);
+    }
+  } catch (err) {
+    // Realtime publishing must never break the persistence flow.
+    console.error("[server-store] realtime publish failed:", err);
+  }
+}
+
+/**
+ * Variant of the above for `updateCourse` callers: we don't have a
+ * SessionAction here, so we synthesise a generic course-updated event.
+ */
+function maybePublishCourseUpdated(
+  courseId: string,
+  updatedAt: string,
+): void {
+  if (!getWebSocketServer()) return;
+  if (!courseId) return;
+  try {
+    publishCourseEvent(courseId, {
+      type: "course-updated",
+      courseId,
+      at: updatedAt,
+    });
+  } catch (err) {
+    console.error("[server-store] realtime publish failed:", err);
+  }
+}
 
 const DATA_DIR = path.join(process.cwd(), ".openpbl-data");
 const SESSION_FILE = path.join(DATA_DIR, "session.json");
 const WRITE_RETRIES = 6;
 const WRITE_RETRY_DELAY_MS = 80;
+
+let databaseModeWarned = false;
+
+function warnIfDemoMode() {
+  if (!isDatabaseConfigured() && !databaseModeWarned) {
+    console.warn(
+      "[server-store] DATABASE_URL not configured — falling back to JSON file store. " +
+        "This is fine for local development but not for production. " +
+        "Run `pnpm db:migrate-from-json` to migrate to PostgreSQL.",
+    );
+    databaseModeWarned = true;
+  }
+}
 
 async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
@@ -24,11 +101,11 @@ function emptyPersistedState(): SessionState {
   };
 }
 
-// Read the persisted session state.
-// If the file is missing we initialise an empty real state. Corrupt or
-// repeatedly unreadable data is surfaced as an error instead of being replaced
-// with demo content.
-export async function readSessionState(): Promise<SessionState> {
+// ---------------------------------------------------------------------------
+// JSON file implementation (demo mode fallback)
+// ---------------------------------------------------------------------------
+
+async function readJsonState(): Promise<SessionState> {
   await ensureDataDir();
 
   const MAX_RETRIES = 5;
@@ -37,6 +114,10 @@ export async function readSessionState(): Promise<SessionState> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const raw = await readFile(SESSION_FILE, "utf8");
+      // Detect the post-migration marker file — treat as empty state
+      if (raw.trim().startsWith("{") && raw.includes('"migrated": true')) {
+        return emptyPersistedState();
+      }
       const parsed = JSON.parse(raw) as SessionState;
       return {
         ...emptyPersistedState(),
@@ -45,19 +126,16 @@ export async function readSessionState(): Promise<SessionState> {
         courses: parsed.courses ?? [],
       };
     } catch (err) {
-      // If the file simply does not exist yet, initialise it without demo data.
       if (!existsSync(SESSION_FILE)) {
         const initial = emptyPersistedState();
-        await writeSessionState(initial);
+        await writeJsonState(initial);
         return initial;
       }
-      // Transient failure (file locked mid-write on Windows, partial JSON
-      // from a concurrent rename, etc.) - wait briefly and retry.
       if (attempt < MAX_RETRIES - 1) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
         continue;
       }
-      console.error("[server-store] readSessionState exhausted retries:", err);
+      console.error("[server-store] readJsonState exhausted retries:", err);
       throw err;
     }
   }
@@ -65,15 +143,13 @@ export async function readSessionState(): Promise<SessionState> {
   return emptyPersistedState();
 }
 
-// Atomically write the session state.
-// Writes to a temp file first, then renames it to the final path.
-// This prevents concurrent readers from seeing a half-written file
-// (which previously caused JSON parse errors and seed-state fallback
-// leading to loss of all real course data).
-export async function writeSessionState(state: SessionState): Promise<void> {
+async function writeJsonState(state: SessionState): Promise<void> {
   await ensureDataDir();
   const payload = JSON.stringify({ ...state, hydrated: true }, null, 2);
-  const tmpFile = path.join(DATA_DIR, `session.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+  const tmpFile = path.join(
+    DATA_DIR,
+    `session.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
+  );
 
   try {
     await writeFile(tmpFile, payload, "utf8");
@@ -93,47 +169,79 @@ export async function writeSessionState(state: SessionState): Promise<void> {
   }
 }
 
-// Process a session action.
-// Actions are serialized through a promise chain so that rapid
-// consecutive commits (e.g. a student submission triggers
-// upsertSubmission + addActivity + updateStudentProgress in the same
-// tick) are applied to the file one-at-a-time. Without this, concurrent
-// reads/writes caused the server to lose data or fall back to seed
-// state, which made courses disappear.
+// Process-level promise chain for serialising JSON file writes.
 let actionChain: Promise<unknown> = Promise.resolve();
 
-export async function dispatchSessionAction(action: SessionAction): Promise<SessionState> {
+// ---------------------------------------------------------------------------
+// Public API — transparently routes to DB or JSON file
+// ---------------------------------------------------------------------------
+
+export async function readSessionState(): Promise<SessionState> {
+  if (isDatabaseConfigured()) {
+    return dbLoadSessionState();
+  }
+  warnIfDemoMode();
+  return readJsonState();
+}
+
+export async function writeSessionState(state: SessionState): Promise<void> {
+  if (isDatabaseConfigured()) {
+    // Persistence happens via saveCourse in dispatchAction / updateCourse.
+    // Direct full-state writes are not supported in DB mode — calling this
+    // is a no-op (the assumption is that dispatchAction or updateCourse was
+    // already called to mutate state).
+    return;
+  }
+  warnIfDemoMode();
+  await writeJsonState(state);
+}
+
+export async function dispatchSessionAction(
+  action: SessionAction,
+): Promise<SessionState> {
+  if (isDatabaseConfigured()) {
+    const before = await dbLoadSessionState();
+    const after = await dbDispatchAction(action);
+    maybePublishRealtimePatch(before, after, action);
+    return after;
+  }
+  warnIfDemoMode();
+
   const run = async (): Promise<SessionState> => {
-    const current = await readSessionState();
+    const current = await readJsonState();
     const next = applySessionAction(current, action);
-    await writeSessionState(next);
+    await writeJsonState(next);
+    maybePublishRealtimePatch(current, next, action);
     return next;
   };
 
-  // Chain this action after the previous one. If the previous action
-  // failed, we still proceed (the catch on the chain prevents one
-  // failure from blocking all subsequent actions).
   const result = actionChain.then(run);
   actionChain = result.catch(() => undefined);
   return result;
 }
 
-// Read a single course by id.
 export async function getCourse(courseId: string): Promise<Course | undefined> {
-  const state = await readSessionState();
+  if (isDatabaseConfigured()) {
+    return dbLoadCourse(courseId);
+  }
+  warnIfDemoMode();
+  const state = await readJsonState();
   return state.courses.find((c) => c.id === courseId);
 }
 
-// Update a single course via an updater function.
-// Chained onto the same actionChain so commits are serialized with
-// other dispatchSessionAction calls (prevents lost updates on rapid
-// consecutive writes).
 export async function updateCourse(
   courseId: string,
   updater: (course: Course) => Course,
 ): Promise<SessionState> {
+  if (isDatabaseConfigured()) {
+    const after = await dbUpdateCourse(courseId, updater);
+    maybePublishCourseUpdated(courseId, after.updatedAt ?? new Date().toISOString());
+    return after;
+  }
+  warnIfDemoMode();
+
   const run = async (): Promise<SessionState> => {
-    const current = await readSessionState();
+    const current = await readJsonState();
     const courses = current.courses.map((c) =>
       c.id === courseId ? updater(c) : c,
     );
@@ -142,10 +250,22 @@ export async function updateCourse(
       courses,
       updatedAt: new Date().toISOString(),
     };
-    await writeSessionState(next);
+    await writeJsonState(next);
+    maybePublishCourseUpdated(courseId, next.updatedAt ?? new Date().toISOString());
     return next;
   };
   const result = actionChain.then(run);
   actionChain = result.catch(() => undefined);
   return result;
 }
+
+// Re-export DB-specific operations for callers that need them directly
+// (e.g. course restart flow in stage 2).
+export {
+  dbSaveCourse as saveCourseToDb,
+  dbDeleteCourse as deleteCourseFromDb,
+  dbLoadCourse as loadCourseFromDb,
+  dbLoadSessionState as loadSessionStateFromDb,
+  dbDispatchAction as dispatchActionToDb,
+  dbUpdateCourse as updateCourseInDb,
+};

@@ -1086,6 +1086,48 @@ export type SessionSnapshot = {
   updatedAt: string;
 };
 
+// ============================================================================
+// CourseSession — archived historical teaching session (Stage 2: RESTART_TEACHING)
+// ============================================================================
+
+export type ArchivedCourseData = {
+  students?: Student[];
+  submissions?: ClassroomSubmission[];
+  feedback?: TeacherFeedback[];
+  rubricScores?: RubricScore[];
+  reflections?: ReflectionRecord[];
+  activityLog?: ActivityRecord[];
+  groups?: ProjectGroup[];
+  workPlan?: WorkPlanItem[];
+  whiteboard?: WhiteboardNode[];
+  groupAnnouncements?: GroupAnnouncement[];
+  boards?: GroupBoard[];
+  uploads?: CourseUpload[];
+  teamContributions?: TeamContribution[];
+  aiSupports?: AiSupportRecord[];
+  teacherInterventions?: TeacherIntervention[];
+  learningSignals?: LearningSignal[];
+  classCommonIssues?: ClassCommonIssue[];
+  teacherAgentDirectives?: TeacherAgentDirective[];
+  offlineInterventions?: OfflineInterventionRecord[];
+  companionThreads?: CompanionThread[];
+  stageTransitions?: StageTransitionRecord[];
+  evaluations?: EvaluationRecord[];
+  learningEvents?: LearningEvent[];
+};
+
+export type CourseSession = {
+  id: string;
+  courseId: string;
+  inviteCode: string;
+  startedAt: string;
+  endedAt: string;
+  archivedData: ArchivedCourseData;
+  studentCount: number;
+  submissionCount: number;
+  createdAt: string;
+};
+
 export type AiProviderSettings = {
   endpoint: string;
   model: string;

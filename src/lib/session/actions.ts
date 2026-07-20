@@ -56,6 +56,10 @@ export type SessionAction =
       payload: { id: string; classConfig: ClassConfig; inviteCode: string };
     }
   | { type: "END_TEACHING"; payload: { id: string } }
+  | {
+      type: "RESTART_TEACHING";
+      payload: { id: string; newInviteCode: string; classConfig?: ClassConfig };
+    }
   | { type: "ADVANCE_STAGE"; payload: { id: string; direction: 1 | -1 } }
   | { type: "SET_STAGE"; payload: { id: string; index: number } }
   | { type: "JOIN_CLASS"; payload: { courseId: string; student: Student } }
@@ -227,6 +231,57 @@ export function applySessionAction(
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
         },
+        updatedAt: touchedAt,
+      });
+    }
+    case "RESTART_TEACHING": {
+      const { id, newInviteCode, classConfig } = action.payload;
+      const course = state.courses.find((item) => item.id === id);
+      if (!course) return state;
+      return updateCourse(state, id, {
+        status: "teaching",
+        inviteCode: newInviteCode,
+        currentStageIndex: 0,
+        presentingGroupId: undefined,
+        // Clear classroom data. In DB mode, archiveAndClearCourseSession has
+        // already cleared child tables; this reducer keeps the in-memory state
+        // consistent and handles JSON-file (demo) mode where no archiving runs.
+        students: [],
+        submissions: [],
+        feedback: [],
+        rubricScores: [],
+        reflections: [],
+        activityLog: [],
+        groups: [],
+        groupAnnouncements: [],
+        workPlan: [],
+        whiteboard: [],
+        boards: [],
+        uploads: [],
+        teamContributions: [],
+        aiSupports: [],
+        teacherInterventions: [],
+        resolvedInterventionSignalIds: [],
+        stageTransitions: [],
+        evaluations: [],
+        learningEvents: [],
+        companionThreads: [],
+        companionTasks: [],
+        companionConfirmations: [],
+        companionProcessRecords: [],
+        learningSignals: [],
+        classCommonIssues: [],
+        teacherAgentDirectives: [],
+        offlineInterventions: [],
+        dynamicFacilitationScaffolds: [],
+        aiLearningProgress: undefined,
+        uiState: {
+          ...(course.uiState ?? {}),
+          teacherResourceProjection: null,
+        },
+        // Preserve course resources: content, stages, pblConfig,
+        // stageWorkspacePolicies, coverImageUrl, etc.
+        ...(classConfig ? { classConfig } : {}),
         updatedAt: touchedAt,
       });
     }

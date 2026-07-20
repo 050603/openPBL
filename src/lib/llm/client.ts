@@ -12,6 +12,15 @@ import {
 } from "./prompts";
 import type { GenerateInput, LlmCallRequest, LlmCallResponse } from "./types";
 import { LlmNotConfiguredError } from "./types";
+import {
+  LlmCallFailedError,
+  LlmEmptyResponseError,
+  LlmJsonModeUnsupportedError,
+  LlmOutputIncompleteError,
+  LlmRateLimitError,
+  LlmStreamCorruptedError,
+  LlmTimeoutError,
+} from "./errors";
 import type {
   CourseContent,
   EvaluationPlan,
@@ -49,17 +58,12 @@ export async function isActiveLlmConfigured(): Promise<boolean> {
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const LLM_REQUEST_TIMEOUT_MS = 60_000;
+const MAX_MALFORMED_STREAM_CHUNKS = 5;
 let llmCooldownUntil = 0;
 
-export class LlmRateLimitError extends Error {
-  readonly retryAfterMs: number;
-
-  constructor(retryAfterMs: number, detail = "") {
-    super(`LLM 调用触发限流，${Math.ceil(retryAfterMs / 1000)} 秒后再试${detail ? `：${detail}` : ""}`);
-    this.name = "LlmRateLimitError";
-    this.retryAfterMs = retryAfterMs;
-  }
-}
+// Re-export for backward compatibility — LlmRateLimitError used to live here.
+export { LlmRateLimitError } from "./errors";
 
 export function isLlmCoolingDown(): boolean {
   return Date.now() < llmCooldownUntil;
@@ -73,6 +77,32 @@ function setRateLimitCooldown(res: Response, detail = ""): LlmRateLimitError {
     : DEFAULT_RATE_LIMIT_COOLDOWN_MS;
   llmCooldownUntil = Math.max(llmCooldownUntil, Date.now() + retryAfterMs);
   return new LlmRateLimitError(retryAfterMs, detail);
+}
+
+/**
+ * Combine a caller-provided abort signal with a 60s timeout. Returns the
+ * combined signal plus the timeout signal so callers can distinguish a
+ * timeout-driven abort from a caller-driven abort and throw the more
+ * specific `LlmTimeoutError`.
+ */
+function withTimeout(callerSignal: AbortSignal | undefined): {
+  signal: AbortSignal;
+  timeoutSignal: AbortSignal;
+} {
+  const timeoutSignal = AbortSignal.timeout(LLM_REQUEST_TIMEOUT_MS);
+  const signal = AbortSignal.any([callerSignal ?? new AbortController().signal, timeoutSignal]);
+  return { signal, timeoutSignal };
+}
+
+/**
+ * Summarize an upstream error body to a short, log-safe string. The full
+ * body is intentionally discarded so `LlmCallFailedError` never carries
+ * raw upstream payloads through logs or SSE events.
+ */
+function summarizeUpstream(body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return "";
+  return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
 }
 
 export async function callLLM(
@@ -100,42 +130,60 @@ export async function* callLLMStream(
   const settings = await getActiveAiSettings();
   const endpoint = settings.endpoint || env("OPENPBL_LLM_ENDPOINT");
   const apiKey = settings.apiKey || env("OPENPBL_LLM_API_KEY");
-  const model = settings.model || env("OPENPBL_LLM_MODEL") || "gpt-5.4-mini";
+  const model = settings.model || env("OPENPBL_LLM_MODEL");
 
-  if (!endpoint || !apiKey) throw new LlmNotConfiguredError();
+  if (!endpoint || !apiKey || !model) throw new LlmNotConfiguredError();
 
   const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
+  const { signal, timeoutSignal } = withTimeout(opts.abortSignal);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.5,
-      stream: true,
-    }),
-    signal: opts.abortSignal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.5,
+        stream: true,
+      }),
+      signal,
+    });
+  } catch (err) {
+    if (timeoutSignal.aborted) throw new LlmTimeoutError(LLM_REQUEST_TIMEOUT_MS);
+    throw err;
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     if (res.status === 429) throw setRateLimitCooldown(res, text);
-    throw new Error(`LLM 调用失败：${res.status} ${text}`);
+    throw new LlmCallFailedError(`LLM 调用失败：${res.status}`, {
+      status: res.status,
+      upstreamSummary: summarizeUpstream(text),
+    });
   }
 
   const reader = res.body?.getReader();
-  if (!reader) throw new Error("LLM 流式响应为空");
+  if (!reader) throw new LlmEmptyResponseError();
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let malformedChunkCount = 0;
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await reader.read();
+      } catch (err) {
+        if (timeoutSignal.aborted) throw new LlmTimeoutError(LLM_REQUEST_TIMEOUT_MS);
+        throw err;
+      }
+      const { done, value } = readResult;
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -155,7 +203,18 @@ export async function* callLLMStream(
           const delta = parsed.choices?.[0]?.delta?.content;
           if (delta) yield delta;
         } catch {
-          // Skip malformed chunks
+          // Record malformed chunk instead of silently skipping. Once the
+          // stream exceeds the malformed-chunk budget the response is
+          // considered corrupted and we abort so the caller can surface a
+          // targeted error rather than silently producing partial output.
+          malformedChunkCount += 1;
+          const preview = data.length > 200 ? `${data.slice(0, 200)}…` : data;
+          console.warn(
+            `[LLM] Malformed stream chunk (${malformedChunkCount}/${MAX_MALFORMED_STREAM_CHUNKS}): ${preview}`,
+          );
+          if (malformedChunkCount > MAX_MALFORMED_STREAM_CHUNKS) {
+            throw new LlmStreamCorruptedError(malformedChunkCount);
+          }
         }
       }
     }
@@ -187,11 +246,12 @@ async function callChatCompletions(
   const settings = await getActiveAiSettings();
   const endpoint = settings.endpoint || env("OPENPBL_LLM_ENDPOINT");
   const apiKey = settings.apiKey || env("OPENPBL_LLM_API_KEY");
-  const model = settings.model || env("OPENPBL_LLM_MODEL") || "gpt-5.4-mini";
+  const model = settings.model || env("OPENPBL_LLM_MODEL");
 
-  if (!endpoint || !apiKey) throw new LlmNotConfiguredError();
+  if (!endpoint || !apiKey || !model) throw new LlmNotConfiguredError();
 
   const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
+  const { signal, timeoutSignal } = withTimeout(opts.abortSignal);
 
   async function doFetch(useJsonMode: boolean): Promise<Response> {
     return fetch(url, {
@@ -206,34 +266,42 @@ async function callChatCompletions(
         temperature: 0.5,
         ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
-      signal: opts.abortSignal,
+      signal,
     });
   }
 
-  let res = await doFetch(opts.jsonMode);
-
-  if (!res.ok && opts.jsonMode) {
-    const errText = await res.text().catch(() => "");
-    if (
-      res.status === 400 ||
-      errText.toLowerCase().includes("response_format") ||
-      errText.toLowerCase().includes("unsupported")
-    ) {
-      res = await doFetch(false);
-    }
+  let res: Response;
+  try {
+    res = await doFetch(opts.jsonMode);
+  } catch (err) {
+    if (timeoutSignal.aborted) throw new LlmTimeoutError(LLM_REQUEST_TIMEOUT_MS);
+    throw err;
   }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // Identify JSON-mode-unsupported responses and surface them as a
+    // dedicated error instead of silently retrying in plain mode.
+    if (
+      opts.jsonMode &&
+      (res.status === 400 ||
+        text.toLowerCase().includes("response_format") ||
+        text.toLowerCase().includes("unsupported"))
+    ) {
+      throw new LlmJsonModeUnsupportedError(summarizeUpstream(text));
+    }
     if (res.status === 429) throw setRateLimitCooldown(res, text);
-    throw new Error(`LLM 调用失败：${res.status} ${text}`);
+    throw new LlmCallFailedError(`LLM 调用失败：${res.status}`, {
+      status: res.status,
+      upstreamSummary: summarizeUpstream(text),
+    });
   }
 
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
   const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("LLM 返回为空");
+  if (!content) throw new LlmEmptyResponseError();
   return content;
 }
 
@@ -642,7 +710,15 @@ function normalizeTeachingActivityKind(value: unknown): TeachingOutlineSection["
  * The six role fields are operationally required by the editor, so missing
  * fields receive explicit, editable defaults instead of aborting the whole
  * course generation request.
+ *
+ * Threshold: when a single section is missing more than 3 of its 6 role
+ * fields the AI output is considered structurally incomplete and we throw
+ * `LlmOutputIncompleteError` rather than silently filling >50% defaults.
+ * The transparent `normalizationNote` mechanism still covers the common
+ * 1–3 missing-fields case so teachers can review the auto-filled values.
  */
+const MISSING_FIELDS_THRESHOLD = 3;
+
 export function normalizeTeachingOutlineResponse(
   raw: unknown,
   input: GenerateInput,
@@ -696,6 +772,16 @@ export function normalizeTeachingOutlineResponse(
       ["studentActivity", "student_activity", "student", "studentTask", "studentAction", "studentTasks", "学生活动", "学习任务"],
       "studentActivity",
     ) || `学生围绕“${title}”完成任务并提交过程证据。`;
+
+    // Threshold check: surface a dedicated error when a section is missing
+    // more than 3 of its 6 role fields. The transparent `normalizationNote`
+    // path below still handles the common 1–3 missing-fields case.
+    if (missingFields.length > MISSING_FIELDS_THRESHOLD) {
+      throw new LlmOutputIncompleteError(
+        [...missingFields],
+        `第 ${index + 1} 个授课模块「${title}」`,
+      );
+    }
 
     const rawResources = firstValue(section, ["resourceTypes", "resource_types", "resources", "资源类型"]);
     const resourceTypes = stringListFromUnknown(rawResources).filter(

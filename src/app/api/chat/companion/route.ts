@@ -18,6 +18,14 @@ import { buildWorkspaceEditInstruction, extractWorkspacePatch, type CompanionWor
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type { CompanionTriggerKind } from "@/lib/session/types";
 import { aggregateCommonIssues } from "@/lib/learning-analytics/analyzer";
+import {
+  companionLimiter,
+  getClientIp,
+  rateLimitKey,
+  rateLimitedResponse,
+} from "@/lib/auth/rate-limit";
+import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
+import { isShuttingDown } from "@/lib/runtime/lifecycle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -141,6 +149,23 @@ ${recentHistory ? `最近对话：\n${recentHistory}` : ""}
 }
 
 export async function POST(req: NextRequest) {
+  // Reject new requests immediately during graceful shutdown (Stage 7).
+  if (isShuttingDown()) {
+    return Response.json(
+      { error: "SERVER_SHUTTING_DOWN", message: "服务器维护中,请稍后重试" },
+      { status: 503 },
+    );
+  }
+
+  // Stage 3: rate limit companion chat (10/min/user).
+  if (isAuthConfigured()) {
+    const claims = await readAuthFromRequest(req);
+    const ip = getClientIp(req);
+    const userKey = claims?.role === "student" ? claims.studentId : claims?.role === "teacher" ? claims.sub : ip;
+    const rl = companionLimiter.check(rateLimitKey(req, userKey));
+    if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
+  }
+
   let body: CompanionChatRequest;
   try {
     body = (await req.json()) as CompanionChatRequest;
@@ -258,6 +283,30 @@ export async function POST(req: NextRequest) {
 
   const write = (event: SSEEvent) => writer.write(encoder.encode(sseEncode(event)));
 
+  // Graceful shutdown (Stage 7): emit a dedicated `shutdown` SSE event so
+  // the client can surface "服务器维护中" and stop waiting. Uses the SSE
+  // `event:` field so it is distinguishable from regular `data:` events.
+  const writeShutdown = async (): Promise<void> => {
+    const payload = `event: shutdown\ndata: ${JSON.stringify({
+      reason: "server_shutting_down",
+      message: "服务器维护中,请稍后重试",
+    })}\n\n`;
+    try {
+      await writer.write(encoder.encode(payload));
+    } catch {
+      // writer already closed — nothing more we can do.
+    }
+  };
+
+  // Returns true when the process is shutting down. Callers should `return`
+  // from the IIFE immediately after a truthy result so the finally block can
+  // close the stream.
+  const checkShutdown = async (): Promise<boolean> => {
+    if (!isShuttingDown()) return false;
+    await writeShutdown();
+    return true;
+  };
+
   (async () => {
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     const startHeartbeat = () => {
@@ -283,6 +332,7 @@ export async function POST(req: NextRequest) {
       }));
 
       // === Step 1: Director 分析 ===
+      if (await checkShutdown()) return;
       await write({ type: "director_start" });
 
       const directorPrompt = buildDirectorPrompt({
@@ -323,14 +373,19 @@ export async function POST(req: NextRequest) {
           speakers: [...new Set(selectedSpeakers)].slice(0, maxSpeakersForTurn(body.trigger?.kind, body.message)),
           cueUser: Boolean(parsed.cueUser),
         };
-      } catch {
-        // Director 失败时降级：用第一个可用角色
-        directorResult = { speakers: [effectiveCompanionIds[0]], cueUser: false };
+      } catch (err) {
+        // Director LLM 失败不再降级到第一个 companion —— 直接抛错让外层
+        // 通过 SSE 推送 COMPANION_DIRECTOR_FAILED，前端展示明确提示。
+        if (signal.aborted) return;
+        if (await checkShutdown()) return;
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`COMPANION_DIRECTOR_FAILED: ${reason}`);
       }
 
       await write({ type: "director_result", speakers: directorResult.speakers });
 
       if (signal.aborted) return;
+      if (await checkShutdown()) return;
 
       // === Step 2: 依次让每个选中角色发言 ===
       const conversationHistory = [...authoritativeHistory, { role: "user" as const, content: body.message }];
@@ -339,6 +394,7 @@ export async function POST(req: NextRequest) {
 
       for (const [speakerIndex, companionId] of directorResult.speakers.entries()) {
         if (signal.aborted) return;
+        if (await checkShutdown()) return;
 
         const companion = getCompanion(companionId);
         if (speakerIndex === 0) await write({ type: "agent_start", companionId });
@@ -374,19 +430,18 @@ export async function POST(req: NextRequest) {
         try {
           for await (const delta of callLLMStream(agentMessages, { abortSignal: signal })) {
             if (signal.aborted) return;
+            if (await checkShutdown()) return;
             fullResponse += delta;
             // Buffer the complete reply so role/stage directions can be removed
             // before any text reaches the classroom or TTS queue.
           }
-        } catch {
-          // 单个角色流式失败时，用非流式降级
+        } catch (err) {
+          // 流式失败不再降级到非流式 + 占位文本 —— 直接抛错让外层通过 SSE
+          // 推送 COMPANION_GENERATION_FAILED，前端展示明确提示。
           if (signal.aborted) return;
-          try {
-            fullResponse = await callLLM(agentMessages, { abortSignal: signal });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            fullResponse = `（${companion.name}暂时无法回应：${msg}）`;
-          }
+          if (await checkShutdown()) return;
+          const reason = err instanceof Error ? err.message : String(err);
+          throw new Error(`COMPANION_GENERATION_FAILED: ${companion.name} 回复失败：${reason}`);
         }
 
         const workspaceResult = extractWorkspacePatch(fullResponse);
@@ -430,6 +485,7 @@ export async function POST(req: NextRequest) {
       }
 
       // === Step 3: 结束 ===
+      if (await checkShutdown()) return;
       if (directorResult.cueUser) {
         await write({ type: "cue_user" });
       } else {

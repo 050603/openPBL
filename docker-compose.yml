@@ -1,0 +1,99 @@
+# OpenPBL — full local/dev stack.
+#
+# Brings up the Next.js app, PostgreSQL, and Redis together with healthchecks
+# so `docker compose up` gives you a working environment. Production overrides
+# live in `docker-compose.prod.yml` (apply with `docker compose -f
+# docker-compose.yml -f docker-compose.prod.yml up`).
+#
+# Required environment (read from `.env.local` next to this file):
+#   - POSTGRES_PASSWORD  — password for the `openpbl` Postgres role.
+#   - DATABASE_URL       — `postgresql://openpbl:${POSTGRES_PASSWORD}@postgres:5432/openpbl`
+#   - REDIS_URL          — `redis://redis:6379`
+#   - JWT_SECRET         — long random string (use `openssl rand -base64 48`).
+#   - PUBLIC_BASE_URL    — e.g. `http://localhost:3000` for local dev.
+#   - WEBSOCKET_PORT     — defaults to 3001.
+#
+# Secrets must NOT be committed. The `.env.local` file is gitignored.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openpbl-app:latest
+    ports:
+      - "3000:3000"
+      # WebSocket server (Stage 4 realtime). Exposed for direct local testing;
+      # in production Nginx proxies /ws to this port (see docker-compose.prod.yml).
+      - "3001:3001"
+    env_file:
+      - .env.local
+    environment:
+      # Compose interpolates ${POSTGRES_PASSWORD} from the shell or .env file.
+      # We pin DATABASE_URL/REDIS_URL here so the app talks to the sibling
+      # services by their compose DNS names, regardless of what .env.local says.
+      DATABASE_URL: postgresql://openpbl:${POSTGRES_PASSWORD}@postgres:5432/openpbl
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Graceful shutdown budget. The app's SIGTERM handler (src/instrumentation.ts)
+    # drains connections within ~20s; 30s gives headroom for slow clients.
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
+    volumes:
+      # Persistent upload storage. The Dockerfile creates `.openpbl-data/uploads`
+      # owned by nextjs (uid 1001); this volume preserves uploads across
+      # container rebuilds.
+      - .openpbl-data:/app/.openpbl-data
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: openpbl
+      POSTGRES_USER: openpbl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openpbl -d openpbl"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    # Disable Redis persistence — the cache is ephemeral by design and we
+    # don't want to lose memory to AOF/RDB writes. Re-enable if you start
+    # using Redis for durable state.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  pgdata:
+    name: openpbl-pgdata

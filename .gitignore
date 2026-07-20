@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
+/playwright/.cache/
 
 # next.js
 /.next/
@@ -57,3 +60,6 @@ next-env.d.ts
 # backup files
 *.bak
 src/middleware-openmaic.ts.bak
+
+# database backups (Stage 11)
+/backups/

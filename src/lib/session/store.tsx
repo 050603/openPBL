@@ -97,6 +97,7 @@ type SessionApi = SessionState & {
   setCourseStages: (id: string, stages: Stage[]) => void;
   publishCourse: (id: string) => void;
   startTeaching: (id: string, classConfig: ClassConfig) => string;
+  restartTeaching: (id: string) => { inviteCode: string };
   endTeaching: (id: string) => void;
   advanceStage: (id: string, direction: 1 | -1) => void;
   setStage: (id: string, index: number) => void;
@@ -145,6 +146,10 @@ type SessionApi = SessionState & {
   findCourseByCode: (code: string) => Course | undefined;
   generateNewInviteCode: (id: string) => string;
   refresh: () => Promise<void>;
+  // Stage 4 realtime sync
+  connectWebSocket: (courseId: string | undefined) => void;
+  disconnectWebSocket: () => void;
+  realtimeMode: "websocket" | "polling";
 };
 
 const SessionContext = createContext<SessionApi | null>(null);
@@ -199,6 +204,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // (when pending drops to 0) triggers a HYDRATE; intermediate responses
   // are ignored so they can't overwrite newer local optimistic state.
   const pendingCommitsRef = useRef(0);
+  // Tracks the most recent course.updatedAt we've seen from the server, so
+  // the long-polling fallback can skip HYDRATE when nothing changed (Stage 4).
+  const lastSeenUpdatedAtRef = useRef<string | undefined>(undefined);
+  // WebSocket connection state (Stage 4 realtime sync).
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsFailureCountRef = useRef(0);
+  const wsModeRef = useRef<"websocket" | "polling">("polling");
+  const [realtimeMode, setRealtimeMode] = useState<"websocket" | "polling">("polling");
 
   useEffect(() => {
     stateRef.current = state;
@@ -280,6 +293,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (pendingCommitsRef.current > 0) return;
     try {
       const next = applyIdentity(await fetchSession());
+      // Long-polling optimisation (Stage 4): skip HYDRATE if nothing changed.
+      // When WebSocket is connected, we rely on patch-driven refreshes; the
+      // 5s long-poll is only a fallback and shouldn't churn the UI.
+      if (
+        wsModeRef.current === "polling" &&
+        lastSeenUpdatedAtRef.current &&
+        next.updatedAt === lastSeenUpdatedAtRef.current
+      ) {
+        return;
+      }
+      lastSeenUpdatedAtRef.current = next.updatedAt;
       dispatch({ type: "HYDRATE", payload: next });
     } catch (error) {
       console.error("[session] Failed to fetch session state:", error);
@@ -352,12 +376,143 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // ---- Stage 4: WebSocket realtime sync ----
+  // The WebSocket server runs on a separate port (default 3001). Clients
+  // try to connect once on mount; on 5 consecutive failures they give up
+  // and stay on the 5s long-polling fallback indefinitely. The first
+  // successful connection switches wsModeRef to "websocket" and stops the
+  // 1.5s polling churn — patches pushed by the server trigger refresh()
+  // on demand, so polling becomes unnecessary.
+  const WS_FAILURE_THRESHOLD = 5;
+  const WS_PORT = Number(process.env.NEXT_PUBLIC_WEBSOCKET_PORT ?? "3001");
+  const WS_PROTOCOL = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+  const WS_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
+
+  function teardownWebSocket() {
+    const ws = wsRef.current;
+    if (!ws) return;
+    try {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+      ws.onopen = null;
+      ws.close();
+    } catch {
+      /* noop */
+    }
+    wsRef.current = null;
+  }
+
+  function switchToPolling() {
+    if (wsModeRef.current !== "polling") {
+      wsModeRef.current = "polling";
+      setRealtimeMode("polling");
+    }
+    teardownWebSocket();
+  }
+
+  function connectWebSocket(courseId: string | undefined) {
+    if (typeof window === "undefined") return;
+    // Already connected — just re-subscribe by sending a new subscribe msg.
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: "subscribe", courseId }));
+      } catch {
+        /* noop */
+      }
+      return;
+    }
+    // Tear down any half-open socket before retrying.
+    teardownWebSocket();
+
+    let url: string;
+    try {
+      url = `${WS_PROTOCOL}//${WS_HOST}:${WS_PORT}`;
+    } catch {
+      return;
+    }
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      console.warn("[session] WebSocket construction failed:", err);
+      wsFailureCountRef.current++;
+      if (wsFailureCountRef.current >= WS_FAILURE_THRESHOLD) {
+        switchToPolling();
+      }
+      return;
+    }
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      wsFailureCountRef.current = 0;
+      try {
+        ws.send(JSON.stringify({ type: "subscribe", courseId }));
+      } catch {
+        /* noop */
+      }
+      if (wsModeRef.current !== "websocket") {
+        wsModeRef.current = "websocket";
+        setRealtimeMode("websocket");
+      }
+    };
+
+    ws.onmessage = (event) => {
+      // Simplified patch application: any patch event triggers a full
+      // refresh from /api/session. This trades the bandwidth savings of
+      // pure incremental patches for simplicity and correctness.
+      try {
+        const data = event.data as unknown;
+        if (typeof data === "string") {
+          const parsed = JSON.parse(data) as { type?: string };
+          if (parsed.type === "patch" || parsed.type === "subscribed") {
+            void refresh();
+          }
+        }
+      } catch {
+        /* noop */
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.warn("[session] WebSocket error:", err);
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      wsFailureCountRef.current++;
+      if (wsFailureCountRef.current >= WS_FAILURE_THRESHOLD) {
+        switchToPolling();
+      }
+    };
+  }
+
   useEffect(() => {
     void refresh();
+    // 5s long-poll fallback (was 1.5s pre-Stage-4). When WebSocket is
+    // connected, refresh() is still safe to call — it's a no-op when
+    // updatedAt hasn't changed.
     const id = window.setInterval(() => {
       if (pollingRef.current) void refresh();
-    }, 1500);
+    }, 5000);
     return () => window.clearInterval(id);
+  }, []);
+
+  // Auto-connect to the WebSocket server on mount, and re-subscribe when
+  // the joined course changes. Connections fail silently — the 5s polling
+  // fallback in the effect above keeps the UI fresh regardless.
+  useEffect(() => {
+    connectWebSocket(state.joinedCourseId);
+    return () => {
+      teardownWebSocket();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.joinedCourseId]);
+
+  // Tear down WebSocket on unmount.
+  useEffect(() => {
+    return () => teardownWebSocket();
   }, []);
 
   useEffect(() => {
@@ -490,6 +645,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           payload: { id, classConfig, inviteCode: code },
         });
         return code;
+      },
+      restartTeaching(id) {
+        const newInviteCode = generateInviteCode(6);
+        commit({
+          type: "RESTART_TEACHING",
+          payload: { id, newInviteCode },
+        });
+        return { inviteCode: newInviteCode };
       },
       endTeaching(id) {
         commit({ type: "END_TEACHING", payload: { id } });
@@ -1048,8 +1211,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return code;
       },
       refresh,
+      connectWebSocket,
+      disconnectWebSocket: teardownWebSocket,
+      realtimeMode,
     };
-  }, [state, saveState, lastSavedAt, saveError]);
+  }, [state, saveState, lastSavedAt, saveError, realtimeMode]);
 
   return <SessionContext.Provider value={api}>{children}</SessionContext.Provider>;
 }

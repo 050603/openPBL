@@ -7,7 +7,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
+  History,
   PlayCircle,
+  RefreshCw,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -20,12 +22,13 @@ import { isStudentOnline } from "@/lib/session/actions";
 export default function TeachSetupPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, startTeaching, generateNewInviteCode } = useSession();
+  const { user, startTeaching, generateNewInviteCode, restartTeaching } = useSession();
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
 
   const existing = course?.classConfig;
   const [totalStudents, setTotalStudents] = useState<number>(existing?.totalStudents ?? 32);
+  const [restarting, setRestarting] = useState(false);
 
   // ===== Online status: recompute every 5s =====
   // isStudentOnline compares lastSeenAt against current time; re-render
@@ -78,6 +81,27 @@ export default function TeachSetupPage() {
     });
     router.push(`/teacher/teach/${course.id}/classroom`);
     return code;
+  }
+
+  function handleRestart() {
+    if (!course) return;
+    const hasClassroomData =
+      (course.students?.length ?? 0) > 0 ||
+      (course.submissions?.length ?? 0) > 0 ||
+      (course.groups?.length ?? 0) > 0 ||
+      course.status === "teaching" ||
+      course.status === "finished";
+    const message = hasClassroomData
+      ? "此操作将归档当前所有课堂数据(学生、提交、反馈等)到历史记录,并生成新邀请码。旧邀请码将失效。确定继续吗?"
+      : "此操作将生成新邀请码并开始授课。确定继续吗?";
+    if (!window.confirm(message)) return;
+    setRestarting(true);
+    try {
+      restartTeaching(course.id);
+      router.refresh();
+    } finally {
+      setRestarting(false);
+    }
   }
 
   return (
@@ -248,6 +272,31 @@ export default function TeachSetupPage() {
                 : "点击开始上课后，邀请码将激活，学生可加入"}
             </p>
           </Card>
+
+          {(isTeaching || course.status === "finished") && (
+            <Card>
+              <h2 className="text-lg font-bold">重开课与历史记录</h2>
+              <p className="mt-2 text-sm leading-6 text-stone-600">
+                重开课会归档当前所有课堂数据(学生、提交、反馈等)到历史记录,生成新邀请码,旧邀请码将失效。课程资源(大纲、AI 生成内容)保持不变,可直接重新授课。
+              </p>
+              <button
+                className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-[6px] border border-amber-300 bg-amber-50 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={restarting}
+                onClick={handleRestart}
+                type="button"
+              >
+                <RefreshCw size={16} className={restarting ? "animate-spin" : ""} />
+                {restarting ? "正在重开课…" : "重开课(归档当前数据)"}
+              </button>
+              <Link
+                className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-[6px] border border-stone-200 bg-white text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+                href={`/teacher/teach/${course.id}/history`}
+              >
+                <History size={16} />
+                查看历史开课记录
+              </Link>
+            </Card>
+          )}
         </aside>
       </div>
     </DashboardShell>

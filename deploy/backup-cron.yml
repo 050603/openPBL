@@ -1,0 +1,104 @@
+# Kubernetes CronJob: openPBL 数据库每日备份
+#
+# 调度策略:
+#   - 每天 02:00(Asia/Shanghai)执行全量备份
+#   - 使用 spec.timeZone 直接以上海时区解释 cron 表达式
+#   - 备份保留 7 天(在容器内通过 find 删除过期文件)
+#
+# 部署前置条件:
+#   1. 创建持久化存储声明(PVC)openpbl-backups-pvc,用于 /backups 目录
+#      示例:
+#        apiVersion: v1
+#        kind: PersistentVolumeClaim
+#        metadata:
+#          name: openpbl-backups-pvc
+#        spec:
+#          accessModes: ["ReadWriteOnce"]
+#          resources:
+#            requests:
+#              storage: 50Gi
+#   2. 创建 Secret openpbl-secrets,包含 key: database-url
+#      示例:
+#        kubectl create secret generic openpbl-secrets \
+#          --from-literal=database-url='postgresql://user:pass@host:5432/openpbl'
+#   3. 确保运行节点能拉取 postgres:16-alpine 镜像
+#
+# 应用:
+#   kubectl apply -f deploy/backup-cron.yml
+#
+# 查看:
+#   kubectl get cronjob openpbl-db-backup
+#   kubectl get jobs -l app=openpbl-db-backup
+#   kubectl logs -l app=openpbl-db-backup --tail=200
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openpbl-db-backup
+  labels:
+    app: openpbl
+    component: db-backup
+spec:
+  # 每天 02:00 北京时间
+  schedule: "0 2 * * *"
+  timeZone: Asia/Shanghai
+  # 若上一次任务仍在运行,跳过本次
+  concurrencyPolicy: Forbid
+  # 保留最近 3 次成功的 Job 记录,失败保留 3 次
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: openpbl-db-backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -c
+              args:
+                - |
+                  set -euo pipefail
+                  TS=$(date +%Y%m%d-%H%M%S)
+                  OUT="/backups/openpbl-${TS}.backup"
+                  echo "[backup] start at $(date -Iseconds)"
+                  echo "[backup] target: ${DATABASE_URL%%@*}@***"
+                  pg_dump "$DATABASE_URL" \
+                    --format=custom \
+                    --compress=9 \
+                    --file="$OUT"
+                  SIZE=$(stat -c %s "$OUT" 2>/dev/null || stat -f %z "$OUT")
+                  echo "[backup] completed: $OUT ($SIZE bytes)"
+                  # 清理超过 7 天的本地备份
+                  find /backups -name "openpbl-*.backup" -mtime +7 -print -delete
+                  echo "[backup] cleanup done at $(date -Iseconds)"
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: openpbl-secrets
+                      key: database-url
+                # 显式设置时区,确保 date 命令输出北京时间
+                - name: TZ
+                  value: Asia/Shanghai
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: openpbl-backups-pvc
