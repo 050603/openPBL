@@ -103,6 +103,7 @@ export async function POST(req: Request) {
     return Response.json(state);
   } catch (err) {
     const message = err instanceof Error ? err.message : "处理失败";
+    console.error("[session/actions] dispatch failed:", message);
     return Response.json(
       { error: "ACTION_FAILED", message },
       { status: 500 },

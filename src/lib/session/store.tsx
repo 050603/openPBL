@@ -176,7 +176,14 @@ function makeEmptyHydratedState(): SessionState {
 
 async function fetchSession(): Promise<SessionState> {
   const res = await fetch("/api/session", { cache: "no-store" });
-  if (!res.ok) throw new Error("SESSION_FETCH_FAILED");
+  if (!res.ok) {
+    // 401 表示未登录——在公开页面（首页、登录页）轮询时属正常情况，
+    // 不应作为错误抛出，避免每 5 秒弹出"无法读取课堂数据"提示。
+    if (res.status === 401) {
+      throw new Error("SESSION_UNAUTHORIZED");
+    }
+    throw new Error("SESSION_FETCH_FAILED");
+  }
   const state = (await res.json()) as SessionState;
   return { ...state, hydrated: true };
 }
@@ -306,8 +313,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       lastSeenUpdatedAtRef.current = next.updatedAt;
       dispatch({ type: "HYDRATE", payload: next });
     } catch (error) {
-      console.error("[session] Failed to fetch session state:", error);
-      toast.error("无法读取课堂数据", { id: "session-read-error", description: "请检查会话接口或服务器数据文件后重试。" });
+      // 401（未登录）在公开页面轮询时属正常情况，静默处理不弹提示。
+      // 仅对真正的服务器错误（500 等）弹出错误提示。
+      const isUnauthorized = error instanceof Error && error.message === "SESSION_UNAUTHORIZED";
+      if (!isUnauthorized) {
+        console.error("[session] Failed to fetch session state:", error);
+        toast.error("无法读取课堂数据", { id: "session-read-error", description: "请检查会话接口或服务器数据文件后重试。" });
+      }
       if (!stateRef.current.hydrated) {
         dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
       }
@@ -1244,23 +1256,25 @@ export function useHydrated(): boolean {
 }
 
 function defaultTodos(): CourseTodo[] {
+  // CourseTodo.id 是全局主键（@id），不能跨课程重复。
+  // 使用 makeRecordId 生成唯一 ID，避免创建第二个课程时触发 P2002 唯一约束冲突。
   return [
     {
-      id: "todo-read-brief",
+      id: makeRecordId("todo-read-brief"),
       title: "阅读项目说明",
       description: "了解项目背景、目标与成果要求。",
       stageKey: "launch",
       completedBy: [],
     },
     {
-      id: "todo-join-group",
+      id: makeRecordId("todo-join-group"),
       title: "确认个人项目空间",
       description: "确认系统已建立个人项目与 AI 伴学小组。",
       stageKey: "launch",
       completedBy: [],
     },
     {
-      id: "todo-pick-direction",
+      id: makeRecordId("todo-pick-direction"),
       title: "选择兴趣方向",
       description: "确定你希望研究的问题切入点。",
       stageKey: "proposal",

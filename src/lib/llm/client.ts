@@ -58,7 +58,9 @@ export async function isActiveLlmConfigured(): Promise<boolean> {
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
-const LLM_REQUEST_TIMEOUT_MS = 60_000;
+// LLM 长输出（如 PBL 六阶段课程模块、教学大纲）生成可能需要 60-120 秒，
+// 60 秒超时会导致复杂任务失败。提高到 180 秒覆盖最慢场景。
+const LLM_REQUEST_TIMEOUT_MS = 180_000;
 const MAX_MALFORMED_STREAM_CHUNKS = 5;
 let llmCooldownUntil = 0;
 

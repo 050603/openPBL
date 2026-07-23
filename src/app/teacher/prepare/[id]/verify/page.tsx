@@ -90,6 +90,7 @@ import {
   type CourseBasicsDraft,
 } from "@/lib/teacher/course-basics-draft";
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
+import { AiGenerationOverlay, type AiTaskKind } from "@/components/ai-generation-overlay";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -2237,6 +2238,18 @@ export default function VerifyCoursePage() {
     },
   ];
 
+  // AI 生成全屏加载动画：仅在非流式 generateSection 调用时显示。
+  // 流式生成（outlineStreaming）有 OutlinesEditor 自己的实时反馈，不遮罩。
+  const aiOverlayKind: AiTaskKind | null = (() => {
+    if (!busy) return null;
+    if (busy === "lessonOutline" && outlineStreaming) return null;
+    if (busy === "knowledgePoints") return "knowledgeGraph";
+    if (busy === "teachingOutline") return "teachingOutline";
+    if (busy === "lessonOutline") return "lessonOutline";
+    if (busy === "evaluationPlan") return "evaluationPlan";
+    return "generic";
+  })();
+
   return (
     <DashboardShell
       role="teacher"
@@ -2702,6 +2715,7 @@ export default function VerifyCoursePage() {
             </PrimaryButton>
           )}
       </FlowActionBar>
+      <AiGenerationOverlay kind={aiOverlayKind} hint={info} />
     </DashboardShell>
   );
 }

@@ -139,6 +139,8 @@ export function OutlinesEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const lastScrollTargetRef = useRef<string | null>(null);
+  // 用户是否手动滚动浏览——为 true 时暂停自动跟随，避免打断阅读
+  const userScrolledAwayRef = useRef(false);
   const editingDisabled = isLoading || isStreaming;
   const lastOutlineId = outlines.length > 0 ? outlines[outlines.length - 1].id : null;
 
@@ -158,15 +160,41 @@ export function OutlinesEditor({
   };
 
   // Auto-scroll to the latest streamed scene so streaming feels alive.
+  // 但当用户手动向上滚动浏览已生成内容时，暂停自动跟随，避免打断阅读。
+  // 用户重新滚回底部附近时恢复跟随。
   useEffect(() => {
     if (!isStreaming || !lastOutlineId) return;
     if (lastScrollTargetRef.current === lastOutlineId) return;
+    // 用户正在浏览上方内容，不打断
+    if (userScrolledAwayRef.current) return;
     lastScrollTargetRef.current = lastOutlineId;
     const node = document.getElementById(`outline-scene-${lastOutlineId}`);
     if (node) {
       node.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [isStreaming, lastOutlineId]);
+
+  // 监听用户滚动：靠近底部时恢复自动跟随，离开底部时暂停
+  useEffect(() => {
+    if (!isStreaming) return;
+    const handleScroll = () => {
+      const scrollEl = document.scrollingElement ?? document.documentElement;
+      if (!scrollEl) return;
+      // 距底部 200px 以内视为"在底部"，恢复跟随
+      const distanceToBottom =
+        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+      userScrolledAwayRef.current = distanceToBottom > 200;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isStreaming]);
+
+  // 流式结束时重置标记，下次生成可继续跟随
+  useEffect(() => {
+    if (!isStreaming) {
+      userScrolledAwayRef.current = false;
+    }
+  }, [isStreaming]);
 
   const addOutline = () => {
     if (editingDisabled) return;
