@@ -25,7 +25,7 @@ export function buildFacilitationScaffold(input: {
     ? ["汇报事实", "代表性亮点", "待解决问题", "迁移与提升"]
     : ["观察到的事实", "证据与差距", "追问清单", "下一步行动"];
   return {
-    id: `facilitation-${input.stageKey}-${input.kind}`,
+    id: facilitationScaffoldId(input.courseId, input.stageKey, input.kind),
     courseId: input.courseId,
     stageKey: input.stageKey,
     kind: input.kind,
@@ -41,4 +41,40 @@ export function buildFacilitationScaffold(input: {
     generatedAt: now,
     updatedAt: now,
   };
+}
+
+export function facilitationScaffoldId(
+  courseId: string,
+  stageKey: string,
+  kind: DynamicFacilitationScaffold["kind"],
+): string {
+  return `${courseId}:facilitation:${stageKey}:${kind}`;
+}
+
+/**
+ * A stage has at most one scaffold of a given kind. Canonicalising here also
+ * upgrades old deterministic IDs that omitted courseId and collided globally
+ * in PostgreSQL. When duplicate generated resources describe the same
+ * scaffold, retain the most recently updated version.
+ */
+export function normalizeFacilitationScaffolds(
+  scaffolds: readonly DynamicFacilitationScaffold[],
+): DynamicFacilitationScaffold[] {
+  const byId = new Map<string, DynamicFacilitationScaffold>();
+  for (const scaffold of scaffolds) {
+    const id = facilitationScaffoldId(
+      scaffold.courseId,
+      scaffold.stageKey,
+      scaffold.kind,
+    );
+    const normalized = { ...scaffold, id };
+    const existing = byId.get(id);
+    if (
+      !existing ||
+      Date.parse(normalized.updatedAt) >= Date.parse(existing.updatedAt)
+    ) {
+      byId.set(id, normalized);
+    }
+  }
+  return [...byId.values()];
 }

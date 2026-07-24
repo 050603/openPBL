@@ -22,6 +22,7 @@ import {
   CheckSquare,
   Lightbulb,
   RefreshCw,
+  Plus,
   Square,
   UsersRound,
 } from "lucide-react";
@@ -91,6 +92,7 @@ import {
 } from "@/lib/teacher/course-basics-draft";
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
 import { AiGenerationOverlay, type AiTaskKind } from "@/components/ai-generation-overlay";
+import { AdaptiveLearningPlanEditor } from "@/components/teacher/adaptive-learning-plan-editor";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -288,14 +290,14 @@ type Section = "knowledgePoints" | "teachingOutline" | "lessonOutline" | "evalua
 const SECTION_LABEL: Record<Section, string> = {
   knowledgePoints: "知识图谱",
   teachingOutline: "课程模块",
-  lessonOutline: "课程大纲",
+  lessonOutline: "主课程与自适应路径",
   evaluationPlan: "评价方案",
 };
 
 const SECTION_DESC: Record<Section, string> = {
   knowledgePoints: "学生需掌握的核心概念、关键信息与节点关系",
   teachingOutline: "整节课的六个宏观课程模块：明确目标、分工和时间",
-  lessonOutline: "基于课程模块独立深化的课程大纲：PPT、互动、讲稿与支架",
+  lessonOutline: "先确认完整主课程页面，再配置前测、页间触发点与补基础/拓展资源",
   evaluationPlan: "项目各维度的评价指标与权重",
 };
 
@@ -303,7 +305,7 @@ const FLOW_STEPS: { key: "base" | Section; label: string; desc: string }[] = [
   { key: "base", label: "基础信息", desc: "编辑课程名称、学科、年级、课时与驱动问题" },
   { key: "knowledgePoints", label: "知识图谱", desc: "确认本课知识节点和节点间关系" },
   { key: "teachingOutline", label: "课程模块", desc: "确认六个宏观环节、时间分配与人机分工" },
-  { key: "lessonOutline", label: "课程大纲", desc: "确认每个课程模块下独立展开的具体教学资源" },
+  { key: "lessonOutline", label: "课程路径", desc: "先确认主课程页面，再完成自适应分支建模" },
   { key: "evaluationPlan", label: "评价方案", desc: "基于知识图谱与项目目标生成评价维度" },
 ];
 
@@ -324,8 +326,8 @@ export default function VerifyCoursePage() {
   const [open, setOpen] = useState<Record<Section, boolean>>({
     knowledgePoints: true,
     teachingOutline: true,
-    lessonOutline: false,
-    evaluationPlan: false,
+    lessonOutline: true,
+    evaluationPlan: true,
   });
   const [busy, setBusy] = useState<Section | "all" | null>(null);
   const [error, setError] = useState<string | undefined>();
@@ -357,6 +359,33 @@ export default function VerifyCoursePage() {
     setBaseDraftDirty(true);
   }
 
+  function updateDrivingQuestion(index: number, value: string) {
+    const draft = baseDraft ?? (course ? createCourseBasicsDraft(course) : null);
+    if (!draft) return;
+    const drivingQuestions = [...draft.drivingQuestions];
+    drivingQuestions[index] = value;
+    editBaseDraft({ drivingQuestions });
+  }
+
+  function addDrivingQuestion(value = "") {
+    const draft = baseDraft ?? (course ? createCourseBasicsDraft(course) : null);
+    if (!draft) return;
+    const normalized = value.trim();
+    if (normalized && draft.drivingQuestions.some((question) => question.trim() === normalized)) return;
+    const drivingQuestions =
+      draft.drivingQuestions.length === 1 && !draft.drivingQuestions[0].trim()
+        ? [value]
+        : [...draft.drivingQuestions, value];
+    editBaseDraft({ drivingQuestions });
+  }
+
+  function removeDrivingQuestion(index: number) {
+    const draft = baseDraft ?? (course ? createCourseBasicsDraft(course) : null);
+    if (!draft) return;
+    const drivingQuestions = draft.drivingQuestions.filter((_, itemIndex) => itemIndex !== index);
+    editBaseDraft({ drivingQuestions: drivingQuestions.length ? drivingQuestions : [""] });
+  }
+
   async function requestSkeleton(
     part: "courseHours" | "learningObjectives" | "summary" | "learnerProfile" | "drivingQuestions",
   ) {
@@ -371,7 +400,7 @@ export default function VerifyCoursePage() {
         grade: draft.grade,
         hours: draft.hours,
         summary: draft.summary,
-        initialDrivingQuestion: draft.drivingQuestion,
+        initialDrivingQuestion: draft.drivingQuestions.find((question) => question.trim()) ?? "",
         learningObjectives: parseLearningObjectives(draft.learningObjectivesText),
         learnerProfile: {
           priorKnowledge: draft.priorKnowledge,
@@ -1259,6 +1288,34 @@ export default function VerifyCoursePage() {
       setOpen((current) => ({ ...current, lessonOutline: true }));
       return;
     }
+    const adaptivePlan = content?.adaptiveLearningPlan;
+    if (!adaptivePlan) {
+      const message = "请在主课程页面下方生成自适应学习路径，并确认是否启用分层教学。";
+      setError(message);
+      toast.error("自适应课程尚未建模", { description: message });
+      setOpen((current) => ({ ...current, lessonOutline: true }));
+      return;
+    }
+    if (adaptivePlan.enabled && adaptivePlan.status !== "teacher-confirmed") {
+      const message = "自适应路径已启用，但前测、触发点和分支资源尚未由教师确认。";
+      setError(message);
+      toast.error("请确认自适应路径", { description: message });
+      setOpen((current) => ({ ...current, lessonOutline: true }));
+      return;
+    }
+    if (
+      adaptivePlan.enabled
+      && adaptivePlan.branches.some((branch) =>
+        !branch.trigger?.afterSceneId
+        || !sceneOutlines.some((scene) => scene.id === branch.trigger?.afterSceneId),
+      )
+    ) {
+      const message = "仍有补基础或拓展资源未绑定具体主课程页面，请完成页间触发点设置。";
+      setError(message);
+      toast.error("触发点尚未绑定", { description: message });
+      setOpen((current) => ({ ...current, lessonOutline: true }));
+      return;
+    }
     const nextContent = saveDraft(false);
     if (!nextContent) return;
     router.push(`/teacher/prepare/${course.id}/generate`);
@@ -2003,6 +2060,17 @@ export default function VerifyCoursePage() {
               </p>
             </div>
           )}
+          <AdaptiveLearningPlanEditor
+            courseId={course.id}
+            knowledgePoints={content?.knowledgePoints ?? []}
+            mainScenes={sceneOutlines}
+            onChange={(adaptiveLearningPlan) =>
+              setContent((current) =>
+                current ? { ...current, adaptiveLearningPlan } : current,
+              )
+            }
+            plan={content?.adaptiveLearningPlan}
+          />
         </div>
       ),
     },
@@ -2427,20 +2495,45 @@ export default function VerifyCoursePage() {
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-stone-800">驱动问题</label>
+                    <label className="text-sm font-bold text-stone-800">项目启发问题</label>
                     <AiFieldButton busy={skeletonLoading} label="AI 生成驱动问题建议" loading={skeletonLoading && activeSuggestionPart === "drivingQuestions"} onClick={() => void requestSkeleton("drivingQuestions")} />
                   </div>
-                  <p className="mt-0.5 text-xs text-stone-500">一个好的驱动问题有真实对象、开放空间和可完成边界。</p>
-                  <textarea
-                    className="mt-1 min-h-[100px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
-                    value={draft.drivingQuestion}
-                    onChange={(e) => editBaseDraft({ drivingQuestion: e.target.value })}
-                    placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？"
-                  />
+                  <p className="mt-0.5 text-xs text-stone-500">设置一个或多个真实、开放、可探究的问题。第一题同时作为课程生成使用的主驱动问题。</p>
+                  <div className="mt-3 space-y-2">
+                    {draft.drivingQuestions.map((question, index) => (
+                      <div className="flex items-start gap-2" key={index}>
+                        <span className="mt-2.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-xs font-bold text-[var(--pbl-teacher)]">
+                          {index + 1}
+                        </span>
+                        <textarea
+                          aria-label={`项目启发问题 ${index + 1}`}
+                          className="min-h-[76px] flex-1 rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
+                          value={question}
+                          onChange={(event) => updateDrivingQuestion(index, event.target.value)}
+                          placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？"
+                        />
+                        <button
+                          aria-label={`删除项目启发问题 ${index + 1}`}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-stone-200 text-stone-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                          onClick={() => removeDrivingQuestion(index)}
+                          type="button"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-dashed border-[var(--pbl-teacher-border)] px-3 text-sm font-semibold text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]"
+                      onClick={() => addDrivingQuestion()}
+                      type="button"
+                    >
+                      <Plus size={15} /> 增加一个启发问题
+                    </button>
+                  </div>
                   {skeleton && activeSuggestionPart === "drivingQuestions" ? (
                     <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("drivingQuestions")}>
                       {skeleton.drivingQuestions.map((question, index) => (
-                        <AiSuggestionCard key={index} onAdopt={() => editBaseDraft({ drivingQuestion: question })}>{question}</AiSuggestionCard>
+                        <AiSuggestionCard key={index} onAdopt={() => addDrivingQuestion(question)}>{question}</AiSuggestionCard>
                       ))}
                     </AiSuggestionPanel>
                   ) : null}
@@ -2461,7 +2554,7 @@ export default function VerifyCoursePage() {
                   <select
                     className="mt-2 h-10 w-full rounded-[6px] border border-stone-300 bg-white px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                     value={course.pblConfig?.difficultyLevel ?? "standard"}
-                    onChange={(e) => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ difficultyLevel: e.target.value as "introductory" | "standard" | "advanced", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
+                    onChange={(e) => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: e.target.value as "introductory" | "standard" | "advanced", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
                   >
                     <option value="introductory">入门：需要更多示范与引导</option>
                     <option value="standard">标准：知识与实践均衡</option>
@@ -2481,7 +2574,7 @@ export default function VerifyCoursePage() {
                           type="button"
                           aria-pressed={selected}
                           className={`flex items-start gap-2 rounded-[6px] border px-2.5 py-2 text-left transition ${selected ? "border-[var(--pbl-ai)] bg-white shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-[var(--pbl-ai)]/50"}`}
-                          onClick={() => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: selected ? currentEvidence.filter((e) => e.kind !== item.kind) : [...currentEvidence, { ...item, required: true }], outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
+                          onClick={() => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: selected ? currentEvidence.filter((e) => e.kind !== item.kind) : [...currentEvidence, { ...item, required: true }], outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
                         >
                           <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-[var(--pbl-ai)] bg-[var(--pbl-ai)] text-white" : "border-stone-300 text-transparent"}`}>
                             <Check size={11} />
@@ -2512,7 +2605,7 @@ export default function VerifyCoursePage() {
                             if (locked) return;
                             const currentIds = course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id);
                             const newIds = selected ? currentIds.filter((id) => id !== companion.id) : [...currentIds, companion.id];
-                            updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: newIds as PblCompanionId[] }) });
+                            updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: newIds as PblCompanionId[] }) });
                           }}
                         >
                           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm" style={{ backgroundColor: `${companion.color}18` }}>{companion.emoji}</span>

@@ -133,7 +133,7 @@ export default async function CourseHistoryPage({
             <History className="mx-auto text-stone-300" size={48} />
             <p className="mt-4 text-stone-600">该课程暂无历史开课记录。</p>
             <p className="mt-2 text-xs text-stone-400">
-              教师对课程执行"重开课"后,当前课堂数据会自动归档到这里。
+              教师对课程执行&ldquo;重开课&rdquo;后，当前课堂数据会自动归档到这里。
             </p>
           </div>
         </Card>

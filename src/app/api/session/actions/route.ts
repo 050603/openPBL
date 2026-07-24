@@ -1,7 +1,12 @@
 import { dispatchSessionAction } from "@/lib/session/server-store";
 import type { SessionAction } from "@/lib/session/actions";
-import { readAuthFromRequest, isAuthConfigured } from "@/lib/auth/session";
+import {
+  getRequestedAuthRole,
+  readAuthFromRequest,
+  isAuthConfigured,
+} from "@/lib/auth/session";
 import { isActionAllowed, isStudentActionForSelf } from "@/lib/auth/action-permissions";
+import { scopeSessionStateForAuth } from "@/lib/auth/session-state";
 import {
   apiLimiter,
   getClientIp,
@@ -25,7 +30,7 @@ const ALL_ACTION_TYPES: Action["type"][] = [
   "UPDATE_STUDENT_PROGRESS",
   "UPSERT_SUBMISSION", "ADD_FEEDBACK", "UPSERT_RUBRIC_SCORE", "UPSERT_REFLECTION",
   "ADD_ACTIVITY", "SET_PRESENTING_GROUP", "UPSERT_ANNOUNCEMENT", "DELETE_ANNOUNCEMENT",
-  "ADD_ANNOUNCEMENT_REPLY", "UPSERT_TODO", "UPSERT_GROUP", "LEAVE_GROUP",
+  "ADD_ANNOUNCEMENT_REPLY", "UPSERT_TODO", "SET_STUDENT_TODO_COMPLETION", "UPSERT_GROUP", "LEAVE_GROUP",
   "SET_GROUP_TOPIC", "UPSERT_GROUP_ANNOUNCEMENT", "UPSERT_WORK_PLAN_ITEM", "DELETE_WORK_PLAN_ITEM",
   "UPSERT_WHITEBOARD_NODE", "DELETE_WHITEBOARD_NODE", "UPSERT_GROUP_BOARD",
   "UPSERT_UPLOAD", "DELETE_UPLOAD", "SET_PREVIEW_UPLOAD", "UPSERT_TEAM_CONTRIBUTION",
@@ -72,7 +77,7 @@ export async function POST(req: Request) {
 
   // Permission check (only when auth configured)
   if (isAuthConfigured()) {
-    const claims = await readAuthFromRequest(req);
+    const claims = await readAuthFromRequest(req, getRequestedAuthRole(req));
     if (!claims) {
       return Response.json(
         { error: "UNAUTHORIZED", message: "请先登录" },
@@ -90,7 +95,10 @@ export async function POST(req: Request) {
       );
     }
     // For students, ensure actions target themselves
-    if (role === "student" && !isStudentActionForSelf(action, claims.studentId)) {
+    if (
+      role === "student" &&
+      !isStudentActionForSelf(action, claims.studentId, claims.courseId)
+    ) {
       return Response.json(
         { error: "FORBIDDEN", message: "不能操作其他学生的数据" },
         { status: 403 },
@@ -100,6 +108,16 @@ export async function POST(req: Request) {
 
   try {
     const state = await dispatchSessionAction(action);
+    if (isAuthConfigured()) {
+      const claims = await readAuthFromRequest(req, getRequestedAuthRole(req));
+      if (!claims) {
+        return Response.json(
+          { error: "UNAUTHORIZED", message: "登录状态已失效" },
+          { status: 401 },
+        );
+      }
+      return Response.json(scopeSessionStateForAuth(state, claims));
+    }
     return Response.json(state);
   } catch (err) {
     const message = err instanceof Error ? err.message : "处理失败";

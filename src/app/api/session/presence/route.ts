@@ -4,6 +4,10 @@ import {
   HEARTBEAT_TIMEOUT_MS,
 } from "@/lib/session/actions";
 import type { SessionAction } from "@/lib/session/actions";
+import {
+  isAuthConfigured,
+  readAuthFromRequest,
+} from "@/lib/auth/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +54,21 @@ export async function POST(req: Request) {
       { error: "MISSING_PARAMS", message: "courseId and studentId are required" },
       { status: 400 },
     );
+  }
+
+  if (isAuthConfigured()) {
+    const claims = await readAuthFromRequest(req, "student");
+    if (
+      !claims ||
+      claims.role !== "student" ||
+      claims.courseId !== courseId ||
+      claims.studentId !== studentId
+    ) {
+      return Response.json(
+        { error: "FORBIDDEN", message: "不能更新其他学生的在线状态" },
+        { status: 403 },
+      );
+    }
   }
 
   const now = new Date().toISOString();

@@ -354,12 +354,6 @@ export type CourseUiState = {
   presentationTimerSeconds?: number;
   timerRunning?: boolean;
   /**
-   * 教师控制：哪些阶段向学生开放 AI 对话面板。
-   * 取 stage.key，如 ["launch", "group", "workspace", "reflection"]。
-   * 教师可在授课界面按阶段一键开关，避免学生过度依赖 AI。
-   */
-  aiChatStagesEnabled?: string[];
-  /**
    * 学生端有更新时，系统置位此标志提醒教师。
    * 教师下次进入监控页时主动触发 LLM 重新分析后清除此标志。
    * 避免打断式主动推送：教师自己决定何时刷新。
@@ -637,6 +631,12 @@ export type StudentAiProgress = {
   currentSceneIndex: number;
   totalScenes: number;
   completedScenes: string[];
+  /**
+   * Stable generation-outline ids corresponding to completed runtime scenes.
+   * Runtime scene ids may change when classroom resources are regenerated;
+   * adaptive triggers must use these stable teaching-node identities instead.
+   */
+  completedOutlineIds?: string[];
   /** v2 means scenes were completed by an exhausted PlaybackEngine cursor. */
   completionModelVersion?: number;
   quizScore?: number;
@@ -648,6 +648,152 @@ export type StudentAiProgress = {
   pathAdjustmentReason?: string;
   currentTeachingAction?: string;
   nextStageCondition?: string;
+  /** Per-student adaptive path state for pretests, branch lessons, and just-in-time micro lessons. */
+  adaptiveLearning?: StudentAdaptiveLearningState;
+};
+
+export type StudentLearningTier = "foundation" | "standard" | "advanced";
+
+export type AdaptiveAssessmentQuestion = {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctOptionIndex: number;
+  rationale?: string;
+  knowledgePointIds: string[];
+};
+
+export type AdaptiveBranchKind = "foundation" | "extension";
+
+export type AdaptiveBranchTrigger = {
+  /** Main-course scene after which the runtime evaluates this branch. */
+  afterSceneId?: string;
+  /** Informational next scene: the branch is visually inserted before it. */
+  beforeSceneId?: string;
+  evidenceRule: "tier" | "tier-or-low-score" | "tier-and-high-score";
+  scoreThreshold?: number;
+  minimumRemainingSec: number;
+};
+
+export type AdaptivePreparedBranchResource = {
+  status: "generating" | "ready" | "failed";
+  classroomId?: string;
+  scenesCount?: number;
+  generatedAt?: string;
+  error?: string;
+};
+
+export type AdaptiveBranchOutline = {
+  id: string;
+  kind: AdaptiveBranchKind;
+  title: string;
+  objective: string;
+  keyPoints: string[];
+  anchorKnowledgePointIds: string[];
+  targetTiers: StudentLearningTier[];
+  sceneType: "slide" | "interactive";
+  targetDurationSec: number;
+  trigger?: AdaptiveBranchTrigger;
+  /** Teacher-authored constraints that guide the final branch classroom generation. */
+  generationGuidance?: string;
+  /** Prepared during course generation and reused by students at runtime. */
+  preparedResource?: AdaptivePreparedBranchResource;
+  status: "draft" | "teacher-confirmed";
+};
+
+export type AdaptiveLearningPlan = {
+  enabled: boolean;
+  status: "draft" | "teacher-confirmed";
+  generatedAt?: string;
+  updatedAt: string;
+  timeBudgetMin: number;
+  thresholds: {
+    foundationMax: number;
+    advancedMin: number;
+    branchQuizLow: number;
+    branchQuizHigh: number;
+  };
+  pretest: {
+    title: string;
+    introduction: string;
+    estimatedMinutes: number;
+    questions: AdaptiveAssessmentQuestion[];
+  };
+  branches: AdaptiveBranchOutline[];
+};
+
+export type AdaptiveAssessmentEvidence = {
+  id: string;
+  source: "pretest" | "node-quiz";
+  score: number;
+  occurredAt: string;
+  sceneId?: string;
+  knowledgePointIds: string[];
+};
+
+export type AdaptiveBranchRun = {
+  id: string;
+  branchOutlineId: string;
+  kind: AdaptiveBranchKind;
+  status: "generating" | "ready" | "completed" | "skipped" | "failed";
+  classroomId?: string;
+  reason: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type AdaptiveTriggerCondition = {
+  key: "plan" | "resource" | "student-path" | "anchor" | "unused" | "tier" | "score" | "time";
+  label: string;
+  expected: string;
+  actual: string;
+  passed: boolean;
+};
+
+export type AdaptiveTriggerEvaluation = {
+  id: string;
+  branchOutlineId: string;
+  branchKind: AdaptiveBranchKind;
+  completedSceneId: string;
+  /** Concrete player scene id, retained only for diagnostics. */
+  runtimeSceneId?: string;
+  completedSceneTitle?: string;
+  matchedBy: "scene-id" | "knowledge-point";
+  evaluatedAt: string;
+  result: "triggered" | "conditions-not-met";
+  reason: string;
+  score?: number;
+  scoreSource?: "current-node-quiz" | "recorded-node-quiz" | "pretest-fallback";
+  remainingBudgetSec: number;
+  conditions: AdaptiveTriggerCondition[];
+};
+
+export type AdaptiveMicroLesson = {
+  id: string;
+  stageKey: "proposal" | "make";
+  topic: string;
+  decision: "brief-answer" | "systematic-lesson";
+  rationale: string;
+  classroomId?: string;
+  status: "decided" | "generating" | "ready" | "completed" | "failed";
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type StudentAdaptiveLearningState = {
+  /** Undefined keeps backwards compatibility and means enabled. */
+  enabled?: boolean;
+  tier?: StudentLearningTier;
+  tierSource?: "pretest" | "teacher";
+  tierUpdatedAt?: string;
+  pretestScore?: number;
+  pretestCompletedAt?: string;
+  startedAt?: string;
+  evidence: AdaptiveAssessmentEvidence[];
+  branchRuns: AdaptiveBranchRun[];
+  /** Runtime trigger decisions, including failed conditions, for teacher inspection. */
+  triggerEvaluations?: AdaptiveTriggerEvaluation[];
+  microLessons: AdaptiveMicroLesson[];
 };
 
 export type TeacherInterventionScope = "student" | "group" | "course";
@@ -805,6 +951,8 @@ export type CourseContent = {
    * 该值由备课阶段页面编辑，generate 页面读取后传给生成 API。
    */
   interactiveMode?: boolean;
+  /** Teacher-confirmed pretest and adaptive branch outlines for new courses. */
+  adaptiveLearningPlan?: AdaptiveLearningPlan;
 };
 
 /**

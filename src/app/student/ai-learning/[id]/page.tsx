@@ -2,8 +2,8 @@
 
 import { Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { StudentStageHost } from '@/components/openmaic-bridge/student-stage-host';
-import { useSession } from '@/lib/session/store';
+import { AdaptiveAiLearningRuntime } from '@/components/views/student/adaptive-ai-learning-runtime';
+import { useCourse, useSession } from '@/lib/session/store';
 
 function LoadingShell() {
   return (
@@ -23,11 +23,12 @@ function AiLearningPlayer() {
 
   const classroomId = params?.id;
   const courseId = searchParams.get('courseId') ?? undefined;
+  const course = useCourse(courseId);
   const studentId = session.studentId;
   const studentName = session.studentName ?? session.user.name;
   const backHref = courseId ? `/student/classroom/${courseId}` : '/student';
 
-  if (!classroomId) {
+  if (!classroomId || !course) {
     return (
       <div className="grid h-screen place-items-center bg-white text-stone-500">
         <p className="text-sm">缺少课堂 ID 参数</p>
@@ -44,12 +45,13 @@ function AiLearningPlayer() {
   }
 
   return (
-    <StudentStageHost
+    <AdaptiveAiLearningRuntime
+      course={course}
       classroomId={classroomId}
-      courseId={courseId}
       studentId={studentId}
       studentName={studentName}
       backHref={backHref}
+      variant="fullscreen"
     />
   );
 }

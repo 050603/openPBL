@@ -19,6 +19,9 @@ vi.mock("@/lib/session/store", () => ({
     studentName: "测试学生",
     studentId: "student-1",
     joinedCourseId: "course-1",
+    connectWebSocket: vi.fn(),
+    disconnectWebSocket: vi.fn(),
+    realtimeMode: "polling",
   }),
 }));
 
@@ -35,7 +38,7 @@ vi.mock("@/components/views/student/stage-dispatcher", () => ({
 }));
 vi.mock("@/components/views/student/companion-studio-workspace", () => ({
   CompanionStudioWorkspace: ({ onSwitchToTask, canSwitchMode = true }: { onSwitchToTask: () => void; canSwitchMode?: boolean }) => (
-    <div>沉浸伴学课堂{canSwitchMode ? <button onClick={onSwitchToTask} type="button">切换任务</button> : null}</div>
+    <section aria-label="companion-workspace">沉浸伴学课堂{canSwitchMode ? <button onClick={onSwitchToTask} type="button">切换任务</button> : null}</section>
   ),
 }));
 vi.mock("@/components/views/student/companion-runtime", async () => {
@@ -118,5 +121,24 @@ describe("student classroom presentation continuity", () => {
     expect(screen.getByText("沉浸伴学课堂")).toBeTruthy();
     expect(runtimeStats.mounts).toBe(1);
     expect(runtimeStats.unmounts).toBe(0);
+  });
+
+  it("switches the visible workspace when the teacher changes the stage policy", () => {
+    course.stageWorkspacePolicies = {
+      proposal: { access: "task-only", defaultMode: "task" },
+    };
+
+    const view = render(<StudentClassroomPage />);
+
+    expect(screen.getByRole("textbox")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "companion-workspace" })).toBeNull();
+
+    course.stageWorkspacePolicies = {
+      proposal: { access: "companions-only", defaultMode: "companions" },
+    };
+    view.rerender(<StudentClassroomPage />);
+
+    expect(screen.getByRole("region", { name: "companion-workspace" })).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });

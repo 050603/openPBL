@@ -25,6 +25,8 @@ import {
   rateLimitedResponse,
 } from "@/lib/auth/rate-limit";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
+import type { StudentClaims } from "@/lib/auth/session";
+import { isCompanionStageEnabled } from "@/lib/companion/stage-access";
 import { isShuttingDown } from "@/lib/runtime/lifecycle";
 
 export const dynamic = "force-dynamic";
@@ -157,11 +159,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Stage 3: rate limit companion chat (10/min/user).
+  let authenticatedStudent: StudentClaims | null = null;
+
+  // This endpoint is student-only. Prefer the student cookie when a browser
+  // also contains a teacher session from a second tab.
   if (isAuthConfigured()) {
-    const claims = await readAuthFromRequest(req);
+    const claims = await readAuthFromRequest(req, "student");
+    if (!claims) {
+      return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+    }
+    if (claims.role !== "student") {
+      return Response.json({ error: "STUDENT_AUTH_REQUIRED" }, { status: 403 });
+    }
+    authenticatedStudent = claims;
     const ip = getClientIp(req);
-    const userKey = claims?.role === "student" ? claims.studentId : claims?.role === "teacher" ? claims.sub : ip;
+    const userKey = claims.studentId || ip;
     const rl = companionLimiter.check(rateLimitKey(req, userKey));
     if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
   }
@@ -181,6 +193,19 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "MISSING_COMPANIONS" }, { status: 400 });
   }
 
+  if (
+    authenticatedStudent
+    && (
+      body.courseId !== authenticatedStudent.courseId
+      || body.studentId !== authenticatedStudent.studentId
+    )
+  ) {
+    return Response.json({ error: "STUDENT_SCOPE_MISMATCH" }, { status: 403 });
+  }
+  if (authenticatedStudent) {
+    body.studentName = authenticatedStudent.studentName;
+  }
+
   let authoritativeHistory = body.history ?? [];
   let teacherContext = body.teacherContext;
   let effectiveCompanionIds = body.companionIds;
@@ -189,6 +214,9 @@ export async function POST(req: NextRequest) {
   if (canPersist) {
     const course = await getCourse(body.courseId!);
     if (!course) return Response.json({ error: "COURSE_NOT_FOUND" }, { status: 404 });
+    if (!isCompanionStageEnabled(course, body.stageKey)) {
+      return Response.json({ error: "COMPANION_STAGE_DISABLED" }, { status: 403 });
+    }
     if (!course.students.some((student) => student.id === body.studentId)) {
       return Response.json({ error: "STUDENT_NOT_IN_COURSE" }, { status: 403 });
     }

@@ -39,6 +39,7 @@ services:
 
   redis:
     restart: unless-stopped
+    ports: !reset []
 
   nginx:
     image: nginx:1.27-alpine

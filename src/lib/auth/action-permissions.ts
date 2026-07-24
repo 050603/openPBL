@@ -54,6 +54,12 @@ const STUDENT_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
   "JOIN_GROUP",
   "LEAVE_GROUP",
   "UPSERT_WORK_PLAN_ITEM",
+  "SET_GROUP_TOPIC",
+  "SET_STUDENT_TODO_COMPLETION",
+  "UPSERT_AI_SUPPORT",
+  "ADD_COMPANION_PROCESS_RECORD",
+  "UPSERT_COMPANION_CONFIRMATION",
+  "RESOLVE_COMPANION_CONFIRMATION",
 ]);
 
 const SYSTEM_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
@@ -78,12 +84,73 @@ export function isActionAllowed(role: AuthRole, actionType: ActionType): boolean
 export function isStudentActionForSelf(
   action: SessionAction,
   studentId: string,
+  courseId?: string,
 ): boolean {
-  const actionAny = action as unknown as Record<string, unknown>;
-  // Actions carrying studentId field must match
-  if (typeof actionAny.studentId === "string") {
-    return actionAny.studentId === studentId;
+  const actionRecord = action as unknown as Record<string, unknown>;
+  const payload =
+    typeof actionRecord.payload === "object" && actionRecord.payload !== null
+      ? (actionRecord.payload as Record<string, unknown>)
+      : {};
+
+  if (typeof payload.studentId === "string" && payload.studentId !== studentId) {
+    return false;
   }
-  // Actions without studentId (e.g., HEARTBEAT, JOIN_GROUP) are allowed
+
+  const nestedStudentIds = [
+    "student",
+    "submission",
+    "reflection",
+    "upload",
+    "contribution",
+    "support",
+    "record",
+    "confirmation",
+  ]
+    .map((key) => payload[key])
+    .filter((value): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null,
+    )
+    .map((value) => value.studentId)
+    .filter((value): value is string => typeof value === "string");
+  if (nestedStudentIds.some((id) => id !== studentId)) return false;
+
+  if (action.type === "JOIN_CLASS") {
+    const student = payload.student as Record<string, unknown> | undefined;
+    if (student?.id !== studentId) return false;
+  }
+
+  if (
+    action.type === "RESOLVE_COMPANION_CONFIRMATION" &&
+    payload.studentId !== studentId
+  ) {
+    return false;
+  }
+
+  if (
+    action.type === "SET_STUDENT_TODO_COMPLETION" &&
+    payload.studentId !== studentId
+  ) {
+    return false;
+  }
+
+  if (action.type === "SET_GROUP_TOPIC" && payload.studentId !== studentId) {
+    return false;
+  }
+
+  if (action.type === "UPSERT_COMPANION_CONFIRMATION") {
+    const confirmation = payload.confirmation as Record<string, unknown> | undefined;
+    if (confirmation?.studentId !== studentId) return false;
+  }
+
+  if (courseId) {
+    const targetedCourseId =
+      typeof payload.courseId === "string"
+        ? payload.courseId
+        : typeof payload.id === "string"
+          ? payload.id
+          : undefined;
+    if (targetedCourseId && targetedCourseId !== courseId) return false;
+  }
+
   return true;
 }

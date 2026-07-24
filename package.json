@@ -17,15 +17,17 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:classroom-flow": "tsx --env-file=.env.local scripts/verify-classroom-flow.ts",
     "test:e2e:ui": "playwright test --ui",
     "playwright:install": "playwright install chromium",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:migrate:prod": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "db:migrate-from-json": "tsx scripts/migrate-json-to-db.ts",
-    "cleanup:uploads": "tsx scripts/cleanup-uploads.ts orphans",
-    "postinstall": "cd packages/mathml2omml && pnpm run build && cd ../pptxgenjs && pnpm run build && cd ../@openmaic/dsl && pnpm run build && cd ../importer && pnpm run build && cd ../renderer && pnpm run build && cd ../../.. && node scripts/sync-maic-importer.mjs && prisma generate"
+    "db:generate": "node scripts/run-prisma.mjs generate",
+    "db:migrate": "node scripts/run-prisma.mjs migrate dev",
+    "db:migrate:prod": "node scripts/run-prisma.mjs migrate deploy",
+    "db:status": "node scripts/run-prisma.mjs migrate status",
+    "db:studio": "node scripts/run-prisma.mjs studio",
+    "db:migrate-from-json": "tsx --env-file=.env.local scripts/migrate-json-to-db.ts",
+    "cleanup:uploads": "tsx --env-file=.env.local scripts/cleanup-uploads.ts orphans",
+    "postinstall": "cd packages/mathml2omml && pnpm run build && cd ../pptxgenjs && pnpm run build && cd ../@openmaic/dsl && pnpm run build && cd ../importer && pnpm run build && cd ../renderer && pnpm run build && cd ../../.. && node scripts/sync-maic-importer.mjs && node scripts/run-prisma.mjs generate"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.71",
@@ -129,6 +131,7 @@
     "react-dom": "19.2.4",
     "react-i18next": "^17.0.1",
     "recharts": "^3.9.1",
+    "redis": "^5.12.1",
     "shadcn": "3.6.3",
     "sharp": "0.34.5",
     "shiki": "3.21.0",
@@ -175,7 +178,6 @@
     "tslib": "2.8.0",
     "tsx": "4.21.0",
     "typescript": "^5",
-    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.9"
   },
   "pnpm": {

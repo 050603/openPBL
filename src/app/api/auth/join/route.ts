@@ -3,6 +3,11 @@
 
 import { prisma, isDatabaseConfigured } from "@/lib/db/client";
 import {
+  dispatchSessionAction,
+  readSessionState,
+} from "@/lib/session/server-store";
+import { normalizeInviteCode } from "@/lib/session/invite-code";
+import {
   isAuthConfigured,
   signStudentToken,
   STUDENT_COOKIE_NAME,
@@ -37,79 +42,110 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!isDatabaseConfigured()) {
+  const inviteCode = normalizeInviteCode(parsed.inviteCode);
+  const studentName = parsed.studentName.trim();
+
+  try {
+    const state = await readSessionState();
+    const course = state.courses.find(
+      (candidate) =>
+        candidate.inviteCode &&
+        normalizeInviteCode(candidate.inviteCode) === inviteCode &&
+        candidate.status === "teaching",
+    );
+    if (!course) {
+      return Response.json(
+        { error: "INVITE_CODE_INVALID", message: "邀请码无效或课堂尚未开始" },
+        { status: 404 },
+      );
+    }
+
+    const rosterStudent = course.students.find(
+      (student) => student.name.trim().toLocaleLowerCase() === studentName.toLocaleLowerCase(),
+    );
+    const account = isDatabaseConfigured()
+      ? await prisma.studentAccount.findFirst({
+          where: { courseId: course.id, studentName },
+        })
+      : null;
+    const studentId = account?.studentId ?? rosterStudent?.id ?? randomUUID();
+    const joinedAt =
+      rosterStudent?.joinedAt ?? account?.createdAt.toISOString() ?? new Date().toISOString();
+
+    if (isDatabaseConfigured()) {
+      await prisma.studentAccount.upsert({
+        where: {
+          courseId_studentId: {
+            courseId: course.id,
+            studentId,
+          },
+        },
+        create: {
+          courseId: course.id,
+          studentId,
+          studentName,
+          inviteCode,
+          lastLoginAt: new Date(),
+        },
+        update: {
+          studentName,
+          inviteCode,
+          lastLoginAt: new Date(),
+        },
+      });
+    }
+
+    await dispatchSessionAction({
+      type: "JOIN_CLASS",
+      payload: {
+        courseId: course.id,
+        student: {
+          id: studentId,
+          name: studentName,
+          joinedAt,
+          stageProgress: rosterStudent?.stageProgress ?? {},
+          lastSeenAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    const { token, cookieName, maxAge } = await signStudentToken({
+      courseId: course.id,
+      studentId,
+      studentName,
+    });
+    if (cookieName !== STUDENT_COOKIE_NAME) {
+      return Response.json(
+        { error: "INTERNAL_ERROR", message: "Cookie 名称不一致" },
+        { status: 500 },
+      );
+    }
+
+    const cookieOpts = getAuthCookieOptions(maxAge);
+    const cookieValue = `${STUDENT_COOKIE_NAME}=${encodeURIComponent(token)}; Path=${cookieOpts.path}; Max-Age=${cookieOpts.maxAge}; HttpOnly; SameSite=${cookieOpts.sameSite}${cookieOpts.secure ? "; Secure" : ""}`;
+
     return Response.json(
-      { error: "DB_NOT_CONFIGURED", message: "数据库未配置,无法加入课堂" },
+      {
+        user: {
+          role: "student",
+          courseId: course.id,
+          studentId,
+          studentName,
+        },
+      },
+      {
+        status: 200,
+        headers: {
+          "Set-Cookie": cookieValue,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+      },
+    );
+  } catch (error) {
+    console.error("[auth/join] unable to join classroom:", error);
+    return Response.json(
+      { error: "JOIN_UNAVAILABLE", message: "课堂服务暂时不可用，请稍后重试" },
       { status: 503 },
     );
   }
-
-  // Find course by invite code
-  const course = await prisma.course.findFirst({
-    where: { inviteCode: parsed.inviteCode },
-    select: { id: true, inviteCode: true, status: true },
-  });
-  if (!course) {
-    return Response.json(
-      { error: "INVITE_CODE_INVALID", message: "邀请码无效或课程不存在" },
-      { status: 404 },
-    );
-  }
-
-  // Generate a stable studentId for this name+course pair (idempotency):
-  // if the same name joins again, reuse the same studentId.
-  const existing = await prisma.studentAccount.findFirst({
-    where: {
-      courseId: course.id,
-      studentName: parsed.studentName,
-    },
-  });
-
-  const studentId = existing?.studentId ?? randomUUID();
-
-  if (!existing) {
-    await prisma.studentAccount.create({
-      data: {
-        courseId: course.id,
-        studentId,
-        studentName: parsed.studentName,
-        inviteCode: parsed.inviteCode,
-      },
-    });
-  } else {
-    await prisma.studentAccount.update({
-      where: { id: existing.id },
-      data: { lastLoginAt: new Date() },
-    });
-  }
-
-  const { token, cookieName, maxAge } = await signStudentToken({
-    courseId: course.id,
-    studentId,
-    studentName: parsed.studentName,
-  });
-  if (cookieName !== STUDENT_COOKIE_NAME) {
-    return Response.json(
-      { error: "INTERNAL_ERROR", message: "Cookie 名称不一致" },
-      { status: 500 },
-    );
-  }
-
-  const cookieOpts = getAuthCookieOptions(maxAge);
-  const cookieValue = `${STUDENT_COOKIE_NAME}=${encodeURIComponent(token)}; Path=${cookieOpts.path}; Max-Age=${cookieOpts.maxAge}; HttpOnly; SameSite=${cookieOpts.sameSite}${cookieOpts.secure ? "; Secure" : ""}`;
-
-  return Response.json(
-    {
-      user: {
-        role: "student",
-        courseId: course.id,
-        studentId,
-        studentName: parsed.studentName,
-      },
-    },
-    {
-      status: 200,
-      headers: { "Set-Cookie": cookieValue, "Content-Type": "application/json; charset=utf-8" },
-    },
-  );
 }

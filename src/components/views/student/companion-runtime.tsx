@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useSettingsStore } from "@openmaic/lib/store/settings";
-import type { CompanionTriggerKind, Course } from "@/lib/session/types";
+import type { AdaptiveMicroLesson, CompanionTriggerKind, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { getCompanion, recommendedCompanions, type AiCompanionId } from "@/lib/ai-companions";
 import { STUDENT_ARTIFACT_EVENT, type StudentArtifactEvent } from "@/lib/companion/events";
@@ -11,7 +11,9 @@ import { deriveStudentLearningProfile, studentProfilePrompt } from "@/lib/compan
 import { shouldAllowProactiveIntervention, shouldProactivelyReviewArtifact } from "@/lib/companion/orchestrator";
 import { getCompanionStagePolicy, stageArtifactFollowUp } from "@/lib/companion/stage-policy";
 import { sanitizeCompanionResponse } from "@/lib/companion/response";
+import { isCompanionStageEnabled } from "@/lib/companion/stage-access";
 import type { CompanionWorkspacePatch } from "@/lib/companion/workspace-operation";
+import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
 
 export type CompanionChatMessage = {
   role: "user" | "assistant";
@@ -70,7 +72,6 @@ type CompanionTTSOptions = {
 
 const SPEECH_BUBBLE_HOLD_MS = 2_200;
 
-const DEFAULT_ENABLED_STAGES = ["launch", "ai-learning", "proposal", "make", "showcase", "reflection"];
 
 /**
  * One serial TTS queue for the classroom runtime. Audio for later speakers is
@@ -318,6 +319,12 @@ type CompanionRuntimeContextValue = {
   markRead: () => void;
   tts: ReturnType<typeof useCompanionTTS>;
   lastCompletedRound: CompletedCompanionRound | null;
+  microLessonTask: {
+    lesson: AdaptiveMicroLesson;
+    progress: number;
+    message: string;
+  } | null;
+  dismissMicroLessonTask: () => void;
 };
 
 const CompanionRuntimeContext = createContext<CompanionRuntimeContextValue | null>(null);
@@ -342,8 +349,7 @@ export function CompanionRuntimeProvider({
   children: ReactNode;
 }) {
   const session = useSession();
-  const configuredStages = course.uiState?.aiChatStagesEnabled ?? [];
-  const stageEnabled = configuredStages.length ? configuredStages.includes(stageKey) : DEFAULT_ENABLED_STAGES.includes(stageKey);
+  const stageEnabled = isCompanionStageEnabled(course, stageKey);
   const available = useMemo(() => {
     const configuredIds = course.pblConfig?.companionIds;
     const candidates = configuredIds?.length
@@ -354,6 +360,11 @@ export function CompanionRuntimeProvider({
 
   const [messages, setMessages] = useState<CompanionChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [microLessonTask, setMicroLessonTask] = useState<{
+    lesson: AdaptiveMicroLesson;
+    progress: number;
+    message: string;
+  } | null>(null);
   const [phase, setPhase] = useState<CompanionRuntimePhase>("idle");
   const [currentSpeaker, setCurrentSpeaker] = useState<AiCompanionId | null>(null);
   const [generatingCompanionId, setGeneratingCompanionId] = useState<AiCompanionId | null>(null);
@@ -364,6 +375,7 @@ export function CompanionRuntimeProvider({
   const [lastCompletedRound, setLastCompletedRound] = useState<CompletedCompanionRound | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const microLessonAbortRef = useRef<AbortController | null>(null);
   const courseRef = useRef(course);
   const messagesRef = useRef(messages);
   const phaseRef = useRef<CompanionRuntimePhase>(phase);
@@ -385,6 +397,7 @@ export function CompanionRuntimeProvider({
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { currentSpeakerRef.current = currentSpeaker; }, [currentSpeaker]);
   useEffect(() => { lastActivityAtRef.current = Date.now(); }, []);
+  useEffect(() => () => microLessonAbortRef.current?.abort(), []);
 
   const handleTTSStart = useCallback((item: { text: string; companionId: AiCompanionId }) => {
     setCurrentSpeaker(item.companionId);
@@ -431,6 +444,159 @@ export function CompanionRuntimeProvider({
     stopTTS();
   }, [stopTTS]);
 
+  useEffect(() => {
+    if (!stageEnabled) stop();
+  }, [stageEnabled, stop]);
+
+  const tryLaunchMicroLesson = useCallback(async (
+    message: string,
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    if (
+      !session.studentId ||
+      (stageKey !== "proposal" && stageKey !== "make")
+    ) return false;
+    const decisionResponse = await fetch("/api/adaptive-learning/micro-lesson", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
+      body: JSON.stringify({
+        courseId: courseRef.current.id,
+        studentId: session.studentId,
+        stageKey,
+        message,
+      }),
+      signal,
+    });
+    if (!decisionResponse.ok) return false;
+    const payload = await decisionResponse.json() as {
+      decision?: {
+        decision: "brief-answer" | "systematic-lesson";
+        topic: string;
+        rationale: string;
+        keyPoints: string[];
+      };
+    };
+    const decision = payload.decision;
+    if (!decision || decision.decision !== "systematic-lesson" || !decision.topic) {
+      return false;
+    }
+
+    const lesson: AdaptiveMicroLesson = {
+      id: `micro-lesson-${Date.now().toString(36)}`,
+      stageKey,
+      topic: decision.topic,
+      decision: "systematic-lesson",
+      rationale: decision.rationale,
+      status: "generating",
+      createdAt: new Date().toISOString(),
+    };
+    setMicroLessonTask({
+      lesson,
+      progress: 5,
+      message: "知知正在梳理课程结构",
+    });
+    const backgroundController = new AbortController();
+    microLessonAbortRef.current?.abort();
+    microLessonAbortRef.current = backgroundController;
+    const persistLesson = async (next: AdaptiveMicroLesson) => {
+      await fetch("/api/adaptive-learning/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
+        body: JSON.stringify({
+          action: "upsert-micro-lesson",
+          courseId: courseRef.current.id,
+          studentId: session.studentId,
+          lesson: next,
+        }),
+        signal: backgroundController.signal,
+      });
+    };
+
+    const keyPoints = decision.keyPoints.length ? decision.keyPoints : [decision.topic];
+    const sceneCount = keyPoints.length >= 3 ? 2 : 1;
+    const perScene = Math.round(150 / sceneCount);
+    const sceneInputs = Array.from({ length: sceneCount }, (_, index) => {
+      const slice = keyPoints.filter((_, pointIndex) => pointIndex % sceneCount === index);
+      return {
+        title: sceneCount === 1
+          ? decision.topic
+          : `${decision.topic} · ${index === 0 ? "核心理解" : "项目应用"}`,
+        description: index === 0
+          ? `系统解释${decision.topic}的核心概念、原理和易错点。`
+          : `把${decision.topic}应用到当前${stageKey === "proposal" ? "方案构思" : "项目制作"}任务。`,
+        keyPoints: slice.length ? slice : keyPoints,
+        type: "slide" as const,
+        targetDurationSec: perScene,
+      };
+    });
+    const acknowledgement = `收到。我会把“${decision.topic}”制作成一节 2–3 分钟微课，你可以继续当前任务，做好后我会提醒你。`;
+    setMessages((current) => appendMessage(current, {
+      role: "assistant",
+      companionId: "knowledge",
+      content: acknowledgement,
+      ts: new Date().toISOString(),
+    }));
+    enqueueTTS(acknowledgement, "knowledge");
+
+    void (async () => {
+      try {
+        await persistLesson(lesson);
+        const generated = await generateAdaptiveClassroom({
+          title: `${courseRef.current.name} · ${decision.topic}微课`,
+          requirement: [
+            `学生在${stageKey === "proposal" ? "方案构思" : "项目制作"}阶段主动提出：“${message}”。`,
+            `请生成 1–2 页、总时长 2–3 分钟的即时微课，主题为“${decision.topic}”。`,
+            `讲解要点：${keyPoints.join("；")}`,
+            `必须联系课程驱动问题：${courseRef.current.drivingQuestion}`,
+            "用与主课程一致的教学语言、PPT、TTS 和互动节奏；不要扩展成完整章节。",
+          ].join("\n"),
+          stageKey,
+          scenes: sceneInputs,
+          signal: backgroundController.signal,
+          onProgress: ({ progress, message: progressMessage }) =>
+            setMicroLessonTask((current) =>
+              current?.lesson.id === lesson.id
+                ? { ...current, progress, message: progressMessage }
+                : current,
+            ),
+        });
+        const readyLesson: AdaptiveMicroLesson = {
+          ...lesson,
+          classroomId: generated.classroomId,
+          status: "ready",
+        };
+        await persistLesson(readyLesson);
+        setMicroLessonTask({
+          lesson: readyLesson,
+          progress: 100,
+          message: "微课已经准备好，随时可以开始",
+        });
+        const readyText = `“${decision.topic}”微课已经准备好了。点击右下角任务卡就能进入学习，学完会带你回到这里。`;
+        setMessages((current) => appendMessage(current, {
+          role: "assistant",
+          companionId: "knowledge",
+          content: readyText,
+          ts: new Date().toISOString(),
+        }));
+        enqueueTTS(readyText, "knowledge");
+      } catch (error) {
+        if (backgroundController.signal.aborted) return;
+        const failedLesson: AdaptiveMicroLesson = { ...lesson, status: "failed" };
+        await persistLesson(failedLesson).catch(() => undefined);
+        setMicroLessonTask((current) => current?.lesson.id === lesson.id ? {
+          ...current,
+          lesson: failedLesson,
+          message: error instanceof Error ? error.message : "微课生成失败，请稍后重试",
+        } : current);
+      } finally {
+        if (microLessonAbortRef.current === backgroundController) {
+          microLessonAbortRef.current = null;
+        }
+      }
+    })();
+    return true;
+  }, [enqueueTTS, session.studentId, stageKey]);
+
   const send = useCallback(async (text?: string, options?: CompanionSendOptions): Promise<boolean> => {
     const message = (text ?? input).trim();
     if (!message || phaseRef.current !== "idle" || ttsBusy || !stageEnabled || !available.length) return false;
@@ -461,6 +627,20 @@ export function CompanionRuntimeProvider({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    if (!isTrigger) {
+      try {
+        const launched = await tryLaunchMicroLesson(message, controller.signal);
+        if (launched) {
+          abortRef.current = null;
+          phaseRef.current = "idle";
+          setPhase("idle");
+          return true;
+        }
+      } catch (microLessonError) {
+        if (controller.signal.aborted) return false;
+        console.warn("Micro lesson decision failed; falling back to companion chat:", microLessonError);
+      }
+    }
     const profile = session.studentId
       ? deriveStudentLearningProfile({ course: courseRef.current, studentId: session.studentId, stageKey })
       : null;
@@ -638,7 +818,7 @@ export function CompanionRuntimeProvider({
       streamingTextRef.current = "";
       streamingSpeakerRef.current = null;
     }
-  }, [available, contextLabel, enqueueTTS, input, session, stageEnabled, stageKey, stopTTS, ttsBusy, ttsQueueLength, ttsSpeaking]);
+  }, [available, contextLabel, enqueueTTS, input, session, stageEnabled, stageKey, stopTTS, tryLaunchMicroLesson, ttsBusy, ttsQueueLength, ttsSpeaking]);
 
   useEffect(() => { runRoundRef.current = send; }, [send]);
 
@@ -686,6 +866,7 @@ export function CompanionRuntimeProvider({
           const openingCompanionId = getCompanionStagePolicy(stageKey).openingCompanionId;
           const preferredCompanionId = available.find((item) => item.id === openingCompanionId)?.id;
           queueMicrotask(() => {
+            if (cancelled) return;
             void runRoundRef.current(
               `请根据“${contextLabel}”阶段目标和学生当前产物，主动说明下一步，并给出一个现在就能完成的小动作。`,
               { trigger: { kind: "stage-opening", reason: `进入${contextLabel}阶段时主动引导`, preferredCompanionId }, preferredCompanionId },
@@ -756,7 +937,7 @@ export function CompanionRuntimeProvider({
   }, [available, course.id, session.studentId, stageEnabled, stageKey]);
 
   useEffect(() => {
-    if (phase !== "idle" || noProgressTriggeredRef.current || messages.length < 4) return;
+    if (!stageEnabled || phase !== "idle" || noProgressTriggeredRef.current || messages.length < 4) return;
     const recentQuestions = messages.filter((message) => message.role === "user").slice(-4);
     if (recentQuestions.length < 4) return;
     const firstQuestionAt = Date.parse(recentQuestions[0].ts);
@@ -767,7 +948,7 @@ export function CompanionRuntimeProvider({
       trigger: { kind: "no-progress", reason: "连续四轮对话无产物进展", preferredCompanionId: "recorder" },
       preferredCompanionId: "recorder",
     });
-  }, [course.submissions, messages, phase, session.studentId]);
+  }, [course.submissions, messages, phase, session.studentId, stageEnabled]);
 
   const value: CompanionRuntimeContextValue = {
     stageKey,
@@ -791,7 +972,13 @@ export function CompanionRuntimeProvider({
     markRead: () => setUnreadCount(0),
     tts,
     lastCompletedRound,
+    microLessonTask,
+    dismissMicroLessonTask: () => setMicroLessonTask(null),
   };
 
-  return <CompanionRuntimeContext.Provider value={value}>{children}</CompanionRuntimeContext.Provider>;
+  return (
+    <CompanionRuntimeContext.Provider value={value}>
+      {children}
+    </CompanionRuntimeContext.Provider>
+  );
 }

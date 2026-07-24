@@ -10,6 +10,7 @@ import {
   Edit3,
   Image as ImageIcon,
   MonitorPlay,
+  X,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { WizardStepper } from "@/components/wizard-stepper";
@@ -20,6 +21,9 @@ import { hasBothScoredRoles, resolveDimensionRole } from "@/lib/evaluation/respo
 import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
+import { AdaptiveCourseFlowPreview } from "@/components/teacher/adaptive-learning-plan-editor";
+import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
+import type { AdaptiveBranchOutline } from "@/lib/session/types";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -36,6 +40,7 @@ export default function PreviewCoursePage() {
   const hydrated = useHydrated();
   const [publishing, setPublishing] = useState(false);
   const [view, setView] = useState<"teacher" | "student">("teacher");
+  const [previewBranch, setPreviewBranch] = useState<AdaptiveBranchOutline>();
 
   if (!hydrated) {
     return (
@@ -74,6 +79,22 @@ export default function PreviewCoursePage() {
       return [];
     });
   });
+  const adaptivePlan = course.content.adaptiveLearningPlan;
+  const missingAdaptiveResources =
+    adaptivePlan?.enabled
+      ? adaptivePlan.branches.filter((branch) =>
+          branch.status !== "teacher-confirmed"
+          || branch.preparedResource?.status !== "ready"
+          || !branch.preparedResource.classroomId,
+        )
+      : [];
+  const adaptiveResourcePoolReady =
+    !adaptivePlan?.enabled
+    || (
+      adaptivePlan.status === "teacher-confirmed"
+      && adaptivePlan.branches.length > 0
+      && missingAdaptiveResources.length === 0
+    );
   const publishChecks = [
     { label: "教学目标完整", done: Boolean(course.learningObjectives?.length || course.content.lessonOutline.some((item) => item.objectives.length)) },
     { label: "六个课堂阶段已配置", done: course.stages.length === 6 },
@@ -81,6 +102,16 @@ export default function PreviewCoursePage() {
     { label: `AI/教师计分权重合计 ${evaluationWeight}%`, done: evaluationWeight === 100 },
     { label: "AI 与教师评价维度均已确认", done: hasBothScoredRoles(course.content.evaluationPlan.dimensions) },
     { label: missingTeacherResources.length ? `普通课堂活动资源缺失：${missingTeacherResources.join("、")}` : "普通课堂活动 PPT/讲稿完整", done: missingTeacherResources.length === 0 },
+    {
+      label: missingAdaptiveResources.length
+        ? `自适应成品资源未就绪：${missingAdaptiveResources.map((branch) => branch.title).join("、")}`
+        : adaptivePlan?.enabled && adaptivePlan.status !== "teacher-confirmed"
+          ? "自适应资源池尚未由教师确认"
+          : adaptivePlan?.enabled
+          ? "自适应资源池已全部生成"
+          : "自适应学习未启用",
+      done: adaptiveResourcePoolReady,
+    },
     {
       label: pblCoverage
         ? pblCoverage.ok
@@ -169,6 +200,25 @@ export default function PreviewCoursePage() {
               timingPlan={course.content.moduleTimingPlan}
               readOnly
             />
+          ) : null}
+
+          {course.content.adaptiveLearningPlan ? (
+            <div>
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-800">自适应课程模型</p>
+                  <h2 className="mt-1 text-xl font-bold">学生实际会经历的完整课程走向</h2>
+                </div>
+                <Pill tone={course.content.adaptiveLearningPlan.enabled ? "green" : "amber"}>
+                  {course.content.adaptiveLearningPlan.enabled ? "已启用" : "已关闭"}
+                </Pill>
+              </div>
+              <AdaptiveCourseFlowPreview
+                mainScenes={course.content._openmaicSceneOutlines ?? []}
+                onPreviewBranch={setPreviewBranch}
+                plan={course.content.adaptiveLearningPlan}
+              />
+            </div>
           ) : null}
 
           <Card>
@@ -426,10 +476,18 @@ export default function PreviewCoursePage() {
 
           {course.drivingQuestion ? (
             <Card>
-              <h2 className="text-lg font-bold">驱动问题</h2>
-              <p className="mt-3 text-sm leading-7 text-stone-700">
-                {course.drivingQuestion}
-              </p>
+              <h2 className="text-lg font-bold">项目启发问题</h2>
+              <ol className="mt-3 space-y-2 text-sm leading-7 text-stone-700">
+                {(course.pblConfig?.inquiryQuestions?.length
+                  ? course.pblConfig.inquiryQuestions
+                  : [course.drivingQuestion]
+                ).map((question, index) => (
+                  <li className="flex gap-2" key={question}>
+                    <span className="font-bold text-[var(--pbl-teacher)]">{index + 1}.</span>
+                    <span>{question}</span>
+                  </li>
+                ))}
+              </ol>
             </Card>
           ) : null}
 
@@ -459,11 +517,49 @@ export default function PreviewCoursePage() {
           </Card>
         </aside>
       </div>}
+      {previewBranch?.preparedResource?.classroomId ? (
+        <div
+          aria-label={`${previewBranch.title}成品课堂预览`}
+          aria-modal="true"
+          className="fixed inset-0 z-[120] grid place-items-center bg-stone-950/65 p-3 backdrop-blur-sm"
+          role="dialog"
+        >
+          <div className="flex h-[min(900px,92vh)] w-[min(1180px,97vw)] flex-col overflow-hidden rounded-[14px] border border-white/20 bg-white shadow-2xl">
+            <header className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-800">
+                  教师预览 · 不记录学生进度
+                </p>
+                <h3 className="mt-0.5 text-sm font-black text-stone-900">{previewBranch.title}</h3>
+              </div>
+              <button
+                aria-label="关闭分支课堂预览"
+                className="grid h-9 w-9 place-items-center rounded-full text-stone-500 hover:bg-stone-100"
+                onClick={() => setPreviewBranch(undefined)}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <StudentStageHost
+              backHref={`/teacher/prepare/${course.id}/preview`}
+              classroomId={previewBranch.preparedResource.classroomId}
+              className="min-h-0 flex-1"
+              mode="teacher-preview"
+              standalone
+              variant="embedded"
+            />
+          </div>
+        </div>
+      ) : null}
       <FlowActionBar persistent back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/generate`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} state={session.saveState} onRetry={() => void session.retrySave()} />}>{!isPublished ? <Button disabled={!readyToPublish || publishing} loading={publishing} onClick={() => void publish()}>发布课程</Button> : <Button onClick={startTeaching}>开始授课</Button>}</FlowActionBar>
     </DashboardShell>
   );
 }
 
 function StudentCoursePreview({ course }: { course: NonNullable<ReturnType<typeof useCourse>> }) {
-  return <article className="mx-auto max-w-4xl border-y border-[var(--pbl-border)] py-8"><p className="text-sm font-semibold text-[var(--pbl-student)]">学生进入课堂后首先看到</p><h2 className="font-editorial mt-2 text-3xl font-semibold">{course.name}</h2><p className="mt-4 text-lg leading-8">{course.drivingQuestion}</p><section className="mt-8"><h3 className="text-lg font-semibold">你将在六个阶段完成这个个人项目</h3><ol className="mt-4 divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">{course.stages.map((stage, index) => <li className="grid gap-1 py-4 sm:grid-cols-[36px_180px_1fr]" key={stage.key}><span className="text-sm text-[var(--pbl-text-muted)]">{index + 1}</span><strong className="font-semibold">{stage.label}</strong><span className="text-sm leading-6 text-[var(--pbl-text-muted)]">{stage.description}</span></li>)}</ol></section><section className="mt-8 grid gap-6 sm:grid-cols-3"><div><h3 className="font-semibold text-[var(--pbl-ai)]">AI 授知与伴学</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">讲解知识、提供角色化支架并记录过程证据。</p></div><div><h3 className="font-semibold text-[var(--pbl-teacher)]">教师导学</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">组织课堂、校准方向并评价成果与表达。</p></div><div><h3 className="font-semibold text-[var(--pbl-student)]">学生个人项目</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">独立构思、决策、制作、汇报并反思。</p></div></section></article>;
+  const inquiryQuestions = course.pblConfig?.inquiryQuestions?.length
+    ? course.pblConfig.inquiryQuestions
+    : [course.drivingQuestion];
+  return <article className="mx-auto max-w-4xl border-y border-[var(--pbl-border)] py-8"><p className="text-sm font-semibold text-[var(--pbl-student)]">学生进入课堂后首先看到</p><h2 className="font-editorial mt-2 text-3xl font-semibold">{course.name}</h2><section className="mt-5"><h3 className="text-sm font-semibold text-[var(--pbl-text-muted)]">{inquiryQuestions.length === 1 ? "本课程项目问题" : "可选择的项目启发问题"}</h3><ol className="mt-2 space-y-2">{inquiryQuestions.map((question, index) => <li className="flex gap-3 text-lg leading-8" key={question}><span className="font-semibold text-[var(--pbl-student)]">{index + 1}.</span><span>{question}</span></li>)}</ol></section><section className="mt-8"><h3 className="text-lg font-semibold">你将在六个阶段完成这个个人项目</h3><ol className="mt-4 divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">{course.stages.map((stage, index) => <li className="grid gap-1 py-4 sm:grid-cols-[36px_180px_1fr]" key={stage.key}><span className="text-sm text-[var(--pbl-text-muted)]">{index + 1}</span><strong className="font-semibold">{stage.label}</strong><span className="text-sm leading-6 text-[var(--pbl-text-muted)]">{stage.description}</span></li>)}</ol></section><section className="mt-8 grid gap-6 sm:grid-cols-3"><div><h3 className="font-semibold text-[var(--pbl-ai)]">AI 授知与伴学</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">讲解知识、提供角色化支架并记录过程证据。</p></div><div><h3 className="font-semibold text-[var(--pbl-teacher)]">教师导学</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">组织课堂、校准方向并评价成果与表达。</p></div><div><h3 className="font-semibold text-[var(--pbl-student)]">学生个人项目</h3><p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">独立构思、决策、制作、汇报并反思。</p></div></section></article>;
 }

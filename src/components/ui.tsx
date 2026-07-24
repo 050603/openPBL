@@ -490,7 +490,7 @@ export function ProgressBar({
     green: "bg-[var(--pbl-success)]",
     orange: "bg-[var(--pbl-accent)]",
     red: "bg-[var(--pbl-danger)]",
-    slate: "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)]",
+    slate: "bg-slate-500",
   };
   return (
     <div className={cn("h-2 rounded-full bg-[var(--pbl-surface-soft)]", className)}>

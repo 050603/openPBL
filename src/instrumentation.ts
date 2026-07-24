@@ -15,6 +15,7 @@ export async function register(): Promise<void> {
     //   - prom-client 默认指标采集
     //   - WebSocket 服务器（实时课堂同步）
     //   - SIGTERM / SIGINT 优雅关闭信号处理器
-    await import("./instrumentation-node");
+    const nodeInstrumentation = await import("./instrumentation-node");
+    await nodeInstrumentation.register();
   }
 }

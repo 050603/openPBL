@@ -70,4 +70,18 @@ describe("course basics draft", () => {
 
     expect(buildCourseBasicsPatch(course, draft).hours).toBe(5);
   });
+
+  it("persists multiple inquiry questions and uses the first as the main driving question", () => {
+    const course = courseFixture();
+    const draft = createCourseBasicsDraft(course);
+    draft.drivingQuestions = [
+      "我们如何减少校园用水浪费？",
+      "我们如何让雨水被校园重新利用？",
+    ];
+
+    const patch = buildCourseBasicsPatch(course, draft);
+
+    expect(patch.drivingQuestion).toBe("我们如何减少校园用水浪费？");
+    expect(patch.pblConfig.inquiryQuestions).toEqual(draft.drivingQuestions);
+  });
 });

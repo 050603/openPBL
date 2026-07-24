@@ -178,17 +178,25 @@ export async function POST(request: NextRequest) {
       normalized.completedScenes,
       score,
     );
+    const completedRuntimeIds = new Set(normalized.completedScenes);
+    const completedOutlineIds = Array.from(new Set(
+      classroom.scenes
+        .filter((scene) => completedRuntimeIds.has(scene.id))
+        .map((scene) => scene.outlineId?.trim() || scene.id),
+    ));
 
     const now = new Date().toISOString();
 
     let updatedEntry: StudentAiProgress | undefined;
     await updateCourse(courseId, (course) => {
       const next: StudentAiProgress = {
+        ...course.aiLearningProgress?.[studentId],
         classroomId,
         studentId,
         currentSceneIndex: normalized.currentSceneIndex,
         totalScenes: normalized.totalScenes,
         completedScenes: normalized.completedScenes,
+        completedOutlineIds,
         completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
         lastActiveAt: now,
         masteryLevel,

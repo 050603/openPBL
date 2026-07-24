@@ -101,8 +101,11 @@ export async function verifyToken(token: string): Promise<AuthClaims | null> {
 export const TEACHER_COOKIE_NAME = TEACHER_COOKIE;
 export const STUDENT_COOKIE_NAME = STUDENT_COOKIE;
 
-export function clearAuthCookies(): Array<{ name: string; value: string; maxAge: number; path: string; httpOnly: boolean; sameSite: "lax" | "strict" | "none"; secure: boolean }> {
-  return [TEACHER_COOKIE, STUDENT_COOKIE].map((name) => ({
+export function clearAuthCookies(role?: AuthRole): Array<{ name: string; value: string; maxAge: number; path: string; httpOnly: boolean; sameSite: "lax" | "strict" | "none"; secure: boolean }> {
+  const cookieNames = role
+    ? [role === "teacher" ? TEACHER_COOKIE : STUDENT_COOKIE]
+    : [TEACHER_COOKIE, STUDENT_COOKIE];
+  return cookieNames.map((name) => ({
     name,
     value: "",
     maxAge: 0,
@@ -135,20 +138,33 @@ export function getAuthCookieOptions(maxAge: number): CookieOptions {
  * Read auth claims from a Request's cookies. Returns null if not configured
  * (demo mode) or token missing/invalid.
  */
-export async function readAuthFromRequest(req: Request): Promise<AuthClaims | null> {
+export async function readAuthFromRequest(
+  req: Request,
+  preferredRole?: AuthRole,
+): Promise<AuthClaims | null> {
   if (!isAuthConfigured()) return null;
   const cookieHeader = req.headers.get("cookie") ?? "";
-  const teacherToken = readCookie(cookieHeader, TEACHER_COOKIE);
-  if (teacherToken) {
-    const claims = await verifyToken(teacherToken);
-    if (claims && claims.role === "teacher") return claims;
-  }
-  const studentToken = readCookie(cookieHeader, STUDENT_COOKIE);
-  if (studentToken) {
-    const claims = await verifyToken(studentToken);
-    if (claims && claims.role === "student") return claims;
+  // A role selected by the route is a security boundary, not a preference.
+  // Teacher and student cookies may legitimately coexist in one browser.
+  const roles: AuthRole[] = preferredRole
+    ? [preferredRole]
+    : ["teacher", "student"];
+
+  for (const role of roles) {
+    const cookieName = role === "teacher" ? TEACHER_COOKIE : STUDENT_COOKIE;
+    const token = readCookie(cookieHeader, cookieName);
+    if (!token) continue;
+    const claims = await verifyToken(token);
+    if (claims?.role === role) return claims;
   }
   return null;
+}
+
+export function getRequestedAuthRole(req: Request): AuthRole | undefined {
+  const requested = req.headers.get("x-openpbl-role");
+  return requested === "teacher" || requested === "student"
+    ? requested
+    : undefined;
 }
 
 function readCookie(cookieHeader: string, name: string): string | null {

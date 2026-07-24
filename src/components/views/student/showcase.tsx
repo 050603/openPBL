@@ -147,8 +147,6 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
         studentName: session.studentName ?? session.user.name,
       });
       session.updateStudentProgress("showcase", Math.max(90, myStageProgress.showcase ?? 0));
-      // 提醒教师有新数据可刷新
-      session.setUiState(course.id, { aiAnalysisPending: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 汇报教练生成失败";
       toast.error("AI 汇报教练生成失败", { description: message });

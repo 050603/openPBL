@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, type ReactNode } from "react";
+import { createElement, useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -53,13 +53,12 @@ export function CosmicReveal({
     return () => observer.disconnect();
   }, [delay]);
 
-  const Component = Tag as any;
-  return (
-    <Component
-      ref={ref as any}
-      className={cn(stagger ? "pbl-stagger" : "pbl-cosmic-reveal", className)}
-    >
-      {children}
-    </Component>
+  return createElement(
+    Tag,
+    {
+      ref,
+      className: cn(stagger ? "pbl-stagger" : "pbl-cosmic-reveal", className),
+    },
+    children,
   );
 }

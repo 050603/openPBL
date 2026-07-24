@@ -279,8 +279,6 @@ export function ReflectionView({ course, embedded = false }: { course?: Course; 
         courseId: course.id,
         studentName,
       });
-      // 提醒教师有新数据可刷新
-      session.setUiState(course.id, { aiAnalysisPending: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 反思提示生成失败";
       toast.error("AI 反思建议生成失败", { description: message });

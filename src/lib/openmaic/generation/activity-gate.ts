@@ -7,28 +7,62 @@ type ActivityPauseSpeechAction = Extract<Action, { type: 'speech' }> & {
   activityPausePurpose: 'interaction' | 'quiz';
 };
 
+export const MIN_STUDENT_ACTIVITY_SEC = 30;
+export const MAX_STUDENT_ACTIVITY_SEC = 180;
+
 function isActivityPause(action: Action): action is ActivityPauseSpeechAction {
   return action.type === 'speech' && Number.isFinite(
     Number((action as Action & { activityPauseSec?: number }).activityPauseSec),
   ) && Number((action as Action & { activityPauseSec?: number }).activityPauseSec) > 0;
 }
 
-/** Normalize older generated classrooms whose wait gate was placed after the intro. */
+function getStudentActivityInsertionIndex(actions: Action[]): number {
+  const firstSpeechIndex = actions.findIndex((action) => action.type === 'speech');
+  if (firstSpeechIndex < 0) return 0;
+
+  // A highlight may point learners to the control they should use. Every
+  // state-changing/revealing action must wait until the learner has acted.
+  let insertionIndex = firstSpeechIndex + 1;
+  while (actions[insertionIndex]?.type === 'widget_highlight') {
+    insertionIndex += 1;
+  }
+  return insertionIndex;
+}
+
+function clampStudentActivitySec(seconds: number): number {
+  return Math.min(
+    MAX_STUDENT_ACTIVITY_SEC,
+    Math.max(MIN_STUDENT_ACTIVITY_SEC, Math.round(seconds)),
+  );
+}
+
+/**
+ * Normalize older generated classrooms whose gate was placed after automatic
+ * widget changes. The only platform action allowed before the gate is a
+ * highlight that points to the learner-controlled UI.
+ */
 export function normalizeStudentActivityPause(actions: Action[]): Action[];
 export function normalizeStudentActivityPause(actions: undefined): undefined;
 export function normalizeStudentActivityPause(actions: Action[] | undefined): Action[] | undefined;
 export function normalizeStudentActivityPause(actions: Action[] | undefined): Action[] | undefined {
   if (!actions) return actions;
   const gateIndex = actions.findIndex(isActivityPause);
-  const finalSpeechIndex = actions.findLastIndex(
-    (action, index) => action.type === 'speech' && index !== gateIndex,
-  );
-  if (gateIndex < 0 || finalSpeechIndex < 0) return actions;
+  if (gateIndex < 0) return actions;
 
-  const insertionIndex = gateIndex < finalSpeechIndex ? finalSpeechIndex - 1 : finalSpeechIndex;
-  if (gateIndex === insertionIndex) return actions;
-  const gate = actions[gateIndex];
+  const originalGate = actions[gateIndex];
+  if (!isActivityPause(originalGate)) return actions;
+  const gate = {
+    ...originalGate,
+    activityPauseSec: clampStudentActivitySec(originalGate.activityPauseSec),
+  };
   const withoutGate = actions.filter((_, index) => index !== gateIndex);
+  const insertionIndex = getStudentActivityInsertionIndex(withoutGate);
+  if (
+    gateIndex === insertionIndex
+    && gate.activityPauseSec === originalGate.activityPauseSec
+  ) {
+    return actions;
+  }
   return [
     ...withoutGate.slice(0, insertionIndex),
     gate,
@@ -37,12 +71,14 @@ export function normalizeStudentActivityPause(actions: Action[] | undefined): Ac
 }
 
 /**
- * Put the learner-controlled wait after all automatic demonstrations and
- * immediately before the closing feedback narration.
+ * Put the learner-controlled wait immediately after the guidance speech and
+ * optional control highlight. Automatic widget changes happen only after the
+ * learner has completed the page task.
  */
 export function addStudentActivityPause(outline: SceneOutline, actions: Action[]): Action[] {
-  const activityPauseSec = Math.round(outline.timingPlan?.studentActivitySec ?? 0);
-  if (activityPauseSec <= 0) return actions;
+  const configuredActivitySec = Math.round(outline.timingPlan?.studentActivitySec ?? 0);
+  if (configuredActivitySec <= 0) return actions;
+  const activityPauseSec = clampStudentActivitySec(configuredActivitySec);
 
   const normalizedActions = actions.filter((action) => action.type === 'speech').length >= 2
     ? actions
@@ -67,8 +103,7 @@ export function addStudentActivityPause(outline: SceneOutline, actions: Action[]
     activityPausePurpose: outline.type === 'quiz' ? 'quiz' : 'interaction',
   };
 
-  const finalFeedbackIndex = normalizedActions.findLastIndex((action) => action.type === 'speech');
-  const insertionIndex = finalFeedbackIndex >= 0 ? finalFeedbackIndex : normalizedActions.length;
+  const insertionIndex = getStudentActivityInsertionIndex(normalizedActions);
   return normalizeStudentActivityPause([
     ...normalizedActions.slice(0, insertionIndex),
     pauseAction,

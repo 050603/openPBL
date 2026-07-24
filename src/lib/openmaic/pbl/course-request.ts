@@ -120,6 +120,9 @@ export function buildPblCourseRequirement(
     outlines?.length
       ? `已确认场景大纲：\n${JSON.stringify(outlines, null, 2)}`
       : "",
+    content?.adaptiveLearningPlan
+      ? `已确认自适应课程模型（前测在主课前运行；branches 仅在对应 afterSceneId 页面完成且证据、时间条件满足时按需生成，beforeSceneId 是返回主课的位置；不得把候选分支混入所有学生的主场景）：\n${JSON.stringify(content.adaptiveLearningPlan, null, 2)}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

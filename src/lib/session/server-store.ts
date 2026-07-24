@@ -24,24 +24,24 @@ import {
 } from "@/lib/db/session-repository";
 import { buildPatch } from "@/lib/realtime/patch-builder";
 import { publishCourseEvent } from "@/lib/realtime/event-bus";
-import { getWebSocketServer } from "@/lib/realtime/websocket-server";
+import { applyCourseUpdate } from "@/lib/session/course-update";
 
 /**
- * Push a realtime event for the given action's courseId, but only when the
- * WebSocket server is actually running. Avoids needless event-bus work in
- * demo/standalone mode where no clients are listening.
+ * Push an invalidation event after persistence succeeds. Redis forwards it
+ * across instances when configured; local subscribers are notified directly.
  */
 function maybePublishRealtimePatch(
   before: SessionState,
   after: SessionState,
   action: SessionAction,
 ): void {
-  if (!getWebSocketServer()) return;
   try {
     const patch = buildPatch(before, after, action);
     if (!patch.courseId || patch.events.length === 0) return;
     for (const event of patch.events) {
-      publishCourseEvent(patch.courseId, event);
+      void publishCourseEvent(patch.courseId, event).catch((error) => {
+        console.error("[server-store] realtime publish failed:", error);
+      });
     }
   } catch (err) {
     // Realtime publishing must never break the persistence flow.
@@ -57,14 +57,16 @@ function maybePublishCourseUpdated(
   courseId: string,
   updatedAt: string,
 ): void {
-  if (!getWebSocketServer()) return;
   if (!courseId) return;
   try {
-    publishCourseEvent(courseId, {
-      type: "course-updated",
-      courseId,
-      at: updatedAt,
-    });
+    void publishCourseEvent(courseId, {
+        type: "course-updated",
+        courseId,
+        at: updatedAt,
+      })
+      .catch((error) => {
+        console.error("[server-store] realtime publish failed:", error);
+      });
   } catch (err) {
     console.error("[server-store] realtime publish failed:", err);
   }
@@ -200,10 +202,15 @@ export async function dispatchSessionAction(
   action: SessionAction,
 ): Promise<SessionState> {
   if (isDatabaseConfigured()) {
-    const before = await dbLoadSessionState();
-    const after = await dbDispatchAction(action);
-    maybePublishRealtimePatch(before, after, action);
-    return after;
+    const run = async (): Promise<SessionState> => {
+      const before = await dbLoadSessionState();
+      const after = await dbDispatchAction(action);
+      maybePublishRealtimePatch(before, after, action);
+      return after;
+    };
+    const result = actionChain.then(run);
+    actionChain = result.catch(() => undefined);
+    return result;
   }
   warnIfDemoMode();
 
@@ -234,21 +241,27 @@ export async function updateCourse(
   updater: (course: Course) => Course,
 ): Promise<SessionState> {
   if (isDatabaseConfigured()) {
-    const after = await dbUpdateCourse(courseId, updater);
-    maybePublishCourseUpdated(courseId, after.updatedAt ?? new Date().toISOString());
-    return after;
+    const run = async (): Promise<SessionState> => {
+      const after = await dbUpdateCourse(courseId, updater);
+      maybePublishCourseUpdated(courseId, after.updatedAt ?? new Date().toISOString());
+      return after;
+    };
+    const result = actionChain.then(run);
+    actionChain = result.catch(() => undefined);
+    return result;
   }
   warnIfDemoMode();
 
   const run = async (): Promise<SessionState> => {
     const current = await readJsonState();
+    const updatedAt = new Date().toISOString();
     const courses = current.courses.map((c) =>
-      c.id === courseId ? updater(c) : c,
+      c.id === courseId ? applyCourseUpdate(c, updater, updatedAt) : c,
     );
     const next: SessionState = {
       ...current,
       courses,
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     };
     await writeJsonState(next);
     maybePublishCourseUpdated(courseId, next.updatedAt ?? new Date().toISOString());

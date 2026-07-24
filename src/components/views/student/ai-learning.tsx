@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bot, ChevronDown, ExternalLink, Map, Network } from "lucide-react";
+import { Bot, ChevronDown, Map, Maximize2, Network } from "lucide-react";
 import { useStageStore } from "@openmaic/lib/store";
 import { KnowledgeGraphFlow } from "@/components/knowledge-graph-flow";
-import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
+import { AdaptiveAiLearningRuntime } from "@/components/views/student/adaptive-ai-learning-runtime";
 import { Card, PrimaryButton, ProgressBar } from "@/components/ui";
 import { useSession } from "@/lib/session/store";
 import type { Course, KnowledgePoint } from "@/lib/session/types";
@@ -14,11 +14,12 @@ export function AiLearningView({ course }: { course?: Course }) {
   const { studentId, studentName, user } = useSession();
   const [graphCollapsed, setGraphCollapsed] = useState(false);
 
-  const knowledgePoints = course?.content?.knowledgePoints ?? [];
+  const knowledgePoints = useMemo(
+    () => course?.content?.knowledgePoints ?? [],
+    [course?.content?.knowledgePoints],
+  );
   const graph = course?.content?.knowledgeGraph;
   const progress = course?.students.find((student) => student.id === studentId)?.stageProgress["ai-learning"] ?? 0;
-  const aiProgress = studentId ? course?.aiLearningProgress?.[studentId] : undefined;
-  const goals = aiProgress?.currentGoals?.length ? aiProgress.currentGoals : (course?.learningObjectives ?? course?.content?.lessonOutline?.flatMap((section) => section.objectives ?? []).slice(0, 4) ?? []);
 
   // ===== OpenMAIC 场景-知识点联动 =====
   // 订阅 useStageStore 的 currentSceneId 变化，匹配当前讲解的知识点
@@ -97,7 +98,7 @@ export function AiLearningView({ course }: { course?: Course }) {
     <div className="space-y-3">
       <section className="overflow-hidden rounded-[var(--radius-lg)] border border-stone-200 bg-white shadow-sm">
         {/* 集成工具条 */}
-        <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/80 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/90 px-3 py-2.5">
           <button
             type="button"
             onClick={() => setGraphCollapsed((v) => !v)}
@@ -110,21 +111,19 @@ export function AiLearningView({ course }: { course?: Course }) {
           </button>
           <Link
             href={`/student/ai-learning/${classroomId}?courseId=${encodeURIComponent(course?.id ?? "")}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-stone-500 transition hover:bg-white hover:text-[var(--pbl-student)]"
+            className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-xs)] bg-[var(--pbl-student)] px-3 text-[13px] font-bold text-white shadow-sm transition hover:brightness-95"
           >
-            <ExternalLink size={14} /> 全屏学习
+            <Maximize2 size={15} /> 专注大屏学习
           </Link>
         </div>
 
         {/* 播放器 */}
-        <StudentStageHost
+        <AdaptiveAiLearningRuntime
           classroomId={classroomId}
-          courseId={course?.id}
+          course={course}
           studentId={studentId}
           studentName={studentName ?? user.name}
           backHref={course?.id ? `/student/classroom/${course.id}` : "/student"}
-          variant="embedded"
-          className="min-h-[560px] border-0 rounded-none"
         />
 
         {/* 底部独立知识图谱展示区 */}

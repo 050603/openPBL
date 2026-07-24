@@ -32,7 +32,10 @@ export async function postLearningEvents(input: {
   if (!input.events.length) return;
   const response = await fetch("/api/learning-events", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-OpenPBL-Role": "student",
+    },
     body: JSON.stringify(input),
     keepalive: true,
   });

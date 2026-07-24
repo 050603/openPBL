@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   Archive,
   ArrowUpRight,
+  BookOpenCheck,
   CheckCircle2,
   ChevronRight,
   Clock3,
@@ -119,6 +121,7 @@ function CompanionStudioRuntime({
   runtime: NonNullable<ReturnType<typeof useCompanionRuntime>>;
 }) {
   const session = useSession();
+  const router = useRouter();
   const activeTaskIdRef = useRef<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
   const [studioModal, setStudioModal] = useState<StudioModal>(null);
@@ -184,12 +187,17 @@ function CompanionStudioRuntime({
       const companionId = VISUAL_TO_COMPANION[role.id];
       const isAvailable = availableIds.has(companionId);
       const task = stageTasks.find((item) => item.companionId === companionId);
+      const microLesson = companionId === "knowledge" ? runtime.microLessonTask : null;
       const isCurrentTTS = runtime.tts.currentTTS?.companionId === companionId;
-      const isPreparing = runtime.generatingCompanionId === companionId || runtime.tts.preparingCompanionId === companionId;
+      const isPreparing = runtime.generatingCompanionId === companionId
+        || runtime.tts.preparingCompanionId === companionId
+        || microLesson?.lesson.status === "generating";
       let state: PartnerState = "idle";
       if (runtime.error && runtime.selectedCompanionId === companionId) state = "error";
+      else if (microLesson?.lesson.status === "failed") state = "error";
       else if (isCurrentTTS) state = runtime.tts.speaking ? "speaking" : "celebrating";
       else if (isPreparing) state = "working";
+      else if (microLesson?.lesson.status === "ready") state = "waiting_user";
       else if (task?.status === "waiting-student" || task?.status === "waiting-confirmation") state = "waiting_user";
       else if (task && ["queued", "assigned", "processing", "responding"].includes(task.status)) state = "working";
       else if (selectedAgentId === role.id) state = "selected";
@@ -198,16 +206,22 @@ function CompanionStudioRuntime({
         state,
         message: isCurrentTTS
           ? runtime.tts.currentTTS?.text ?? ""
+          : microLesson?.lesson.status === "generating"
+            ? `正在制作“${microLesson.lesson.topic}”微课`
+          : microLesson?.lesson.status === "ready"
+            ? "微课已完成，等你开始学习"
           : isPreparing
             ? "正在准备回应…"
           : latestAssistantById.get(companionId) ?? (isAvailable ? role.intro : "本阶段旁听，暂不参与调度"),
-        task: task?.title ?? (isAvailable ? role.stationNote : "本阶段未启用"),
+        task: microLesson
+          ? `${microLesson.lesson.status === "ready" ? "待学习" : "制作中"} · ${microLesson.lesson.topic}`
+          : task?.title ?? (isAvailable ? role.stationNote : "本阶段未启用"),
         result: task?.result ?? "",
         accentNote: isAvailable ? getCompanion(companionId).description : "旁听中",
       };
       return [role.id, partner];
     })) as Record<AgentId, PartnerRuntime>;
-  }, [availableIds, runtime.error, runtime.generatingCompanionId, runtime.messages, runtime.selectedCompanionId, runtime.tts.currentTTS, runtime.tts.preparingCompanionId, runtime.tts.speaking, selectedAgentId, stageTasks]);
+  }, [availableIds, runtime.error, runtime.generatingCompanionId, runtime.messages, runtime.microLessonTask, runtime.selectedCompanionId, runtime.tts.currentTTS, runtime.tts.preparingCompanionId, runtime.tts.speaking, selectedAgentId, stageTasks]);
 
   useEffect(() => {
     if (!activeTaskIdRef.current) return;
@@ -362,7 +376,11 @@ function CompanionStudioRuntime({
     runtime.setSelectedCompanionId(null);
   }, [runtime]);
 
-  const stageStatus = runtime.tts.speaking && runtime.tts.currentTTS
+  const stageStatus = runtime.microLessonTask?.lesson.status === "generating"
+    ? `知知正在制作微课 · ${Math.round(runtime.microLessonTask.progress)}%`
+    : runtime.microLessonTask?.lesson.status === "ready"
+      ? "新微课已准备好"
+    : runtime.tts.speaking && runtime.tts.currentTTS
     ? `${getCompanion(runtime.tts.currentTTS.companionId).name}正在发言`
     : runtime.tts.preparingCompanionId
       ? `${getCompanion(runtime.tts.preparingCompanionId).name}正在准备语音`
@@ -375,6 +393,18 @@ function CompanionStudioRuntime({
       : activeTask
         ? STATUS_LABEL[activeTask.status]
         : "伙伴们已就位";
+
+  const openMicroLesson = useCallback(() => {
+    const task = runtime.microLessonTask;
+    if (!task?.lesson.classroomId || task.lesson.status !== "ready") return;
+    const query = new URLSearchParams({
+      courseId: course.id,
+      lessonId: task.lesson.id,
+      topic: task.lesson.topic,
+      returnTo: `/student/classroom/${course.id}`,
+    });
+    router.push(`/student/micro-lesson/${task.lesson.classroomId}?${query.toString()}`);
+  }, [course.id, router, runtime.microLessonTask]);
 
   return (
     <div className="companion-studio-shell" data-rail={railOpen ? "open" : "closed"}>
@@ -402,6 +432,61 @@ function CompanionStudioRuntime({
           <LayoutDashboard size={16} /> 小组动态
           {runtime.unreadCount ? <span>{runtime.unreadCount}</span> : null}
         </button>
+
+        {runtime.microLessonTask ? (
+          <aside
+            aria-live="polite"
+            className="studio-micro-task"
+            data-status={runtime.microLessonTask.lesson.status}
+          >
+            <div className="studio-micro-task__head">
+              <span className="studio-micro-task__agent" aria-hidden="true">
+                <BookOpenCheck size={17} />
+                {runtime.microLessonTask.lesson.status === "generating" ? <i /> : null}
+              </span>
+              <div>
+                <small>
+                  {runtime.microLessonTask.lesson.status === "ready"
+                    ? "知知 · 制作完成"
+                    : runtime.microLessonTask.lesson.status === "failed"
+                      ? "知知 · 制作中断"
+                      : "知知 · 正在制作微课"}
+                </small>
+                <strong>{runtime.microLessonTask.lesson.topic}</strong>
+              </div>
+              {runtime.microLessonTask.lesson.status !== "generating" ? (
+                <button aria-label="关闭微课任务卡" onClick={runtime.dismissMicroLessonTask} type="button">
+                  <X size={14} />
+                </button>
+              ) : null}
+            </div>
+            <p>{runtime.microLessonTask.message}</p>
+            <div
+              aria-label={`微课制作进度 ${Math.round(runtime.microLessonTask.progress)}%`}
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={Math.round(runtime.microLessonTask.progress)}
+              className="studio-micro-task__progress"
+              role="progressbar"
+            >
+              <i style={{ width: `${Math.max(5, runtime.microLessonTask.progress)}%` }} />
+            </div>
+            <div className="studio-micro-task__foot">
+              <span>{Math.round(runtime.microLessonTask.progress)}%</span>
+              {runtime.microLessonTask.lesson.status === "ready" ? (
+                <button className="studio-micro-task__open" onClick={openMicroLesson} type="button">
+                  进入学习 <ArrowUpRight size={13} />
+                </button>
+              ) : runtime.microLessonTask.lesson.status === "failed" ? (
+                <button className="studio-micro-task__dismiss" onClick={runtime.dismissMicroLessonTask} type="button">
+                  知道了
+                </button>
+              ) : (
+                <small>你可以继续完成当前任务</small>
+              )}
+            </div>
+          </aside>
+        ) : null}
 
         <StudioComposer
           availableCompanions={runtime.available.map((item) => ({ id: item.id, name: getCompanion(item.id).name, shortName: getCompanion(item.id).shortName, color: getCompanion(item.id).color }))}

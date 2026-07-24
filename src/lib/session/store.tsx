@@ -103,7 +103,7 @@ type SessionApi = SessionState & {
   setStage: (id: string, index: number) => void;
   joinClass: (code: string, name: string) => { ok: true; course: Course } | { ok: false; reason: string };
   rejoinClass: (record: LeftClassRecord) => { ok: true; course: Course } | { ok: false; reason: string };
-  leaveClass: () => void;
+  leaveClass: () => Promise<boolean>;
   getLeftClassHistory: () => LeftClassRecord[];
   updateStudentProgress: (stageKey: string, value: number) => void;
   upsertSubmission: (submission: Omit<ClassroomSubmission, "id" | "courseId" | "createdAt" | "updatedAt"> & { id?: string; courseId?: string }) => ClassroomSubmission | undefined;
@@ -145,7 +145,7 @@ type SessionApi = SessionState & {
   getCourse: (id: string) => Course | undefined;
   findCourseByCode: (code: string) => Course | undefined;
   generateNewInviteCode: (id: string) => string;
-  refresh: () => Promise<void>;
+  refresh: (preferredRole?: "teacher" | "student") => Promise<void>;
   // Stage 4 realtime sync
   connectWebSocket: (courseId: string | undefined) => void;
   disconnectWebSocket: () => void;
@@ -174,27 +174,52 @@ function makeEmptyHydratedState(): SessionState {
   };
 }
 
-async function fetchSession(): Promise<SessionState> {
-  const res = await fetch("/api/session", { cache: "no-store" });
+function getClientRole(): "teacher" | "student" | undefined {
+  if (typeof window === "undefined") return undefined;
+  if (window.location.pathname.startsWith("/student")) return "student";
+  if (window.location.pathname.startsWith("/teacher")) return "teacher";
+  return undefined;
+}
+
+async function fetchSession(
+  preferredRole?: "teacher" | "student",
+): Promise<SessionState> {
+  const role = preferredRole ?? getClientRole();
+  const res = await fetch("/api/session", {
+    cache: "no-store",
+    headers: role ? { "X-OpenPBL-Role": role } : undefined,
+  });
   if (!res.ok) {
     // 401 表示未登录——在公开页面（首页、登录页）轮询时属正常情况，
     // 不应作为错误抛出，避免每 5 秒弹出"无法读取课堂数据"提示。
     if (res.status === 401) {
       throw new Error("SESSION_UNAUTHORIZED");
     }
-    throw new Error("SESSION_FETCH_FAILED");
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string; message?: string }
+      | null;
+    throw new Error(body?.error ?? `SESSION_FETCH_FAILED_${res.status}`);
   }
   const state = (await res.json()) as SessionState;
   return { ...state, hydrated: true };
 }
 
 async function postSessionAction(action: SessionAction): Promise<SessionState> {
+  const role = getClientRole();
   const res = await fetch("/api/session/actions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(role ? { "X-OpenPBL-Role": role } : {}),
+    },
     body: JSON.stringify(action),
   });
-  if (!res.ok) throw new Error("SESSION_ACTION_FAILED");
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string; message?: string }
+      | null;
+    throw new Error(body?.message ?? body?.error ?? `SESSION_ACTION_FAILED_${res.status}`);
+  }
   const state = (await res.json()) as SessionState;
   return { ...state, hydrated: true };
 }
@@ -217,6 +242,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // WebSocket connection state (Stage 4 realtime sync).
   const wsRef = useRef<WebSocket | null>(null);
   const wsFailureCountRef = useRef(0);
+  const wsRetryTimerRef = useRef<number | null>(null);
+  const wsCourseIdRef = useRef<string | undefined>(undefined);
   const wsModeRef = useRef<"websocket" | "polling">("polling");
   const [realtimeMode, setRealtimeMode] = useState<"websocket" | "polling">("polling");
 
@@ -225,6 +252,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   function applyIdentity(next: SessionState): SessionState {
+    // With JWT auth, the session endpoint derives identity from the signed
+    // cookie. Never overwrite that trusted identity with stale localStorage.
+    if (
+      next.user.role === "student" &&
+      next.studentId &&
+      next.joinedCourseId
+    ) {
+      return next;
+    }
+    if (getClientRole() === "teacher") return next;
+
     // Try role-specific identity keys first, then fall back to the legacy
     // shared key. This prevents cross-contamination when teacher and student
     // tabs are open in the same browser.
@@ -292,14 +330,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return result;
   }
 
-  async function refresh() {
+  async function refresh(preferredRole?: "teacher" | "student") {
     // Skip polling refresh while commits are in-flight — the server file
     // may not yet reflect those actions (they're queued), and HYDRATEing
     // would overwrite local optimistic state, causing the same
     // "course disappears" symptom as the commit race condition.
     if (pendingCommitsRef.current > 0) return;
     try {
-      const next = applyIdentity(await fetchSession());
+      const next = applyIdentity(await fetchSession(preferredRole));
       // Long-polling optimisation (Stage 4): skip HYDRATE if nothing changed.
       // When WebSocket is connected, we rely on patch-driven refreshes; the
       // 5s long-poll is only a fallback and shouldn't churn the UI.
@@ -326,13 +364,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  function commit(action: SessionAction, options?: { localOnly?: boolean }) {
+  function commit(
+    action: SessionAction,
+    options?: { localOnly?: boolean },
+  ): Promise<boolean> {
     dispatch(action);
-    if (options?.localOnly) return;
+    // Identity and hydration are client state, never persisted business
+    // actions. Keep this invariant here so a future caller cannot accidentally
+    // send SET_USER to the role-protected action endpoint.
+    if (
+      options?.localOnly ||
+      action.type === "SET_USER" ||
+      action.type === "HYDRATE"
+    ) {
+      return Promise.resolve(true);
+    }
     setSaveState("saving");
     setSaveError(undefined);
     pendingCommitsRef.current++;
-    void postSessionAction(action)
+    return postSessionAction(action)
       .then((next) => {
         pendingCommitsRef.current--;
         // Only HYDRATE from the last pending commit's response.
@@ -347,6 +397,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setSaveState("saved");
           lastFailedActionRef.current = null;
         }
+        return true;
       })
       .catch((error) => {
         pendingCommitsRef.current--;
@@ -355,6 +406,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSaveState("error");
         setSaveError("数据保存失败，请检查服务器状态后重试。");
         toast.error("课堂数据尚未保存", { id: "session-write-error", description: "当前页面内容仍保留在本地，可直接重试。" });
+        return false;
       });
   }
 
@@ -395,12 +447,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // successful connection switches wsModeRef to "websocket" and stops the
   // 1.5s polling churn — patches pushed by the server trigger refresh()
   // on demand, so polling becomes unnecessary.
-  const WS_FAILURE_THRESHOLD = 5;
-  const WS_PORT = Number(process.env.NEXT_PUBLIC_WEBSOCKET_PORT ?? "3001");
-  const WS_PROTOCOL = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
-  const WS_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
-
   function teardownWebSocket() {
+    if (wsRetryTimerRef.current !== null) {
+      window.clearTimeout(wsRetryTimerRef.current);
+      wsRetryTimerRef.current = null;
+    }
     const ws = wsRef.current;
     if (!ws) return;
     try {
@@ -416,15 +467,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   function switchToPolling() {
+    pollingRef.current = true;
     if (wsModeRef.current !== "polling") {
       wsModeRef.current = "polling";
       setRealtimeMode("polling");
     }
-    teardownWebSocket();
   }
 
   function connectWebSocket(courseId: string | undefined) {
     if (typeof window === "undefined") return;
+    wsCourseIdRef.current = courseId;
+    if (!courseId) {
+      teardownWebSocket();
+      switchToPolling();
+      return;
+    }
     // Already connected — just re-subscribe by sending a new subscribe msg.
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
@@ -437,28 +494,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Tear down any half-open socket before retrying.
     teardownWebSocket();
 
-    let url: string;
-    try {
-      url = `${WS_PROTOCOL}//${WS_HOST}:${WS_PORT}`;
-    } catch {
-      return;
-    }
+    const role = getClientRole();
+    if (!role) return;
+    const configuredUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL?.trim();
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = new URL(
+      configuredUrl || `${protocol}//${window.location.host}/ws`,
+      window.location.href,
+    );
+    url.searchParams.set("role", role);
 
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
     } catch (err) {
       console.warn("[session] WebSocket construction failed:", err);
-      wsFailureCountRef.current++;
-      if (wsFailureCountRef.current >= WS_FAILURE_THRESHOLD) {
-        switchToPolling();
-      }
+      switchToPolling();
       return;
     }
     wsRef.current = ws;
 
     ws.onopen = () => {
       wsFailureCountRef.current = 0;
+      pollingRef.current = false;
       try {
         ws.send(JSON.stringify({ type: "subscribe", courseId }));
       } catch {
@@ -477,8 +535,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         const data = event.data as unknown;
         if (typeof data === "string") {
-          const parsed = JSON.parse(data) as { type?: string };
-          if (parsed.type === "patch" || parsed.type === "subscribed") {
+          const parsed = JSON.parse(data) as { type?: string; version?: string };
+          if (
+            parsed.type === "course-invalidated" &&
+            parsed.version !== lastSeenUpdatedAtRef.current
+          ) {
             void refresh();
           }
         }
@@ -494,9 +555,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     ws.onclose = () => {
       wsRef.current = null;
       wsFailureCountRef.current++;
-      if (wsFailureCountRef.current >= WS_FAILURE_THRESHOLD) {
-        switchToPolling();
-      }
+      switchToPolling();
+      const delay = Math.min(
+        30_000,
+        1_000 * 2 ** Math.min(wsFailureCountRef.current - 1, 5),
+      );
+      const jitter = Math.floor(Math.random() * 500);
+      wsRetryTimerRef.current = window.setTimeout(() => {
+        wsRetryTimerRef.current = null;
+        connectWebSocket(wsCourseIdRef.current);
+      }, delay + jitter);
     };
   }
 
@@ -514,14 +582,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // Auto-connect to the WebSocket server on mount, and re-subscribe when
   // the joined course changes. Connections fail silently — the 5s polling
   // fallback in the effect above keeps the UI fresh regardless.
-  useEffect(() => {
-    connectWebSocket(state.joinedCourseId);
-    return () => {
-      teardownWebSocket();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.joinedCourseId]);
-
   // Tear down WebSocket on unmount.
   useEffect(() => {
     return () => teardownWebSocket();
@@ -721,11 +781,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         };
         saveJSON(STUDENT_IDENTITY_KEY, identity);
         saveJSON(IDENTITY_KEY, identity);
-        commit({ type: "SET_USER", payload: studentUser });
+        void commit(
+          { type: "SET_USER", payload: studentUser },
+          { localOnly: true },
+        );
         commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student } });
         return { ok: true, course: target };
       },
-      leaveClass() {
+      async leaveClass() {
         if (state.joinedCourseId && state.studentId) {
           // Save left-class history so the student can rejoin by name later.
           const leftCourse = state.courses.find((c) => c.id === state.joinedCourseId);
@@ -743,17 +806,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             filtered.push(record);
             saveJSON(LEFT_CLASS_HISTORY_KEY, filtered);
           }
-          commit({
+          const leaveAction: SessionAction = {
             type: "LEAVE_CLASS",
             payload: {
               courseId: state.joinedCourseId,
               studentId: state.studentId,
             },
-          });
+          };
+          const persisted = await commit(leaveAction);
+          if (!persisted) return false;
+          // The authenticated response is scoped by the still-valid student
+          // cookie and can carry the old course identity. Clear it again only
+          // after the response arrives.
+          dispatch(leaveAction);
           // Reset user to a generic student so the avatar no longer shows
           // the previous student name after leaving.
-          commit({ type: "SET_USER", payload: { role: "student", name: "" } });
+          await commit(
+            { type: "SET_USER", payload: { role: "student", name: "" } },
+            { localOnly: true },
+          );
         }
+        return true;
       },
       rejoinClass(record: LeftClassRecord) {
         const target = state.courses.find((c) => c.id === record.courseId);
@@ -777,7 +850,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           };
           saveJSON(STUDENT_IDENTITY_KEY, identity);
           saveJSON(IDENTITY_KEY, identity);
-          commit({ type: "SET_USER", payload: studentUser });
+          void commit(
+            { type: "SET_USER", payload: studentUser },
+            { localOnly: true },
+          );
           commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student: existingStudent } });
         } else {
           // Student was removed from the course — re-add them
@@ -797,7 +873,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           };
           saveJSON(STUDENT_IDENTITY_KEY, identity);
           saveJSON(IDENTITY_KEY, identity);
-          commit({ type: "SET_USER", payload: studentUser });
+          void commit(
+            { type: "SET_USER", payload: studentUser },
+            { localOnly: true },
+          );
           commit({ type: "JOIN_CLASS", payload: { courseId: target.id, student } });
         }
         // Remove the history entry after successful rejoin
@@ -944,10 +1023,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const course = state.courses.find((c) => c.id === courseId);
         const todo = course?.todos?.find((item) => item.id === todoId);
         if (!todo || !state.studentId) return;
-        const completedBy = completed
-          ? Array.from(new Set([...todo.completedBy, state.studentId]))
-          : todo.completedBy.filter((id) => id !== state.studentId);
-        commit({ type: "UPSERT_TODO", payload: { courseId, todo: { ...todo, completedBy } } });
+        commit({
+          type: "SET_STUDENT_TODO_COMPLETION",
+          payload: { courseId, todoId, studentId: state.studentId, completed },
+        });
       },
       markResourceDownloaded(courseId, resourceId) {
         if (!state.studentId) return;
@@ -967,10 +1046,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       createGroup(courseId, name) {
         const now = new Date().toISOString();
         const course = state.courses.find((c) => c.id === courseId);
+        const inquiryQuestions = normalizePblCourseConfig(course?.pblConfig).inquiryQuestions;
         const group: ProjectGroup = {
           id: makeRecordId("group"),
           name: name || `第 ${(course?.groups?.length ?? 0) + 1} 组`,
-          topic: course?.drivingQuestion || "待确定选题方向",
+          topic: inquiryQuestions.length === 1 ? inquiryQuestions[0] : "待确定选题方向",
           goal: "明确问题、形成可落地方案，并准备阶段性汇报。",
           keywords: ["项目研究", "真实情境", "数据驱动"],
           selectedForms: ["方案报告"],
@@ -999,7 +1079,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         commit({ type: "LEAVE_GROUP", payload: { courseId, groupId, studentId: state.studentId } });
       },
       setGroupTopic(courseId, groupId, patch) {
-        commit({ type: "SET_GROUP_TOPIC", payload: { courseId, groupId, patch } });
+        commit({
+          type: "SET_GROUP_TOPIC",
+          payload: {
+            courseId,
+            groupId,
+            patch,
+            studentId: state.user.role === "student" ? state.studentId : undefined,
+          },
+        });
       },
       upsertGroupAnnouncement(courseId, input) {
         const announcement: GroupAnnouncement = {
@@ -1178,7 +1266,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       resolveCompanionConfirmation(courseId, confirmationId, status) {
         commit({
           type: "RESOLVE_COMPANION_CONFIRMATION",
-          payload: { courseId, confirmationId, status, resolvedAt: new Date().toISOString() },
+          payload: {
+            courseId,
+            confirmationId,
+            status,
+            resolvedAt: new Date().toISOString(),
+            studentId: state.studentId,
+          },
         });
       },
       addCompanionProcessRecord(input) {
@@ -1267,17 +1361,10 @@ function defaultTodos(): CourseTodo[] {
       completedBy: [],
     },
     {
-      id: makeRecordId("todo-join-group"),
-      title: "确认个人项目空间",
-      description: "确认系统已建立个人项目与 AI 伴学小组。",
-      stageKey: "launch",
-      completedBy: [],
-    },
-    {
       id: makeRecordId("todo-pick-direction"),
-      title: "选择兴趣方向",
-      description: "确定你希望研究的问题切入点。",
-      stageKey: "proposal",
+      title: "选择研究主题",
+      description: "从本节课程主题中选择你希望深入研究的方向。",
+      stageKey: "launch",
       completedBy: [],
     },
   ];

@@ -43,6 +43,10 @@ const telemetryMock = vi.hoisted(() => ({
   }),
 }));
 
+const settingsMock = vi.hoisted(() => ({
+  setState: vi.fn(),
+}));
+
 const renderedStage = vi.hoisted(() => ({
   props: null as null | {
     onPlaybackStateChange?: (state: {
@@ -71,10 +75,11 @@ vi.mock("@openmaic/lib/store", () => ({
     subscribe: stageMock.subscribe,
   }),
 }));
-vi.mock("@openmaic/lib/store/settings", () => ({ useSettingsStore: { setState: vi.fn() } }));
+vi.mock("@openmaic/lib/store/settings", () => ({ useSettingsStore: settingsMock }));
 vi.mock("@/lib/learning-analytics/telemetry", () => telemetryMock);
 
 import {
+  quizScoreForScene,
   selectStudentLearningScenes,
   StudentStageHost,
   shouldTrackStudentLearning,
@@ -96,9 +101,11 @@ function classroomResponse() {
 
 describe("StudentStageHost reporting modes", () => {
   beforeEach(() => {
+    localStorage.clear();
     stageMock.reset();
     telemetryMock.createLearningEvent.mockClear();
     telemetryMock.postLearningEvents.mockClear();
+    settingsMock.setState.mockClear();
     renderedStage.props = null;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -131,6 +138,25 @@ describe("StudentStageHost reporting modes", () => {
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/openmaic/progress"), expect.anything());
   });
 
+  it("gives the embedded interactive canvas priority over persisted side panels", async () => {
+    render(
+      <StudentStageHost
+        backHref="/student"
+        classroomId="classroom-1"
+        courseId="course-1"
+        studentId="student-1"
+        variant="embedded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(settingsMock.setState).toHaveBeenCalledWith({
+        sidebarCollapsed: true,
+        chatAreaCollapsed: true,
+      });
+    });
+  });
+
   it("teacher preview never reads or writes student progress or telemetry", async () => {
     render(
       <StudentStageHost
@@ -156,6 +182,20 @@ describe("StudentStageHost reporting modes", () => {
     ] as unknown as import("@openmaic/lib/types/stage").Scene[];
 
     expect(selectStudentLearningScenes(scenes).map((scene) => scene.id)).toEqual(["knowledge"]);
+  });
+
+  it("reads submitted scores from interactive scenes that contain a quiz", () => {
+    localStorage.setItem("quizAnswers:interactive-quiz", JSON.stringify({ q1: "A", q2: "B" }));
+    localStorage.setItem("quizResults:interactive-quiz", JSON.stringify([
+      { status: "correct" },
+      { status: "incorrect" },
+    ]));
+
+    expect(quizScoreForScene({
+      id: "interactive-quiz",
+      type: "interactive",
+      title: "节点小测",
+    } as import("@openmaic/lib/types/stage").Scene)).toBe(50);
   });
 
   it("reports completion only after the playback cursor exhausts the scene", async () => {

@@ -15,7 +15,7 @@ export type CourseBasicsDraft = {
   priorKnowledge: string;
   learningNeeds: string;
   familiarContexts: string;
-  drivingQuestion: string;
+  drivingQuestions: string[];
   outcomeArtifact: string;
   outcomePresentation: string;
   outcomeReflection: string;
@@ -32,7 +32,10 @@ export function createCourseBasicsDraft(course: Course): CourseBasicsDraft {
     priorKnowledge: course.learnerProfile?.priorKnowledge ?? "",
     learningNeeds: course.learnerProfile?.learningNeeds ?? "",
     familiarContexts: course.learnerProfile?.familiarContexts ?? "",
-    drivingQuestion: course.drivingQuestion,
+    drivingQuestions:
+      course.pblConfig?.inquiryQuestions?.length
+        ? [...course.pblConfig.inquiryQuestions]
+        : [course.drivingQuestion || ""],
     outcomeArtifact: course.pblConfig?.outcome.artifact ?? DEFAULT_PBL_OUTCOME.artifact,
     outcomePresentation:
       course.pblConfig?.outcome.presentation ?? DEFAULT_PBL_OUTCOME.presentation,
@@ -49,6 +52,9 @@ export function parseLearningObjectives(value: string): string[] {
 }
 
 export function buildCourseBasicsPatch(course: Course, draft: CourseBasicsDraft) {
+  const drivingQuestions = Array.from(
+    new Set(draft.drivingQuestions.map((question) => question.trim()).filter(Boolean)),
+  );
   return {
     name: draft.name.trim(),
     subject: draft.subject.trim(),
@@ -61,9 +67,10 @@ export function buildCourseBasicsPatch(course: Course, draft: CourseBasicsDraft)
       learningNeeds: draft.learningNeeds.trim(),
       familiarContexts: draft.familiarContexts.trim(),
     },
-    drivingQuestion: draft.drivingQuestion.trim(),
+    drivingQuestion: drivingQuestions[0] ?? "",
     pblConfig: normalizePblCourseConfig({
       ...course.pblConfig,
+      inquiryQuestions: drivingQuestions,
       evidenceRequirements:
         course.pblConfig?.evidenceRequirements ??
         DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((item) => item.required),
@@ -82,5 +89,8 @@ export function validateCourseBasicsDraft(draft: CourseBasicsDraft): string | nu
   if (!draft.grade.trim()) return "请填写年级";
   if (!Number.isFinite(draft.hours) || draft.hours < 1) return "预计课时不能少于 1";
   if (draft.hours > 5) return "人工智能通识课程预计课时请设置为 1–5 课时";
+  if (!draft.drivingQuestions.some((question) => question.trim())) {
+    return "请至少设置一个项目启发问题";
+  }
   return null;
 }

@@ -34,6 +34,7 @@ services:
       # services by their compose DNS names, regardless of what .env.local says.
       DATABASE_URL: postgresql://openpbl:${POSTGRES_PASSWORD}@postgres:5432/openpbl
       REDIS_URL: redis://redis:6379
+      ENABLE_WEBSOCKET: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +84,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Expose Redis for a local Next.js process running outside Compose.
+    ports:
+      - "6379:6379"
     # Disable Redis persistence — the cache is ephemeral by design and we
     # don't want to lose memory to AOF/RDB writes. Re-enable if you start
     # using Redis for durable state.

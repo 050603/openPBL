@@ -11,16 +11,16 @@
 //   This is acceptable because course updates are not high-frequency.
 // - `dispatchAction(action)` loads the current state, applies the pure
 //   `applySessionAction` reducer, and persists the diff. For now it persists
-//   the affected course(s); when the action doesn't touch a course, only
-//   SessionMeta is updated.
-// - Optimistic locking: every table has a `version` column. Updates use
-//   `WHERE version = ?` + `SET version = version + 1`. A mismatch throws
-//   `OptimisticLockError`, which the caller can retry.
+//   the affected course(s). Request identity is never stored globally.
+// - Write coordination: aggregate read-modify-write actions acquire a
+//   PostgreSQL advisory lock before replacing child collections.
 
 import { prisma } from "./client";
 import { Prisma } from "@prisma/client";
 import { decrementRef } from "@/lib/uploads/reference-tracker";
 import { cleanupCourseFiles } from "@/lib/uploads/cleanup";
+import { applyCourseUpdate } from "@/lib/session/course-update";
+import { normalizeFacilitationScaffolds } from "@/lib/teacher-resources/facilitation-scaffolds";
 import type {
   Course,
   Student,
@@ -66,13 +66,6 @@ import { applySessionAction, initialSessionState } from "@/lib/session/actions";
 // Errors
 // ============================================================================
 
-export class OptimisticLockError extends Error {
-  constructor(public readonly resource: string, public readonly id: string) {
-    super(`Optimistic lock failed for ${resource} ${id}: version mismatch`);
-    this.name = "OptimisticLockError";
-  }
-}
-
 export class CourseNotFoundError extends Error {
   constructor(public readonly courseId: string) {
     super(`Course not found: ${courseId}`);
@@ -100,23 +93,8 @@ function asNullableJson(
   return value as Prisma.InputJsonValue;
 }
 
-function asNullableJsonValue(
-  value: unknown,
-): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
-  if (value === undefined || value === null) return Prisma.JsonNull;
-  return value as Prisma.InputJsonValue;
-}
-
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function asNumber(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function asIsoString(value: unknown): string {
-  return typeof value === "string" ? value : new Date().toISOString();
 }
 
 // ============================================================================
@@ -272,18 +250,20 @@ function rowToCourse(row: CourseWithRelations): Course {
 // Row → domain type mappers (one per child entity)
 // ============================================================================
 
-function rowToStudent(row: Prisma.StudentGetPayload<{}>): Student {
+function rowToStudent(row: Prisma.StudentGetPayload<Record<string, never>>): Student {
+  const stageProgress =
+    (row.progress as Record<string, number> | null) ?? {};
   return {
     id: row.id,
     name: row.name,
+    joinedAt: row.createdAt.toISOString(),
     lastSeenAt: row.lastSeenAt ?? undefined,
-    // progress is a JSONB map of stageKey → number
-    ...((row.progress as Record<string, number> | null) ?? {}),
-  } as Student;
+    stageProgress,
+  };
 }
 
 function rowToSubmission(
-  row: Prisma.ClassroomSubmissionGetPayload<{}>,
+  row: Prisma.ClassroomSubmissionGetPayload<Record<string, never>>,
 ): ClassroomSubmission {
   // Domain type fields: id, courseId, studentId?, studentName?, groupId?,
   // stageKey, type, title, content, files?, createdAt, updatedAt.
@@ -306,7 +286,7 @@ function rowToSubmission(
 }
 
 function rowToFeedback(
-  row: Prisma.TeacherFeedbackGetPayload<{}>,
+  row: Prisma.TeacherFeedbackGetPayload<Record<string, never>>,
 ): TeacherFeedback {
   // Domain type fields: id, courseId, targetType, targetId, stageKey, kind,
   // content, sourceRole?, sourceName?, evidence?, status?, createdAt.
@@ -327,7 +307,7 @@ function rowToFeedback(
 }
 
 function rowToRubricScore(
-  row: Prisma.RubricScoreGetPayload<{}>,
+  row: Prisma.RubricScoreGetPayload<Record<string, never>>,
 ): RubricScore {
   // Domain type fields: id, courseId, groupId, stageKey, dimensionScores,
   // teacherTotal?, aiDimensionScores?, aiTotal?, finalTotal?, scoringMode?,
@@ -352,7 +332,7 @@ function rowToRubricScore(
 }
 
 function rowToReflection(
-  row: Prisma.ReflectionRecordGetPayload<{}>,
+  row: Prisma.ReflectionRecordGetPayload<Record<string, never>>,
 ): ReflectionRecord {
   // Domain type fields: id, courseId, studentId, studentName, content,
   // improvementPlan?, createdAt, updatedAt.
@@ -369,7 +349,7 @@ function rowToReflection(
 }
 
 function rowToActivity(
-  row: Prisma.ActivityRecordGetPayload<{}>,
+  row: Prisma.ActivityRecordGetPayload<Record<string, never>>,
 ): ActivityRecord {
   // Domain type fields: id, actor, action, detail?, createdAt.
   // Schema column is `occurredAt`; domain type calls it `createdAt`.
@@ -383,7 +363,7 @@ function rowToActivity(
 }
 
 function rowToAnnouncement(
-  row: Prisma.CourseAnnouncementGetPayload<{}>,
+  row: Prisma.CourseAnnouncementGetPayload<Record<string, never>>,
 ): CourseAnnouncement {
   // Domain type fields: id, title, content, createdAt, updatedAt, pinned?, replies.
   return {
@@ -398,7 +378,7 @@ function rowToAnnouncement(
 }
 
 function rowToTodo(
-  row: Prisma.CourseTodoGetPayload<{}>,
+  row: Prisma.CourseTodoGetPayload<Record<string, never>>,
 ): CourseTodo {
   // Domain type fields: id, title, description, stageKey?, completedBy.
   return {
@@ -411,7 +391,7 @@ function rowToTodo(
 }
 
 function rowToResource(
-  row: Prisma.CourseResourceGetPayload<{}>,
+  row: Prisma.CourseResourceGetPayload<Record<string, never>>,
 ): CourseResource {
   // Domain type fields: id, title, type, size, description?, url?, downloadedBy.
   return {
@@ -426,7 +406,7 @@ function rowToResource(
 }
 
 function rowToGroup(
-  row: Prisma.ProjectGroupGetPayload<{}>,
+  row: Prisma.ProjectGroupGetPayload<Record<string, never>>,
 ): ProjectGroup {
   // Domain type fields: id, name, topic, goal?, keywords, selectedForms,
   // members, proposal?, teacherApproval?, createdAt, updatedAt.
@@ -447,7 +427,7 @@ function rowToGroup(
 }
 
 function rowToGroupAnnouncement(
-  row: Prisma.GroupAnnouncementGetPayload<{}>,
+  row: Prisma.GroupAnnouncementGetPayload<Record<string, never>>,
 ): GroupAnnouncement {
   // Domain type fields: id, groupId, title, content, actor, createdAt.
   return {
@@ -461,7 +441,7 @@ function rowToGroupAnnouncement(
 }
 
 function rowToWorkPlanItem(
-  row: Prisma.WorkPlanItemGetPayload<{}>,
+  row: Prisma.WorkPlanItemGetPayload<Record<string, never>>,
 ): WorkPlanItem {
   // Domain type fields: id, groupId, role, memberName, task, progress.
   return {
@@ -475,7 +455,7 @@ function rowToWorkPlanItem(
 }
 
 function rowToWhiteboardNode(
-  row: Prisma.WhiteboardNodeGetPayload<{}>,
+  row: Prisma.WhiteboardNodeGetPayload<Record<string, never>>,
 ): WhiteboardNode {
   // Domain type fields: id, groupId, label, note?, x, y, color, parentId?.
   return {
@@ -491,7 +471,7 @@ function rowToWhiteboardNode(
 }
 
 function rowToGroupBoard(
-  row: Prisma.GroupBoardGetPayload<{}>,
+  row: Prisma.GroupBoardGetPayload<Record<string, never>>,
 ): GroupBoard {
   return {
     groupId: row.groupId,
@@ -502,7 +482,7 @@ function rowToGroupBoard(
 }
 
 function rowToUpload(
-  row: Prisma.CourseUploadGetPayload<{}>,
+  row: Prisma.CourseUploadGetPayload<Record<string, never>>,
 ): CourseUpload {
   return {
     id: row.id,
@@ -522,7 +502,7 @@ function rowToUpload(
 }
 
 function rowToTeamContribution(
-  row: Prisma.TeamContributionGetPayload<{}>,
+  row: Prisma.TeamContributionGetPayload<Record<string, never>>,
 ): TeamContribution {
   return {
     id: row.id,
@@ -537,7 +517,7 @@ function rowToTeamContribution(
 }
 
 function rowToAiSupport(
-  row: Prisma.AiSupportRecordGetPayload<{}>,
+  row: Prisma.AiSupportRecordGetPayload<Record<string, never>>,
 ): AiSupportRecord {
   return {
     id: row.id,
@@ -565,7 +545,7 @@ function rowToAiSupport(
 }
 
 function rowToTeacherIntervention(
-  row: Prisma.TeacherInterventionGetPayload<{}>,
+  row: Prisma.TeacherInterventionGetPayload<Record<string, never>>,
 ): TeacherIntervention {
   // Domain type fields: id, stageKey, scope, targetIds, reason, evidence,
   // action, instruction, severity, status, signalId?, teacherName,
@@ -589,7 +569,7 @@ function rowToTeacherIntervention(
 }
 
 function rowToStageTransition(
-  row: Prisma.StageTransitionRecordGetPayload<{}>,
+  row: Prisma.StageTransitionRecordGetPayload<Record<string, never>>,
 ): StageTransitionRecord {
   return {
     id: row.id,
@@ -605,7 +585,7 @@ function rowToStageTransition(
 }
 
 function rowToEvaluation(
-  row: Prisma.EvaluationRecordGetPayload<{}>,
+  row: Prisma.EvaluationRecordGetPayload<Record<string, never>>,
 ): EvaluationRecord {
   // Domain type fields: id, courseId, stageKey, sourceRole, targetType,
   // targetId, score?, comment, evidence, status, createdAt, updatedAt.
@@ -626,7 +606,7 @@ function rowToEvaluation(
 }
 
 function rowToLearningEvent(
-  row: Prisma.LearningEventGetPayload<{}>,
+  row: Prisma.LearningEventGetPayload<Record<string, never>>,
 ): LearningEvent {
   return {
     id: row.id,
@@ -650,7 +630,7 @@ function rowToLearningEvent(
 }
 
 function rowToCompanionThread(
-  row: Prisma.CompanionThreadGetPayload<{}>,
+  row: Prisma.CompanionThreadGetPayload<Record<string, never>>,
 ): CompanionThread {
   return {
     id: row.id,
@@ -665,7 +645,7 @@ function rowToCompanionThread(
 }
 
 function rowToCompanionTask(
-  row: Prisma.CompanionTaskGetPayload<{}>,
+  row: Prisma.CompanionTaskGetPayload<Record<string, never>>,
 ): CompanionTask {
   return {
     id: row.id,
@@ -686,7 +666,7 @@ function rowToCompanionTask(
 }
 
 function rowToCompanionConfirmation(
-  row: Prisma.CompanionConfirmationGetPayload<{}>,
+  row: Prisma.CompanionConfirmationGetPayload<Record<string, never>>,
 ): CompanionConfirmation {
   return {
     id: row.id,
@@ -705,7 +685,7 @@ function rowToCompanionConfirmation(
 }
 
 function rowToCompanionProcessRecord(
-  row: Prisma.CompanionProcessRecordGetPayload<{}>,
+  row: Prisma.CompanionProcessRecordGetPayload<Record<string, never>>,
 ): CompanionProcessRecord {
   return {
     id: row.id,
@@ -723,7 +703,7 @@ function rowToCompanionProcessRecord(
 }
 
 function rowToLearningSignal(
-  row: Prisma.LearningSignalGetPayload<{}>,
+  row: Prisma.LearningSignalGetPayload<Record<string, never>>,
 ): LearningSignal {
   return {
     id: row.id,
@@ -748,7 +728,7 @@ function rowToLearningSignal(
 }
 
 function rowToClassCommonIssue(
-  row: Prisma.ClassCommonIssueGetPayload<{}>,
+  row: Prisma.ClassCommonIssueGetPayload<Record<string, never>>,
 ): ClassCommonIssue {
   // Domain type fields: id, courseId, stageKey, normalizedIssueKey, title,
   // summary, content?, severity, studentIds, signalIds, affectedStudents?,
@@ -774,7 +754,7 @@ function rowToClassCommonIssue(
 }
 
 function rowToTeacherAgentDirective(
-  row: Prisma.TeacherAgentDirectiveGetPayload<{}>,
+  row: Prisma.TeacherAgentDirectiveGetPayload<Record<string, never>>,
 ): TeacherAgentDirective {
   // Domain type fields: id, courseId, stageKey, targetStudentIds, targetScope,
   // goal, instruction, successCriteria, status, teacherName, createdAt,
@@ -798,7 +778,7 @@ function rowToTeacherAgentDirective(
 }
 
 function rowToOfflineIntervention(
-  row: Prisma.OfflineInterventionRecordGetPayload<{}>,
+  row: Prisma.OfflineInterventionRecordGetPayload<Record<string, never>>,
 ): OfflineInterventionRecord {
   // Domain type fields: id, courseId, stageKey, kind, targetStudentIds,
   // signalIds, note?, teacherName, createdAt.
@@ -816,7 +796,7 @@ function rowToOfflineIntervention(
 }
 
 function rowToDynamicFacilitationScaffold(
-  row: Prisma.DynamicFacilitationScaffoldGetPayload<{}>,
+  row: Prisma.DynamicFacilitationScaffoldGetPayload<Record<string, never>>,
 ): DynamicFacilitationScaffold {
   // Domain type fields: id, courseId, stageKey, kind, title, sections, status,
   // filledContent?, evidenceIds, generatedAt, updatedAt, confirmedAt?.
@@ -840,34 +820,13 @@ function rowToDynamicFacilitationScaffold(
 // Course → child-row creators (used by saveCourse)
 // ============================================================================
 
-function studentCreateMany(courseId: string, students: Student[]) {
-  return students.map((s) => ({
-    where: { courseId_id: { courseId, id: s.id } },
-    create: {
-      id: s.id,
-      courseId,
-      name: s.name,
-      lastSeenAt: s.lastSeenAt ?? null,
-      progress: asNullableJson(extractStudentProgress(s)),
-    },
-    update: {
-      name: s.name,
-      lastSeenAt: s.lastSeenAt ?? null,
-      progress: asNullableJson(extractStudentProgress(s)),
-    },
-  }));
-}
-
-// Students carry a per-stage progress map alongside their identity fields.
-// Pull every numeric field keyed by stage name into a separate JSONB column.
 function extractStudentProgress(student: Student): Record<string, number> {
-  const progress: Record<string, number> = {};
-  for (const [key, value] of Object.entries(student)) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      progress[key] = value;
-    }
-  }
-  return progress;
+  return Object.fromEntries(
+    Object.entries(student.stageProgress ?? {}).filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    ),
+  );
 }
 
 // ============================================================================
@@ -926,15 +885,19 @@ export async function loadSessionState(): Promise<SessionState> {
   return {
     ...initialSessionState(),
     courses: courses.map(rowToCourse),
-    joinedCourseId: meta?.joinedCourseId ?? undefined,
-    user: {
-      role: (meta?.userRole as "teacher" | "student") ?? "teacher",
-      name: meta?.userName ?? "教师",
-    },
-    studentId: meta?.studentId ?? undefined,
-    studentName: meta?.studentName ?? undefined,
+    // Identity is request-local and comes from the signed JWT. Persisting it
+    // in a singleton row made one browser overwrite every other user's role.
+    joinedCourseId: undefined,
+    user: { role: "teacher", name: "教师" },
+    studentId: undefined,
+    studentName: undefined,
     hydrated: true,
-    updatedAt: new Date().toISOString(),
+    updatedAt:
+      courses.reduce<Date | undefined>(
+        (latest, course) =>
+          !latest || course.updatedAt > latest ? course.updatedAt : latest,
+        meta?.updatedAt,
+      )?.toISOString() ?? new Date(0).toISOString(),
   };
 }
 
@@ -1012,7 +975,7 @@ export async function saveCourse(course: Course): Promise<Course> {
     if (existing) {
       await tx.course.update({
         where: { id: course.id },
-        data: courseToUpdateInput(course, existing.version),
+        data: courseToUpdateInput(course),
       });
     } else {
       await tx.course.create({
@@ -1576,9 +1539,15 @@ export async function saveCourse(course: Course): Promise<Course> {
       });
     }
 
-    if (course.dynamicFacilitationScaffolds?.length) {
+    const facilitationScaffolds = normalizeFacilitationScaffolds(
+      (course.dynamicFacilitationScaffolds ?? []).map((scaffold) => ({
+        ...scaffold,
+        courseId: course.id,
+      })),
+    );
+    if (facilitationScaffolds.length) {
       await tx.dynamicFacilitationScaffold.createMany({
-        data: course.dynamicFacilitationScaffolds.map((s) => ({
+        data: facilitationScaffolds.map((s) => ({
           id: s.id,
           courseId: course.id,
           stageKey: s.stageKey,
@@ -1608,7 +1577,7 @@ export async function saveCourse(course: Course): Promise<Course> {
   });
 }
 
-function courseToUpdateInput(course: Course, currentVersion: number): CourseRowUpdate {
+function courseToUpdateInput(course: Course): CourseRowUpdate {
   return {
     name: course.name,
     subject: course.subject,
@@ -1726,26 +1695,6 @@ async function dispatchRestartTeaching(
   const afterArchive = await loadSessionState();
   const next = applySessionAction(afterArchive, action);
 
-  // Persist SessionMeta so `updatedAt` reflects this dispatch.
-  await prisma.sessionMeta.upsert({
-    where: { id: "singleton" },
-    create: {
-      id: "singleton",
-      joinedCourseId: next.joinedCourseId ?? null,
-      userRole: next.user.role,
-      userName: next.user.name,
-      studentId: next.studentId ?? null,
-      studentName: next.studentName ?? null,
-    },
-    update: {
-      joinedCourseId: next.joinedCourseId ?? null,
-      userRole: next.user.role,
-      userName: next.user.name,
-      studentId: next.studentId ?? null,
-      studentName: next.studentName ?? null,
-    },
-  });
-
   return next;
 }
 
@@ -1753,13 +1702,13 @@ async function dispatchRestartTeaching(
  * Apply a session action atomically.
  *
  * Loads the current state, applies the pure `applySessionAction` reducer,
- * persists the affected course(s) and/or SessionMeta, and returns the new state.
+ * persists the affected course(s), and returns the new state.
  *
  * Note: For action types that only touch a single course (e.g. UPSERT_SUBMISSION),
- * we only persist that course. For HYDRATE / SET_USER we persist SessionMeta.
+ * we only persist that course. Identity-only actions remain request-local.
  * For CREATE_COURSE we save the new course. For DELETE_COURSE we delete it.
  */
-export async function dispatchAction(
+async function dispatchActionUnlocked(
   action: SessionAction,
 ): Promise<SessionState> {
   // RESTART_TEACHING must archive the current classroom data to a
@@ -1768,6 +1717,52 @@ export async function dispatchAction(
   // pure reducer because archiving is a DB write.
   if (action.type === "RESTART_TEACHING") {
     return dispatchRestartTeaching(action);
+  }
+
+  // High-frequency presence/progress updates must not rewrite the complete
+  // course aggregate. Persist only the affected Student row and touch the
+  // parent course so polling clients observe a stable updatedAt change.
+  if (action.type === "HEARTBEAT") {
+    const { courseId, studentId, lastSeenAt } = action.payload;
+    const result = await prisma.student.updateMany({
+      where: { courseId, id: studentId },
+      data: { lastSeenAt, version: { increment: 1 } },
+    });
+    if (result.count === 0) return loadSessionState();
+    await touchCourse(courseId);
+    return loadSessionState();
+  }
+
+  if (action.type === "MARK_STUDENTS_OFFLINE") {
+    const { courseId, studentIds } = action.payload;
+    if (studentIds.length > 0) {
+      const result = await prisma.student.updateMany({
+        where: { courseId, id: { in: studentIds } },
+        data: { lastSeenAt: null, version: { increment: 1 } },
+      });
+      if (result.count > 0) await touchCourse(courseId);
+    }
+    return loadSessionState();
+  }
+
+  if (action.type === "UPDATE_STUDENT_PROGRESS") {
+    const { courseId, studentId, stageKey, value } = action.payload;
+    const student = await prisma.student.findUnique({
+      where: { courseId_id: { courseId, id: studentId } },
+      select: { progress: true },
+    });
+    if (!student) throw new CourseNotFoundError(courseId);
+    const progress =
+      (student.progress as Record<string, number> | null) ?? {};
+    await prisma.student.update({
+      where: { courseId_id: { courseId, id: studentId } },
+      data: {
+        progress: asNullableJson({ ...progress, [stageKey]: value }),
+        version: { increment: 1 },
+      },
+    });
+    await touchCourse(courseId);
+    return loadSessionState();
   }
 
   // Stage 6: file-management side effects. The pure reducer in
@@ -1807,42 +1802,66 @@ export async function dispatchAction(
     }
   }
 
-  // Persist SessionMeta
-  await prisma.sessionMeta.upsert({
-    where: { id: "singleton" },
-    create: {
-      id: "singleton",
-      joinedCourseId: next.joinedCourseId ?? null,
-      userRole: next.user.role,
-      userName: next.user.name,
-      studentId: next.studentId ?? null,
-      studentName: next.studentName ?? null,
-    },
-    update: {
-      joinedCourseId: next.joinedCourseId ?? null,
-      userRole: next.user.role,
-      userName: next.user.name,
-      studentId: next.studentId ?? null,
-      studentName: next.studentName ?? null,
+  return next;
+}
+
+async function touchCourse(courseId: string): Promise<void> {
+  const result = await prisma.course.updateMany({
+    where: { id: courseId },
+    data: {
+      updatedAt: new Date(),
+      version: { increment: 1 },
     },
   });
+  if (result.count === 0) throw new CourseNotFoundError(courseId);
+}
 
-  return next;
+/**
+ * Serialize aggregate read-modify-write actions across app processes.
+ *
+ * `saveCourse` replaces the child collections of a course, so two concurrent
+ * reducers must not both read the same snapshot and then overwrite each other.
+ * A PostgreSQL transaction-level advisory lock provides that coordination
+ * without storing user identity or lock state in application tables.
+ */
+export async function dispatchAction(
+  action: SessionAction,
+): Promise<SessionState> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(824674211)`;
+      return dispatchActionUnlocked(action);
+    },
+    { maxWait: 30_000, timeout: 120_000 },
+  );
 }
 
 /**
  * Update a single course via an updater function.
  * Loads the course, applies the updater, persists it.
  */
-export async function updateCourse(
+async function updateCourseUnlocked(
   courseId: string,
   updater: (course: Course) => Course,
 ): Promise<SessionState> {
   const course = await loadCourse(courseId);
   if (!course) throw new CourseNotFoundError(courseId);
-  const updated = updater(course);
+  const updated = applyCourseUpdate(course, updater);
   await saveCourse(updated);
   return loadSessionState();
+}
+
+export async function updateCourse(
+  courseId: string,
+  updater: (course: Course) => Course,
+): Promise<SessionState> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(824674211)`;
+      return updateCourseUnlocked(courseId, updater);
+    },
+    { maxWait: 30_000, timeout: 120_000 },
+  );
 }
 
 /**

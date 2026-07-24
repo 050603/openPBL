@@ -38,6 +38,7 @@ function actionToEventType(
     case "RESTART_TEACHING":
     case "UPDATE_STUDENT_PROGRESS":
     case "UPSERT_TODO":
+    case "SET_STUDENT_TODO_COMPLETION":
     case "UPSERT_ANNOUNCEMENT":
     case "DELETE_ANNOUNCEMENT":
     case "ADD_ANNOUNCEMENT_REPLY":
@@ -130,6 +131,7 @@ function courseIdFromAction(action: SessionAction): string | undefined {
     case "DELETE_ANNOUNCEMENT":
     case "ADD_ANNOUNCEMENT_REPLY":
     case "UPSERT_TODO":
+    case "SET_STUDENT_TODO_COMPLETION":
     case "MARK_RESOURCE_DOWNLOADED":
     case "UPSERT_GROUP":
     case "JOIN_GROUP":

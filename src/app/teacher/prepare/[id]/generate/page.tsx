@@ -20,9 +20,16 @@ import { WizardStepper } from "@/components/wizard-stepper";
 import { Button, Card, FlowActionBar, SaveStatus, toast } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
-import type { LessonOutlineSection, TeacherResourceScene } from "@/lib/session/types";
+import type {
+  AdaptiveLearningPlan,
+  LessonOutlineSection,
+  TeacherResourceScene,
+} from "@/lib/session/types";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
-import { buildFacilitationScaffold } from "@/lib/teacher-resources/facilitation-scaffolds";
+import {
+  buildFacilitationScaffold,
+  normalizeFacilitationScaffolds,
+} from "@/lib/teacher-resources/facilitation-scaffolds";
 import {
   buildPblCourseRequirement,
   buildCourseTeachingConstraints,
@@ -34,6 +41,7 @@ import { isPblModuleTimingPlanConfirmed } from "@/lib/pbl-time-model";
 import { requestCourseCoverImage } from "@/lib/course-cover";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
+import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -268,6 +276,100 @@ export default function GenerateCoursePage() {
     );
   }
 
+  async function prepareAdaptiveBranches(): Promise<AdaptiveLearningPlan | undefined> {
+    const plan = course?.content.adaptiveLearningPlan;
+    if (!course || !plan?.enabled || plan.status !== "teacher-confirmed") return plan;
+    const activeCourse = course;
+    const branches = plan.branches.filter((branch) => branch.status === "teacher-confirmed");
+    if (!branches.length) return plan;
+
+    setSteps((previous) => [
+      ...previous,
+      {
+        step: "自适应分支资源",
+        progress: 92,
+        message: `开始生成 ${branches.length} 个教师已确认分支，最多同时处理 2 个`,
+        ts: Date.now(),
+      },
+    ]);
+
+    const resources = new Map<string, NonNullable<typeof branches[number]["preparedResource"]>>();
+    let cursor = 0;
+    async function worker() {
+      while (cursor < branches.length) {
+        const branch = branches[cursor++];
+        try {
+          const generated = await generateAdaptiveClassroom({
+            title: `${activeCourse.name} · ${branch.title}`,
+            requirement: [
+              `生成一个可由教师预览、可无缝插入主课程的${branch.kind === "foundation" ? "补基础" : "拓展"}分支。`,
+              `主课程：${activeCourse.name}`,
+              `分支目标：${branch.objective}`,
+              `知识要点：${branch.keyPoints.join("；")}`,
+              `教师指导：${branch.generationGuidance || "遵循分支目标与课程原有教学风格。"}`,
+              `总时长控制在 ${branch.targetDurationSec} 秒左右，结尾自然返回主课程。`,
+              "必须生成完整 PPT/互动内容、讲稿和 TTS，使用与主课程相同的播放管线。",
+            ].join("\n"),
+            stageKey: "ai-learning",
+            requestRole: "teacher",
+            scenes: [{
+              title: branch.title,
+              description: branch.objective,
+              keyPoints: branch.keyPoints,
+              type: branch.sceneType,
+              targetDurationSec: branch.targetDurationSec,
+              knowledgePointIds: branch.anchorKnowledgePointIds,
+            }],
+            onProgress: ({ progress, message }) => {
+              setSteps((previous) => [
+                ...previous,
+                {
+                  step: branch.kind === "foundation" ? "生成补基础分支" : "生成拓展分支",
+                  progress: Math.min(99, 92 + Math.round(progress * 0.07)),
+                  message: `${branch.title}：${message}`,
+                  ts: Date.now(),
+                },
+              ]);
+            },
+          });
+          resources.set(branch.id, {
+            status: "ready",
+            classroomId: generated.classroomId,
+            scenesCount: generated.scenesCount,
+            generatedAt: new Date().toISOString(),
+          });
+        } catch (cause) {
+          const error = cause instanceof Error ? cause.message : "分支生成失败";
+          resources.set(branch.id, {
+            status: "failed",
+            generatedAt: new Date().toISOString(),
+            error,
+          });
+          setSteps((previous) => [
+            ...previous,
+            {
+              step: "自适应分支生成失败",
+              progress: 99,
+              message: `${branch.title}：${error}。课堂运行时不会现场生成；请在发布前重新生成该资源。`,
+              ts: Date.now(),
+            },
+          ]);
+        }
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(2, branches.length) }, () => worker()),
+    );
+    return {
+      ...plan,
+      updatedAt: new Date().toISOString(),
+      branches: plan.branches.map((branch) => ({
+        ...branch,
+        preparedResource: resources.get(branch.id) ?? branch.preparedResource,
+      })),
+    };
+  }
+
   async function startGeneration() {
     if (!course) return;
     if (!isPblModuleTimingPlanConfirmed(course.content.moduleTimingPlan)) {
@@ -400,7 +502,6 @@ export default function GenerateCoursePage() {
       if (!doneEvent) throw new Error("未收到生成完成事件");
 
       setResult(doneEvent);
-      setStatus("success");
 
       // 生成后分流：将引入+PBL场景拆分为教师授课资源，学生课堂仅保留知识点教学场景
       try {
@@ -421,17 +522,20 @@ export default function GenerateCoursePage() {
           pblCoverage: doneEvent.pblCoverage ?? checkPblStageCoverage(sceneOutlines),
         };
         if (course) {
-            updateCourse(course.id, {
+          const adaptiveLearningPlan = await prepareAdaptiveBranches();
+          updateCourse(course.id, {
             aiLearningClassroomId: doneEvent.id,
             teacherClassroomId: splitResult.teacherClassroomId,
-            dynamicFacilitationScaffolds: splitResult.teacherResourceScenes
-              .filter((resource) => resource.generationMode === "dynamic-scaffold" && resource.scaffoldKind)
-              .map((resource) => buildFacilitationScaffold({
-                courseId: course.id,
-                stageKey: resource.stageKey ?? "showcase",
-                title: resource.title,
-                kind: resource.scaffoldKind!,
-              })),
+            dynamicFacilitationScaffolds: normalizeFacilitationScaffolds(
+              splitResult.teacherResourceScenes
+                .filter((resource) => resource.generationMode === "dynamic-scaffold" && resource.scaffoldKind)
+                .map((resource) => buildFacilitationScaffold({
+                  courseId: course.id,
+                  stageKey: resource.stageKey ?? "showcase",
+                  title: resource.title,
+                  kind: resource.scaffoldKind!,
+                })),
+            ),
             content: {
               ...course.content,
               _openmaicClassroomId: doneEvent.id,
@@ -441,8 +545,9 @@ export default function GenerateCoursePage() {
                 generatedAt: new Date().toISOString(),
                 scenes: splitResult.teacherResourceScenes,
               },
+              adaptiveLearningPlan,
             },
-            });
+          });
           setSteps((prev) => [
             ...prev,
             {
@@ -479,6 +584,8 @@ export default function GenerateCoursePage() {
         ]);
         throw new Error(`内容分流失败：${splitMessage}`);
       }
+
+      setStatus("success");
 
     } catch (err) {
       const message = err instanceof Error ? err.message : "生成失败";

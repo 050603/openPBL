@@ -8,6 +8,7 @@ import {
 } from "./actions";
 import type { Course, CourseUpload, GroupBoard, Student } from "./types";
 import { DEFAULT_STAGES } from "./types";
+import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 
 function makeCourse(overrides: Partial<Course> = {}): Course {
   return {
@@ -41,6 +42,46 @@ function makeStudent(id: string, name: string): Student {
 function stateWithCourses(...courses: Course[]): SessionState {
   return { ...initialSessionState(), courses, hydrated: true };
 }
+
+describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
+  it("changes only the requesting student's completion entry", () => {
+    const course = makeCourse({
+      todos: [
+        {
+          id: "todo-1",
+          title: "阅读项目说明",
+          description: "",
+          completedBy: ["student-2"],
+        },
+      ],
+    });
+
+    const completed = applySessionAction(stateWithCourses(course), {
+      type: "SET_STUDENT_TODO_COMPLETION",
+      payload: {
+        courseId: course.id,
+        todoId: "todo-1",
+        studentId: "student-1",
+        completed: true,
+      },
+    });
+    expect(completed.courses[0].todos?.[0].completedBy).toEqual([
+      "student-2",
+      "student-1",
+    ]);
+
+    const reopened = applySessionAction(completed, {
+      type: "SET_STUDENT_TODO_COMPLETION",
+      payload: {
+        courseId: course.id,
+        todoId: "todo-1",
+        studentId: "student-1",
+        completed: false,
+      },
+    });
+    expect(reopened.courses[0].todos?.[0].completedBy).toEqual(["student-2"]);
+  });
+});
 
 describe("applySessionAction — JOIN_CLASS", () => {
   it("adds the student to the course and sets joinedCourseId/studentId/studentName", () => {
@@ -245,6 +286,22 @@ describe("applySessionAction — ADVANCE_STAGE", () => {
     });
 
     expect(next.courses[0].uiState?.teacherResourceProjection).toBeNull();
+  });
+
+  it("automatically selects the only teacher-authored inquiry question", () => {
+    const course = makeCourse({
+      pblConfig: {
+        ...DEFAULT_PBL_COURSE_CONFIG,
+        inquiryQuestions: ["我们如何减少校园用水浪费？"],
+      },
+    });
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "JOIN_CLASS",
+      payload: { courseId: course.id, student: makeStudent("s1", "张三") },
+    });
+
+    expect(next.courses[0].groups?.[0].topic).toBe("我们如何减少校园用水浪费？");
   });
 });
 

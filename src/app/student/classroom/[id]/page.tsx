@@ -15,17 +15,22 @@ import { CompanionRuntimeProvider } from "@/components/views/student/companion-r
 import { CompanionStudioWorkspace } from "@/components/views/student/companion-studio-workspace";
 import { useStudentWorkspaceMode } from "@/components/views/student/workspace-mode";
 import { getStageWorkspacePolicy, resolveStageWorkspaceMode } from "@/lib/classroom/stage-workspace-policy";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const course = useCourse(params?.id);
+  useRealtimeSync(params?.id);
   const hydrated = useHydrated();
   const { user, studentName, studentId, joinedCourseId } = useSession();
   const presenceRef = useRef<{ courseId?: string; studentId?: string }>({});
   const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
   const activeStageKey = course?.stages[course.currentStageIndex]?.key;
-  const workspacePolicy = getStageWorkspacePolicy(course?.stageWorkspacePolicies, activeStageKey);
+  const workspacePolicy = getStageWorkspacePolicy(
+    course?.stageWorkspacePolicies,
+    activeStageKey,
+  );
   const [workspacePreference, setWorkspacePreference] = useStudentWorkspaceMode(
     params?.id ?? "classroom",
     studentId,
@@ -49,7 +54,10 @@ export default function StudentClassroomPage() {
     const sendHeartbeat = () => {
       fetch("/api/session/presence", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenPBL-Role": "student",
+        },
         body: JSON.stringify({ courseId: course.id, studentId }),
         keepalive: true,
       }).catch(() => {
@@ -143,6 +151,7 @@ export default function StudentClassroomPage() {
       role="student"
       userName={displayName}
       variant="bare"
+      wide={currentStage?.key === "ai-learning"}
       immersive={isTeaching && workspaceMode === "companions" && !forcedProjection && !optionalProjectionOpen}
       hideCourseSwitcher
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
@@ -216,7 +225,11 @@ export default function StudentClassroomPage() {
                 ) : null}
                 <div aria-hidden={workspaceMode !== "task"} hidden={workspaceMode !== "task"} role="tabpanel" aria-label="任务视图">
                   <section
-                    className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
+                    className={
+                      currentStage.key === "ai-learning"
+                        ? "overflow-hidden rounded-[var(--radius-lg)] animate-[fadeIn_0.28s_ease-out]"
+                        : "pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
+                    }
                     key={currentStage.key}
                   >
                     <StudentStageView course={course} view={currentStage.view} />

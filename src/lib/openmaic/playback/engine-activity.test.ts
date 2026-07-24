@@ -23,7 +23,48 @@ function activityScene(durationSec = 1): Scene {
       },
       { id: 'after-gate', type: 'laser', elementId: 'answer' },
     ] as Action[],
-  } as Scene;
+  } as unknown as Scene;
+}
+
+function discussionScene(): Scene {
+  return {
+    id: 'discussion-scene',
+    stageId: 'stage-1',
+    order: 0,
+    title: 'Discussion',
+    type: 'slide',
+    content: { type: 'slide', elements: [] },
+    actions: [
+      {
+        id: 'discussion-1',
+        type: 'discussion',
+        topic: 'Try this',
+      },
+    ] as Action[],
+  } as unknown as Scene;
+}
+
+function legacyInteractiveScene(): Scene {
+  return {
+    id: 'interactive-scene',
+    stageId: 'stage-1',
+    order: 0,
+    title: 'Simulation',
+    type: 'interactive',
+    content: { type: 'interactive', html: '<!doctype html><html></html>' },
+    actions: [
+      { id: 'intro', type: 'speech', text: '' },
+      { id: 'auto-demo', type: 'widget_setState', state: { speed: 2 } },
+      {
+        id: 'activity-gate',
+        type: 'speech',
+        text: '',
+        activityPauseSec: 5,
+        activityPausePurpose: 'interaction',
+      },
+      { id: 'feedback', type: 'speech', text: '' },
+    ] as Action[],
+  } as unknown as Scene;
 }
 
 function createEngine(callbacks: ConstructorParameters<typeof PlaybackEngine>[3] = {}) {
@@ -100,5 +141,111 @@ describe('PlaybackEngine activity gates', () => {
     engine.resume();
     await vi.runAllTimersAsync();
     expect(actionEngine.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes legacy interactive scenes so automation waits for the learner', async () => {
+    const onActivityStart = vi.fn();
+    const actionEngine = {
+      clearEffects: vi.fn(),
+      execute: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ActionEngine;
+    const audioPlayer = {
+      play: vi.fn().mockResolvedValue(false),
+      onEnded: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      isPlaying: vi.fn().mockReturnValue(false),
+      hasActiveAudio: vi.fn().mockReturnValue(false),
+    } as unknown as AudioPlayer;
+    const engine = new PlaybackEngine(
+      [legacyInteractiveScene()],
+      actionEngine,
+      audioPlayer,
+      { onActivityStart },
+    );
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(onActivityStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sceneId: 'interactive-scene',
+        purpose: 'interaction',
+        durationSec: 30,
+      }),
+    );
+    expect(actionEngine.execute).not.toHaveBeenCalled();
+
+    expect(engine.completeActivity('interactive-scene', 'interaction')).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(actionEngine.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'auto-demo', type: 'widget_setState' }),
+    );
+  });
+
+  it('re-schedules a delayed discussion trigger after pause and resume', async () => {
+    const onProactiveShow = vi.fn();
+    const actionEngine = {
+      clearEffects: vi.fn(),
+      execute: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ActionEngine;
+    const audioPlayer = {
+      play: vi.fn().mockResolvedValue(false),
+      onEnded: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      isPlaying: vi.fn().mockReturnValue(false),
+      hasActiveAudio: vi.fn().mockReturnValue(false),
+    } as unknown as AudioPlayer;
+    const engine = new PlaybackEngine(
+      [discussionScene()],
+      actionEngine,
+      audioPlayer,
+      { onProactiveShow },
+    );
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    engine.pause();
+    engine.resume();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(onProactiveShow).toHaveBeenCalledTimes(1);
+    expect(onProactiveShow).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'discussion-1' }),
+    );
+  });
+
+  it('continues playback when one visual action fails', async () => {
+    const actionEngine = {
+      clearEffects: vi.fn(),
+      execute: vi.fn()
+        .mockRejectedValueOnce(new Error('transient failure'))
+        .mockResolvedValue(undefined),
+    } as unknown as ActionEngine;
+    const audioPlayer = {
+      play: vi.fn().mockResolvedValue(false),
+      onEnded: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      isPlaying: vi.fn().mockReturnValue(false),
+      hasActiveAudio: vi.fn().mockReturnValue(false),
+    } as unknown as AudioPlayer;
+    const scene = {
+      ...activityScene(),
+      actions: [
+        { id: 'open', type: 'wb_open' },
+        { id: 'close', type: 'wb_close' },
+      ] as Action[],
+    } as Scene;
+    const engine = new PlaybackEngine([scene], actionEngine, audioPlayer);
+
+    engine.start();
+    await vi.runAllTimersAsync();
+
+    expect(actionEngine.execute).toHaveBeenCalledTimes(2);
   });
 });

@@ -83,6 +83,7 @@ export type SessionAction =
       payload: { courseId: string; announcementId: string; reply: CourseAnnouncement["replies"][number] };
     }
   | { type: "UPSERT_TODO"; payload: { courseId: string; todo: CourseTodo } }
+  | { type: "SET_STUDENT_TODO_COMPLETION"; payload: { courseId: string; todoId: string; studentId: string; completed: boolean } }
   | {
       type: "MARK_RESOURCE_DOWNLOADED";
       payload: { courseId: string; resourceId: string; studentId: string; studentName: string };
@@ -99,7 +100,7 @@ export type SessionAction =
       };
     }
   | { type: "LEAVE_GROUP"; payload: { courseId: string; groupId: string; studentId: string } }
-  | { type: "SET_GROUP_TOPIC"; payload: { courseId: string; groupId: string; patch: Partial<ProjectGroup> } }
+  | { type: "SET_GROUP_TOPIC"; payload: { courseId: string; groupId: string; patch: Partial<ProjectGroup>; studentId?: string } }
   | {
       type: "UPSERT_GROUP_ANNOUNCEMENT";
       payload: { courseId: string; announcement: GroupAnnouncement };
@@ -119,7 +120,7 @@ export type SessionAction =
   | { type: "UPSERT_TEACHER_AGENT_DIRECTIVE"; payload: { courseId: string; directive: TeacherAgentDirective } }
   | { type: "UPSERT_COMPANION_TASK"; payload: { courseId: string; task: CompanionTask } }
   | { type: "UPSERT_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmation: CompanionConfirmation } }
-  | { type: "RESOLVE_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmationId: string; status: CompanionConfirmation["status"]; resolvedAt: string } }
+  | { type: "RESOLVE_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmationId: string; status: CompanionConfirmation["status"]; resolvedAt: string; studentId?: string } }
   | { type: "ADD_COMPANION_PROCESS_RECORD"; payload: { courseId: string; record: CompanionProcessRecord } }
   | { type: "SET_UI_STATE"; payload: { courseId: string; patch: Partial<CourseUiState> } };
 
@@ -339,13 +340,18 @@ export function applySessionAction(
           const alreadyInGroup = (c.groups ?? []).some((g) =>
             g.members.some((m) => m.studentId === student.id),
           );
+          const inquiryQuestions = normalizePblCourseConfig(c.pblConfig).inquiryQuestions;
+          const initialTopic =
+            inquiryQuestions.length === 1
+              ? inquiryQuestions[0]
+              : "待确定选题方向";
           const groups = !alreadyInGroup
             ? [
                 ...(c.groups ?? []),
                 {
                   id: `grp-${student.id}`,
                   name: `${student.name}的个人项目`,
-                  topic: "待确定选题方向",
+                  topic: initialTopic,
                   goal: "",
                   keywords: [],
                   selectedForms: [],
@@ -510,6 +516,16 @@ export function applySessionAction(
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         todos: upsertById(c.todos ?? [], action.payload.todo),
       }));
+    case "SET_STUDENT_TODO_COMPLETION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        todos: (c.todos ?? []).map((todo) => {
+          if (todo.id !== action.payload.todoId) return todo;
+          const completedBy = new Set(todo.completedBy);
+          if (action.payload.completed) completedBy.add(action.payload.studentId);
+          else completedBy.delete(action.payload.studentId);
+          return { ...todo, completedBy: Array.from(completedBy) };
+        }),
+      }));
     case "MARK_RESOURCE_DOWNLOADED": {
       const { courseId, resourceId, studentId, studentName } = action.payload;
       return updateCourseRecord(state, courseId, touchedAt, (c) => ({
@@ -552,10 +568,12 @@ export function applySessionAction(
         ),
       }));
     case "SET_GROUP_TOPIC": {
-      const { courseId, groupId, patch } = action.payload;
+      const { courseId, groupId, patch, studentId } = action.payload;
       return updateCourseRecord(state, courseId, touchedAt, (c) => ({
         groups: (c.groups ?? []).map((g) =>
-          g.id === groupId ? { ...g, ...patch, updatedAt: touchedAt } : g,
+          g.id === groupId && (!studentId || g.members.some((member) => member.studentId === studentId))
+            ? { ...g, ...patch, updatedAt: touchedAt }
+            : g,
         ),
         activityLog: addActivity(c.activityLog, activity("小组", "更新选题方向", patch.topic ?? patch.goal ?? groupId, touchedAt)),
       }));
@@ -863,9 +881,6 @@ export function normalizeCourse(course: Course): Course {
     uiState: {
       ...(course.uiState ?? {}),
       teacherResourceProjection: course.uiState?.teacherResourceProjection ?? null,
-      aiChatStagesEnabled: course.uiState?.aiChatStagesEnabled?.length
-        ? [...new Set(course.uiState.aiChatStagesEnabled.map(migrateStageKey))]
-        : course.uiState?.aiChatStagesEnabled,
     },
     content: {
       ...course.content,

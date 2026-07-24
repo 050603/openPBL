@@ -10,17 +10,21 @@
 //   - 注册 SIGTERM / SIGINT 优雅关闭信号处理器（Stage 7）：
 //     翻转关闭标志 → 运行清理钩子 → 关闭 WebSocket → 断开 Prisma → exit 0。
 
+let registered = false;
+
 export async function register(): Promise<void> {
+  if (registered) return;
+  registered = true;
   // Side-effect import: triggers collectDefaultMetrics() exactly once.
   await import("@/lib/observability/metrics");
 
-  // Stage 4: start the WebSocket server for realtime session sync.
-  // Best-effort — if the port is in use (e.g. dev HMR spinning up a
-  // second instance), startWebSocketServer logs an error and returns
-  // null; clients fall back to long-polling.
-  const { startWebSocketServer } = await import("@/lib/realtime/websocket-server");
-  const wsPort = Number(process.env.WEBSOCKET_PORT ?? "3001");
-  startWebSocketServer(wsPort);
+  if (process.env.ENABLE_WEBSOCKET === "true") {
+    const { initializeEventBus } = await import("@/lib/realtime/event-bus");
+    const { startWebSocketServer } = await import("@/lib/realtime/websocket-server");
+    await initializeEventBus();
+    const wsPort = Number(process.env.WEBSOCKET_PORT ?? "3001");
+    startWebSocketServer(wsPort);
+  }
 
   // Register graceful-shutdown signal handlers (Stage 7).
   await installShutdownHandlers();
@@ -54,11 +58,14 @@ async function installShutdownHandlers(): Promise<void> {
     // 2) Run registered cleanup hooks (each with its own timeout).
     beginShutdown(`received ${signal}`)
       .then(async () => {
-        // 3) Close the WebSocket server if it exists. The module is optional
-        //    (not all deployments use WebSocket), so a missing import is
-        //    expected — we use a variable path so TypeScript treats it as
-        //    `Promise<any>` and the runtime resolves it lazily.
-        await closeWebSocketServerIfPresent();
+        if (process.env.ENABLE_WEBSOCKET === "true") {
+          const { closeWebSocketServer } = await import(
+            "@/lib/realtime/websocket-server"
+          );
+          const { closeEventBus } = await import("@/lib/realtime/event-bus");
+          await closeWebSocketServer();
+          await closeEventBus();
+        }
 
         // 4) Close the database connection. Prisma is always instantiated
         //    (singleton), but if DATABASE_URL is unset (Demo mode) calling
@@ -87,34 +94,4 @@ async function installShutdownHandlers(): Promise<void> {
 
   process.on("SIGTERM", () => handleSignal("SIGTERM"));
   process.on("SIGINT", () => handleSignal("SIGINT"));
-}
-
-/**
- * Best-effort close of the WebSocket server. The realtime module is not yet
- * present in every deployment, so we resolve the path lazily and treat any
- * import failure as "no WS server running".
- */
-async function closeWebSocketServerIfPresent(): Promise<void> {
-  const { logger } = await import("@/lib/observability/logger");
-  // Variable path -> dynamic import typed as Promise<any> by TypeScript,
-  // so a missing module does not break compilation.
-  const modulePath = "@/lib/realtime/websocket-server";
-  try {
-    const mod = (await import(modulePath)) as {
-      getWebSocketServer?: () => {
-        close?: () => Promise<void> | void;
-      } | null | undefined;
-    };
-    const ws = mod.getWebSocketServer?.();
-    if (ws?.close) {
-      await Promise.resolve(ws.close());
-      logger.info("WebSocket server closed during shutdown");
-    }
-  } catch (err) {
-    // Module doesn't exist or isn't initialized — expected in many setups.
-    logger.debug(
-      { err: err instanceof Error ? err.message : String(err) },
-      "WebSocket server module unavailable; skipping close",
-    );
-  }
 }

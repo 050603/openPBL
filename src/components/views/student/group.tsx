@@ -127,8 +127,6 @@ export function GroupView({ course }: { course: Course }) {
         studentName: session.studentName ?? session.user.name,
       });
       session.updateStudentProgress("group", 85);
-      // 提醒教师有新数据可刷新
-      session.setUiState(course.id, { aiAnalysisPending: true });
       setStatus("已完成 AI 方案检查");
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 方案检查失败";

@@ -33,6 +33,7 @@ import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 import { estimateSpeechDurationSec } from '@openmaic/lib/audio/tts-timing';
 import type { PlaybackSyncState } from '@openmaic/components/stage-experience';
 import { isScenePlaybackExhausted } from '@openmaic/lib/playback/scene-completion';
+import { readSubmittedState } from '@openmaic/lib/quiz/persistence';
 import {
   AI_PROGRESS_COMPLETION_MODEL_VERSION,
   isReliableAiProgress,
@@ -70,6 +71,14 @@ interface StudentStageHostProps {
   variant?: 'fullscreen' | 'embedded';
   mode?: StudentStageHostMode;
   className?: string;
+  onSceneComplete?: (detail: {
+    scene: Scene;
+    quizScore?: number;
+    completedSceneCount: number;
+    totalSceneCount: number;
+  }) => void;
+  /** Plays an independently generated branch or micro lesson without course progress writes. */
+  standalone?: boolean;
 }
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -77,6 +86,13 @@ export type StudentStageHostMode = 'student' | 'teacher-preview';
 
 export function shouldTrackStudentLearning(mode: StudentStageHostMode): boolean {
   return mode === 'student';
+}
+
+export function quizScoreForScene(scene: Scene): number | undefined {
+  const submitted = readSubmittedState(scene.id);
+  if (submitted?.kind !== 'reviewing' || submitted.results.length === 0) return undefined;
+  const correct = submitted.results.filter((result) => result.status === 'correct').length;
+  return Math.round((correct / submitted.results.length) * 100);
 }
 
 /**
@@ -159,6 +175,8 @@ export function StudentStageHost({
   variant = 'fullscreen',
   mode = 'student',
   className,
+  onSceneComplete,
+  standalone = false,
 }: StudentStageHostProps) {
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
@@ -180,7 +198,19 @@ export function StudentStageHost({
   const lastHeartbeatAtRef = useRef<number | null>(null);
   const seenSceneIdsRef = useRef<Set<string>>(new Set());
   const ttsDurationBySceneRef = useRef<Map<string, number>>(new Map());
-  const trackingEnabled = shouldTrackStudentLearning(mode) && Boolean(courseId && studentId);
+  const trackingEnabled = !standalone && shouldTrackStudentLearning(mode) && Boolean(courseId && studentId);
+
+  useEffect(() => {
+    if (variant !== 'embedded') return;
+    // The fullscreen control already prioritizes the scene canvas. Apply the
+    // same default to the in-course player instead of restoring a previously
+    // expanded sidebar/chat layout that can squeeze interactive scenes into a
+    // narrow viewport. Students can still reopen either panel from the canvas.
+    useSettingsStore.setState({
+      sidebarCollapsed: true,
+      chatAreaCollapsed: true,
+    });
+  }, [variant]);
 
   const flushTelemetry = useCallback(async () => {
     if (!trackingEnabled || !courseId || !studentId || telemetryFlushingRef.current) return;
@@ -269,7 +299,7 @@ export function StudentStageHost({
         return;
       }
 
-      const studentScenes = selectStudentLearningScenes(scenes);
+      const studentScenes = standalone ? scenes : selectStudentLearningScenes(scenes);
       if (studentScenes.length === 0) {
         setErrorMsg('AI 课堂中没有可供学生学习的场景');
         setState('error');
@@ -279,7 +309,7 @@ export function StudentStageHost({
       // 2. 拉取已有进度（用于恢复 currentSceneIndex）
       let restoredIndex = 0;
       let restoredCompleted: string[] = [];
-      if (mode === 'student' && courseId && studentId) {
+      if (!standalone && mode === 'student' && courseId && studentId) {
         try {
           const progRes = await fetch(
             `/api/openmaic/progress?courseId=${encodeURIComponent(courseId)}&studentId=${encodeURIComponent(studentId)}`,
@@ -324,6 +354,9 @@ export function StudentStageHost({
       // 让 PlaybackEngine 在处理 speech action 时能调用浏览器原生语音合成。
       useSettingsStore.setState((s) => ({
         ttsEnabled: true,
+        // 学生课堂每次进入都应恢复可听状态；仍可在播放器内再次静音。
+        ttsMuted: false,
+        ttsVolume: s.ttsVolume > 0 ? s.ttsVolume : 1,
         ttsProviderId: s.ttsProviderId || 'browser-native-tts',
         ttsProvidersConfig: {
           ...s.ttsProvidersConfig,
@@ -373,12 +406,12 @@ export function StudentStageHost({
         classroomLoadControllerRef.current = null;
       }
     }
-  }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, studentId, trackingEnabled]);
+  }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, standalone, studentId, trackingEnabled]);
 
   // 上报进度到 /api/openmaic/progress
   const reportProgress = useCallback(
-    async (nextSceneId: string | null) => {
-      if (mode !== 'student' || !courseId || !studentId || !classroomId) return;
+    async (nextSceneId: string | null, quizScore?: number) => {
+      if (standalone || mode !== 'student' || !courseId || !studentId || !classroomId) return;
       // 取当前 store 的 scenes 列表
       const storeState = useStageStore.getState();
       const scenes = storeState.scenes;
@@ -396,7 +429,10 @@ export function StudentStageHost({
       try {
         await fetch('/api/openmaic/progress', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-OpenPBL-Role': 'student',
+          },
           body: JSON.stringify({
             courseId,
             studentId,
@@ -406,6 +442,7 @@ export function StudentStageHost({
             totalScenes: scenes.length,
             completedScenes,
             completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
+            ...(quizScore !== undefined ? { quizScore } : {}),
           }),
         });
         if (isAllComplete) completionReportedRef.current = true;
@@ -413,7 +450,7 @@ export function StudentStageHost({
         // 上报失败静默处理
       }
     },
-    [courseId, studentId, studentName, classroomId, mode],
+    [courseId, studentId, studentName, classroomId, mode, standalone],
   );
 
   const handlePlaybackStateChange = useCallback(
@@ -424,14 +461,21 @@ export function StudentStageHost({
       if (!scene || !isScenePlaybackExhausted(scene, playbackState)) return;
       if (completedRef.current.has(scene.id)) return;
       completedRef.current.add(scene.id);
+      const quizScore = quizScoreForScene(scene);
       queueTelemetry('scene-complete', scene.id, { progressMarker: 'completed' });
       if (completedRef.current.size >= storeState.scenes.length) {
         queueTelemetry('stage-goal-complete', null, { progressMarker: 'completed' });
       }
       void flushTelemetry();
-      void reportProgress(scene.id);
+      onSceneComplete?.({
+        scene,
+        quizScore,
+        completedSceneCount: completedRef.current.size,
+        totalSceneCount: storeState.scenes.length,
+      });
+      void reportProgress(scene.id, quizScore);
     },
-    [flushTelemetry, mode, queueTelemetry, reportProgress],
+    [flushTelemetry, mode, onSceneComplete, queueTelemetry, reportProgress],
   );
 
   // 订阅 useStageStore 的 currentSceneId 变化
@@ -486,7 +530,7 @@ export function StudentStageHost({
       });
       lastHeartbeatAtRef.current = now;
       void flushTelemetry();
-    }, 30_000);
+    }, 10_000);
     const handleVisibility = () => {
       lastHeartbeatAtRef.current = Date.now();
       if (document.visibilityState === 'hidden') void flushTelemetry();
@@ -530,7 +574,7 @@ export function StudentStageHost({
             className={cn(
               'relative flex flex-col overflow-hidden bg-background text-foreground',
               variant === 'embedded'
-                ? 'h-full min-h-[640px] rounded-[8px] border border-stone-200'
+                ? 'h-[calc(100dvh-135px)] min-h-[720px] max-h-[1080px] rounded-[8px] border border-stone-200'
                 : 'h-screen',
               className,
             )}

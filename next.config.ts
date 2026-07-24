@@ -27,6 +27,7 @@ const nextConfig: NextConfig = {
     "pino",
     "pino-pretty",
     "prom-client",
+    "redis",
     "ws",
   ],
   images: {

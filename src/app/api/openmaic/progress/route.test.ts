@@ -6,7 +6,7 @@ const courseStore = vi.hoisted(() => ({
   updateCourse: vi.fn(),
 }));
 const classroomStore = vi.hoisted(() => ({
-  classroom: null as null | { scenes: Array<{ id: string }> },
+  classroom: null as null | { scenes: Array<{ id: string; outlineId?: string }> },
 }));
 
 vi.mock('@/lib/session/server-store', () => ({
@@ -39,7 +39,12 @@ describe('progress route integrity', () => {
         'student-1': { completedScenes: ['s1'], completionModelVersion: 2 },
       },
     };
-    classroomStore.classroom = { scenes: [{ id: 's1' }, { id: 's2' }] };
+    classroomStore.classroom = {
+      scenes: [
+        { id: 's1', outlineId: 'outline-ai-1' },
+        { id: 's2', outlineId: 'outline-ai-2' },
+      ],
+    };
     courseStore.updateCourse.mockImplementation(async (_id, updater) => {
       courseStore.course = updater(courseStore.course);
     });
@@ -68,6 +73,7 @@ describe('progress route integrity', () => {
       currentSceneIndex: 1,
       totalScenes: 2,
       completedScenes: ['s1', 's2'],
+      completedOutlineIds: ['outline-ai-1', 'outline-ai-2'],
       masteryLevel: 'completed',
     });
   });

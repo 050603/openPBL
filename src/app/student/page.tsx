@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -11,11 +11,12 @@ import {
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { JoinClassForm } from "@/components/join-class-form";
+import { PrimaryButton } from "@/components/ui";
 import { useSession, useHydrated } from "@/lib/session/store";
 
 export default function StudentEntryPage() {
   const router = useRouter();
-  const { joinClass, rejoinClass, user, studentName, joinedCourseId, courses, leaveClass, getLeftClassHistory } = useSession();
+  const { joinClass, rejoinClass, user, studentName, joinedCourseId, courses, leaveClass, getLeftClassHistory, refresh } = useSession();
   const hydrated = useHydrated();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -26,24 +27,46 @@ export default function StudentEntryPage() {
 
   const leftHistory = hydrated ? getLeftClassHistory() : [];
 
-  // 已加入授课中的课程 → 自动跳转
-  useEffect(() => {
-    if (!hydrated) return;
-    if (joinedCourse && joinedCourse.status === "teaching") {
-      router.replace(`/student/classroom/${joinedCourse.id}`);
-    }
-  }, [hydrated, joinedCourse, router]);
-
-  function handleJoin(code: string, name: string) {
+  async function handleJoin(code: string, name: string) {
     setError(undefined);
     setBusy(true);
-    const result = joinClass(code, name);
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.reason);
-      return;
+    try {
+      const response = await fetch("/api/auth/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteCode: code, studentName: name }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        user?: { courseId?: string };
+      };
+      if (response.ok && data.user?.courseId) {
+        await refresh("student");
+        router.replace(`/student/classroom/${data.user.courseId}`);
+        return;
+      }
+      if (data.error !== "AUTH_NOT_CONFIGURED") {
+        setError(
+          data.error === "INVITE_CODE_INVALID"
+            ? "邀请码无效，或教师尚未开始授课"
+            : data.message ?? "加入失败，请稍后重试",
+        );
+        return;
+      }
+
+      const result = joinClass(code, name);
+      if (!result.ok) {
+        setError(result.reason);
+        return;
+      }
+      router.replace(`/student/classroom/${result.course.id}`);
+    } catch (error) {
+      console.error("[student] join failed:", error);
+      setError("网络异常，请稍后重试");
+    } finally {
+      setBusy(false);
     }
-    router.replace(`/student/classroom/${result.course.id}`);
   }
 
   function handleRejoin(record: { courseId: string; courseName: string; studentId: string; studentName: string; leftAt: string }) {
@@ -58,8 +81,28 @@ export default function StudentEntryPage() {
     router.replace(`/student/classroom/${result.course.id}`);
   }
 
-  function handleRejoinWithCode() {
-    leaveClass();
+  async function handleRejoinWithCode() {
+    setError(undefined);
+    setBusy(true);
+    try {
+      const left = await leaveClass();
+      if (!left) {
+        setError("退出当前课堂失败，请稍后重试");
+        return;
+      }
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "X-OpenPBL-Role": "student" },
+      });
+      if (!response.ok) {
+        setError("清理旧的登录状态失败，请稍后重试");
+      }
+    } catch (error) {
+      console.error("[student] reset session failed:", error);
+      setError("网络异常，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -84,8 +127,19 @@ export default function StudentEntryPage() {
             <div className="pbl-skeleton h-[460px] rounded-[var(--radius-xl)]" />
             <div className="pbl-skeleton h-[460px] rounded-[var(--radius-xl)]" />
           </div>
-        ) : joinedCourse && joinedCourse.status !== "teaching" ? (
-          <FinishedState course={joinedCourse} onRejoin={handleRejoinWithCode} />
+        ) : joinedCourse && joinedCourse.status === "teaching" ? (
+          <ActiveClassRejoinState
+            course={joinedCourse}
+            studentName={studentName ?? user.name}
+            onRejoin={() => router.replace(`/student/classroom/${joinedCourse.id}`)}
+          />
+        ) : joinedCourse ? (
+          <FinishedState
+            busy={busy}
+            course={joinedCourse}
+            error={error}
+            onRejoin={handleRejoinWithCode}
+          />
         ) : (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-8">
             {/* 左：邀请码加入卡片 */}
@@ -194,7 +248,7 @@ export default function StudentEntryPage() {
                 <div className="mt-5 rounded-[var(--radius-sm)] border border-dashed border-[var(--pbl-border-strong)] bg-[var(--pbl-surface-soft)]/60 p-3.5">
                   <p className="text-[11px] font-semibold text-[var(--pbl-text-strong)]">提示</p>
                   <p className="mt-1 text-[11px] leading-5 text-[var(--pbl-text-muted)]">
-                    课堂进行中如意外退出，可使用"快速重新加入"功能回到上次离开的课堂，无需重新输入邀请码。
+                    课堂进行中如意外退出，可使用“快速重新加入”功能回到上次离开的课堂，无需重新输入邀请码。
                   </p>
                 </div>
               </div>
@@ -233,11 +287,15 @@ function InstructionStep({
 }
 
 function FinishedState({
+  busy,
   course,
+  error,
   onRejoin,
 }: {
+  busy: boolean;
   course: { id: string; name: string; status: string };
-  onRejoin: () => void;
+  error?: string;
+  onRejoin: () => Promise<void>;
 }) {
   return (
     <div className="pbl-aurora-light relative mx-auto max-w-md overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-6 text-center shadow-[var(--shadow-floating)]">
@@ -257,11 +315,56 @@ function FinishedState({
         </div>
         <button
           className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-student)] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[var(--pbl-student-hover)] hover:shadow-md"
+          disabled={busy}
           onClick={onRejoin}
           type="button"
         >
-          重新输入邀请码
+          {busy ? "正在退出…" : "重新输入邀请码"}
         </button>
+        {error ? (
+          <p className="mt-3 text-sm font-medium text-red-600">{error}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ActiveClassRejoinState({
+  course,
+  studentName,
+  onRejoin,
+}: {
+  course: { id: string; name: string };
+  studentName: string;
+  onRejoin: () => void;
+}) {
+  return (
+    <div className="pbl-aurora-light relative mx-auto max-w-md overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-student-border)] bg-[var(--pbl-surface)] p-6 text-center shadow-[var(--shadow-floating)]">
+      <div className="pbl-aurora" />
+      <div className="relative z-10">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-[var(--radius-md)] bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
+          <RotateCcw size={22} />
+        </div>
+        <h2 className="mt-3 text-xl font-bold text-[var(--pbl-text-strong)]">
+          检测到上次加入的课堂
+        </h2>
+        <p className="mt-1.5 text-sm leading-6 text-[var(--pbl-text-muted)]">
+          你曾以“{studentName}”身份加入「{course.name}」。课堂仍在进行中，请确认后重新加入。
+        </p>
+        <PrimaryButton
+          className="mx-auto mt-5 h-11 justify-center px-6"
+          onClick={onRejoin}
+          tone="teal"
+          type="button"
+        >
+          <RotateCcw size={16} /> 重新加入课堂
+        </PrimaryButton>
+        <Link
+          className="mt-3 inline-flex text-xs font-semibold text-[var(--pbl-text-muted)] transition hover:text-[var(--pbl-student)]"
+          href="/"
+        >
+          暂不加入，返回首页
+        </Link>
       </div>
     </div>
   );

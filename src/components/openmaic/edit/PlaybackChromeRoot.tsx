@@ -19,7 +19,7 @@ import { Header } from '@openmaic/components/header';
 import { CanvasArea } from '@openmaic/components/canvas/canvas-area';
 import { Roundtable } from '@openmaic/components/roundtable';
 import { PlaybackEngine, computePlaybackView } from '@openmaic/lib/playback';
-import type { EngineMode, TriggerEvent, Effect } from '@openmaic/lib/playback';
+import type { ActivityGate, EngineMode, TriggerEvent, Effect } from '@openmaic/lib/playback';
 import { ActionEngine } from '@openmaic/lib/action/engine';
 import { createAudioPlayer } from '@openmaic/lib/utils/audio-player';
 import { useDiscussionTTS } from '@openmaic/lib/hooks/use-discussion-tts';
@@ -137,6 +137,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
     const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
     const [discussionTrigger, setDiscussionTrigger] = useState<TriggerEvent | null>(null);
+    const [activeActivity, setActiveActivity] = useState<ActivityGate | null>(null);
 
     // Speaking agent tracking (Issue 2)
     const [speakingAgentId, setSpeakingAgentId] = useState<string | null>(null);
@@ -304,6 +305,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       setShowEndFlash(false);
       setActiveBubbleId(null);
       setDiscussionTrigger(null);
+      setActiveActivity(null);
     }, [resetLiveState]);
 
     /** Request failure should exit live discussion UI without hard-closing the session. */
@@ -587,6 +589,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           }
         },
         onActivityStart: (activity) => {
+          setActiveActivity(activity);
           if (
             completedActivitySceneIdsRef.current.has(activity.sceneId) ||
             isPlaybackActivityComplete(activity)
@@ -597,6 +600,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         },
         onActivityComplete: (activity) => {
           completedActivitySceneIdsRef.current.add(activity.sceneId);
+          setActiveActivity((current) => (
+            current?.sceneId === activity.sceneId ? null : current
+          ));
         },
         onProactiveShow: (trigger) => {
           if (!trigger.agentId) {
@@ -1240,6 +1246,38 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                   : undefined
               }
             />
+            {isStudentCourse && activeActivity?.purpose === 'interaction' ? (
+              <div
+                className="absolute right-4 top-4 z-[10000] flex max-w-sm items-center gap-3 rounded-2xl border border-sky-200/80 bg-white/95 px-4 py-3 shadow-xl backdrop-blur dark:border-sky-800 dark:bg-gray-900/95"
+                role="status"
+                aria-live="polite"
+              >
+                <span className="relative flex h-3 w-3 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-70" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    现在由你操作仿真页面
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    完成页面任务后会自动继续讲解；若页面没有响应，可手动继续。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                  onClick={() => {
+                    engineRef.current?.completeActivity(
+                      activeActivity.sceneId,
+                      activeActivity.purpose,
+                    );
+                  }}
+                >
+                  我已完成
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {/* Roundtable Area */}

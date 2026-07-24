@@ -38,6 +38,7 @@ import { isStudentOnline } from "@/lib/session/actions";
 import { cn } from "@/lib/utils";
 import { evaluateStageGate } from "@/lib/classroom/stage-gates";
 import { makeRecordId } from "@/lib/session/actions";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 
 type ToolPanel = "timer" | "invite" | "students" | null;
 
@@ -47,6 +48,7 @@ export default function TeachClassroomPage() {
   const session = useSession();
   const { user, endTeaching, generateNewInviteCode, updateCourse } = session;
   const course = useCourse(params?.id);
+  useRealtimeSync(params?.id);
   const hydrated = useHydrated();
   const [seconds, setSeconds] = useState(0);
   const [paused, setPaused] = useState(false);

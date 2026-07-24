@@ -26,19 +26,19 @@ importers:
         version: 3.0.170(react@19.2.4)(zod@4.4.3)
       '@assistant-ui/react':
         specifier: ^0.14.26
-        version: 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+        version: 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4))
       '@assistant-ui/react-markdown':
         specifier: 0.14.1
-        version: 0.14.1(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 0.14.1(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@assistant-ui/react-streamdown':
         specifier: 0.3.3
-        version: 0.3.3(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@streamdown/code@1.1.1(react@19.2.4))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 0.3.3(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4)))(@streamdown/code@1.1.1(react@19.2.4))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@base-ui/react':
         specifier: 1.1.0
         version: 1.1.0(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@copilotkit/backend':
         specifier: 0.37.0
-        version: 0.37.0(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(playwright@1.61.1)(ws@8.21.0)
+        version: 0.37.0(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(playwright@1.61.1)(redis@5.12.1(@opentelemetry/api@1.9.1))(ws@8.21.0)
       '@copilotkit/runtime':
         specifier: 1.51.2
         version: 1.51.2(@copilotkit/shared@0.37.0)(@copilotkitnext/agent@1.51.2(@cfworker/json-schema@4.1.1))(@copilotkitnext/runtime@1.51.2(openai@4.104.0(ws@8.21.0)(zod@4.4.3)))(@langchain/core@1.1.48(@opentelemetry/api@1.9.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.5.6(@langchain/core@1.1.48(@opentelemetry/api@1.9.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(@opentelemetry/api@1.9.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -315,6 +315,9 @@ importers:
       recharts:
         specifier: ^3.9.1
         version: 3.9.1(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react-is@18.3.1)(react@19.2.4)(redux@5.0.1)
+      redis:
+        specifier: ^5.12.1
+        version: 5.12.1(@opentelemetry/api@1.9.1)
       shadcn:
         specifier: 3.6.3
         version: 3.6.3(@cfworker/json-schema@4.1.1)(@types/node@20.19.43)(typescript@5.9.3)
@@ -448,9 +451,6 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
-      vite-tsconfig-paths:
-        specifier: ^6.1.1
-        version: 6.1.1(typescript@5.9.3)(vite@8.1.3(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0))
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.9)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(msw@2.14.6(@types/node@20.19.43)(typescript@5.9.3))(vite@8.1.3(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0))
@@ -4236,6 +4236,42 @@ packages:
   '@radix-ui/rect@1.1.2':
     resolution: {integrity: sha512-xnXE7wG13PI+cxieVssYXlQJuYVRhH9NBoxt3KNwzghDIA69GMm7d4wXRouHIYjE+KvS6U/MsMO73NdS2MH9ZA==}
 
+  '@redis/bloom@5.12.1':
+    resolution: {integrity: sha512-PUUfv+ms7jgPSBVoo/DN4AkPHj4D5TZSd6SbJX7egzBplkYUcKmHRE8RKia7UtZ8bSQbLguLvxVO+asKtQfZWA==}
+    engines: {node: '>= 18.19.0'}
+    peerDependencies:
+      '@redis/client': ^5.12.1
+
+  '@redis/client@5.12.1':
+    resolution: {integrity: sha512-7aPGWeqA3uFm43o19umzdl16CEjK/JQGtSXVPevplTaOU3VJA/rseBC1QvYUz9lLDIMBimc4SW/zrW4S89BaCA==}
+    engines: {node: '>= 18.19.0'}
+    peerDependencies:
+      '@node-rs/xxhash': ^1.1.0
+      '@opentelemetry/api': '>=1 <2'
+    peerDependenciesMeta:
+      '@node-rs/xxhash':
+        optional: true
+      '@opentelemetry/api':
+        optional: true
+
+  '@redis/json@5.12.1':
+    resolution: {integrity: sha512-eOze75esLve4vfqDel7aMX08CNaiLLQS2fV8mpRN9NxPe1rVR4vQyYiW/OgtGUysF6QOr9ANhfxABKNOJfXdKg==}
+    engines: {node: '>= 18.19.0'}
+    peerDependencies:
+      '@redis/client': ^5.12.1
+
+  '@redis/search@5.12.1':
+    resolution: {integrity: sha512-ItlxbxC9cKI6IU1TLWoczwJCRb6TdmkEpWv05UrPawqaAnWGRu3rcIqsc5vN483T2fSociuyV1UkWIL5I4//2w==}
+    engines: {node: '>= 18.19.0'}
+    peerDependencies:
+      '@redis/client': ^5.12.1
+
+  '@redis/time-series@5.12.1':
+    resolution: {integrity: sha512-c6JL6E3EcZJuNqKFz+KM+l9l5mpcQiKvTwgA3blt5glWJ8hjDk0yeHN3beE/MpqYIQ8UEX44ItQzgkE/gCBELQ==}
+    engines: {node: '>= 18.19.0'}
+    peerDependencies:
+      '@redis/client': ^5.12.1
+
   '@reduxjs/toolkit@2.12.0':
     resolution: {integrity: sha512-KiT+RzZbp6mQET+Mg+h2c97+9j1sNflUxQkIHI7Yuzf6Peu+OYpmkn6nbHWmLLWj+1ZODUJFwGZ7gx3L9R9EOw==}
     peerDependencies:
@@ -6395,6 +6431,10 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
+  cluster-key-slot@1.1.2:
+    resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
+    engines: {node: '>=0.10.0'}
+
   cmdk@1.1.1:
     resolution: {integrity: sha512-Vsv7kFaXm+ptHDMZ7izaRsP70GgrW9NBNGswt9OZaVBLlE0SNpDq8eu/VGXyF9r7M0azK3Wy7OlYXsuyYLFzHg==}
     peerDependencies:
@@ -7955,9 +7995,6 @@ packages:
   globalthis@1.0.4:
     resolution: {integrity: sha512-DpLKbNU4WylpxJykQujfCcwYWiV/Jhm50Goo0wrVILAv5jOr9d+H+UR3PhSCD2rCCEIg0uc+G+muBTwD54JhDQ==}
     engines: {node: '>= 0.4'}
-
-  globrex@0.1.2:
-    resolution: {integrity: sha512-uHJgbwAMwNFf5mLst7IWLNg14x1CkeqglJb/K3doi4dw6q2IvAAmM/Y81kevy83wP+Sst+nutFTYOGg3d1lsxg==}
 
   glogg@1.0.2:
     resolution: {integrity: sha512-5mwUoSuBk44Y4EshyiqcH95ZntbDdTQqA3QYSrxmzj28Ai0vXBGMH1ApSANH14j2sIRtqCEyg6PfsuP7ElOEDA==}
@@ -10872,6 +10909,10 @@ packages:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
 
+  redis@5.12.1:
+    resolution: {integrity: sha512-LDsoVvb/CpoV9EN3FXvgvSHNJWuCIzl9MiO3ppOevuGLpSGJhwfQjpEwfFJcQvNSddHADDdZaWx0HnmMxRXG7g==}
+    engines: {node: '>= 18.19.0'}
+
   redux-thunk@3.1.0:
     resolution: {integrity: sha512-NW2r5T6ksUKXCabzhL9z+h206HQw/NJkcLm1GPImRQ8IzfXwRGqjVhKJGauHirT0DAuyy6hjdnMZaRoAcy0Klw==}
     peerDependencies:
@@ -11757,16 +11798,6 @@ packages:
   ts-morph@26.0.0:
     resolution: {integrity: sha512-ztMO++owQnz8c/gIENcM9XfCEzgoGphTv+nKpYNM1bgsdOVC/jRZuEBf6N+mLLDNg68Kl+GgUZfOySaRiG1/Ug==}
 
-  tsconfck@3.1.6:
-    resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
-    engines: {node: ^18 || >=20}
-    hasBin: true
-    peerDependencies:
-      typescript: ^5.0.0
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   tsconfig-paths@3.15.0:
     resolution: {integrity: sha512-2Ac2RgzDe/cn48GvOe3M+o82pEFewD3UPbyoUHHdKasHwJKjds4fLXWf/Ux5kATBKN20oaFGu+jbElp1pos0mg==}
 
@@ -12175,11 +12206,6 @@ packages:
   vinyl@3.0.1:
     resolution: {integrity: sha512-0QwqXteBNXgnLCdWdvPQBX6FXRHtIH3VhJPTd5Lwn28tJXc34YqSCWUmkOvtJHBmB3gGoPtrOKk3Ts8/kEZ9aA==}
     engines: {node: '>=10.13.0'}
-
-  vite-tsconfig-paths@6.1.1:
-    resolution: {integrity: sha512-2cihq7zliibCCZ8P9cKJrQBkfgdvcFkOOc3Y02o3GWUDLgqjWsZudaoiuOwO/gzTzy17cS5F7ZPo4bsnS4DGkg==}
-    peerDependencies:
-      vite: '*'
 
   vite@8.1.3:
     resolution: {integrity: sha512-Ds+gBRbj0lwRO2Y5hwnUBdxSwlAve9LeRyU4sNnAr0ewW0gWF0n5bgXgUzbgZ49MV9BVUAQUFYVcDUcilUExMA==}
@@ -12781,24 +12807,24 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@assistant-ui/core@0.2.20(@assistant-ui/store@0.2.19(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(react@19.2.4))(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(assistant-cloud@0.1.34)(react@19.2.4)(zustand@5.0.14(@types/react@19.2.17)(immer@11.1.9)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))':
+  '@assistant-ui/core@0.2.20(@assistant-ui/store@0.2.19(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(react@19.2.4))(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(assistant-cloud@0.1.34(redis@5.12.1(@opentelemetry/api@1.9.1)))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(zustand@5.0.14(@types/react@19.2.17)(immer@11.1.9)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))':
     dependencies:
       '@assistant-ui/store': 0.2.19(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(react@19.2.4)
       '@assistant-ui/tap': 0.9.3(@types/react@19.2.17)(react@19.2.4)
-      assistant-stream: 0.3.25
+      assistant-stream: 0.3.25(redis@5.12.1(@opentelemetry/api@1.9.1))
       nanoid: 5.1.16
     optionalDependencies:
       '@types/react': 19.2.17
-      assistant-cloud: 0.1.34
+      assistant-cloud: 0.1.34(redis@5.12.1(@opentelemetry/api@1.9.1))
       react: 19.2.4
       zustand: 5.0.14(@types/react@19.2.17)(immer@11.1.9)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     transitivePeerDependencies:
       - ioredis
       - redis
 
-  '@assistant-ui/react-markdown@0.14.1(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@assistant-ui/react-markdown@0.14.1(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
-      '@assistant-ui/react': 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+      '@assistant-ui/react': 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4))
       '@radix-ui/react-primitive': 2.1.7(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@radix-ui/react-use-callback-ref': 1.1.2(@types/react@19.2.17)(react@19.2.4)
       classnames: 2.5.1
@@ -12811,9 +12837,9 @@ snapshots:
       - react-dom
       - supports-color
 
-  '@assistant-ui/react-streamdown@0.3.3(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@streamdown/code@1.1.1(react@19.2.4))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@assistant-ui/react-streamdown@0.3.3(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4)))(@streamdown/code@1.1.1(react@19.2.4))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
-      '@assistant-ui/react': 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+      '@assistant-ui/react': 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4))
       react: 19.2.4
       rehype-harden: 1.1.8
       rehype-raw: 7.0.0
@@ -12826,9 +12852,9 @@ snapshots:
       - react-dom
       - supports-color
 
-  '@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))':
+  '@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@11.1.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(use-sync-external-store@1.6.0(react@19.2.4))':
     dependencies:
-      '@assistant-ui/core': 0.2.20(@assistant-ui/store@0.2.19(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(react@19.2.4))(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(assistant-cloud@0.1.34)(react@19.2.4)(zustand@5.0.14(@types/react@19.2.17)(immer@11.1.9)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))
+      '@assistant-ui/core': 0.2.20(@assistant-ui/store@0.2.19(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(react@19.2.4))(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(assistant-cloud@0.1.34(redis@5.12.1(@opentelemetry/api@1.9.1)))(react@19.2.4)(redis@5.12.1(@opentelemetry/api@1.9.1))(zustand@5.0.14(@types/react@19.2.17)(immer@11.1.9)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))
       '@assistant-ui/store': 0.2.19(@assistant-ui/tap@0.9.3(@types/react@19.2.17)(react@19.2.4))(@types/react@19.2.17)(react@19.2.4)
       '@assistant-ui/tap': 0.9.3(@types/react@19.2.17)(react@19.2.4)
       '@radix-ui/primitive': 1.1.4
@@ -12839,8 +12865,8 @@ snapshots:
       '@radix-ui/react-use-callback-ref': 1.1.2(@types/react@19.2.17)(react@19.2.4)
       '@radix-ui/react-use-controllable-state': 1.2.3(@types/react@19.2.17)(react@19.2.4)
       '@radix-ui/react-use-escape-keydown': 1.1.3(@types/react@19.2.17)(react@19.2.4)
-      assistant-cloud: 0.1.34
-      assistant-stream: 0.3.25
+      assistant-cloud: 0.1.34(redis@5.12.1(@opentelemetry/api@1.9.1))
+      assistant-stream: 0.3.25(redis@5.12.1(@opentelemetry/api@1.9.1))
       nanoid: 5.1.16
       radix-ui: 1.6.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
@@ -13939,14 +13965,14 @@ snapshots:
 
   '@chevrotain/types@11.1.2': {}
 
-  '@copilotkit/backend@0.37.0(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(playwright@1.61.1)(ws@8.21.0)':
+  '@copilotkit/backend@0.37.0(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(playwright@1.61.1)(redis@5.12.1(@opentelemetry/api@1.9.1))(ws@8.21.0)':
     dependencies:
       '@copilotkit/shared': 0.37.0
       '@google/generative-ai': 0.11.5
       '@langchain/core': 0.1.63(openai@4.104.0(ws@8.21.0)(zod@4.4.3))
       '@langchain/openai': 0.0.28(ws@8.21.0)
       js-tiktoken: 1.0.21
-      langchain: 0.1.37(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(playwright@1.61.1)(ws@8.21.0)
+      langchain: 0.1.37(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(playwright@1.61.1)(redis@5.12.1(@opentelemetry/api@1.9.1))(ws@8.21.0)
       openai: 4.104.0(ws@8.21.0)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -15154,7 +15180,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@langchain/community@0.0.57(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0)':
+  '@langchain/community@0.0.57(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(redis@5.12.1(@opentelemetry/api@1.9.1))(ws@8.21.0)':
     dependencies:
       '@langchain/core': 0.1.63(openai@4.104.0(ws@8.21.0)(zod@4.4.3))
       '@langchain/openai': 0.0.28(ws@8.21.0)
@@ -15171,6 +15197,7 @@ snapshots:
       '@smithy/util-utf8': 2.3.0
       jsdom: 29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3)
       lodash: 4.18.1
+      redis: 5.12.1(@opentelemetry/api@1.9.1)
       ws: 8.21.0
     transitivePeerDependencies:
       - encoding
@@ -16334,6 +16361,28 @@ snapshots:
       '@types/react-dom': 19.2.3(@types/react@19.2.17)
 
   '@radix-ui/rect@1.1.2': {}
+
+  '@redis/bloom@5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))':
+    dependencies:
+      '@redis/client': 5.12.1(@opentelemetry/api@1.9.1)
+
+  '@redis/client@5.12.1(@opentelemetry/api@1.9.1)':
+    dependencies:
+      cluster-key-slot: 1.1.2
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+
+  '@redis/json@5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))':
+    dependencies:
+      '@redis/client': 5.12.1(@opentelemetry/api@1.9.1)
+
+  '@redis/search@5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))':
+    dependencies:
+      '@redis/client': 5.12.1(@opentelemetry/api@1.9.1)
+
+  '@redis/time-series@5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))':
+    dependencies:
+      '@redis/client': 5.12.1(@opentelemetry/api@1.9.1)
 
   '@reduxjs/toolkit@2.12.0(react-redux@9.3.0(@types/react@19.2.17)(react@19.2.4)(redux@5.0.1))(react@19.2.4)':
     dependencies:
@@ -18022,18 +18071,20 @@ snapshots:
 
   assign-symbols@1.0.0: {}
 
-  assistant-cloud@0.1.34:
+  assistant-cloud@0.1.34(redis@5.12.1(@opentelemetry/api@1.9.1)):
     dependencies:
-      assistant-stream: 0.3.25
+      assistant-stream: 0.3.25(redis@5.12.1(@opentelemetry/api@1.9.1))
     transitivePeerDependencies:
       - ioredis
       - redis
 
-  assistant-stream@0.3.25:
+  assistant-stream@0.3.25(redis@5.12.1(@opentelemetry/api@1.9.1)):
     dependencies:
       '@standard-schema/spec': 1.1.0
       nanoid: 5.1.16
       secure-json-parse: 4.1.0
+    optionalDependencies:
+      redis: 5.12.1(@opentelemetry/api@1.9.1)
 
   ast-types-flow@0.0.8: {}
 
@@ -18571,6 +18622,8 @@ snapshots:
       readable-stream: 2.3.8
 
   clsx@2.1.1: {}
+
+  cluster-key-slot@1.1.2: {}
 
   cmdk@1.1.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
@@ -20542,8 +20595,6 @@ snapshots:
       define-properties: 1.2.1
       gopd: 1.2.0
 
-  globrex@0.1.2: {}
-
   glogg@1.0.2:
     dependencies:
       sparkles: 1.0.1
@@ -21854,10 +21905,10 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  langchain@0.1.37(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(playwright@1.61.1)(ws@8.21.0):
+  langchain@0.1.37(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(axios@1.18.1)(ignore@5.3.2)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(playwright@1.61.1)(redis@5.12.1(@opentelemetry/api@1.9.1))(ws@8.21.0):
     dependencies:
       '@anthropic-ai/sdk': 0.9.1
-      '@langchain/community': 0.0.57(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0)
+      '@langchain/community': 0.0.57(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/client-bedrock-runtime@3.1048.0)(@aws-sdk/credential-provider-node@3.972.66)(@smithy/util-utf8@2.3.0)(jsdom@29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3))(lodash@4.18.1)(openai@4.104.0(ws@8.21.0)(zod@4.4.3))(redis@5.12.1(@opentelemetry/api@1.9.1))(ws@8.21.0)
       '@langchain/core': 0.1.63(openai@4.104.0(ws@8.21.0)(zod@4.4.3))
       '@langchain/openai': 0.0.28(ws@8.21.0)
       '@langchain/textsplitters': 0.0.3(openai@4.104.0(ws@8.21.0)(zod@4.4.3))
@@ -21880,6 +21931,7 @@ snapshots:
       ignore: 5.3.2
       jsdom: 29.1.1(@noble/hashes@1.8.0)(canvas@3.2.3)
       playwright: 1.61.1
+      redis: 5.12.1(@opentelemetry/api@1.9.1)
       ws: 8.21.0
     transitivePeerDependencies:
       - '@aws-crypto/sha256-js'
@@ -24121,6 +24173,17 @@ snapshots:
       indent-string: 4.0.0
       strip-indent: 3.0.0
 
+  redis@5.12.1(@opentelemetry/api@1.9.1):
+    dependencies:
+      '@redis/bloom': 5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))
+      '@redis/client': 5.12.1(@opentelemetry/api@1.9.1)
+      '@redis/json': 5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))
+      '@redis/search': 5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))
+      '@redis/time-series': 5.12.1(@redis/client@5.12.1(@opentelemetry/api@1.9.1))
+    transitivePeerDependencies:
+      - '@node-rs/xxhash'
+      - '@opentelemetry/api'
+
   redux-thunk@3.1.0(redux@5.0.1):
     dependencies:
       redux: 5.0.1
@@ -25284,10 +25347,6 @@ snapshots:
       '@ts-morph/common': 0.27.0
       code-block-writer: 13.0.3
 
-  tsconfck@3.1.6(typescript@5.9.3):
-    optionalDependencies:
-      typescript: 5.9.3
-
   tsconfig-paths@3.15.0:
     dependencies:
       '@types/json5': 0.0.29
@@ -25751,16 +25810,6 @@ snapshots:
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
-
-  vite-tsconfig-paths@6.1.1(typescript@5.9.3)(vite@8.1.3(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0)):
-    dependencies:
-      debug: 4.4.3(supports-color@8.1.1)
-      globrex: 0.1.2
-      tsconfck: 3.1.6(typescript@5.9.3)
-      vite: 8.1.3(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0)
-    transitivePeerDependencies:
-      - supports-color
-      - typescript
 
   vite@8.1.3(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0):
     dependencies:

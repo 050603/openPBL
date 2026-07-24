@@ -1,14 +1,5 @@
-// Internal pub/sub event bus for realtime session updates.
-//
-// When REDIS_URL is configured, callers can swap in a Redis-backed adapter
-// (left as a future extension) to broadcast across multiple server instances.
-// Without REDIS_URL, a process-local Map of handlers is used — sufficient for
-// single-instance deployments and for local development.
-//
-// The bus is intentionally tiny: it routes typed RealtimeEvent objects from
-// the session store to whoever is subscribed for a given courseId (typically
-// the WebSocket server's per-course room).
-
+import { randomUUID } from "node:crypto";
+import { createClient } from "redis";
 import type { SessionAction } from "@/lib/session/actions";
 
 export type RealtimeEventType =
@@ -25,9 +16,7 @@ export type RealtimeEventType =
 export interface RealtimeEvent {
   type: RealtimeEventType;
   courseId: string;
-  /** ISO timestamp when the event was generated. */
   at: string;
-  /** Optional payload (e.g. affected entity id, action shape). */
   payload?: {
     actionType?: SessionAction["type"];
     [key: string]: unknown;
@@ -36,68 +25,118 @@ export interface RealtimeEvent {
 
 export type RealtimeEventHandler = (event: RealtimeEvent) => void;
 
-type CourseHandlers = Set<RealtimeEventHandler>;
+const CHANNEL = "openpbl:realtime:v1";
+const instanceId = randomUUID();
+const subscribersByCourse = new Map<string, Set<RealtimeEventHandler>>();
+interface ManagedRedisClient {
+  isOpen: boolean;
+  quit(): Promise<string>;
+}
 
-const subscribersByCourse = new Map<string, CourseHandlers>();
+interface PublishingRedisClient extends ManagedRedisClient {
+  isReady: boolean;
+  publish(channel: string, message: string): Promise<number>;
+}
 
-/**
- * Publish an event for a specific course. All handlers subscribed to that
- * courseId (in the current process) will be invoked synchronously.
- */
-export function publishCourseEvent(courseId: string, event: RealtimeEvent): void {
-  if (!courseId) return;
-  const handlers = subscribersByCourse.get(courseId);
-  if (!handlers || handlers.size === 0) return;
-  // Iterate over a copy so handlers may unsubscribe during dispatch.
-  for (const handler of Array.from(handlers)) {
+let publisher: PublishingRedisClient | null = null;
+let subscriber: ManagedRedisClient | null = null;
+let initialization: Promise<void> | null = null;
+
+type RedisEnvelope = {
+  origin: string;
+  event: RealtimeEvent;
+};
+
+function dispatchLocal(event: RealtimeEvent): void {
+  const handlers = subscribersByCourse.get(event.courseId);
+  if (!handlers) return;
+  for (const handler of [...handlers]) {
     try {
       handler(event);
-    } catch (err) {
-      // A misbehaving handler must not break other subscribers.
-      console.error("[event-bus] handler threw:", err);
+    } catch (error) {
+      console.error("[event-bus] subscriber failed:", error);
     }
   }
 }
 
-/**
- * Subscribe to all events for a given courseId. Returns the handler so it
- * can be passed back to unsubscribeCourseEvents.
- */
+export async function initializeEventBus(): Promise<void> {
+  if (initialization) return initialization;
+  const url = process.env.REDIS_URL?.trim();
+  if (!url) return;
+
+  initialization = (async () => {
+    const pub = createClient({ url });
+    const sub = pub.duplicate();
+    pub.on("error", (error) => console.error("[event-bus] Redis publisher error:", error));
+    sub.on("error", (error) => console.error("[event-bus] Redis subscriber error:", error));
+    await Promise.all([pub.connect(), sub.connect()]);
+    await sub.subscribe(CHANNEL, (message) => {
+      try {
+        const envelope = JSON.parse(message) as RedisEnvelope;
+        if (envelope.origin !== instanceId && envelope.event?.courseId) {
+          dispatchLocal(envelope.event);
+        }
+      } catch (error) {
+        console.error("[event-bus] invalid Redis message:", error);
+      }
+    });
+    publisher = pub;
+    subscriber = sub;
+    console.info("[event-bus] Redis cross-instance pub/sub connected");
+  })().catch((error) => {
+    initialization = null;
+    console.error("[event-bus] Redis unavailable; local delivery remains active:", error);
+  });
+
+  return initialization;
+}
+
+export async function publishCourseEvent(
+  courseId: string,
+  event: RealtimeEvent,
+): Promise<void> {
+  if (!courseId) return;
+  dispatchLocal(event);
+  if (!publisher?.isReady) return;
+  const envelope: RedisEnvelope = { origin: instanceId, event };
+  await publisher.publish(CHANNEL, JSON.stringify(envelope));
+}
+
 export function subscribeCourseEvents(
   courseId: string,
   handler: RealtimeEventHandler,
 ): RealtimeEventHandler {
   if (!courseId) return handler;
-  let handlers = subscribersByCourse.get(courseId);
-  if (!handlers) {
-    handlers = new Set();
-    subscribersByCourse.set(courseId, handlers);
-  }
+  const handlers = subscribersByCourse.get(courseId) ?? new Set();
   handlers.add(handler);
+  subscribersByCourse.set(courseId, handlers);
   return handler;
 }
 
-/**
- * Remove a previously-registered handler. Safe to call even if the handler
- * was never subscribed.
- */
 export function unsubscribeCourseEvents(
   courseId: string,
   handler: RealtimeEventHandler,
 ): void {
-  if (!courseId) return;
   const handlers = subscribersByCourse.get(courseId);
   if (!handlers) return;
   handlers.delete(handler);
-  if (handlers.size === 0) {
-    subscribersByCourse.delete(courseId);
-  }
+  if (handlers.size === 0) subscribersByCourse.delete(courseId);
 }
 
-/**
- * Test-only helper: clears all subscriptions. Not exported via the public
- * surface area; used by unit tests to isolate state between cases.
- */
+export async function closeEventBus(): Promise<void> {
+  const clients: ManagedRedisClient[] = [];
+  if (subscriber) clients.push(subscriber);
+  if (publisher) clients.push(publisher);
+  subscriber = null;
+  publisher = null;
+  initialization = null;
+  await Promise.all(
+    clients.map(async (client) => {
+      if (client.isOpen) await client.quit();
+    }),
+  );
+}
+
 export function __resetEventBusForTests(): void {
   subscribersByCourse.clear();
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { JoinClassForm } from "@/components/join-class-form";
+import { useSession } from "@/lib/session/store";
 
 /**
  * Home-page student join card.
@@ -14,6 +15,7 @@ import { JoinClassForm } from "@/components/join-class-form";
  */
 export function HomeStudentJoin() {
   const router = useRouter();
+  const { refresh } = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -48,13 +50,13 @@ export function HomeStudentJoin() {
 
       const courseId: string | undefined = data?.user?.courseId;
       if (courseId) {
+        await refresh("student");
         router.replace(`/student/classroom/${courseId}`);
       } else {
         router.replace("/student");
       }
     } catch (err) {
       setError("网络异常，请稍后重试");
-      // eslint-disable-next-line no-console
       console.error("[home-student-join] join failed:", err);
     } finally {
       setBusy(false);

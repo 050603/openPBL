@@ -1,265 +1,162 @@
-// WebSocket server for realtime session sync.
-//
-// Runs on a separate Node.js port (default 3001) since Next.js App Router
-// does not expose WebSocket upgrade handling on its route handlers. Started
-// once per server process via src/instrumentation.ts.
-//
-// Connection lifecycle:
-//   1. Client opens ws://host:port?courseId=xxx with auth cookie in header.
-//   2. Server verifies JWT (or allows demo mode if JWT_SECRET is unset).
-//   3. Client sends `{type:"subscribe", courseId:"xxx"}` to join a room.
-//   4. Server pushes `{type:"patch", courseId, event}` whenever the event-bus
-//      publishes an event for that courseId.
-//   5. 30s ping / 90s timeout heartbeat keeps connection alive.
-//
-// Failures (port in use, etc.) are caught and logged — the server does NOT
-// throw. Clients will fail to connect and fall back to long-polling.
-
 import { WebSocketServer, WebSocket } from "ws";
-import { jwtVerify } from "jose";
-import type { JWTPayload } from "jose";
+import type { IncomingMessage } from "node:http";
+import {
+  STUDENT_COOKIE_NAME,
+  TEACHER_COOKIE_NAME,
+  verifyToken,
+  type AuthClaims,
+  type AuthRole,
+} from "@/lib/auth/session";
 import {
   subscribeCourseEvents,
   unsubscribeCourseEvents,
   type RealtimeEvent,
+  type RealtimeEventHandler,
 } from "./event-bus";
 
-const TEACHER_COOKIE = "openpbl_teacher";
-const STUDENT_COOKIE = "openpbl_student";
-const ISSUER = "openpbl";
-const AUDIENCE = "openpbl-app";
 const PING_INTERVAL_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 90_000;
-
 let serverInstance: WebSocketServer | null = null;
 
-/**
- * Per-course room: the set of WebSocket clients currently subscribed.
- * Maintained alongside the event-bus subscription so that broadcastToCourse
- * can push arbitrary messages directly without going through the bus.
- */
-const roomsByCourse = new Map<string, Set<WebSocket>>();
-
 interface ClientState {
-  /** CourseId the client is currently subscribed to. */
-  courseId: string | undefined;
-  /** Last pong timestamp (ms since epoch). */
+  claims: AuthClaims;
+  courseId?: string;
+  handler?: RealtimeEventHandler;
   lastPongAt: number;
-  /** The event-bus handler registered for this client, if subscribed. */
-  handler: ((event: RealtimeEvent) => void) | null;
-}
-
-function getSecret(): Uint8Array | null {
-  const raw = process.env.JWT_SECRET;
-  if (!raw || raw.length < 32) return null;
-  return new TextEncoder().encode(raw);
 }
 
 function readCookie(headerValue: string | undefined, name: string): string | null {
-  if (!headerValue) return null;
-  const parts = headerValue.split(";");
-  for (const part of parts) {
-    const [k, ...rest] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(rest.join("="));
+  for (const part of (headerValue ?? "").split(";")) {
+    const [key, ...value] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(value.join("="));
   }
   return null;
 }
 
-async function verifyAuth(cookieHeader: string | undefined): Promise<boolean> {
-  const secret = getSecret();
-  // Demo mode: skip auth.
-  if (!secret) return true;
-  const teacherToken = readCookie(cookieHeader, TEACHER_COOKIE);
-  const studentToken = readCookie(cookieHeader, STUDENT_COOKIE);
-  const token = teacherToken ?? studentToken;
-  if (!token) return false;
+function requestedRole(req: IncomingMessage): AuthRole | null {
+  const url = new URL(req.url ?? "/", "http://websocket.internal");
+  const role = url.searchParams.get("role");
+  return role === "teacher" || role === "student" ? role : null;
+}
+
+async function authenticate(req: IncomingMessage): Promise<AuthClaims | null> {
+  const role = requestedRole(req);
+  if (!role) return null;
+  const cookieName = role === "teacher" ? TEACHER_COOKIE_NAME : STUDENT_COOKIE_NAME;
+  const token = readCookie(req.headers.cookie, cookieName);
+  if (!token) return null;
+  const claims = await verifyToken(token);
+  return claims?.role === role ? claims : null;
+}
+
+function sendJson(ws: WebSocket, message: unknown): void {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+}
+
+function parseCourseId(raw: WebSocket.RawData): string | null {
   try {
-    const { payload } = await jwtVerify(token, secret, {
-      issuer: ISSUER,
-      audience: AUDIENCE,
-    });
-    return isAuthClaims(payload);
-  } catch {
-    return false;
-  }
-}
-
-function isAuthClaims(payload: JWTPayload): boolean {
-  return payload.role === "teacher" || payload.role === "student";
-}
-
-function parseSubscribeMessage(data: unknown): string | null {
-  if (typeof data !== "object" || data === null) return null;
-  const raw = data as Record<string, unknown>;
-  if (raw.type !== "subscribe") return null;
-  const courseId = raw.courseId;
-  return typeof courseId === "string" && courseId.length > 0 ? courseId : null;
-}
-
-function safeParse(data: string): unknown {
-  try {
-    return JSON.parse(data);
+    const message = JSON.parse(raw.toString("utf8")) as {
+      type?: unknown;
+      courseId?: unknown;
+    };
+    return message.type === "subscribe" &&
+      typeof message.courseId === "string" &&
+      message.courseId.length > 0
+      ? message.courseId
+      : null;
   } catch {
     return null;
   }
 }
 
-function sendJson(ws: WebSocket, message: unknown): void {
-  if (ws.readyState !== WebSocket.OPEN) return;
-  try {
-    ws.send(JSON.stringify(message));
-  } catch (err) {
-    console.error("[websocket-server] send failed:", err);
-  }
+function canSubscribe(claims: AuthClaims, courseId: string): boolean {
+  return claims.role === "teacher" || claims.courseId === courseId;
 }
 
-function joinRoom(courseId: string, ws: WebSocket): void {
-  let room = roomsByCourse.get(courseId);
-  if (!room) {
-    room = new Set();
-    roomsByCourse.set(courseId, room);
+function unsubscribe(state: ClientState): void {
+  if (state.courseId && state.handler) {
+    unsubscribeCourseEvents(state.courseId, state.handler);
   }
-  room.add(ws);
+  state.courseId = undefined;
+  state.handler = undefined;
 }
 
-function leaveRoom(courseId: string, ws: WebSocket): void {
-  const room = roomsByCourse.get(courseId);
-  if (!room) return;
-  room.delete(ws);
-  if (room.size === 0) {
-    roomsByCourse.delete(courseId);
-  }
-}
-
-function attachClient(ws: WebSocket): ClientState {
-  const state: ClientState = {
-    courseId: undefined,
-    lastPongAt: Date.now(),
-    handler: null,
-  };
+function attachClient(ws: WebSocket, claims: AuthClaims): void {
+  const state: ClientState = { claims, lastPongAt: Date.now() };
 
   ws.on("message", (raw) => {
-    const text = typeof raw === "string" ? raw : raw.toString("utf8");
-    const parsed = safeParse(text);
-    const courseId = parseSubscribeMessage(parsed);
-    if (!courseId) return;
-
-    // Unsubscribe from previous course if switching.
-    if (state.courseId && state.handler) {
-      unsubscribeCourseEvents(state.courseId, state.handler);
-      leaveRoom(state.courseId, ws);
+    const courseId = parseCourseId(raw);
+    if (!courseId) {
+      sendJson(ws, { type: "error", code: "INVALID_MESSAGE" });
+      return;
+    }
+    if (!canSubscribe(state.claims, courseId)) {
+      sendJson(ws, { type: "error", code: "COURSE_FORBIDDEN" });
+      ws.close(4003, "COURSE_FORBIDDEN");
+      return;
     }
 
+    unsubscribe(state);
     state.courseId = courseId;
     state.handler = (event: RealtimeEvent) => {
-      sendJson(ws, { type: "patch", courseId, event });
+      sendJson(ws, {
+        type: "course-invalidated",
+        courseId,
+        version: event.at,
+        reason: event.type,
+      });
     };
     subscribeCourseEvents(courseId, state.handler);
-    joinRoom(courseId, ws);
     sendJson(ws, { type: "subscribed", courseId });
   });
 
   ws.on("pong", () => {
     state.lastPongAt = Date.now();
   });
+  ws.on("close", () => unsubscribe(state));
+  ws.on("error", (error) => console.error("[websocket-server] client error:", error));
 
-  ws.on("close", () => {
-    if (state.courseId && state.handler) {
-      unsubscribeCourseEvents(state.courseId, state.handler);
-      leaveRoom(state.courseId, ws);
+  const pingTimer = setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - state.lastPongAt > CONNECTION_TIMEOUT_MS) {
+      ws.terminate();
+      return;
     }
-    state.handler = null;
-    state.courseId = undefined;
-  });
-
-  ws.on("error", (err) => {
-    console.error("[websocket-server] client error:", err);
-  });
-
-  return state;
+    ws.ping();
+  }, PING_INTERVAL_MS);
+  pingTimer.unref?.();
+  ws.once("close", () => clearInterval(pingTimer));
 }
 
-/**
- * Start the WebSocket server. Safe to call multiple times — returns the
- * existing instance if already started. Throws are caught and logged; in
- * that case getWebSocketServer() returns null and callers degrade to
- * long-polling.
- */
-export function startWebSocketServer(port = 3001): WebSocketServer | null {
+export function startWebSocketServer(port = 3001): WebSocketServer {
   if (serverInstance) return serverInstance;
-  try {
-    const wss = new WebSocketServer({ port });
-
-    wss.on("connection", (ws, req) => {
-      const cookieHeader = req.headers.cookie;
-      void verifyAuth(cookieHeader).then((ok) => {
-        if (!ok) {
-          sendJson(ws, { type: "error", code: "UNAUTHORIZED" });
-          ws.close(4001, "UNAUTHORIZED");
-          return;
-        }
-        const state = attachClient(ws);
-
-        const pingTimer = setInterval(() => {
-          if (ws.readyState !== WebSocket.OPEN) return;
-          // Stale connection: haven't received pong within timeout window.
-          if (Date.now() - state.lastPongAt > CONNECTION_TIMEOUT_MS) {
-            try {
-              ws.terminate();
-            } catch {
-              /* noop */
-            }
-            return;
-          }
-          try {
-            ws.ping();
-          } catch (err) {
-            console.error("[websocket-server] ping failed:", err);
-          }
-        }, PING_INTERVAL_MS);
-
-        ws.on("close", () => {
-          clearInterval(pingTimer);
-        });
-      });
+  const server = new WebSocketServer({ port });
+  server.on("connection", (ws, req) => {
+    void authenticate(req).then((claims) => {
+      if (!claims) {
+        sendJson(ws, { type: "error", code: "UNAUTHORIZED" });
+        ws.close(4001, "UNAUTHORIZED");
+        return;
+      }
+      attachClient(ws, claims);
     });
-
-    wss.on("error", (err) => {
-      console.error("[websocket-server] server error:", err);
-    });
-
-    wss.on("listening", () => {
-      console.info(`[websocket-server] listening on port ${port}`);
-    });
-
-    serverInstance = wss;
-    return wss;
-  } catch (err) {
-    console.error("[websocket-server] failed to start:", err);
-    serverInstance = null;
-    return null;
-  }
+  });
+  server.on("error", (error) => console.error("[websocket-server] server error:", error));
+  server.on("listening", () =>
+    console.info(`[websocket-server] listening on port ${port}`),
+  );
+  serverInstance = server;
+  return server;
 }
 
-/**
- * Returns the running WebSocketServer, or null if it hasn't been started
- * (or failed to start). Used by callers (e.g. session store) to decide
- * whether broadcasting is worthwhile.
- */
 export function getWebSocketServer(): WebSocketServer | null {
   return serverInstance;
 }
 
-/**
- * Broadcast an arbitrary message to all clients currently subscribed to a
- * given course room. Used by callers that need to push a custom payload
- * (e.g. companion messages, projection updates) outside the event-bus flow.
- */
-export function broadcastToCourse(courseId: string, message: unknown): void {
-  if (!serverInstance || !courseId) return;
-  const room = roomsByCourse.get(courseId);
-  if (!room || room.size === 0) return;
-  for (const ws of Array.from(room)) {
-    sendJson(ws, message);
-  }
+export async function closeWebSocketServer(): Promise<void> {
+  const server = serverInstance;
+  serverInstance = null;
+  if (!server) return;
+  for (const client of server.clients) client.close(1001, "SERVER_SHUTDOWN");
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 }

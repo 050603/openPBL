@@ -46,6 +46,8 @@ export type PblCourseConfig = {
   evidenceRequirements: PblEvidenceRequirement[];
   outcome: PblOutcomeSpec;
   companionIds: PblCompanionId[];
+  /** Teacher-authored open PBL questions students can choose as their project focus. */
+  inquiryQuestions: string[];
   evaluationModel: "tri-party";
   generationTemplate: "pbl-six-stage";
 };
@@ -116,6 +118,7 @@ export const DEFAULT_PBL_COURSE_CONFIG: PblCourseConfig = {
   evidenceRequirements: DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((item) => item.required),
   outcome: DEFAULT_PBL_OUTCOME,
   companionIds: PBL_COMPANION_ORDER,
+  inquiryQuestions: [],
   evaluationModel: "tri-party",
   generationTemplate: "pbl-six-stage",
 };
@@ -161,6 +164,14 @@ export function normalizePblCourseConfig(
   const companionIds = Array.from(
     new Set<PblCompanionId>([...configuredCompanions, "recorder"]),
   );
+  const inquiryQuestions = Array.from(
+    new Set(
+      (Array.isArray(input?.inquiryQuestions) ? input.inquiryQuestions : [])
+        .filter((question): question is string => typeof question === "string")
+        .map((question) => question.trim())
+        .filter(Boolean),
+    ),
+  );
 
   return {
     projectMode: "personal",
@@ -184,6 +195,7 @@ export function normalizePblCourseConfig(
           : DEFAULT_PBL_OUTCOME.reflection,
     },
     companionIds,
+    inquiryQuestions,
     evaluationModel: "tri-party",
     generationTemplate: "pbl-six-stage",
   };
@@ -195,6 +207,7 @@ export function clonePblCourseConfig(config: PblCourseConfig): PblCourseConfig {
     evidenceRequirements: config.evidenceRequirements.map(cloneEvidenceRequirement),
     outcome: { ...config.outcome },
     companionIds: [...config.companionIds],
+    inquiryQuestions: [...config.inquiryQuestions],
   });
 }
 
