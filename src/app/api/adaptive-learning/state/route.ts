@@ -1,6 +1,6 @@
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import {
-  classifyStudentTier,
+  derivePretestKnowledgeEvidence,
   scoreAdaptiveAssessment,
 } from "@/lib/adaptive-learning";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
@@ -120,17 +120,20 @@ export async function POST(request: Request) {
     if (body.action === "submit-pretest") {
       if (!plan?.enabled || plan.status !== "teacher-confirmed") return current;
       const score = scoreAdaptiveAssessment(plan.pretest.questions, body.answers);
-      const classifiedTier = classifyStudentTier(score, plan.thresholds);
-      const teacherTierLocked = adaptive.tierSource === "teacher" && adaptive.tier;
-      const tier = teacherTierLocked ? adaptive.tier : classifiedTier;
+      const knowledgeEvidence = derivePretestKnowledgeEvidence(
+        plan.pretest.questions,
+        body.answers,
+      );
       nextState = {
         ...adaptive,
         enabled: adaptive.enabled ?? true,
-        tier,
-        tierSource: teacherTierLocked ? "teacher" : "pretest",
-        tierUpdatedAt: teacherTierLocked ? adaptive.tierUpdatedAt : now,
+        tier: undefined,
+        tierSource: undefined,
+        tierUpdatedAt: undefined,
         pretestScore: score,
         pretestCompletedAt: now,
+        pretestWeakKnowledgePointIds: knowledgeEvidence.weakKnowledgePointIds,
+        pretestMasteredKnowledgePointIds: knowledgeEvidence.masteredKnowledgePointIds,
         startedAt: adaptive.startedAt ?? now,
         evidence: [
           ...adaptive.evidence.filter((item) => item.source !== "pretest"),
@@ -142,6 +145,12 @@ export async function POST(request: Request) {
             knowledgePointIds: [...new Set(plan.pretest.questions.flatMap(
               (question) => question.knowledgePointIds,
             ))],
+            weakKnowledgePointIds: knowledgeEvidence.weakKnowledgePointIds,
+            masteredKnowledgePointIds: knowledgeEvidence.masteredKnowledgePointIds,
+            questionResults: plan.pretest.questions.map((question) => ({
+              questionId: question.id,
+              correct: body.answers[question.id] === question.correctOptionIndex,
+            })),
           },
         ],
       };

@@ -38,8 +38,8 @@ describe("AiLearningTeacherView", () => {
     expect(screen.getByText("容忍时长偏差")).toBeTruthy();
     expect(screen.getByText("重复学习学生")).toBeTruthy();
     expect(screen.getByText("未解决风险")).toBeTruthy();
-    expect(screen.getByText("学生分层与自适应响应")).toBeTruthy();
-    expect(screen.getByText("学习类别")).toBeTruthy();
+    expect(screen.getByText("学生学习证据与资源响应")).toBeTruthy();
+    expect(screen.getByText("先决知识证据")).toBeTruthy();
     expect(screen.queryByText("AI 课堂状态")).toBeNull();
     expect(screen.queryByText("有学习记录的学生")).toBeNull();
   });
@@ -74,10 +74,7 @@ describe("AiLearningTeacherView", () => {
           updatedAt: "2026-07-24T00:00:00.000Z",
           timeBudgetMin: 6,
           thresholds: {
-            foundationMax: 59,
-            advancedMin: 85,
-            branchQuizLow: 70,
-            branchQuizHigh: 90,
+            enrichmentMasteryMin: 80,
           },
           pretest: {
             title: "前测",
@@ -92,12 +89,15 @@ describe("AiLearningTeacherView", () => {
             objective: "迁移应用",
             keyPoints: [],
             anchorKnowledgePointIds: ["kp-1"],
-            targetTiers: ["advanced"],
+            prerequisiteKnowledgePointIds: [],
+            noveltyStatement: "使用主课未出现的新项目案例进行迁移。",
+            mainCourseOverlapSceneIds: [],
             sceneType: "slide",
             targetDurationSec: 180,
             trigger: {
+              placement: "after-module",
               afterSceneId: "outline-ai-1",
-              evidenceRule: "tier-and-high-score",
+              evidenceRule: "module-mastery",
               scoreThreshold: 90,
               minimumRemainingSec: 180,
             },
@@ -117,8 +117,6 @@ describe("AiLearningTeacherView", () => {
           lastActiveAt: "2026-07-24T00:00:00.000Z",
           adaptiveLearning: {
             enabled: true,
-            tier: "advanced",
-            tierSource: "pretest",
             pretestScore: 100,
             pretestCompletedAt: "2026-07-24T00:00:00.000Z",
             evidence: [],
@@ -154,8 +152,8 @@ describe("AiLearningTeacherView", () => {
     fireEvent.click(screen.getByTitle("查看每个触发点的条件判定"));
 
     expect(screen.getByText("张三 · 自适应触发审计")).toBeTruthy();
-    expect(screen.getByText("测评分数")).toBeTruthy();
-    expect(screen.getByText("实际：80 分（最近节点小测）")).toBeTruthy();
+    expect(screen.getByText("模块掌握证据")).toBeTruthy();
+    expect(screen.getByText("实际：80 分")).toBeTruthy();
     expect(screen.getByText("条件未满足")).toBeTruthy();
   });
 });

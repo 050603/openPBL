@@ -27,6 +27,10 @@ import type {
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
+import {
+  isProjectLaunchTodo,
+  projectLaunchProgress,
+} from "@/lib/project-launch-readiness";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
 import { DEFAULT_STAGES } from "./types";
 import { getStageWorkspacePolicy, normalizeStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
@@ -103,16 +107,16 @@ export type SessionAction =
   | { type: "SET_GROUP_TOPIC"; payload: { courseId: string; groupId: string; patch: Partial<ProjectGroup>; studentId?: string } }
   | {
       type: "UPSERT_GROUP_ANNOUNCEMENT";
-      payload: { courseId: string; announcement: GroupAnnouncement };
+      payload: { courseId: string; announcement: GroupAnnouncement; studentId?: string };
     }
-  | { type: "UPSERT_WORK_PLAN_ITEM"; payload: { courseId: string; item: WorkPlanItem } }
-  | { type: "DELETE_WORK_PLAN_ITEM"; payload: { courseId: string; itemId: string } }
+  | { type: "UPSERT_WORK_PLAN_ITEM"; payload: { courseId: string; item: WorkPlanItem; studentId?: string } }
+  | { type: "DELETE_WORK_PLAN_ITEM"; payload: { courseId: string; itemId: string; studentId?: string } }
   | { type: "UPSERT_WHITEBOARD_NODE"; payload: { courseId: string; node: WhiteboardNode } }
   | { type: "DELETE_WHITEBOARD_NODE"; payload: { courseId: string; nodeId: string } }
   | { type: "UPSERT_GROUP_BOARD"; payload: { courseId: string; board: GroupBoard } }
   | { type: "UPSERT_UPLOAD"; payload: { courseId: string; upload: CourseUpload } }
   | { type: "DELETE_UPLOAD"; payload: { courseId: string; uploadId: string } }
-  | { type: "SET_PREVIEW_UPLOAD"; payload: { courseId: string; uploadId?: string } }
+  | { type: "SET_PREVIEW_UPLOAD"; payload: { courseId: string; uploadId?: string; studentId?: string } }
   | { type: "UPSERT_TEAM_CONTRIBUTION"; payload: { courseId: string; contribution: TeamContribution } }
   | { type: "UPSERT_AI_SUPPORT"; payload: { courseId: string; support: AiSupportRecord } }
   | { type: "ADD_OFFLINE_INTERVENTION"; payload: { courseId: string; intervention: OfflineInterventionRecord } }
@@ -517,15 +521,34 @@ export function applySessionAction(
         todos: upsertById(c.todos ?? [], action.payload.todo),
       }));
     case "SET_STUDENT_TODO_COMPLETION":
-      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
-        todos: (c.todos ?? []).map((todo) => {
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => {
+        const todos = (c.todos ?? []).map((todo) => {
           if (todo.id !== action.payload.todoId) return todo;
           const completedBy = new Set(todo.completedBy);
           if (action.payload.completed) completedBy.add(action.payload.studentId);
           else completedBy.delete(action.payload.studentId);
           return { ...todo, completedBy: Array.from(completedBy) };
-        }),
-      }));
+        });
+        const launchProgress = projectLaunchProgress(
+          todos.filter(isProjectLaunchTodo),
+          action.payload.studentId,
+        );
+        return {
+          todos,
+          students: c.students.map((student) =>
+            student.id === action.payload.studentId
+              ? {
+                  ...student,
+                  stageProgress: {
+                    ...student.stageProgress,
+                    launch: launchProgress,
+                    "project-launch": launchProgress,
+                  },
+                }
+              : student,
+          ),
+        };
+      });
     case "MARK_RESOURCE_DOWNLOADED": {
       const { courseId, resourceId, studentId, studentName } = action.payload;
       return updateCourseRecord(state, courseId, touchedAt, (c) => ({

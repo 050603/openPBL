@@ -3,15 +3,24 @@
 
 import { prisma } from "@/lib/db/client";
 import { isDatabaseConfigured } from "@/lib/db/client";
-import { verifyPassword } from "@/lib/auth/password";
+import {
+  hashPassword,
+  passwordNeedsRehash,
+  verifyPassword,
+} from "@/lib/auth/password";
 import {
   isAuthConfigured,
   signTeacherToken,
   TEACHER_COOKIE_NAME,
   getAuthCookieOptions,
 } from "@/lib/auth/session";
-import { loginLimiter, getClientIp, rateLimitedResponse } from "@/lib/auth/rate-limit";
+import { getClientIp, rateLimitedResponse } from "@/lib/auth/rate-limit";
+import {
+  checkDistributedRateLimit,
+  resetDistributedRateLimit,
+} from "@/lib/auth/distributed-rate-limit";
 import { z } from "zod";
+import { requireSameOrigin } from "@/lib/auth/request-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +31,8 @@ const LoginSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const csrfError = requireSameOrigin(req);
+  if (csrfError) return csrfError;
   if (!isAuthConfigured()) {
     return Response.json(
       { error: "AUTH_NOT_CONFIGURED", message: "未配置 JWT_SECRET,鉴权未启用" },
@@ -41,7 +52,12 @@ export async function POST(req: Request) {
   }
 
   const limitKey = `${ip}:${parsed.username}`;
-  const rl = loginLimiter.check(limitKey);
+  const rl = await checkDistributedRateLimit({
+    namespace: "login",
+    key: limitKey,
+    limit: 10,
+    windowSeconds: 60,
+  });
   if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
 
   if (!isDatabaseConfigured()) {
@@ -55,24 +71,28 @@ export async function POST(req: Request) {
     where: { username: parsed.username },
   });
 
-  if (!teacher || !verifyPassword(parsed.password, teacher.passwordHash)) {
+  if (!teacher || !(await verifyPassword(parsed.password, teacher.passwordHash))) {
     return Response.json(
       { error: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
       { status: 401 },
     );
   }
 
-  loginLimiter.reset(limitKey);
+  await resetDistributedRateLimit("login", limitKey);
 
+  const upgradedHash = passwordNeedsRehash(teacher.passwordHash)
+    ? await hashPassword(parsed.password)
+    : undefined;
   await prisma.teacher.update({
     where: { id: teacher.id },
-    data: { lastLoginAt: new Date() },
+    data: { lastLoginAt: new Date(), ...(upgradedHash ? { passwordHash: upgradedHash } : {}) },
   });
 
   const { token, cookieName, maxAge } = await signTeacherToken({
     teacherId: teacher.id,
     username: teacher.username,
     displayName: teacher.displayName,
+    sessionVersion: teacher.sessionVersion,
   });
   if (cookieName !== TEACHER_COOKIE_NAME) {
     // Defensive — should never happen

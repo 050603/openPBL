@@ -41,6 +41,12 @@ export interface DiscussionRequest {
 
 interface RoundtableProps {
   readonly mode?: 'playback' | 'autonomous';
+  /** Removes the unused companion-agent rail without changing playback controls. */
+  readonly hideCompanionArea?: boolean;
+  readonly interactionAssistance?: {
+    readonly active: boolean;
+    readonly onContinue: () => void;
+  };
   readonly initialParticipants?: Participant[];
   readonly playbackView?: PlaybackView; // Centralised derived state from Stage
   readonly currentSpeech?: string | null; // Live SSE speech (from StreamBuffer — discussion/QA)
@@ -129,6 +135,8 @@ function VoiceWaveformBars({ barClassName }: { readonly barClassName: string }) 
 
 export function Roundtable({
   mode: _mode = 'autonomous',
+  hideCompanionArea = false,
+  interactionAssistance,
   initialParticipants = [],
   playbackView,
   currentSpeech,
@@ -366,7 +374,7 @@ export function Roundtable({
     setIsInputOpen(false);
   };
 
-  const handleToggleInput = () => {
+  const handleToggleInput = useCallback(() => {
     if (isSendCooldown) return;
     if (!isInputOpen) {
       onInputActivate?.();
@@ -377,9 +385,16 @@ export function Roundtable({
       cancelRecording();
       setIsVoiceOpen(false);
     }
-  };
+  }, [
+    cancelRecording,
+    isInputOpen,
+    isProcessing,
+    isSendCooldown,
+    isVoiceOpen,
+    onInputActivate,
+  ]);
 
-  const handleToggleVoice = () => {
+  const handleToggleVoice = useCallback(() => {
     if (isVoiceOpen) {
       if (isRecording) {
         stopRecording();
@@ -392,7 +407,15 @@ export function Roundtable({
       setIsInputOpen(false);
       startRecording();
     }
-  };
+  }, [
+    isProcessing,
+    isRecording,
+    isSendCooldown,
+    isVoiceOpen,
+    onInputActivate,
+    startRecording,
+    stopRecording,
+  ]);
 
   // Keyboard shortcuts for roundtable interaction (#255)
   // T = toggle text input, V = toggle voice input, Escape = dismiss panels,
@@ -462,6 +485,9 @@ export function Roundtable({
     isVoiceOpen,
     isRecording,
     isProcessing,
+    cancelRecording,
+    handleToggleInput,
+    handleToggleVoice,
   ]);
 
   const isPresentationInteractionActive = isInputOpen || isVoiceOpen || isRecording || isProcessing;
@@ -1053,7 +1079,8 @@ export function Roundtable({
   return (
     <div
       className={cn(
-        'h-[192px] w-full flex flex-col relative z-10 transition-all duration-300',
+        'w-full flex flex-col relative z-10 transition-[height,background-color,border-color] duration-300',
+        interactionAssistance?.active ? 'h-[236px]' : 'h-[192px]',
         isPresenting && !controlsVisible
           ? 'border-t border-transparent bg-transparent backdrop-blur-none'
           : 'border-t border-gray-100 dark:border-gray-800 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md',
@@ -1068,6 +1095,33 @@ export function Roundtable({
       >
         {toolbar}
       </div>
+      {interactionAssistance?.active ? (
+        <div
+          className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-4 text-[var(--pbl-text)]"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--pbl-teacher)] opacity-30" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--pbl-teacher)]" />
+            </span>
+            <p className="min-w-0 truncate text-xs text-[var(--pbl-text-muted)]">
+              <strong className="font-semibold text-[var(--pbl-text-strong)]">
+                互动操作进行中
+              </strong>
+              <span className="ml-2 hidden sm:inline">完成页面任务后会自动继续讲解</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 rounded-lg border border-[var(--pbl-teacher-border)] bg-[var(--pbl-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--pbl-teacher)] shadow-sm transition hover:border-[var(--pbl-teacher)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pbl-teacher)] focus-visible:ring-offset-2"
+            onClick={interactionAssistance.onContinue}
+          >
+            页面无响应？继续讲解
+          </button>
+        </div>
+      ) : null}
       {/* ── Interaction area — three-column layout ── */}
       <div className="flex-1 flex items-stretch min-h-0">
         {/* Left: Teacher identity */}
@@ -1198,7 +1252,7 @@ export function Roundtable({
         </div>
 
         {/* Center: Interaction stage */}
-        <div className="flex-1 relative mx-3 mb-2">
+        <div className="flex-1 relative mx-3 mb-2 min-w-0">
           {/* End flash banner (Issue 3) */}
           <AnimatePresence>
             {endFlashVisible && (
@@ -1232,7 +1286,7 @@ export function Roundtable({
                 if (isRecording || isProcessing) cancelRecording();
               }
             }}
-            className="relative w-full h-full rounded-[2.5rem] bg-gradient-to-b from-white/40 to-white/80 dark:from-gray-800/40 dark:to-gray-800/80 backdrop-blur-xl border border-white/50 dark:border-gray-700/50 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05),inset_0_1px_0_0_rgba(255,255,255,0.9)] dark:shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] flex flex-col justify-center px-6 overflow-hidden group transition-all duration-700 cursor-default"
+            className="relative w-full h-full rounded-3xl bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(245,243,255,0.82))] dark:bg-[linear-gradient(135deg,rgba(31,41,55,0.96),rgba(46,36,70,0.84))] backdrop-blur-xl border border-purple-100/80 dark:border-purple-800/40 shadow-[0_14px_34px_-22px_rgba(88,28,135,0.55),inset_0_1px_0_rgba(255,255,255,0.9)] flex flex-col justify-center px-7 overflow-hidden group transition-all duration-500 cursor-default before:absolute before:inset-y-5 before:left-0 before:w-1 before:rounded-r-full before:bg-gradient-to-b before:from-purple-400 before:to-indigo-500"
           >
             {/* Text input box */}
             <AnimatePresence>
@@ -1764,13 +1818,14 @@ export function Roundtable({
           </div>
         </div>
 
-        {/* Right: Participants area */}
-        <div
-          className={cn(
-            'w-[140px] shrink-0 flex flex-col py-3 border-l border-gray-100/50 dark:border-gray-700/50 bg-gray-50/30 dark:bg-gray-900/30 overflow-visible transition-opacity duration-300',
-            isPresenting && !controlsVisible && 'opacity-0 pointer-events-none',
-          )}
-        >
+        {/* Right: companion participants are optional in the PBL classroom skin. */}
+        {!hideCompanionArea && (
+          <div
+            className={cn(
+              'w-[140px] shrink-0 flex flex-col py-3 border-l border-gray-100/50 dark:border-gray-700/50 bg-gray-50/30 dark:bg-gray-900/30 overflow-visible transition-opacity duration-300',
+              isPresenting && !controlsVisible && 'opacity-0 pointer-events-none',
+            )}
+          >
           {/* Companion agent avatars — horizontal row, scrollable on overflow, arrows on hover */}
           <div className="flex-none relative group/scroll">
             {/* Left arrow */}
@@ -2086,7 +2141,8 @@ export function Roundtable({
               </AnimatePresence>
             </div>
           </div>
-        </div>
+          </div>
+        )}
       </div>
       {/* close interaction row */}
     </div>

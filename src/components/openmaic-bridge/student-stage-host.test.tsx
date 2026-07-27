@@ -79,11 +79,54 @@ vi.mock("@openmaic/lib/store/settings", () => ({ useSettingsStore: settingsMock 
 vi.mock("@/lib/learning-analytics/telemetry", () => telemetryMock);
 
 import {
+  prepareAdaptiveInsertionScenes,
   quizScoreForScene,
+  resolveAdaptiveInsertionIndex,
   selectStudentLearningScenes,
   StudentStageHost,
   shouldTrackStudentLearning,
 } from "./student-stage-host";
+
+describe("adaptive scene preparation", () => {
+  it("namespaces inserted ids and marks only the segment tail", () => {
+    const scenes = prepareAdaptiveInsertionScenes("run-1", "resource-classroom", [
+      { id: "scene-1", title: "补充一", actions: [] },
+      { id: "scene-2", title: "补充二", actions: [] },
+    ] as never);
+
+    expect(scenes.map((scene) => scene.id)).toEqual([
+      "adaptive:run-1:scene-1",
+      "adaptive:run-1:scene-2",
+    ]);
+    expect(
+      (scenes[0] as typeof scenes[0] & { openpblAdaptiveLastScene?: boolean })
+        .openpblAdaptiveLastScene,
+    ).toBe(false);
+    expect(
+      (scenes[1] as typeof scenes[1] & { openpblAdaptiveLastScene?: boolean })
+        .openpblAdaptiveLastScene,
+    ).toBe(true);
+  });
+
+  it("keeps a late adaptive insertion anchored directly after its completed quiz", () => {
+    const scenes = [
+      { id: "quiz-1", title: "模块测验", actions: [] },
+      { id: "next-1", title: "下一知识页", actions: [] },
+      { id: "next-2", title: "后续知识页", actions: [] },
+    ] as unknown as import("@openmaic/lib/types/stage").Scene[];
+
+    expect(resolveAdaptiveInsertionIndex(
+      scenes,
+      "next-2",
+      {
+        id: "run-1",
+        classroomId: "resource-classroom",
+        placement: "after-current",
+        anchorSceneId: "quiz-1",
+      },
+    )).toBe(1);
+  });
+});
 
 function classroomResponse() {
   return {
@@ -155,6 +198,56 @@ describe("StudentStageHost reporting modes", () => {
         chatAreaCollapsed: true,
       });
     });
+  });
+
+  it("splices a prepared adaptive classroom into the mounted main scene queue", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("resource-classroom")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            classroom: {
+              stage: { id: "resource-classroom", title: "拓展资源" },
+              scenes: [{ id: "resource-1", title: "应用拓展", actions: [] }],
+            },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/openmaic/classroom")) return classroomResponse();
+      if (url.includes("/api/openmaic/progress")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { progress: {} } }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    render(
+      <StudentStageHost
+        adaptiveInsertions={[{
+          id: "run-1",
+          classroomId: "resource-classroom",
+          placement: "before-current",
+        }]}
+        backHref="/student"
+        classroomId="classroom-1"
+        courseId="course-1"
+        studentId="student-1"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(stageMock.state.currentSceneId).toBe("adaptive:run-1:resource-1"),
+    );
+    expect(stageMock.state.scenes.map((scene) => scene.id)).toEqual([
+      "adaptive:run-1:resource-1",
+      "scene-1",
+    ]);
   });
 
   it("teacher preview never reads or writes student progress or telemetry", async () => {
@@ -236,5 +329,35 @@ describe("StudentStageHost reporting modes", () => {
         completedScenes: ["scene-1"],
       });
     });
+  });
+
+  it("settles a submitted assessment when the student changes page manually", async () => {
+    const onSceneComplete = vi.fn();
+    render(
+      <StudentStageHost
+        backHref="/student"
+        classroomId="classroom-1"
+        courseId="course-1"
+        onSceneComplete={onSceneComplete}
+        studentId="student-1"
+      />,
+    );
+    await waitFor(() => expect(renderedStage.props?.onPlaybackStateChange).toBeTypeOf("function"));
+
+    localStorage.setItem("quizAnswers:scene-1", JSON.stringify({ q1: "A" }));
+    localStorage.setItem("quizResults:scene-1", JSON.stringify([{ status: "correct" }]));
+    const scenes = [
+      { ...stageMock.state.scenes[0], type: "quiz" },
+      { id: "scene-2", title: "下一页", type: "slide", actions: [] },
+    ];
+    act(() => stageMock.setState({ scenes }));
+    act(() => stageMock.setState({ currentSceneId: "scene-2" }));
+
+    await waitFor(() => expect(onSceneComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scene: expect.objectContaining({ id: "scene-1" }),
+        quizScore: 100,
+      }),
+    ));
   });
 });

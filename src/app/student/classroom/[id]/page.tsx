@@ -52,13 +52,12 @@ export default function StudentClassroomPage() {
     presenceRef.current = { courseId: course.id, studentId };
 
     const sendHeartbeat = () => {
-      fetch("/api/session/presence", {
-        method: "POST",
+      fetch(`/api/courses/${encodeURIComponent(course.id)}/presence`, {
+        method: "PUT",
         headers: {
           "Content-Type": "application/json",
           "X-OpenPBL-Role": "student",
         },
-        body: JSON.stringify({ courseId: course.id, studentId }),
         keepalive: true,
       }).catch(() => {
         // The server sweep handles missed heartbeats.
@@ -66,12 +65,12 @@ export default function StudentClassroomPage() {
     };
 
     sendHeartbeat();
-    const intervalId = window.setInterval(sendHeartbeat, 10_000);
+    const intervalId = window.setInterval(sendHeartbeat, 20_000);
 
     const sendOffline = () => {
       const { courseId, studentId } = presenceRef.current;
       if (!courseId || !studentId) return;
-      const url = `/api/session/presence?courseId=${encodeURIComponent(courseId)}&studentId=${encodeURIComponent(studentId)}`;
+      const url = `/api/courses/${encodeURIComponent(courseId)}/presence`;
       // visibilitychange hidden / beforeunload 时浏览器会中止大部分 inflight
       // 请求，sendBeacon 是专门为这种场景设计的 API。如果它返回 false
       // （被中止或配额超限），不再降级到 fetch —— fetch keepalive 同样会被
@@ -79,7 +78,11 @@ export default function StudentClassroomPage() {
       // 服务器心跳超时机制（HEARTBEAT_TIMEOUT_MS）兜底标记离线即可。
       if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
         try {
-          navigator.sendBeacon(url, "");
+          void fetch(url, {
+            method: "DELETE",
+            headers: { "X-OpenPBL-Role": "student" },
+            keepalive: true,
+          });
         } catch {
           // sendBeacon 不可用或被中止 —— 静默失败，依赖心跳超时。
         }

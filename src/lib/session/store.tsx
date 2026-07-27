@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import {
   applySessionAction,
   initialSessionState,
@@ -23,11 +24,8 @@ import type {
   ClassConfig,
   ClassroomSubmission,
   CompanionConfirmation,
-  CompanionConfirmationAction,
   CompanionProcessRecord,
   CompanionTask,
-  CompanionTaskKind,
-  CompanionTaskStatus,
   Course,
   CourseAnnouncement,
   CourseContent,
@@ -49,11 +47,17 @@ import type {
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
+import type { ActionAck } from "@/lib/courses/contracts";
 import { DEFAULT_EVALUATION_FLOWS, DEFAULT_STAGES } from "./types";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import { loadJSON, saveJSON } from "./storage";
 import { generateInviteCode, normalizeInviteCode } from "./invite-code";
 import { toast } from "sonner";
+import { getSessionRouteMode } from "./route-mode";
+import {
+  retryVersionConflict,
+  SessionActionRequestError,
+} from "./action-version-retry";
 
 const IDENTITY_KEY = "openpbl.identity.v1";
 // Separate identity keys per role to prevent teacher/student identity cross-contamination
@@ -159,11 +163,11 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 }
 
 function makeCourseId(): string {
-  return "course-" + Math.random().toString(36).slice(2, 10);
+  return crypto.randomUUID();
 }
 
 function makeStudentId(): string {
-  return "s-" + Math.random().toString(36).slice(2, 8);
+  return crypto.randomUUID();
 }
 
 function makeEmptyHydratedState(): SessionState {
@@ -181,11 +185,23 @@ function getClientRole(): "teacher" | "student" | undefined {
   return undefined;
 }
 
+function redirectAfterUnauthorized(role: "teacher" | "student" | undefined) {
+  if (typeof window === "undefined" || !role) return;
+  if (role === "teacher") {
+    const redirect = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(
+      `/teacher/login?redirect=${encodeURIComponent(redirect)}`,
+    );
+    return;
+  }
+  window.location.assign("/student");
+}
+
 async function fetchSession(
   preferredRole?: "teacher" | "student",
 ): Promise<SessionState> {
   const role = preferredRole ?? getClientRole();
-  const res = await fetch("/api/session", {
+  const res = await fetch("/api/courses", {
     cache: "no-store",
     headers: role ? { "X-OpenPBL-Role": role } : undefined,
   });
@@ -193,6 +209,7 @@ async function fetchSession(
     // 401 表示未登录——在公开页面（首页、登录页）轮询时属正常情况，
     // 不应作为错误抛出，避免每 5 秒弹出"无法读取课堂数据"提示。
     if (res.status === 401) {
+      redirectAfterUnauthorized(role);
       throw new Error("SESSION_UNAUTHORIZED");
     }
     const body = (await res.json().catch(() => null)) as
@@ -204,33 +221,95 @@ async function fetchSession(
   return { ...state, hydrated: true };
 }
 
-async function postSessionAction(action: SessionAction): Promise<SessionState> {
+async function hasAuthenticatedSession(
+  role: "teacher" | "student",
+): Promise<boolean> {
+  const response = await fetch("/api/auth/me", {
+    cache: "no-store",
+    headers: { "X-OpenPBL-Role": role },
+  });
+  if (!response.ok) return false;
+  const body = (await response.json().catch(() => null)) as
+    | { user?: { role?: string } | null }
+    | null;
+  return body?.user?.role === role;
+}
+
+function courseIdForAction(action: SessionAction): string | null {
+  if (!("payload" in action) || typeof action.payload !== "object" || !action.payload) return null;
+  const payload = action.payload as Record<string, unknown>;
+  const value = payload.courseId ?? payload.id;
+  return typeof value === "string" ? value : null;
+}
+
+async function postSessionAction(
+  action: SessionAction,
+  state: SessionState,
+  requestId: string,
+  expectedVersionOverride?: number,
+): Promise<ActionAck> {
   const role = getClientRole();
-  const res = await fetch("/api/session/actions", {
+  const courseId = courseIdForAction(action);
+  if (!courseId) throw new Error("ACTION_COURSE_REQUIRED");
+  const courseVersion = state.courses.find((course) => course.id === courseId)?.version;
+  const expectedVersion = expectedVersionOverride ?? courseVersion;
+  const res = await fetch(`/api/courses/${encodeURIComponent(courseId)}/actions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(role ? { "X-OpenPBL-Role": role } : {}),
     },
-    body: JSON.stringify(action),
+    body: JSON.stringify({
+      requestId,
+      ...(action.type !== "CREATE_COURSE" && expectedVersion
+        ? { expectedVersion }
+        : {}),
+      action,
+    }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as
-      | { error?: string; message?: string }
+      | {
+          code?: string;
+          error?: string;
+          message?: string;
+          details?: { currentVersion?: number };
+        }
       | null;
-    throw new Error(body?.message ?? body?.error ?? `SESSION_ACTION_FAILED_${res.status}`);
+    if (res.status === 401) redirectAfterUnauthorized(role);
+    throw new SessionActionRequestError(
+      body?.code ?? body?.message ?? body?.error ?? `SESSION_ACTION_FAILED_${res.status}`,
+      res.status,
+      body?.details?.currentVersion,
+    );
   }
-  const state = (await res.json()) as SessionState;
-  return { ...state, hydrated: true };
+  return (await res.json()) as ActionAck;
+}
+
+async function postSessionActionWithRetry(
+  action: SessionAction,
+  state: SessionState,
+  requestId: string,
+): Promise<ActionAck> {
+  const courseId = courseIdForAction(action);
+  const initialVersion = courseId
+    ? state.courses.find((course) => course.id === courseId)?.version
+    : undefined;
+  return retryVersionConflict(
+    (expectedVersion) => postSessionAction(action, state, requestId, expectedVersion),
+    initialVersion,
+  );
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [state, dispatch] = useReducer(reducer, undefined, initialSessionState);
   const stateRef = useRef(state);
   const [saveState, setSaveState] = useState<SessionApi["saveState"]>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
-  const lastFailedActionRef = useRef<SessionAction | null>(null);
+  const lastFailedActionRef = useRef<{ action: SessionAction; requestId: string } | null>(null);
+  const commitQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const pollingRef = useRef(true);
   // Tracks the number of in-flight commit POSTs. Only the LAST response
   // (when pending drops to 0) triggers a HYDRATE; intermediate responses
@@ -245,6 +324,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const wsRetryTimerRef = useRef<number | null>(null);
   const wsCourseIdRef = useRef<string | undefined>(undefined);
   const wsModeRef = useRef<"websocket" | "polling">("polling");
+  const eventCursorRef = useRef<Record<string, string>>({});
+  const courseRefreshTimerRef = useRef<number | null>(null);
   const [realtimeMode, setRealtimeMode] = useState<"websocket" | "polling">("polling");
 
   useEffect(() => {
@@ -382,17 +463,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSaveState("saving");
     setSaveError(undefined);
     pendingCommitsRef.current++;
-    return postSessionAction(action)
-      .then((next) => {
+    const requestId = crypto.randomUUID();
+    const run = async () => {
+      const ack = await postSessionActionWithRetry(action, stateRef.current, requestId);
+      const courseId = courseIdForAction(action);
+      if (courseId) {
+        const versionAction: SessionAction = {
+          type: "UPDATE_COURSE",
+          payload: { id: courseId, patch: { version: ack.courseVersion } },
+        };
+        stateRef.current = applySessionAction(stateRef.current, versionAction);
+        dispatch(versionAction);
+      }
+      return ack;
+    };
+    const queued = commitQueueRef.current.then(run, run);
+    commitQueueRef.current = queued.catch(() => undefined);
+    return queued
+      .then(() => {
         pendingCommitsRef.current--;
-        // Only HYDRATE from the last pending commit's response.
-        // Intermediate responses (e.g. from the 1st of 3 rapid commits)
-        // lack the later actions' changes and would overwrite local
-        // optimistic state, causing courses to "disappear" or status to
-        // revert. The server-side serialization queue ensures this last
-        // response contains ALL accumulated changes.
         if (pendingCommitsRef.current === 0) {
-          dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
           setLastSavedAt(new Date().toISOString());
           setSaveState("saved");
           lastFailedActionRef.current = null;
@@ -402,7 +492,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .catch((error) => {
         pendingCommitsRef.current--;
         console.error("[session] Failed to persist session action:", error);
-        lastFailedActionRef.current = action;
+        lastFailedActionRef.current = { action, requestId };
         setSaveState("error");
         setSaveError("数据保存失败，请检查服务器状态后重试。");
         toast.error("课堂数据尚未保存", { id: "session-write-error", description: "当前页面内容仍保留在本地，可直接重试。" });
@@ -411,8 +501,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function retrySave() {
-    const action = lastFailedActionRef.current;
-    if (!action) return;
+    const failed = lastFailedActionRef.current;
+    if (!failed) return;
     setSaveState("saving");
     setSaveError(undefined);
     // Route retry through the same pendingCommitsRef serialization as commit():
@@ -422,10 +512,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // overwritten by the (older) retry response.
     pendingCommitsRef.current++;
     try {
-      const next = await postSessionAction(action);
+      const ack = await postSessionActionWithRetry(
+        failed.action,
+        stateRef.current,
+        failed.requestId,
+      );
       pendingCommitsRef.current--;
+      const courseId = courseIdForAction(failed.action);
+      if (courseId) {
+        const versionAction: SessionAction = {
+          type: "UPDATE_COURSE",
+          payload: { id: courseId, patch: { version: ack.courseVersion } },
+        };
+        stateRef.current = applySessionAction(stateRef.current, versionAction);
+        dispatch(versionAction);
+      }
       if (pendingCommitsRef.current === 0) {
-        dispatch({ type: "HYDRATE", payload: applyIdentity(next) });
         setLastSavedAt(new Date().toISOString());
         setSaveState("saved");
         lastFailedActionRef.current = null;
@@ -448,6 +550,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // 1.5s polling churn — patches pushed by the server trigger refresh()
   // on demand, so polling becomes unnecessary.
   function teardownWebSocket() {
+    if (courseRefreshTimerRef.current !== null) {
+      window.clearTimeout(courseRefreshTimerRef.current);
+      courseRefreshTimerRef.current = null;
+    }
     if (wsRetryTimerRef.current !== null) {
       window.clearTimeout(wsRetryTimerRef.current);
       wsRetryTimerRef.current = null;
@@ -472,6 +578,60 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       wsModeRef.current = "polling";
       setRealtimeMode("polling");
     }
+  }
+
+  async function refreshCourse(courseId: string, cursor?: string) {
+    if (pendingCommitsRef.current > 0) return;
+    const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/state`, {
+      cache: "no-store",
+      headers: { "X-OpenPBL-Role": getClientRole() ?? "student" },
+    });
+    if (!response.ok) return;
+    const body = (await response.json()) as {
+      course: Course;
+      eventCursor: string;
+    };
+    const current = stateRef.current;
+    const found = current.courses.some((course) => course.id === courseId);
+    const next = applyIdentity({
+      ...current,
+      courses: found
+        ? current.courses.map((course) => (course.id === courseId ? body.course : course))
+        : [body.course, ...current.courses],
+      updatedAt: body.course.updatedAt,
+      hydrated: true,
+    });
+    eventCursorRef.current[courseId] = cursor ?? body.eventCursor;
+    stateRef.current = next;
+    dispatch({ type: "HYDRATE", payload: next });
+  }
+
+  function scheduleCourseRefresh(courseId: string, cursor?: string) {
+    if (courseRefreshTimerRef.current !== null) {
+      window.clearTimeout(courseRefreshTimerRef.current);
+    }
+    courseRefreshTimerRef.current = window.setTimeout(() => {
+      courseRefreshTimerRef.current = null;
+      void refreshCourse(courseId, cursor);
+    }, 250);
+  }
+
+  async function catchUpCourseEvents(courseId: string) {
+    const after = eventCursorRef.current[courseId] ?? "0";
+    const response = await fetch(
+      `/api/courses/${encodeURIComponent(courseId)}/events?after=${encodeURIComponent(after)}`,
+      { cache: "no-store", headers: { "X-OpenPBL-Role": getClientRole() ?? "student" } },
+    );
+    if (!response.ok) return;
+    const body = (await response.json()) as {
+      events: unknown[];
+      nextCursor: string;
+      hasMore: boolean;
+    };
+    if (body.events.length > 0) {
+      await refreshCourse(courseId, body.nextCursor);
+    }
+    if (body.hasMore) await catchUpCourseEvents(courseId);
   }
 
   function connectWebSocket(courseId: string | undefined) {
@@ -519,6 +679,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       pollingRef.current = false;
       try {
         ws.send(JSON.stringify({ type: "subscribe", courseId }));
+        void catchUpCourseEvents(courseId);
       } catch {
         /* noop */
       }
@@ -529,18 +690,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
 
     ws.onmessage = (event) => {
-      // Simplified patch application: any patch event triggers a full
-      // refresh from /api/session. This trades the bandwidth savings of
-      // pure incremental patches for simplicity and correctness.
+      // Course events advance a durable cursor. Catch up only the affected
+      // course instead of downloading the full cross-course session.
       try {
         const data = event.data as unknown;
         if (typeof data === "string") {
-          const parsed = JSON.parse(data) as { type?: string; version?: string };
-          if (
-            parsed.type === "course-invalidated" &&
-            parsed.version !== lastSeenUpdatedAtRef.current
-          ) {
-            void refresh();
+          const parsed = JSON.parse(data) as {
+            type?: string;
+            courseId?: string;
+            event?: { payload?: { eventCursor?: string } };
+          };
+          if (parsed.type === "course-event" && parsed.courseId === courseId) {
+            scheduleCourseRefresh(courseId, parsed.event?.payload?.eventCursor);
           }
         }
       } catch {
@@ -569,15 +730,46 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    void refresh();
-    // 5s long-poll fallback (was 1.5s pre-Stage-4). When WebSocket is
-    // connected, refresh() is still safe to call — it's a no-op when
-    // updatedAt hasn't changed.
-    const id = window.setInterval(() => {
-      if (pollingRef.current) void refresh();
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, []);
+    const mode = getSessionRouteMode(pathname);
+    let cancelled = false;
+    let intervalId: number | undefined;
+
+    async function startSessionRefresh() {
+      if (mode === "none") {
+        if (!stateRef.current.hydrated) {
+          dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
+        }
+        return;
+      }
+
+      const role = pathname.startsWith("/teacher") ? "teacher" : "student";
+      if (mode === "optional" && !(await hasAuthenticatedSession(role))) {
+        if (!cancelled && !stateRef.current.hydrated) {
+          dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
+        }
+        return;
+      }
+      if (cancelled) return;
+
+      await refresh(role);
+      if (cancelled) return;
+
+      // Poll only while the current route can legitimately access course
+      // data. A client-side route change tears this interval down.
+      intervalId = window.setInterval(() => {
+        if (pollingRef.current) void refresh(role);
+      }, 5000);
+    }
+
+    void startSessionRefresh();
+    return () => {
+      cancelled = true;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+    // refresh reads mutable state through refs. Pathname is the intended
+    // lifecycle boundary; render-local callback identities are not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   // Auto-connect to the WebSocket server on mount, and re-subscribe when
   // the joined course changes. Connections fail silently — the 5s polling
@@ -1098,7 +1290,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           actor: input.actor ?? state.studentName ?? state.user.name,
           createdAt: new Date().toISOString(),
         };
-        commit({ type: "UPSERT_GROUP_ANNOUNCEMENT", payload: { courseId, announcement } });
+        commit({
+          type: "UPSERT_GROUP_ANNOUNCEMENT",
+          payload: {
+            courseId,
+            announcement,
+            studentId: state.user.role === "student" ? state.studentId : undefined,
+          },
+        });
         return announcement;
       },
       upsertWorkPlanItem(courseId, input) {
@@ -1110,11 +1309,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           task: input.task,
           progress: input.progress,
         };
-        commit({ type: "UPSERT_WORK_PLAN_ITEM", payload: { courseId, item } });
+        commit({
+          type: "UPSERT_WORK_PLAN_ITEM",
+          payload: {
+            courseId,
+            item,
+            studentId: state.user.role === "student" ? state.studentId : undefined,
+          },
+        });
         return item;
       },
       deleteWorkPlanItem(courseId, itemId) {
-        commit({ type: "DELETE_WORK_PLAN_ITEM", payload: { courseId, itemId } });
+        commit({
+          type: "DELETE_WORK_PLAN_ITEM",
+          payload: {
+            courseId,
+            itemId,
+            studentId: state.user.role === "student" ? state.studentId : undefined,
+          },
+        });
       },
       upsertWhiteboardNode(courseId, input) {
         const node: WhiteboardNode = {
@@ -1155,7 +1368,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         commit({ type: "DELETE_UPLOAD", payload: { courseId, uploadId } });
       },
       setPreviewUpload(courseId, uploadId) {
-        commit({ type: "SET_PREVIEW_UPLOAD", payload: { courseId, uploadId } });
+        commit({
+          type: "SET_PREVIEW_UPLOAD",
+          payload: {
+            courseId,
+            uploadId,
+            studentId: state.user.role === "student" ? state.studentId : undefined,
+          },
+        });
       },
       upsertTeamContribution(input) {
         const courseId = input.courseId ?? state.joinedCourseId;
@@ -1321,7 +1541,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       disconnectWebSocket: teardownWebSocket,
       realtimeMode,
     };
-  }, [state, saveState, lastSavedAt, saveError, realtimeMode]);
+  // The API is rebuilt for every session-state change. refresh and
+  // connectWebSocket deliberately read live mutable state from refs; adding
+  // their render-local identities would defeat memoization without changing
+  // the exposed behavior.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    state,
+    saveState,
+    lastSavedAt,
+    saveError,
+    realtimeMode,
+  ]);
 
   return <SessionContext.Provider value={api}>{children}</SessionContext.Provider>;
 }

@@ -9,8 +9,9 @@ import {
   API_ERROR_CODES,
 } from '@openmaic/lib/server/api-response';
 import { createLogger } from '@openmaic/lib/logger';
-import { getCourse, updateCourse } from '@/lib/session/server-store';
+import { getCourse } from '@/lib/session/server-store';
 import type { StudentAiProgress } from '@/lib/session/types';
+import { persistStudentAiProgress } from '@/lib/courses/ai-progress-service';
 import { readClassroom } from '@openmaic/lib/server/classroom-storage';
 import { normalizeProgressUpdate } from '@openmaic/lib/progress/normalize-progress';
 import {
@@ -187,39 +188,28 @@ export async function POST(request: NextRequest) {
 
     const now = new Date().toISOString();
 
-    let updatedEntry: StudentAiProgress | undefined;
-    await updateCourse(courseId, (course) => {
-      const next: StudentAiProgress = {
-        ...course.aiLearningProgress?.[studentId],
-        classroomId,
-        studentId,
-        currentSceneIndex: normalized.currentSceneIndex,
-        totalScenes: normalized.totalScenes,
-        completedScenes: normalized.completedScenes,
-        completedOutlineIds,
-        completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
-        lastActiveAt: now,
-        masteryLevel,
-        ...(score !== undefined ? { quizScore: score } : {}),
-      };
-      updatedEntry = next;
-      // 保留 studentName 仅用于审计展示，未在类型中持久化（类型未定义该字段）。
-      // 通过合并已有进度字典写入。
-      const prevProgress = course.aiLearningProgress ?? {};
-      void studentName; // studentName 当前不落盘，预留后续扩展
-      return {
-        ...course,
-        aiLearningProgress: { ...prevProgress, [studentId]: next },
-      };
-    });
-
-    if (!updatedEntry) {
-      return apiError(
-        API_ERROR_CODES.INTERNAL_ERROR,
-        500,
-        'Failed to persist progress: course not found',
-      );
-    }
+    const updatedEntry: StudentAiProgress = {
+      ...course.aiLearningProgress?.[studentId],
+      classroomId,
+      studentId,
+      currentSceneIndex: normalized.currentSceneIndex,
+      totalScenes: normalized.totalScenes,
+      completedScenes: normalized.completedScenes,
+      completedOutlineIds,
+      completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
+      lastActiveAt: now,
+      masteryLevel,
+      ...(score !== undefined ? { quizScore: score } : {}),
+    };
+    void studentName;
+    await persistStudentAiProgress(
+      courseId,
+      studentId,
+      updatedEntry,
+      Math.round(
+        (normalized.completedScenes.length / Math.max(1, normalized.totalScenes)) * 100,
+      ),
+    );
 
     return apiSuccess({ data: { progress: updatedEntry } });
   } catch (error) {

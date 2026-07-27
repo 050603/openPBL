@@ -91,7 +91,7 @@ Never return a bare array. Never omit `languageDirective` or `courseTitle`. All 
    - Select widgetType based on concept: simulation (physics/chem), diagram (processes), code (programming), game (practice), visualization3d (3D models)
    - Provide appropriate widgetOutline for the widget type
 - **Scene count**: Based on inferred duration, typically 1-2 scenes per minute
-- **Quiz placement**: Recommend inserting a quiz every 3-5 slides for assessment
+- **Quiz placement**: Split knowledge teaching into coherent blocks and end every block with a short quiz using the same `knowledgePointIds`; never postpone all assessment until the final AI-learning scene
 - **Quiz design**: choose supported formats according to the objective: recognition (`single`/`true_false`), evidence classification (`multiple`), concept completion (`fill_blank`), explanation (`short_answer`), or transfer (`scenario_task`). Do not request matching, drag, line, ordering, or sorting because those components are not supported.
 - **Teaching progression**: activate prerequisites before introducing new terminology; explain each unfamiliar term before using it in examples or assessment; move from concrete familiar contexts to mechanism and then application.
 - **Language**: Infer from the user's requirement text and context, then output all content in the inferred language

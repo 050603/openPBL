@@ -1,5 +1,4 @@
-// In-memory rate limiter (LRU-style) for login attempts and basic API limiting.
-// For multi-instance production deployments, replace with Redis-backed counter.
+import { isIP } from "node:net";
 //
 // Strategy: bucket by key (IP + username for login, IP+userId for API), count
 // requests in window, reject when over limit. Buckets expire after window.
@@ -9,7 +8,7 @@ interface Bucket {
   resetAt: number;
 }
 
-interface LimiterOptions {
+export interface LimiterOptions {
   /** Maximum requests allowed within the window. */
   limit: number;
   /** Window length in milliseconds. */
@@ -120,13 +119,11 @@ export const ttsLimiter = new RateLimiter({
  * Returns "unknown" if not determinable.
  */
 export function getClientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const parts = xff.split(",");
-    return parts[0]?.trim() || "unknown";
-  }
-  const xRealIp = req.headers.get("x-real-ip");
-  if (xRealIp) return xRealIp.trim();
+  if (process.env.TRUST_PROXY_HEADERS !== "true") return "unknown";
+  // The production Nginx config overwrites this header. Never accept a
+  // client-supplied forwarding chain directly in application code.
+  const xRealIp = req.headers.get("x-real-ip")?.trim();
+  if (xRealIp && isIP(xRealIp)) return xRealIp;
   return "unknown";
 }
 

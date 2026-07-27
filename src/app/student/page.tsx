@@ -6,17 +6,18 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   KeyRound,
+  Play,
   RotateCcw,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { JoinClassForm } from "@/components/join-class-form";
-import { PrimaryButton } from "@/components/ui";
 import { useSession, useHydrated } from "@/lib/session/store";
 
 export default function StudentEntryPage() {
   const router = useRouter();
-  const { joinClass, rejoinClass, user, studentName, joinedCourseId, courses, leaveClass, getLeftClassHistory, refresh } = useSession();
+  const { joinClass, rejoinClass, user, studentName, joinedCourseId, courses, getLeftClassHistory, refresh } = useSession();
   const hydrated = useHydrated();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -34,7 +35,11 @@ export default function StudentEntryPage() {
       const response = await fetch("/api/auth/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteCode: code, studentName: name }),
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(),
+          inviteCode: code,
+          studentName: name,
+        }),
       });
       const data = (await response.json().catch(() => ({}))) as {
         error?: string;
@@ -81,30 +86,6 @@ export default function StudentEntryPage() {
     router.replace(`/student/classroom/${result.course.id}`);
   }
 
-  async function handleRejoinWithCode() {
-    setError(undefined);
-    setBusy(true);
-    try {
-      const left = await leaveClass();
-      if (!left) {
-        setError("退出当前课堂失败，请稍后重试");
-        return;
-      }
-      const response = await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { "X-OpenPBL-Role": "student" },
-      });
-      if (!response.ok) {
-        setError("清理旧的登录状态失败，请稍后重试");
-      }
-    } catch (error) {
-      console.error("[student] reset session failed:", error);
-      setError("网络异常，请稍后重试");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <DashboardShell
       role="student"
@@ -127,23 +108,18 @@ export default function StudentEntryPage() {
             <div className="pbl-skeleton h-[460px] rounded-[var(--radius-xl)]" />
             <div className="pbl-skeleton h-[460px] rounded-[var(--radius-xl)]" />
           </div>
-        ) : joinedCourse && joinedCourse.status === "teaching" ? (
-          <ActiveClassRejoinState
-            course={joinedCourse}
-            studentName={studentName ?? user.name}
-            onRejoin={() => router.replace(`/student/classroom/${joinedCourse.id}`)}
-          />
-        ) : joinedCourse ? (
-          <FinishedState
-            busy={busy}
-            course={joinedCourse}
-            error={error}
-            onRejoin={handleRejoinWithCode}
-          />
         ) : (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-8">
             {/* 左：邀请码加入卡片 */}
             <section className="space-y-4">
+              {joinedCourse?.status === "teaching" ? (
+                <AvailableClassCard
+                  course={joinedCourse}
+                  onReturn={() => router.replace(`/student/classroom/${joinedCourse.id}`)}
+                  studentName={studentName ?? user.name}
+                />
+              ) : null}
+
               {/* 快速重新加入 */}
               {leftHistory.length > 0 ? (
                 <div className="rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-4 shadow-[var(--shadow-soft)]">
@@ -286,86 +262,67 @@ function InstructionStep({
   );
 }
 
-function FinishedState({
-  busy,
-  course,
-  error,
-  onRejoin,
-}: {
-  busy: boolean;
-  course: { id: string; name: string; status: string };
-  error?: string;
-  onRejoin: () => Promise<void>;
-}) {
-  return (
-    <div className="pbl-aurora-light relative mx-auto max-w-md overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-6 text-center shadow-[var(--shadow-floating)]">
-      <div className="pbl-aurora" />
-      <div className="relative z-10">
-        <div className="mx-auto grid h-12 w-12 place-items-center rounded-[var(--radius-md)] bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)] ring-1 ring-[var(--pbl-warning-border)]">
-          <KeyRound size={22} />
-        </div>
-        <h2 className="mt-3 text-xl font-bold text-[var(--pbl-text-strong)]">课堂已结束</h2>
-        <p className="mt-1.5 text-sm leading-6 text-[var(--pbl-text-muted)]">
-          「{course.name}」已结束授课。如需重新加入，请输入新的邀请码。
-        </p>
-        <div className="mt-4 flex justify-center">
-          <span className="inline-flex h-6 items-center rounded-full bg-[var(--pbl-surface-soft)] px-2.5 text-xs font-semibold text-[var(--pbl-text-muted)] ring-1 ring-[var(--pbl-border)]">
-            已结束
-          </span>
-        </div>
-        <button
-          className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-student)] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[var(--pbl-student-hover)] hover:shadow-md"
-          disabled={busy}
-          onClick={onRejoin}
-          type="button"
-        >
-          {busy ? "正在退出…" : "重新输入邀请码"}
-        </button>
-        {error ? (
-          <p className="mt-3 text-sm font-medium text-red-600">{error}</p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function ActiveClassRejoinState({
+function AvailableClassCard({
   course,
   studentName,
-  onRejoin,
+  onReturn,
 }: {
-  course: { id: string; name: string };
+  course: {
+    id: string;
+    name: string;
+    subject?: string;
+    grade?: string;
+    currentStageIndex?: number;
+    stages?: Array<{ label: string }>;
+  };
   studentName: string;
-  onRejoin: () => void;
+  onReturn: () => void;
 }) {
+  const stage = course.stages?.[course.currentStageIndex ?? 0]?.label;
   return (
-    <div className="pbl-aurora-light relative mx-auto max-w-md overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-student-border)] bg-[var(--pbl-surface)] p-6 text-center shadow-[var(--shadow-floating)]">
-      <div className="pbl-aurora" />
-      <div className="relative z-10">
-        <div className="mx-auto grid h-12 w-12 place-items-center rounded-[var(--radius-md)] bg-[var(--pbl-student-soft)] text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
-          <RotateCcw size={22} />
+    <article className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-student-border)] bg-[linear-gradient(135deg,var(--pbl-student-soft),var(--pbl-surface)_62%)] p-4 shadow-[var(--shadow-soft)]">
+      <div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-[var(--pbl-student)]/10" />
+      <div className="relative">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-student)] text-white shadow-sm">
+            <BookOpen size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--pbl-student)]">
+                可返回的课堂
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-success-border)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success)]" />
+                授课中
+              </span>
+            </div>
+            <h2 className="mt-1 truncate text-[17px] font-bold text-[var(--pbl-text-strong)]">
+              {course.name}
+            </h2>
+            <p className="mt-1 text-[11px] text-[var(--pbl-text-muted)]">
+              {[
+                course.subject,
+                course.grade,
+                stage ? `当前：${stage}` : undefined,
+              ].filter(Boolean).join(" · ") || "项目式学习课堂"}
+            </p>
+          </div>
         </div>
-        <h2 className="mt-3 text-xl font-bold text-[var(--pbl-text-strong)]">
-          检测到上次加入的课堂
-        </h2>
-        <p className="mt-1.5 text-sm leading-6 text-[var(--pbl-text-muted)]">
-          你曾以“{studentName}”身份加入「{course.name}」。课堂仍在进行中，请确认后重新加入。
-        </p>
-        <PrimaryButton
-          className="mx-auto mt-5 h-11 justify-center px-6"
-          onClick={onRejoin}
-          tone="teal"
+
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--pbl-student-border)]/70 pt-3">
+          <p className="min-w-0 truncate text-[11px] text-[var(--pbl-text-muted)]">
+            以 <strong className="text-[var(--pbl-text)]">{studentName}</strong> 身份继续学习
+          </p>
+          <button
+          className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-xs)] bg-[var(--pbl-student)] px-3.5 text-[12px] font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--pbl-student-hover)] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[var(--pbl-student-border)] focus:ring-offset-2"
+          onClick={onReturn}
           type="button"
         >
-          <RotateCcw size={16} /> 重新加入课堂
-        </PrimaryButton>
-        <Link
-          className="mt-3 inline-flex text-xs font-semibold text-[var(--pbl-text-muted)] transition hover:text-[var(--pbl-student)]"
-          href="/"
-        >
-          暂不加入，返回首页
-        </Link>
+            <Play size={13} fill="currentColor" /> 返回课堂
+          </button>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }

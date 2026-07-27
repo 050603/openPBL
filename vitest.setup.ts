@@ -42,6 +42,16 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
   } as unknown as typeof IntersectionObserver;
 }
 
+// jsdom deliberately leaves Canvas unimplemented and logs a warning on every
+// getContext call. Tests that exercise rendering fallbacks only need the
+// browser's nullable contract, so provide that contract without noisy output.
+if (typeof globalThis.HTMLCanvasElement !== "undefined") {
+  Object.defineProperty(globalThis.HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: vi.fn(() => null),
+  });
+}
+
 // Silence expected console errors during tests
 const originalError = console.error;
 console.error = (...args: unknown[]) => {

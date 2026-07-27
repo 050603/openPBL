@@ -6,6 +6,9 @@ import {
   getLaunchTodoKind,
   hasSelectedProjectTopic,
   haveAllResourcesBeenViewed,
+  isProjectLaunchStage,
+  isProjectLaunchTodo,
+  projectLaunchProgress,
 } from "./project-launch-readiness";
 
 function makeCourse(overrides: Partial<Course> = {}): Course {
@@ -36,6 +39,36 @@ function makeCourse(overrides: Partial<Course> = {}): Course {
 }
 
 describe("project launch readiness", () => {
+  it("uses the canonical launch key for teacher progress calculations", () => {
+    const todos = [
+      {
+        id: "todo-1",
+        title: "阅读项目说明",
+        description: "",
+        stageKey: "launch",
+        completedBy: ["student-1"],
+      },
+      {
+        id: "todo-2",
+        title: "确认项目空间",
+        description: "",
+        stageKey: "project-launch",
+        completedBy: ["student-1"],
+      },
+      {
+        id: "todo-3",
+        title: "提交方案",
+        description: "",
+        stageKey: "proposal",
+        completedBy: [],
+      },
+    ];
+
+    expect(isProjectLaunchStage({ key: "launch", view: "project-launch" })).toBe(true);
+    expect(todos.filter(isProjectLaunchTodo)).toHaveLength(2);
+    expect(projectLaunchProgress(todos, "student-1")).toBe(100);
+  });
+
   it("recognizes legacy launch todo names", () => {
     expect(getLaunchTodoKind({ id: "x", title: "阅读项目说明", description: "", completedBy: [] })).toBe("resources");
     expect(getLaunchTodoKind({ id: "todo-join-group-x", title: "确认", description: "", completedBy: [] })).toBe("personal-space");

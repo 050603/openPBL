@@ -73,6 +73,16 @@ export class CourseNotFoundError extends Error {
   }
 }
 
+export class CourseVersionConflictError extends Error {
+  constructor(
+    public readonly courseId: string,
+    public readonly expectedVersion: number,
+  ) {
+    super(`Course version conflict: ${courseId}`);
+    this.name = "CourseVersionConflictError";
+  }
+}
+
 // ============================================================================
 // Type coercion helpers (Prisma Json → domain types)
 // ============================================================================
@@ -151,10 +161,10 @@ type CourseWithRelations = Prisma.CourseGetPayload<{
     rubricScores: true;
     reflections: true;
     activityLog: true;
-    announcements: true;
-    todos: true;
-    resources: true;
-    groups: true;
+    announcements: { include: { normalizedReplies: true } };
+    todos: { include: { completions: true } };
+    resources: { include: { downloads: true } };
+    groups: { include: { normalizedMembers: true } };
     groupAnnouncements: true;
     workPlan: true;
     whiteboard: true;
@@ -181,6 +191,7 @@ type CourseWithRelations = Prisma.CourseGetPayload<{
 function rowToCourse(row: CourseWithRelations): Course {
   const course: Course = {
     id: row.id,
+    version: row.version,
     name: row.name,
     subject: row.subject,
     grade: row.grade,
@@ -362,8 +373,52 @@ function rowToActivity(
   } as ActivityRecord;
 }
 
+function mergeAnnouncementReplies(
+  legacy: CourseAnnouncement["replies"],
+  normalized: Array<{
+    id: string;
+    authorId: string;
+    authorName: string;
+    content: string;
+    createdAt: Date;
+  }>,
+): CourseAnnouncement["replies"] {
+  const replies = new Map(legacy.map((reply) => [reply.id, reply]));
+  for (const reply of normalized) {
+    replies.set(reply.id, {
+      id: reply.id,
+      studentId: reply.authorId,
+      studentName: reply.authorName,
+      content: reply.content,
+      createdAt: reply.createdAt.toISOString(),
+    });
+  }
+  return [...replies.values()].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  );
+}
+
+function mergeGroupMembers(
+  legacy: ProjectGroup["members"],
+  normalized: Array<{
+    studentId: string;
+    studentName: string;
+    role: string | null;
+  }>,
+): ProjectGroup["members"] {
+  const members = new Map(legacy.map((member) => [member.studentId, member]));
+  for (const member of normalized) {
+    members.set(member.studentId, {
+      studentId: member.studentId,
+      name: member.studentName,
+      role: member.role ?? "成员",
+    });
+  }
+  return [...members.values()];
+}
+
 function rowToAnnouncement(
-  row: Prisma.CourseAnnouncementGetPayload<Record<string, never>>,
+  row: CourseWithRelations["announcements"][number],
 ): CourseAnnouncement {
   // Domain type fields: id, title, content, createdAt, updatedAt, pinned?, replies.
   return {
@@ -373,12 +428,15 @@ function rowToAnnouncement(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     pinned: row.pinned ?? undefined,
-    replies: (row.replies as CourseAnnouncement["replies"]) ?? [],
+    replies: mergeAnnouncementReplies(
+      (row.replies as CourseAnnouncement["replies"]) ?? [],
+      row.normalizedReplies,
+    ),
   } as CourseAnnouncement;
 }
 
 function rowToTodo(
-  row: Prisma.CourseTodoGetPayload<Record<string, never>>,
+  row: CourseWithRelations["todos"][number],
 ): CourseTodo {
   // Domain type fields: id, title, description, stageKey?, completedBy.
   return {
@@ -386,12 +444,15 @@ function rowToTodo(
     title: row.title,
     description: row.description ?? "",
     stageKey: row.stageKey ?? undefined,
-    completedBy: (row.completedBy as string[]) ?? [],
+    completedBy: Array.from(new Set([
+      ...((row.completedBy as string[]) ?? []),
+      ...row.completions.map((completion) => completion.studentId),
+    ])),
   } as CourseTodo;
 }
 
 function rowToResource(
-  row: Prisma.CourseResourceGetPayload<Record<string, never>>,
+  row: CourseWithRelations["resources"][number],
 ): CourseResource {
   // Domain type fields: id, title, type, size, description?, url?, downloadedBy.
   return {
@@ -401,12 +462,15 @@ function rowToResource(
     size: row.size,
     description: row.description ?? undefined,
     url: row.url ?? undefined,
-    downloadedBy: (row.downloadedBy as string[]) ?? [],
+    downloadedBy: Array.from(new Set([
+      ...((row.downloadedBy as string[]) ?? []),
+      ...row.downloads.map((download) => download.studentId),
+    ])),
   } as CourseResource;
 }
 
 function rowToGroup(
-  row: Prisma.ProjectGroupGetPayload<Record<string, never>>,
+  row: CourseWithRelations["groups"][number],
 ): ProjectGroup {
   // Domain type fields: id, name, topic, goal?, keywords, selectedForms,
   // members, proposal?, teacherApproval?, createdAt, updatedAt.
@@ -417,7 +481,10 @@ function rowToGroup(
     goal: row.goal ?? undefined,
     keywords: (row.keywords as string[]) ?? [],
     selectedForms: (row.selectedForms as string[]) ?? [],
-    members: (row.members as ProjectGroup["members"]) ?? [],
+    members: mergeGroupMembers(
+      (row.members as ProjectGroup["members"]) ?? [],
+      row.normalizedMembers,
+    ),
     proposal: (row.proposal as ProjectGroup["proposal"]) ?? undefined,
     teacherApproval:
       (row.teacherApproval as ProjectGroup["teacherApproval"]) ?? undefined,
@@ -840,10 +907,10 @@ const FULL_INCLUDE = {
   rubricScores: true,
   reflections: true,
   activityLog: true,
-  announcements: true,
-  todos: true,
-  resources: true,
-  groups: true,
+  announcements: { include: { normalizedReplies: true } },
+  todos: { include: { completions: true } },
+  resources: { include: { downloads: true } },
+  groups: { include: { normalizedMembers: true } },
   groupAnnouncements: true,
   workPlan: true,
   whiteboard: true,
@@ -938,6 +1005,26 @@ export async function loadCourseByInviteCode(
  */
 export async function saveCourse(course: Course): Promise<Course> {
   return prisma.$transaction(async (tx) => {
+    const existing = await tx.course.findUnique({
+      where: { id: course.id },
+      select: { version: true },
+    });
+    if (existing) {
+      const expectedVersion = course.version;
+      if (!Number.isSafeInteger(expectedVersion)) {
+        throw new CourseVersionConflictError(course.id, -1);
+      }
+      const reserved = await tx.course.updateMany({
+        where: { id: course.id, version: expectedVersion },
+        data: courseToUpdateInput(course),
+      });
+      if (reserved.count !== 1) {
+        throw new CourseVersionConflictError(course.id, expectedVersion!);
+      }
+    } else {
+      await tx.course.create({ data: courseToCreateInput(course) });
+    }
+
     // Delete existing child rows (cascade-style manual delete for safety)
     await tx.student.deleteMany({ where: { courseId: course.id } });
     await tx.classroomSubmission.deleteMany({ where: { courseId: course.id } });
@@ -969,19 +1056,6 @@ export async function saveCourse(course: Course): Promise<Course> {
     await tx.teacherAgentDirective.deleteMany({ where: { courseId: course.id } });
     await tx.offlineInterventionRecord.deleteMany({ where: { courseId: course.id } });
     await tx.dynamicFacilitationScaffold.deleteMany({ where: { courseId: course.id } });
-
-    // Upsert Course row (preserves createdAt on update)
-    const existing = await tx.course.findUnique({ where: { id: course.id } });
-    if (existing) {
-      await tx.course.update({
-        where: { id: course.id },
-        data: courseToUpdateInput(course),
-      });
-    } else {
-      await tx.course.create({
-        data: courseToCreateInput(course),
-      });
-    }
 
     // Re-insert children
     if (course.students.length > 0) {
@@ -1160,6 +1234,60 @@ export async function saveCourse(course: Course): Promise<Course> {
           updatedAt: new Date(g.updatedAt ?? Date.now()),
         })),
       });
+    }
+
+    const normalizedReplies = (course.announcements ?? []).flatMap((announcement) =>
+      announcement.replies.map((reply) => ({
+        id: reply.id,
+        courseId: course.id,
+        announcementId: announcement.id,
+        authorId: reply.studentId ?? "teacher",
+        authorName: reply.studentName,
+        content: reply.content,
+        createdAt: new Date(reply.createdAt ?? Date.now()),
+      })),
+    );
+    if (normalizedReplies.length) {
+      await tx.announcementReply.createMany({ data: normalizedReplies });
+    }
+
+    const normalizedTodoCompletions = (course.todos ?? []).flatMap((todo) =>
+      todo.completedBy.map((studentId) => ({
+        courseId: course.id,
+        todoId: todo.id,
+        studentId,
+      })),
+    );
+    if (normalizedTodoCompletions.length) {
+      await tx.todoCompletion.createMany({ data: normalizedTodoCompletions });
+    }
+
+    const studentNames = new Map(
+      course.students.map((student) => [student.id, student.name]),
+    );
+    const normalizedDownloads = (course.resources ?? []).flatMap((resource) =>
+      resource.downloadedBy.map((studentId) => ({
+        courseId: course.id,
+        resourceId: resource.id,
+        studentId,
+        studentName: studentNames.get(studentId) ?? "",
+      })),
+    );
+    if (normalizedDownloads.length) {
+      await tx.resourceDownload.createMany({ data: normalizedDownloads });
+    }
+
+    const normalizedMembers = (course.groups ?? []).flatMap((group) =>
+      group.members.map((member) => ({
+        courseId: course.id,
+        groupId: group.id,
+        studentId: member.studentId,
+        studentName: member.name,
+        role: member.role ?? null,
+      })),
+    );
+    if (normalizedMembers.length) {
+      await tx.groupMember.createMany({ data: normalizedMembers });
     }
 
     if (course.groupAnnouncements?.length) {
@@ -1827,13 +1955,7 @@ async function touchCourse(courseId: string): Promise<void> {
 export async function dispatchAction(
   action: SessionAction,
 ): Promise<SessionState> {
-  return prisma.$transaction(
-    async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(824674211)`;
-      return dispatchActionUnlocked(action);
-    },
-    { maxWait: 30_000, timeout: 120_000 },
-  );
+  return dispatchActionUnlocked(action);
 }
 
 /**
@@ -1855,13 +1977,7 @@ export async function updateCourse(
   courseId: string,
   updater: (course: Course) => Course,
 ): Promise<SessionState> {
-  return prisma.$transaction(
-    async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(824674211)`;
-      return updateCourseUnlocked(courseId, updater);
-    },
-    { maxWait: 30_000, timeout: 120_000 },
-  );
+  return updateCourseUnlocked(courseId, updater);
 }
 
 /**

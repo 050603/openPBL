@@ -11,11 +11,19 @@ interface HeaderProps {
   readonly mode?: StageMode;
   readonly canEdit?: boolean;
   readonly onToggleEditMode?: () => void;
+  readonly showControls?: boolean;
   /** 自定义返回行为。未传则默认 router.back()（无历史时回首页） */
   readonly onBack?: () => void;
 }
 
-export function Header({ currentSceneTitle, mode, canEdit, onToggleEditMode, onBack }: HeaderProps) {
+export function Header({
+  currentSceneTitle,
+  mode,
+  canEdit,
+  onToggleEditMode,
+  onBack,
+  showControls = true,
+}: HeaderProps) {
   const { t } = useI18n();
   const router = useRouter();
 
@@ -70,7 +78,9 @@ export function Header({ currentSceneTitle, mode, canEdit, onToggleEditMode, onB
           )}
         </div>
 
-        <HeaderControls mode={mode} canEdit={canEdit} onToggleEditMode={onToggleEditMode} />
+        {showControls ? (
+          <HeaderControls mode={mode} canEdit={canEdit} onToggleEditMode={onToggleEditMode} />
+        ) : null}
       </header>
     </>
   );

@@ -3,7 +3,16 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { clearServerProviderConfigCache } from '@openmaic/lib/server/provider-config';
+import {
+  clearServerProviderConfigCache,
+  initializeServerProviderConfig,
+} from '@openmaic/lib/server/provider-config';
+import { prisma, isDatabaseConfigured } from '@/lib/db/client';
+import {
+  decryptCredential,
+  encryptCredential,
+} from '@/lib/security/credential-encryption';
+import { Prisma } from '@prisma/client';
 import {
   getTtsCalibrationKey,
   mergeTtsVoiceTimingCalibrations,
@@ -71,6 +80,21 @@ export async function mergeProviderTtsTimingCalibration(
   providerId: string,
   sample: TtsVoiceTimingCalibration,
 ): Promise<TtsVoiceTimingCalibration> {
+  if (isDatabaseConfigured()) {
+    const existingEntry = (await getProviderEntry('tts', providerId)) ?? { apiKey: '' };
+    const calibrations = existingEntry.timingCalibrations ?? [];
+    const key = getTtsCalibrationKey(sample);
+    const existing = calibrations.find((item) => getTtsCalibrationKey(item) === key);
+    const aggregate = mergeTtsVoiceTimingCalibrations(existing, sample);
+    await saveProviderEntry('tts', providerId, {
+      ...existingEntry,
+      timingCalibrations: [
+        ...calibrations.filter((item) => getTtsCalibrationKey(item) !== key),
+        aggregate,
+      ],
+    });
+    return aggregate;
+  }
   return withProviderConfigWrite(async () => {
     const data = await readYaml();
     data.tts ??= {};
@@ -103,6 +127,42 @@ export async function saveProviderEntry(
   providerId: string,
   entry: ProviderEntry,
 ): Promise<void> {
+  if (isDatabaseConfigured()) {
+    const existing = await prisma.providerCredential.findUnique({
+      where: { section_providerId: { section, providerId } },
+    });
+    const apiKey = entry.apiKey ||
+      (existing
+        ? decryptCredential(
+            existing.encryptedApiKey,
+            existing.iv,
+            existing.authTag,
+            `${section}:${providerId}`,
+          )
+        : '');
+    const encrypted = encryptCredential(apiKey, `${section}:${providerId}`);
+    const config = providerConfigJson(entry, existing?.config);
+    await prisma.providerCredential.upsert({
+      where: { section_providerId: { section, providerId } },
+      create: {
+        section,
+        providerId,
+        encryptedApiKey: encrypted?.ciphertext,
+        iv: encrypted?.iv,
+        authTag: encrypted?.authTag,
+        config,
+      },
+      update: {
+        encryptedApiKey: encrypted?.ciphertext,
+        iv: encrypted?.iv,
+        authTag: encrypted?.authTag,
+        config,
+        version: { increment: 1 },
+      },
+    });
+    await initializeServerProviderConfig();
+    return;
+  }
   await withProviderConfigWrite(async () => {
     const data = await readYaml();
     const sectionKey = section === 'web-search' ? 'web-search' : section;
@@ -148,6 +208,11 @@ export async function deleteProviderEntry(
   section: ProviderSection,
   providerId: string,
 ): Promise<void> {
+  if (isDatabaseConfigured()) {
+    await prisma.providerCredential.deleteMany({ where: { section, providerId } });
+    await initializeServerProviderConfig();
+    return;
+  }
   await withProviderConfigWrite(async () => {
     const data = await readYaml();
     const sectionKey = section === 'web-search' ? 'web-search' : section;
@@ -165,6 +230,12 @@ export async function getProviderEntry(
   section: ProviderSection,
   providerId: string,
 ): Promise<ProviderEntry | null> {
+  if (isDatabaseConfigured()) {
+    const row = await prisma.providerCredential.findUnique({
+      where: { section_providerId: { section, providerId } },
+    });
+    return row ? providerRowToEntry(row) : null;
+  }
   await ensureMigratedInternal();
   const data = await readYaml();
   const sectionKey = section === 'web-search' ? 'web-search' : section;
@@ -185,6 +256,13 @@ export async function getProviderEntry(
 export async function listProviders(
   section: ProviderSection,
 ): Promise<Record<string, ProviderEntry>> {
+  if (isDatabaseConfigured()) {
+    const rows = await prisma.providerCredential.findMany({
+      where: { section },
+      orderBy: { providerId: 'asc' },
+    });
+    return Object.fromEntries(rows.map((row) => [row.providerId, providerRowToEntry(row)]));
+  }
   await ensureMigratedInternal();
   const data = await readYaml();
   const sectionKey = section === 'web-search' ? 'web-search' : section;
@@ -204,6 +282,49 @@ export async function listProviders(
     };
   }
   return result;
+}
+
+function providerConfigJson(
+  entry: ProviderEntry,
+  existing: Prisma.JsonValue | null | undefined,
+): Prisma.InputJsonValue {
+  const previous =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+  return {
+    ...previous,
+    ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
+    ...(entry.models ? { models: entry.models } : {}),
+    ...(entry.enabled !== undefined ? { enabled: entry.enabled } : {}),
+    ...(entry.priority !== undefined ? { priority: entry.priority } : {}),
+    ...(entry.defaultModel ? { defaultModel: entry.defaultModel } : {}),
+    ...(entry.defaultVoice ? { defaultVoice: entry.defaultVoice } : {}),
+    ...(entry.timingCalibrations ? { timingCalibrations: entry.timingCalibrations } : {}),
+  } as Prisma.InputJsonValue;
+}
+
+function providerRowToEntry(row: {
+  section: string;
+  providerId: string;
+  encryptedApiKey: Uint8Array | null;
+  iv: Uint8Array | null;
+  authTag: Uint8Array | null;
+  config: Prisma.JsonValue;
+}): ProviderEntry {
+  const config =
+    row.config && typeof row.config === 'object' && !Array.isArray(row.config)
+      ? (row.config as Record<string, unknown>)
+      : {};
+  return {
+    ...(config as Omit<ProviderEntry, 'apiKey'>),
+    apiKey: decryptCredential(
+      row.encryptedApiKey,
+      row.iv,
+      row.authTag,
+      `${row.section}:${row.providerId}`,
+    ),
+  };
 }
 
 /**

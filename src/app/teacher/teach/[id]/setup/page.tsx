@@ -34,11 +34,13 @@ export default function TeachSetupPage() {
   // isStudentOnline compares lastSeenAt against current time; re-render
   // periodically so the UI reflects students going offline.
   const [nowTick, setNowTick] = useState(0);
+  const courseId = course?.id;
+  const courseStatus = course?.status;
   useEffect(() => {
-    if (!course || course.status !== "teaching") return;
+    if (!courseId || courseStatus !== "teaching") return;
     const id = window.setInterval(() => setNowTick((t) => t + 1), 5_000);
     return () => window.clearInterval(id);
-  }, [course?.id, course?.status]);
+  }, [courseId, courseStatus]);
   void nowTick;
 
   // Sync local state if course changes

@@ -20,6 +20,15 @@ describe('OpenPBL companion action resources', () => {
     expect(getActionResourceUrls('planning_board').imageUrl).toBe(
       '/assets/openpbl-agent/planning_board.webp',
     )
+    expect(getActionResourceUrls('brainstorming').imageUrl).toBe(
+      '/assets/openpbl-agent/brainstorming.webp',
+    )
+    expect(getActionResourceUrls('waiting_user').imageUrl).toBe(
+      '/assets/openpbl-agent/waiting_user.webp',
+    )
+    expect(getActionResourceUrls('reviewing_work').imageUrl).toBe(
+      '/assets/openpbl-agent/reviewing_work.webp',
+    )
   })
 
   it('keeps non-body workstation layers on their existing assets', () => {

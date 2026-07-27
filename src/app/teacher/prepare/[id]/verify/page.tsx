@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   List,
@@ -93,6 +92,12 @@ import {
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
 import { AiGenerationOverlay, type AiTaskKind } from "@/components/ai-generation-overlay";
 import { AdaptiveLearningPlanEditor } from "@/components/teacher/adaptive-learning-plan-editor";
+import { PreparationJourney } from "@/components/teacher/preparation-journey";
+import {
+  PREPARATION_FLOW_STEPS,
+  type PreparationStepKey,
+} from "@/lib/teacher/preparation-flow";
+import { confirmAdaptiveLearningPlan } from "@/lib/adaptive-learning";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -290,24 +295,16 @@ type Section = "knowledgePoints" | "teachingOutline" | "lessonOutline" | "evalua
 const SECTION_LABEL: Record<Section, string> = {
   knowledgePoints: "知识图谱",
   teachingOutline: "课程模块",
-  lessonOutline: "主课程与自适应路径",
+  lessonOutline: "主课程与个性化资源",
   evaluationPlan: "评价方案",
 };
 
 const SECTION_DESC: Record<Section, string> = {
   knowledgePoints: "学生需掌握的核心概念、关键信息与节点关系",
   teachingOutline: "整节课的六个宏观课程模块：明确目标、分工和时间",
-  lessonOutline: "先确认完整主课程页面，再配置前测、页间触发点与补基础/拓展资源",
+  lessonOutline: "先确认完整主课程页面，再配置先决知识前测、模块测验与额外资源",
   evaluationPlan: "项目各维度的评价指标与权重",
 };
-
-const FLOW_STEPS: { key: "base" | Section; label: string; desc: string }[] = [
-  { key: "base", label: "基础信息", desc: "编辑课程名称、学科、年级、课时与驱动问题" },
-  { key: "knowledgePoints", label: "知识图谱", desc: "确认本课知识节点和节点间关系" },
-  { key: "teachingOutline", label: "课程模块", desc: "确认六个宏观环节、时间分配与人机分工" },
-  { key: "lessonOutline", label: "课程路径", desc: "先确认主课程页面，再完成自适应分支建模" },
-  { key: "evaluationPlan", label: "评价方案", desc: "基于知识图谱与项目目标生成评价维度" },
-];
 
 export default function VerifyCoursePage() {
   const params = useParams<{ id: string }>();
@@ -423,7 +420,7 @@ export default function VerifyCoursePage() {
   ) {
     await requestSkeleton(part);
   }
-  const [flowStep, setFlowStep] = useState(0);
+  const [flowStepKey, setFlowStepKey] = useState<PreparationStepKey>("base");
   // 知识图谱视图状态
   const [kgViewMode, setKgViewMode] = useState<"graph" | "list">("graph");
   const [kgSelectedNode, setKgSelectedNode] = useState<string | null>(null);
@@ -1170,7 +1167,9 @@ export default function VerifyCoursePage() {
     setSceneOutlines(outlines);
   }, [content, outlineStreaming, sceneOutlines.length]);
 
-  function buildPersistableContent(): CourseContent | null {
+  function buildPersistableContent(
+    adaptiveLearningPlanOverride?: CourseContent["adaptiveLearningPlan"],
+  ): CourseContent | null {
     if (!content) return null;
     const teachingOutline = content.teachingOutline ?? [];
     const totalMinutes = Math.max(0, Math.round((course?.hours ?? 0) * 60));
@@ -1192,6 +1191,7 @@ export default function VerifyCoursePage() {
       teachingOutline,
       projectMainline,
       moduleTimingPlan,
+      adaptiveLearningPlan: adaptiveLearningPlanOverride ?? content.adaptiveLearningPlan,
     };
     return sceneOutlines.length > 0
       ? {
@@ -1204,16 +1204,19 @@ export default function VerifyCoursePage() {
       : nextContent;
   }
 
-  function saveDraft(showMessage = true): CourseContent | null {
+  function saveDraft(
+    showMessage = true,
+    adaptiveLearningPlanOverride?: CourseContent["adaptiveLearningPlan"],
+  ): CourseContent | null {
     if (!course) return null;
     const draftToSave = baseDraft ?? createCourseBasicsDraft(course);
     const validationError = validateCourseBasicsDraft(draftToSave);
     if (validationError) {
       toast.error(validationError);
-      setFlowStep(0);
+      setFlowStepKey("base");
       return null;
     }
-    const nextContent = buildPersistableContent();
+    const nextContent = buildPersistableContent(adaptiveLearningPlanOverride);
     if (!nextContent) return null;
     updateCourse(course.id, {
       ...buildCourseBasicsPatch(course, draftToSave),
@@ -1255,19 +1258,55 @@ export default function VerifyCoursePage() {
     return content.evaluationPlan.dimensions.length > 0;
   }
 
+  function isPreparationStepReady(stepKey: PreparationStepKey): boolean {
+    if (!course) return false;
+    if (stepKey === "base") {
+      return !validateCourseBasicsDraft(
+        baseDraft ?? createCourseBasicsDraft(course),
+      );
+    }
+    if (stepKey === "projectDesign") {
+      const currentDraft = baseDraft ?? createCourseBasicsDraft(course);
+      return Boolean(
+        currentDraft.drivingQuestions.some((question) => question.trim())
+        && currentDraft.outcomeArtifact.trim()
+        && currentDraft.outcomePresentation.trim()
+        && currentDraft.outcomeReflection.trim(),
+      );
+    }
+    if (stepKey === "adaptiveLearning") {
+      const plan = content?.adaptiveLearningPlan;
+      if (!plan) return false;
+      if (!plan.enabled) return true;
+      return plan.branches.every((branch) =>
+          branch.trigger?.placement === "before-main-course"
+            ? (branch.prerequisiteKnowledgePointIds?.length ?? 0) > 0
+              && Boolean(branch.noveltyStatement?.trim())
+            : branch.trigger?.afterSceneId
+            ? sceneOutlines.some((scene) => scene.id === branch.trigger?.afterSceneId)
+            : (branch.trigger?.assessmentSceneIds?.length ?? 0) > 0
+              && branch.trigger!.assessmentSceneIds!.every((id) =>
+                sceneOutlines.some((scene) => scene.id === id && scene.type === "quiz"),
+              ),
+        );
+    }
+    return isStepReady(stepKey);
+  }
+
   function persistAndNext() {
     if (!course) return;
     const requiredSections: Section[] = [
       "knowledgePoints",
+      "evaluationPlan",
       "teachingOutline",
       "lessonOutline",
-      "evaluationPlan",
     ];
     const missing = requiredSections.find((section) => !isStepReady(section));
     if (missing) {
       const message = `请先完成并保存${SECTION_LABEL[missing]}，再进入课程生成。`;
       setError(message);
       toast.error("备课阶段尚未完成", { description: message });
+      setFlowStepKey(missing);
       return;
     }
     const knowledgeIssues = pblKnowledgeValidation.issues;
@@ -1276,6 +1315,7 @@ export default function VerifyCoursePage() {
       setError(message);
       toast.error("请先校验课程大纲", { description: message });
       setOpen((current) => ({ ...current, lessonOutline: true }));
+      setFlowStepKey("lessonOutline");
       return;
     }
     const missingParents = sceneOutlines.filter(
@@ -1286,38 +1326,42 @@ export default function VerifyCoursePage() {
       setError(message);
       toast.error("课程大纲层级不完整", { description: message });
       setOpen((current) => ({ ...current, lessonOutline: true }));
+      setFlowStepKey("lessonOutline");
       return;
     }
     const adaptivePlan = content?.adaptiveLearningPlan;
     if (!adaptivePlan) {
-      const message = "请在主课程页面下方生成自适应学习路径，并确认是否启用分层教学。";
+      const message = "请进入个性化资源步骤生成方案，并确认是否启用学习证据编排。";
       setError(message);
-      toast.error("自适应课程尚未建模", { description: message });
-      setOpen((current) => ({ ...current, lessonOutline: true }));
-      return;
-    }
-    if (adaptivePlan.enabled && adaptivePlan.status !== "teacher-confirmed") {
-      const message = "自适应路径已启用，但前测、触发点和分支资源尚未由教师确认。";
-      setError(message);
-      toast.error("请确认自适应路径", { description: message });
-      setOpen((current) => ({ ...current, lessonOutline: true }));
+      toast.error("个性化资源尚未建模", { description: message });
+      setFlowStepKey("adaptiveLearning");
       return;
     }
     if (
       adaptivePlan.enabled
       && adaptivePlan.branches.some((branch) =>
-        !branch.trigger?.afterSceneId
-        || !sceneOutlines.some((scene) => scene.id === branch.trigger?.afterSceneId),
+        branch.trigger?.placement === "before-main-course"
+          ? (branch.prerequisiteKnowledgePointIds?.length ?? 0) === 0 || !branch.noveltyStatement?.trim()
+          : branch.trigger?.afterSceneId
+          ? !sceneOutlines.some((scene) => scene.id === branch.trigger?.afterSceneId)
+            || !branch.noveltyStatement?.trim()
+          : (branch.trigger?.assessmentSceneIds?.length ?? 0) === 0
+            || branch.trigger!.assessmentSceneIds!.some((id) =>
+              !sceneOutlines.some((scene) => scene.id === id && scene.type === "quiz"),
+            )
+            || !branch.noveltyStatement?.trim(),
       )
     ) {
-      const message = "仍有补基础或拓展资源未绑定具体主课程页面，请完成页间触发点设置。";
+      const message = "仍有模块后额外资源没有关联有效的模块测验，请完成学习证据配置。";
       setError(message);
       toast.error("触发点尚未绑定", { description: message });
-      setOpen((current) => ({ ...current, lessonOutline: true }));
+      setFlowStepKey("adaptiveLearning");
       return;
     }
-    const nextContent = saveDraft(false);
+    const confirmedAdaptivePlan = confirmAdaptiveLearningPlan(adaptivePlan);
+    const nextContent = saveDraft(false, confirmedAdaptivePlan);
     if (!nextContent) return;
+    setContent(nextContent);
     router.push(`/teacher/prepare/${course.id}/generate`);
   }
 
@@ -1347,6 +1391,18 @@ export default function VerifyCoursePage() {
   }
 
   const draft = baseDraft ?? createCourseBasicsDraft(course);
+  const completedPreparationKeys = PREPARATION_FLOW_STEPS
+    .filter((step) => isPreparationStepReady(step.key))
+    .map((step) => step.key);
+  const currentFlowIndex = PREPARATION_FLOW_STEPS.findIndex(
+    (step) => step.key === flowStepKey,
+  );
+  const currentFlowStep =
+    PREPARATION_FLOW_STEPS[currentFlowIndex] ?? PREPARATION_FLOW_STEPS[0];
+  const nextFlowStep =
+    currentFlowIndex >= 0
+      ? PREPARATION_FLOW_STEPS[currentFlowIndex + 1]
+      : PREPARATION_FLOW_STEPS[1];
 
   const sections: { key: Section; node: React.ReactNode }[] = [
     {
@@ -2017,7 +2073,6 @@ export default function VerifyCoursePage() {
           <PblDetailHierarchySummary
             activities={content?.teachingOutline ?? []}
             details={sceneOutlines}
-            knowledgeValidation={pblKnowledgeValidation}
           />
           <PblCoverageSummary coverage={pblCoverage} />
           {sceneOutlines.length > 0 || outlineStreaming ? (
@@ -2060,17 +2115,6 @@ export default function VerifyCoursePage() {
               </p>
             </div>
           )}
-          <AdaptiveLearningPlanEditor
-            courseId={course.id}
-            knowledgePoints={content?.knowledgePoints ?? []}
-            mainScenes={sceneOutlines}
-            onChange={(adaptiveLearningPlan) =>
-              setContent((current) =>
-                current ? { ...current, adaptiveLearningPlan } : current,
-              )
-            }
-            plan={content?.adaptiveLearningPlan}
-          />
         </div>
       ),
     },
@@ -2330,21 +2374,12 @@ export default function VerifyCoursePage() {
         </div>
       }
     >
-      <div className="mb-5 flex items-center gap-3">
-        <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-          href="/teacher"
-        >
-          <ArrowLeft size={17} />
-        </Link>
-        <div>
-          <h1 className="font-editorial text-3xl font-semibold">备课阶段</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {course.name} · {course.subject} · {course.grade} · {course.hours} 课时
-          </p>
-        </div>
-
-      </div>
+      <PreparationJourney
+        backHref="/teacher"
+        completedKeys={completedPreparationKeys}
+        currentKey={flowStepKey}
+        onSelect={setFlowStepKey}
+      />
 
       {info ? (
         <div className="mb-4 rounded-[8px] border border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] px-4 py-3 text-sm font-semibold text-[var(--pbl-success)]">
@@ -2357,19 +2392,11 @@ export default function VerifyCoursePage() {
         </div>
       ) : null}
 
-      <nav aria-label="备课阶段步骤" className="mb-6 overflow-x-auto border-b border-[var(--pbl-border)]">
-        <ol className="flex min-w-max items-end gap-1">
-        {FLOW_STEPS.map((step, index) => (
-          <li key={step.key}><button aria-current={flowStep === index ? "step" : undefined} className={cn("min-h-12 border-b-2 px-4 text-sm font-semibold transition-colors", flowStep === index ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]" : "border-transparent text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]")} onClick={() => setFlowStep(index)} type="button"><span className="mr-2 text-xs">{index + 1}</span>{step.label}</button></li>
-        ))}
-        </ol>
-      </nav>
-
       <div className="space-y-4">
-        {FLOW_STEPS[flowStep]?.key === "base" ? (
+        {flowStepKey === "base" || flowStepKey === "projectDesign" ? (
           <div className="space-y-5">
             {/* ── 课程底稿 ── */}
-            <Card className="p-5">
+            {flowStepKey === "base" ? <Card className="p-5">
               <div className="grid gap-5 lg:grid-cols-2 lg:items-end">
                 <div className="min-w-0">
                   <div>
@@ -2539,13 +2566,16 @@ export default function VerifyCoursePage() {
                   ) : null}
                 </div>
               </div>
-            </Card>
+            </Card> : null}
 
             {/* ── PBL 项目配置 ── */}
-            <Card className="p-5">
+            {flowStepKey === "projectDesign" ? <Card className="p-5">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-ai)]">PBL 项目配置</p>
                 <h2 className="font-editorial mt-2 text-xl font-semibold">个人项目 + AI 伴学小组</h2>
+                <p className="mt-1 text-sm leading-6 text-stone-500">
+                  以“{draft.drivingQuestions.find((question) => question.trim()) || "尚未填写主驱动问题"}”为主线，明确学生要留下的过程证据与最终成果。
+                </p>
               </div>
               <div className="mt-5 grid gap-5">
                 <div>
@@ -2638,11 +2668,23 @@ export default function VerifyCoursePage() {
                   </div>
                 </div>
               </div>
-            </Card>
+            </Card> : null}
           </div>
+        ) : flowStepKey === "adaptiveLearning" ? (
+          <AdaptiveLearningPlanEditor
+            courseId={course.id}
+            knowledgePoints={content?.knowledgePoints ?? []}
+            mainScenes={sceneOutlines}
+            onChange={(adaptiveLearningPlan) =>
+              setContent((current) =>
+                current ? { ...current, adaptiveLearningPlan } : current,
+              )
+            }
+            plan={content?.adaptiveLearningPlan}
+          />
         ) : (
           sections
-            .filter(({ key }) => key === FLOW_STEPS[flowStep]?.key)
+            .filter(({ key }) => key === flowStepKey)
             .map(({ key, node }) => (
           <Card className="p-0" key={key}>
             <div
@@ -2774,7 +2816,11 @@ export default function VerifyCoursePage() {
       </div>
 
       <FlowActionBar
-        back={<span className="text-xs font-semibold text-[var(--pbl-text-muted)]">{flowStep + 1}/{FLOW_STEPS.length} · {FLOW_STEPS[flowStep].label}</span>}
+        back={
+          <span className="text-xs font-semibold text-[var(--pbl-text-muted)]">
+            {currentFlowIndex + 1}/{PREPARATION_FLOW_STEPS.length} · {currentFlowStep.label}
+          </span>
+        }
         persistent
       >
           <button
@@ -2785,12 +2831,12 @@ export default function VerifyCoursePage() {
           >
             <Save size={16} /> 保存草稿
           </button>
-          {flowStep < FLOW_STEPS.length - 1 ? (
+          {nextFlowStep ? (
             <PrimaryButton
               type="button"
-              onClick={() => setFlowStep(flowStep + 1)}
+              onClick={() => setFlowStepKey(nextFlowStep.key)}
             >
-              进入下一步核查 →
+              进入{nextFlowStep.label} →
             </PrimaryButton>
           ) : (
             <PrimaryButton
@@ -2816,11 +2862,9 @@ export default function VerifyCoursePage() {
 function PblDetailHierarchySummary({
   activities,
   details,
-  knowledgeValidation,
 }: {
   activities: ReadonlyArray<TeachingOutlineSection>;
   details: ReadonlyArray<SceneOutline>;
-  knowledgeValidation: ReturnType<typeof validatePblKnowledgeAlignment>;
 }) {
   const detailsByParent = new globalThis.Map<string, SceneOutline[]>();
   details.forEach((detail) => {

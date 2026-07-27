@@ -652,6 +652,10 @@ export type StudentAiProgress = {
   adaptiveLearning?: StudentAdaptiveLearningState;
 };
 
+/**
+ * @deprecated Adaptive teaching is evidence-driven. This alias remains only
+ * for unrelated historical snapshots and must not be shown in the UI.
+ */
 export type StudentLearningTier = "foundation" | "standard" | "advanced";
 
 export type AdaptiveAssessmentQuestion = {
@@ -663,14 +667,25 @@ export type AdaptiveAssessmentQuestion = {
   knowledgePointIds: string[];
 };
 
-export type AdaptiveBranchKind = "foundation" | "extension";
+export type AdaptiveBranchKind =
+  | "prerequisite"
+  | "worked-example"
+  | "application"
+  | "extension";
 
 export type AdaptiveBranchTrigger = {
-  /** Main-course scene after which the runtime evaluates this branch. */
+  /** Prerequisite resources run before the main course; other resources run after a module quiz. */
+  placement: "before-main-course" | "after-module";
+  /** Legacy/manual fixed insertion point. Prefer assessmentSceneIds for module resources. */
   afterSceneId?: string;
   /** Informational next scene: the branch is visually inserted before it. */
   beforeSceneId?: string;
-  evidenceRule: "tier" | "tier-or-low-score" | "tier-and-high-score";
+  /** Stable quiz-outline ids whose submitted answers may activate this material. */
+  assessmentSceneIds?: string[];
+  /** Optional exact generated question ids; empty means all questions in the linked quiz. */
+  linkedQuestionIds?: string[];
+  answerRule?: "all-correct" | "score-at-least";
+  evidenceRule: "pretest-gap" | "module-mastery";
   scoreThreshold?: number;
   minimumRemainingSec: number;
 };
@@ -690,7 +705,12 @@ export type AdaptiveBranchOutline = {
   objective: string;
   keyPoints: string[];
   anchorKnowledgePointIds: string[];
-  targetTiers: StudentLearningTier[];
+  /** Explicit prerequisite concepts covered by this resource. */
+  prerequisiteKnowledgePointIds: string[];
+  /** What this resource adds beyond the complete main course. */
+  noveltyStatement: string;
+  /** Main-course scenes checked during preparation to prevent re-teaching. */
+  mainCourseOverlapSceneIds: string[];
   sceneType: "slide" | "interactive";
   targetDurationSec: number;
   trigger?: AdaptiveBranchTrigger;
@@ -708,10 +728,8 @@ export type AdaptiveLearningPlan = {
   updatedAt: string;
   timeBudgetMin: number;
   thresholds: {
-    foundationMax: number;
-    advancedMin: number;
-    branchQuizLow: number;
-    branchQuizHigh: number;
+    /** Module score required before optional enrichment may be inserted. */
+    enrichmentMasteryMin: number;
   };
   pretest: {
     title: string;
@@ -729,6 +747,14 @@ export type AdaptiveAssessmentEvidence = {
   occurredAt: string;
   sceneId?: string;
   knowledgePointIds: string[];
+  questionResults?: Array<{
+    questionId: string;
+    correct: boolean | null;
+  }>;
+  /** Knowledge points answered incorrectly in this assessment. */
+  weakKnowledgePointIds?: string[];
+  /** Knowledge points answered correctly in this assessment. */
+  masteredKnowledgePointIds?: string[];
 };
 
 export type AdaptiveBranchRun = {
@@ -743,7 +769,7 @@ export type AdaptiveBranchRun = {
 };
 
 export type AdaptiveTriggerCondition = {
-  key: "plan" | "resource" | "student-path" | "anchor" | "unused" | "tier" | "score" | "time";
+  key: "plan" | "resource" | "student-path" | "anchor" | "unused" | "evidence" | "score" | "time" | "novelty";
   label: string;
   expected: string;
   actual: string;
@@ -758,12 +784,12 @@ export type AdaptiveTriggerEvaluation = {
   /** Concrete player scene id, retained only for diagnostics. */
   runtimeSceneId?: string;
   completedSceneTitle?: string;
-  matchedBy: "scene-id" | "knowledge-point";
+  matchedBy: "pretest-gap" | "scene-id" | "knowledge-point";
   evaluatedAt: string;
   result: "triggered" | "conditions-not-met";
   reason: string;
   score?: number;
-  scoreSource?: "current-node-quiz" | "recorded-node-quiz" | "pretest-fallback";
+  scoreSource?: "current-node-quiz" | "recorded-node-quiz" | "pretest";
   remainingBudgetSec: number;
   conditions: AdaptiveTriggerCondition[];
 };
@@ -788,6 +814,9 @@ export type StudentAdaptiveLearningState = {
   tierUpdatedAt?: string;
   pretestScore?: number;
   pretestCompletedAt?: string;
+  /** Knowledge-level pretest evidence used to select prerequisite resources. */
+  pretestWeakKnowledgePointIds?: string[];
+  pretestMasteredKnowledgePointIds?: string[];
   startedAt?: string;
   evidence: AdaptiveAssessmentEvidence[];
   branchRuns: AdaptiveBranchRun[];
@@ -837,6 +866,7 @@ export type StageTransitionRecord = {
 
 export type Course = {
   id: string;
+  version?: number;
   name: string;
   subject: string;
   grade: string;

@@ -3,9 +3,13 @@ import type { AgentId } from '@/domain/studio'
 export type { AgentId } from '@/domain/studio'
 
 export const agentActionNames = [
+  'agreeing',
+  'brainstorming',
   'cheer_main',
   'cheer1_sub',
   'cheer2_sub',
+  'completed',
+  'error',
   'fc_high_press',
   'fc_screen_working_apk_use',
   'fc_screen_working_file_use',
@@ -15,19 +19,29 @@ export const agentActionNames = [
   'fc_ticket',
   'fc_walking_h',
   'fc_walking_up',
+  'leaving',
+  'listening',
   'off_chair',
   'sit_down',
   'organizing_files',
   'planning_board',
   'peek',
+  'presenting',
+  'questioning',
   'reading_book',
+  'reviewing_work',
   'salute',
+  'searching_info',
+  'selected',
   'sleeping',
   'standby',
   'talking_on_seat',
   'talking_on_stand-0',
   'talking_on_stand-1',
+  'thinking',
+  'waiting_user',
   'working',
+  'writing_notes',
 ] as const
 
 export type AgentActionName = (typeof agentActionNames)[number]
@@ -65,8 +79,18 @@ export interface AgentActionDefinition {
   layer: AgentActionLayer
   playback?: AgentActionPlaybackOptions
   /**
-   * Per-frame source-pixel corrections that keep the character's lower body
-   * fixed while arms or props extend beyond the canonical silhouette.
+   * Optional source-frame order used to omit structurally broken poses or
+   * create a smooth ping-pong loop without editing the source atlas.
+   */
+  frameOrder?: readonly number[]
+  /**
+   * Stable torso reference in source pixels. It is measured at the scarf root
+   * and upper-body junction, never from hands, props, or transparent bounds.
+   */
+  bodyCoreAnchor?: { x: number; y: number }
+  /**
+   * Per-playback-frame source-pixel corrections measured from bodyCoreAnchor.
+   * These must not be derived from hands, props, or full alpha bounds.
    */
   frameBodyOffsets?: readonly { x: number; y: number }[]
 }
@@ -94,12 +118,17 @@ export const agentActions = Object.fromEntries(
 ) as Record<AgentActionName, AgentSpriteAction>
 
 const actionGroups: Record<AgentActionGroup, readonly AgentActionName[]> = {
-  base: ['sleeping', 'standby', 'working'],
-  move: ['fc_walking_h', 'fc_walking_up', 'off_chair', 'sit_down'],
+  base: ['sleeping', 'standby', 'working', 'thinking', 'waiting_user'],
+  move: ['fc_walking_h', 'fc_walking_up', 'off_chair', 'sit_down', 'leaving'],
   work: [
+    'brainstorming',
     'reading_book',
     'organizing_files',
     'planning_board',
+    'presenting',
+    'reviewing_work',
+    'searching_info',
+    'writing_notes',
     'fc_screen_working_main',
     'fc_screen_working_file_use',
     'fc_screen_working_search_or_browser_use',
@@ -107,35 +136,51 @@ const actionGroups: Record<AgentActionGroup, readonly AgentActionName[]> = {
     'fc_screen_working_apk_use',
     'fc_ticket',
   ],
-  talk: ['talking_on_seat', 'talking_on_stand-0', 'talking_on_stand-1'],
-  emotion: ['peek', 'fc_high_press', 'salute'],
-  complete: ['cheer_main', 'cheer1_sub', 'cheer2_sub'],
+  talk: ['talking_on_seat', 'talking_on_stand-0', 'talking_on_stand-1', 'listening', 'questioning'],
+  emotion: ['peek', 'fc_high_press', 'salute', 'error', 'selected'],
+  complete: ['cheer_main', 'cheer1_sub', 'cheer2_sub', 'agreeing', 'completed'],
 }
 
 const actionDefinitionOverrides: Partial<
   Record<AgentActionName, Partial<Omit<AgentActionDefinition, 'name' | 'group'>>>
 > = {
-  sleeping: { playback: { animationSpeed: 0.07 } },
-  standby: { playback: { animationSpeed: 0.08 } },
-  working: { playback: { animationSpeed: 0.075 } },
-  off_chair: { playback: { animationSpeed: 0.09, loop: false } },
-  sit_down: { playback: { animationSpeed: 0.09 } },
-  reading_book: { playback: { animationSpeed: 0.08 } },
+  sleeping: { playback: { animationSpeed: 0.08 } },
+  standby: { playback: { animationSpeed: 0.1 } },
+  working: { playback: { animationSpeed: 0.11 } },
+  thinking: { playback: { animationSpeed: 0.1 } },
+  waiting_user: { playback: { animationSpeed: 0.11 } },
+  selected: { playback: { animationSpeed: 0.12 } },
+  listening: { playback: { animationSpeed: 0.1 } },
+  agreeing: { playback: { animationSpeed: 0.12 } },
+  questioning: { playback: { animationSpeed: 0.12 } },
+  completed: { playback: { animationSpeed: 0.12 } },
+  error: { playback: { animationSpeed: 0.1 } },
+  leaving: { playback: { animationSpeed: 0.13 } },
+  off_chair: { playback: { animationSpeed: 0.11, loop: false } },
+  sit_down: { playback: { animationSpeed: 0.11 } },
+  brainstorming: { playback: { animationSpeed: 0.11 } },
+  reading_book: { playback: { animationSpeed: 0.11 } },
+  presenting: { playback: { animationSpeed: 0.12 } },
+  reviewing_work: { playback: { animationSpeed: 0.11 } },
+  searching_info: { playback: { animationSpeed: 0.11 } },
+  writing_notes: { playback: { animationSpeed: 0.11 } },
   organizing_files: {
-    playback: { animationSpeed: 0.08 },
-    // Frame 0 was authored with the complete body 21 px to the right; frame
-    // 3 has a smaller 2 px drift. Counteract those shifts without moving the
-    // reaching arm or the file prop independently.
+    playback: { animationSpeed: 0.1 },
+    // Source frames 0 and 3 contain the reported anatomical discontinuity:
+    // frame 0 shifts the head/belly relative to the scarf, while frame 3 pulls
+    // the hand about 10 px away from the stable shoulder connection. Keep one
+    // coherent batch but play only its structurally stable poses.
+    frameOrder: [1, 2, 4, 2],
+    bodyCoreAnchor: { x: 109, y: 127 },
     frameBodyOffsets: [
-      { x: -21, y: 0 },
       { x: 0, y: 0 },
+      { x: -1, y: 1 },
       { x: 0, y: 0 },
-      { x: -2, y: 0 },
-      { x: 0, y: 0 },
+      { x: -1, y: 1 },
     ],
   },
   planning_board: {
-    playback: { animationSpeed: 0.075 },
+    playback: { animationSpeed: 0.11 },
     // Frames 1 and 2 move the complete lower body about 19 px to the right.
     // Keep the feet aligned and let only the arm gesture toward the board.
     frameBodyOffsets: [
@@ -146,13 +191,13 @@ const actionDefinitionOverrides: Partial<
       { x: 0, y: 0 },
     ],
   },
-  talking_on_seat: { playback: { animationSpeed: 0.1 } },
-  'talking_on_stand-0': { playback: { animationSpeed: 0.1 } },
-  'talking_on_stand-1': { playback: { animationSpeed: 0.1 } },
-  peek: { playback: { animationSpeed: 0.08 } },
-  cheer_main: { playback: { animationSpeed: 0.1 } },
-  cheer1_sub: { playback: { animationSpeed: 0.1 } },
-  cheer2_sub: { playback: { animationSpeed: 0.1 } },
+  talking_on_seat: { playback: { animationSpeed: 0.12 } },
+  'talking_on_stand-0': { playback: { animationSpeed: 0.12 } },
+  'talking_on_stand-1': { playback: { animationSpeed: 0.12 } },
+  peek: { playback: { animationSpeed: 0.1 } },
+  cheer_main: { playback: { animationSpeed: 0.12 } },
+  cheer1_sub: { playback: { animationSpeed: 0.12 } },
+  cheer2_sub: { playback: { animationSpeed: 0.12 } },
   fc_high_press: { playback: { animationSpeed: 0.1 } },
   fc_screen_working_main: {
     layer: 'screen',
@@ -209,6 +254,8 @@ export const agentActionDefinitions = Object.fromEntries(
       group: getAgentActionGroup(name),
       layer: override?.layer ?? getDefaultAgentActionLayer(name),
       playback: override?.playback,
+      frameOrder: override?.frameOrder,
+      bodyCoreAnchor: override?.bodyCoreAnchor,
       frameBodyOffsets: override?.frameBodyOffsets,
     } satisfies AgentActionDefinition]
   }),

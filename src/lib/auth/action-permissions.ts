@@ -47,6 +47,7 @@ const STUDENT_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
   "UPDATE_STUDENT_PROGRESS",
   "UPSERT_SUBMISSION",
   "UPSERT_REFLECTION",
+  "ADD_ANNOUNCEMENT_REPLY",
   "UPSERT_WHITEBOARD_NODE",
   "DELETE_WHITEBOARD_NODE",
   "UPSERT_GROUP_BOARD",
@@ -54,8 +55,12 @@ const STUDENT_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
   "JOIN_GROUP",
   "LEAVE_GROUP",
   "UPSERT_WORK_PLAN_ITEM",
+  "DELETE_WORK_PLAN_ITEM",
   "SET_GROUP_TOPIC",
+  "UPSERT_GROUP_ANNOUNCEMENT",
   "SET_STUDENT_TODO_COMPLETION",
+  "UPSERT_UPLOAD",
+  "SET_PREVIEW_UPLOAD",
   "UPSERT_AI_SUPPORT",
   "ADD_COMPANION_PROCESS_RECORD",
   "UPSERT_COMPANION_CONFIRMATION",
@@ -105,6 +110,7 @@ export function isStudentActionForSelf(
     "support",
     "record",
     "confirmation",
+    "reply",
   ]
     .map((key) => payload[key])
     .filter((value): value is Record<string, unknown> =>
@@ -135,6 +141,21 @@ export function isStudentActionForSelf(
 
   if (action.type === "SET_GROUP_TOPIC" && payload.studentId !== studentId) {
     return false;
+  }
+
+  if (
+    (action.type === "UPSERT_GROUP_ANNOUNCEMENT" ||
+      action.type === "UPSERT_WORK_PLAN_ITEM" ||
+      action.type === "DELETE_WORK_PLAN_ITEM" ||
+      action.type === "SET_PREVIEW_UPLOAD") &&
+    payload.studentId !== studentId
+  ) {
+    return false;
+  }
+
+  if (action.type === "ADD_ANNOUNCEMENT_REPLY") {
+    const reply = payload.reply as Record<string, unknown> | undefined;
+    if (reply?.studentId !== studentId) return false;
   }
 
   if (action.type === "UPSERT_COMPANION_CONFIRMATION") {

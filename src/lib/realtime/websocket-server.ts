@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
+import { isIP } from "node:net";
 import {
   STUDENT_COOKIE_NAME,
   TEACHER_COOKIE_NAME,
@@ -13,10 +14,19 @@ import {
   type RealtimeEvent,
   type RealtimeEventHandler,
 } from "./event-bus";
+import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
+import { hasCurrentSessionVersion } from "@/lib/auth/session-version";
+import { websocketConnectionsActive } from "@/lib/observability/metrics";
 
 const PING_INTERVAL_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 90_000;
+const MAX_MESSAGE_BYTES = 64 * 1024;
+const MAX_CONNECTIONS_PER_IP = 150;
+const MAX_CONNECTIONS_PER_IDENTITY = 3;
 let serverInstance: WebSocketServer | null = null;
+const upgradeClaims = new WeakMap<IncomingMessage, AuthClaims>();
+const connectionCounts = new Map<string, number>();
+const identityConnectionCounts = new Map<string, number>();
 
 interface ClientState {
   claims: AuthClaims;
@@ -46,7 +56,27 @@ async function authenticate(req: IncomingMessage): Promise<AuthClaims | null> {
   const token = readCookie(req.headers.cookie, cookieName);
   if (!token) return null;
   const claims = await verifyToken(token);
-  return claims?.role === role ? claims : null;
+  return claims?.role === role && (await hasCurrentSessionVersion(claims))
+    ? claims
+    : null;
+}
+
+async function authorizeUpgrade(req: IncomingMessage): Promise<AuthClaims | null> {
+  if (!hasAllowedOrigin(req)) return null;
+  const claims = await authenticate(req);
+  if (!claims) return null;
+  const ip = clientIp(req);
+  if ((connectionCounts.get(ip) ?? 0) >= MAX_CONNECTIONS_PER_IP) return null;
+  if ((identityConnectionCounts.get(claims.sub!) ?? 0) >= MAX_CONNECTIONS_PER_IDENTITY) {
+    return null;
+  }
+  const limit = await checkDistributedRateLimit({
+    namespace: "websocket-connect",
+    key: `${ip}:${claims.sub}`,
+    limit: 20,
+    windowSeconds: 60,
+  });
+  return limit.allowed ? claims : null;
 }
 
 function sendJson(ws: WebSocket, message: unknown): void {
@@ -81,8 +111,14 @@ function unsubscribe(state: ClientState): void {
   state.handler = undefined;
 }
 
-function attachClient(ws: WebSocket, claims: AuthClaims): void {
+function attachClient(ws: WebSocket, claims: AuthClaims, ip: string): void {
   const state: ClientState = { claims, lastPongAt: Date.now() };
+  connectionCounts.set(ip, (connectionCounts.get(ip) ?? 0) + 1);
+  websocketConnectionsActive.inc();
+  identityConnectionCounts.set(
+    claims.sub!,
+    (identityConnectionCounts.get(claims.sub!) ?? 0) + 1,
+  );
 
   ws.on("message", (raw) => {
     const courseId = parseCourseId(raw);
@@ -100,10 +136,9 @@ function attachClient(ws: WebSocket, claims: AuthClaims): void {
     state.courseId = courseId;
     state.handler = (event: RealtimeEvent) => {
       sendJson(ws, {
-        type: "course-invalidated",
+        type: "course-event",
         courseId,
-        version: event.at,
-        reason: event.type,
+        event,
       });
     };
     subscribeCourseEvents(courseId, state.handler);
@@ -113,7 +148,19 @@ function attachClient(ws: WebSocket, claims: AuthClaims): void {
   ws.on("pong", () => {
     state.lastPongAt = Date.now();
   });
-  ws.on("close", () => unsubscribe(state));
+  ws.on("close", () => {
+    websocketConnectionsActive.dec();
+    unsubscribe(state);
+    const remaining = Math.max(0, (connectionCounts.get(ip) ?? 1) - 1);
+    if (remaining === 0) connectionCounts.delete(ip);
+    else connectionCounts.set(ip, remaining);
+    const identityRemaining = Math.max(
+      0,
+      (identityConnectionCounts.get(claims.sub!) ?? 1) - 1,
+    );
+    if (identityRemaining === 0) identityConnectionCounts.delete(claims.sub!);
+    else identityConnectionCounts.set(claims.sub!, identityRemaining);
+  });
   ws.on("error", (error) => console.error("[websocket-server] client error:", error));
 
   const pingTimer = setInterval(() => {
@@ -130,16 +177,31 @@ function attachClient(ws: WebSocket, claims: AuthClaims): void {
 
 export function startWebSocketServer(port = 3001): WebSocketServer {
   if (serverInstance) return serverInstance;
-  const server = new WebSocketServer({ port });
+  const server = new WebSocketServer({
+    port,
+    maxPayload: MAX_MESSAGE_BYTES,
+    perMessageDeflate: false,
+    verifyClient: (info, done) => {
+      void authorizeUpgrade(info.req)
+        .then((claims) => {
+          if (!claims) {
+            done(false, 401, "Unauthorized");
+            return;
+          }
+          upgradeClaims.set(info.req, claims);
+          done(true);
+        })
+        .catch(() => done(false, 503, "Service unavailable"));
+    },
+  });
   server.on("connection", (ws, req) => {
-    void authenticate(req).then((claims) => {
-      if (!claims) {
-        sendJson(ws, { type: "error", code: "UNAUTHORIZED" });
-        ws.close(4001, "UNAUTHORIZED");
-        return;
-      }
-      attachClient(ws, claims);
-    });
+    const claims = upgradeClaims.get(req);
+    upgradeClaims.delete(req);
+    if (!claims) {
+      ws.close(4001, "UNAUTHORIZED");
+      return;
+    }
+    attachClient(ws, claims, clientIp(req));
   });
   server.on("error", (error) => console.error("[websocket-server] server error:", error));
   server.on("listening", () =>
@@ -147,6 +209,30 @@ export function startWebSocketServer(port = 3001): WebSocketServer {
   );
   serverInstance = server;
   return server;
+}
+
+function hasAllowedOrigin(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return process.env.NODE_ENV !== "production";
+  try {
+    const actual = new URL(origin).origin;
+    const configured = process.env.PUBLIC_BASE_URL?.trim();
+    if (configured) return actual === new URL(configured).origin;
+    const host = req.headers.host;
+    return !!host && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function clientIp(req: IncomingMessage): string {
+  if (process.env.TRUST_PROXY_HEADERS === "true") {
+    const forwarded = typeof req.headers["x-real-ip"] === "string"
+      ? req.headers["x-real-ip"].trim()
+      : "";
+    if (isIP(forwarded)) return forwarded;
+  }
+  return req.socket.remoteAddress ?? "unknown";
 }
 
 export function getWebSocketServer(): WebSocketServer | null {

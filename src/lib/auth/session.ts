@@ -11,6 +11,8 @@ const TEACHER_TTL_SECONDS = 7 * 24 * 60 * 60;
 const STUDENT_TTL_SECONDS = 24 * 60 * 60;
 const ISSUER = "openpbl";
 const AUDIENCE = "openpbl-app";
+const ALGORITHM = "HS256";
+const SESSION_VERSION_CLAIM = "sv";
 
 export type AuthRole = "teacher" | "student";
 
@@ -18,6 +20,7 @@ export interface TeacherClaims extends JWTPayload {
   role: "teacher";
   username: string;
   displayName: string;
+  sv: number;
 }
 
 export interface StudentClaims extends JWTPayload {
@@ -25,6 +28,7 @@ export interface StudentClaims extends JWTPayload {
   courseId: string;
   studentId: string;
   studentName: string;
+  sv: number;
 }
 
 export type AuthClaims = TeacherClaims | StudentClaims;
@@ -48,13 +52,15 @@ export async function signTeacherToken(payload: {
   teacherId: string;
   username: string;
   displayName: string;
+  sessionVersion: number;
 }): Promise<{ token: string; cookieName: string; maxAge: number }> {
   const token = await new SignJWT({
     role: "teacher",
     username: payload.username,
     displayName: payload.displayName,
+    [SESSION_VERSION_CLAIM]: payload.sessionVersion,
   })
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: ALGORITHM, typ: "JWT" })
     .setSubject(payload.teacherId)
     .setIssuedAt()
     .setIssuer(ISSUER)
@@ -68,14 +74,16 @@ export async function signStudentToken(payload: {
   courseId: string;
   studentId: string;
   studentName: string;
+  sessionVersion: number;
 }): Promise<{ token: string; cookieName: string; maxAge: number }> {
   const token = await new SignJWT({
     role: "student",
     courseId: payload.courseId,
     studentId: payload.studentId,
     studentName: payload.studentName,
+    [SESSION_VERSION_CLAIM]: payload.sessionVersion,
   })
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: ALGORITHM, typ: "JWT" })
     .setSubject(payload.studentId)
     .setIssuedAt()
     .setIssuer(ISSUER)
@@ -88,10 +96,34 @@ export async function signStudentToken(payload: {
 export async function verifyToken(token: string): Promise<AuthClaims | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret(), {
+      algorithms: [ALGORITHM],
       issuer: ISSUER,
       audience: AUDIENCE,
+      clockTolerance: 5,
     });
     if (payload.role !== "teacher" && payload.role !== "student") return null;
+    if (
+      typeof payload.sub !== "string" ||
+      !Number.isSafeInteger(payload[SESSION_VERSION_CLAIM]) ||
+      Number(payload[SESSION_VERSION_CLAIM]) < 1
+    ) {
+      return null;
+    }
+    if (
+      payload.role === "teacher" &&
+      (typeof payload.username !== "string" || typeof payload.displayName !== "string")
+    ) {
+      return null;
+    }
+    if (
+      payload.role === "student" &&
+      (typeof payload.courseId !== "string" ||
+        typeof payload.studentId !== "string" ||
+        payload.studentId !== payload.sub ||
+        typeof payload.studentName !== "string")
+    ) {
+      return null;
+    }
     return payload as AuthClaims;
   } catch {
     return null;

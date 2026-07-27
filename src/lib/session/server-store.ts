@@ -202,15 +202,10 @@ export async function dispatchSessionAction(
   action: SessionAction,
 ): Promise<SessionState> {
   if (isDatabaseConfigured()) {
-    const run = async (): Promise<SessionState> => {
-      const before = await dbLoadSessionState();
-      const after = await dbDispatchAction(action);
-      maybePublishRealtimePatch(before, after, action);
-      return after;
-    };
-    const result = actionChain.then(run);
-    actionChain = result.catch(() => undefined);
-    return result;
+    const before = await dbLoadSessionState();
+    const after = await dbDispatchAction(action);
+    maybePublishRealtimePatch(before, after, action);
+    return after;
   }
   warnIfDemoMode();
 
@@ -241,14 +236,9 @@ export async function updateCourse(
   updater: (course: Course) => Course,
 ): Promise<SessionState> {
   if (isDatabaseConfigured()) {
-    const run = async (): Promise<SessionState> => {
-      const after = await dbUpdateCourse(courseId, updater);
-      maybePublishCourseUpdated(courseId, after.updatedAt ?? new Date().toISOString());
-      return after;
-    };
-    const result = actionChain.then(run);
-    actionChain = result.catch(() => undefined);
-    return result;
+    const after = await dbUpdateCourse(courseId, updater);
+    maybePublishCourseUpdated(courseId, after.updatedAt ?? new Date().toISOString());
+    return after;
   }
   warnIfDemoMode();
 

@@ -127,10 +127,20 @@ export default function TeacherLoginPage() {
           </button>
         </form>
 
+        <div className="text-center text-sm text-[var(--pbl-text-muted)]">
+          首次使用，还没有教师账号？
+          <Link
+            className="ml-1 font-semibold text-[var(--pbl-teacher)] hover:underline"
+            href="/teacher/register"
+          >
+            注册教师账号
+          </Link>
+        </div>
+
         <div className="rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-4 text-xs leading-5 text-[var(--pbl-text-muted)]">
           <p className="font-semibold text-[var(--pbl-text)]">首次部署提示</p>
           <p className="mt-1">
-            教师账号需通过 Prisma 直接写入 <code className="font-mono">Teacher</code> 表(使用 <code className="font-mono">hashPassword()</code> 生成 passwordHash)。未配置 JWT_SECRET 时系统进入 Demo 模式,跳过鉴权。
+            首次部署请在服务器执行 <code className="font-mono">pnpm admin:init-teacher</code> 创建教师账号。
           </p>
         </div>
       </main>

@@ -25,11 +25,13 @@ describe("readAuthFromRequest", () => {
       teacherId: "teacher-1",
       username: "teacher",
       displayName: "Teacher",
+      sessionVersion: 1,
     });
     const student = await signStudentToken({
       courseId: "course-1",
       studentId: "student-1",
       studentName: "Student",
+      sessionVersion: 1,
     });
     const request = new Request("http://localhost/api/chat/companion", {
       headers: {
@@ -49,6 +51,7 @@ describe("readAuthFromRequest", () => {
       teacherId: "teacher-1",
       username: "teacher",
       displayName: "Teacher",
+      sessionVersion: 1,
     });
     const request = new Request("http://localhost/api/session", {
       headers: {

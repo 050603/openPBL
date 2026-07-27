@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 
 const courseStore = vi.hoisted(() => ({
   course: null as null | Record<string, unknown>,
-  updateCourse: vi.fn(),
+  persistStudentAiProgress: vi.fn(),
 }));
 const classroomStore = vi.hoisted(() => ({
   classroom: null as null | { scenes: Array<{ id: string; outlineId?: string }> },
@@ -11,7 +11,9 @@ const classroomStore = vi.hoisted(() => ({
 
 vi.mock('@/lib/session/server-store', () => ({
   getCourse: vi.fn(async () => courseStore.course),
-  updateCourse: courseStore.updateCourse,
+}));
+vi.mock('@/lib/courses/ai-progress-service', () => ({
+  persistStudentAiProgress: courseStore.persistStudentAiProgress,
 }));
 vi.mock('@openmaic/lib/server/classroom-storage', () => ({
   readClassroom: vi.fn(async () => classroomStore.classroom),
@@ -29,7 +31,7 @@ function request(body: Record<string, unknown>) {
 
 describe('progress route integrity', () => {
   beforeEach(() => {
-    courseStore.updateCourse.mockReset();
+    courseStore.persistStudentAiProgress.mockReset();
     courseStore.course = {
       id: 'course-1',
       aiLearningClassroomId: 'classroom-1',
@@ -45,9 +47,6 @@ describe('progress route integrity', () => {
         { id: 's2', outlineId: 'outline-ai-2' },
       ],
     };
-    courseStore.updateCourse.mockImplementation(async (_id, updater) => {
-      courseStore.course = updater(courseStore.course);
-    });
   });
 
   it('rejects progress written to a classroom not linked to the course', async () => {
@@ -57,7 +56,7 @@ describe('progress route integrity', () => {
     }));
 
     expect(response.status).toBe(400);
-    expect(courseStore.updateCourse).not.toHaveBeenCalled();
+    expect(courseStore.persistStudentAiProgress).not.toHaveBeenCalled();
   });
 
   it('uses persisted scenes and preserves earlier completion', async () => {
@@ -76,6 +75,12 @@ describe('progress route integrity', () => {
       completedOutlineIds: ['outline-ai-1', 'outline-ai-2'],
       masteryLevel: 'completed',
     });
+    expect(courseStore.persistStudentAiProgress).toHaveBeenCalledWith(
+      'course-1',
+      'student-1',
+      expect.objectContaining({ completedScenes: ['s1', 's2'] }),
+      100,
+    );
   });
 
   it('does not carry forward completion produced by the legacy enter-page model', async () => {

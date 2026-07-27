@@ -17,11 +17,10 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
 import { Card, Pill, ProgressBar } from "@/components/ui";
-import type { AdaptiveBranchOutline, AdaptiveTriggerEvaluation, Course, LearningEvent, Student, StudentAiProgress, StudentLearningTier } from "@/lib/session/types";
+import type { AdaptiveBranchOutline, AdaptiveTriggerEvaluation, Course, LearningEvent, Student, StudentAiProgress } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import {
   calculateAdaptiveRemainingBudgetSec,
-  classifyStudentTier,
   eligibleAdaptiveBranches,
   evaluateAdaptiveBranchDecision,
 } from "@/lib/adaptive-learning";
@@ -95,12 +94,6 @@ function currentScene(events: LearningEvent[]): string {
   return latest ? formatLearningContentReference(latest.content, latest.metadata?.sceneTitle?.toString() || latest.sceneId) : "尚未开始";
 }
 
-const TIER_LABEL: Record<StudentLearningTier, string> = {
-  foundation: "基础生",
-  standard: "平均生",
-  advanced: "优秀生",
-};
-
 export function adaptiveResponseStatus(
   progress: StudentAiProgress | undefined,
   planEnabled: boolean,
@@ -108,14 +101,14 @@ export function adaptiveResponseStatus(
   const state = progress?.adaptiveLearning;
   if (!planEnabled) return { label: "课程未启用", tone: "muted" };
   if (state?.enabled === false) return { label: "个体已关闭", tone: "danger" };
-  if (!state?.pretestCompletedAt && !state?.tier) return { label: "等待前测", tone: "muted" };
+  if (!state?.pretestCompletedAt) return { label: "等待前测", tone: "muted" };
   const currentRun = [...(state?.branchRuns ?? [])].reverse().find((run) =>
     ["generating", "ready"].includes(run.status),
   );
-  if (currentRun?.status === "generating") return { label: "分支生成中", tone: "active" };
-  if (currentRun?.status === "ready") return { label: "分支学习中", tone: "active" };
+  if (currentRun?.status === "generating") return { label: "资源准备中", tone: "active" };
+  if (currentRun?.status === "ready") return { label: "额外资源学习中", tone: "active" };
   if (state?.branchRuns.some((run) => run.status === "completed")) {
-    return { label: "已响应分支", tone: "ready" };
+    return { label: "已学习额外资源", tone: "ready" };
   }
   return { label: "监测触发点", tone: "ready" };
 }
@@ -160,9 +153,6 @@ export function AiLearningTeacherView({
     studentId: string,
     patch: {
       enabled?: boolean;
-      tier?: StudentLearningTier;
-      tierSource?: "pretest" | "teacher";
-      tierUpdatedAt?: string;
     },
   ) {
     const existingProgress = course.aiLearningProgress?.[studentId] ?? {
@@ -189,37 +179,6 @@ export function AiLearningTeacherView({
       },
     });
   }
-
-  function setStudentTier(studentId: string, value: string) {
-    const adaptive = course.aiLearningProgress?.[studentId]?.adaptiveLearning;
-    if (value === "auto") {
-      const score = adaptive?.pretestScore;
-      const plan = course.content.adaptiveLearningPlan;
-      patchStudentAdaptive(studentId, {
-        tier:
-          typeof score === "number" && plan
-            ? classifyStudentTier(score, plan.thresholds)
-            : undefined,
-        tierSource: typeof score === "number" ? "pretest" : undefined,
-        tierUpdatedAt: new Date().toISOString(),
-      });
-      return;
-    }
-    patchStudentAdaptive(studentId, {
-      tier: value as StudentLearningTier,
-      tierSource: "teacher",
-      tierUpdatedAt: new Date().toISOString(),
-    });
-  }
-
-  const tierCounts = summaries.reduce<Record<StudentLearningTier, number>>(
-    (counts, summary) => {
-      const tier = course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.tier;
-      if (tier) counts[tier] += 1;
-      return counts;
-    },
-    { foundation: 0, standard: 0, advanced: 0 },
-  );
 
   return (
     <div className="space-y-5">
@@ -259,11 +218,10 @@ export function AiLearningTeacherView({
 
       <Card>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div><h3 className="text-lg font-black">学生分层与自适应响应</h3><p className="mt-1 text-sm text-stone-500">查看前测分层、当前响应状态；教师可关闭个体路径或覆盖系统分层。</p></div>
+          <div><h3 className="text-lg font-black">学生学习证据与资源响应</h3><p className="mt-1 text-sm text-stone-500">查看前测缺口、模块掌握与额外资源学习状态；教师可关闭或重新开启个体编排。</p></div>
           <div className="flex flex-wrap gap-2 text-[11px] font-bold">
-            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">基础生 {tierCounts.foundation}</span>
-            <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-cyan-900">平均生 {tierCounts.standard}</span>
-            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-sky-900">优秀生 {tierCounts.advanced}</span>
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">存在先决缺口 {summaries.filter((summary) => (course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.pretestWeakKnowledgePointIds?.length ?? 0) > 0).length}</span>
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-900">已学额外资源 {summaries.filter((summary) => course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.branchRuns.some((run) => run.status === "completed")).length}</span>
           </div>
         </div>
         {summaries.length ? (
@@ -271,28 +229,26 @@ export function AiLearningTeacherView({
             {[...summaries].sort((a, b) => b.signals.length - a.signals.length || a.progress - b.progress).map((summary) => {
               const progress = course.aiLearningProgress?.[summary.student.id];
               const adaptive = progress?.adaptiveLearning;
-              const tier = adaptive?.tier;
               const enabled = adaptive?.enabled !== false;
+              const weakCount = adaptive?.pretestWeakKnowledgePointIds?.length ?? 0;
+              const learnedCount = adaptive?.branchRuns.filter((run) => run.status === "completed").length ?? 0;
               const response = adaptiveResponseStatus(
                 progress,
                 Boolean(course.content.adaptiveLearningPlan?.enabled),
               );
               return (
-                <li className="grid gap-3 py-3 md:px-2 xl:grid-cols-[190px_minmax(135px,1fr)_130px_125px_230px] xl:items-center" key={summary.student.id}>
+                <li className="grid gap-3 py-3 md:px-2 xl:grid-cols-[190px_minmax(135px,1fr)_145px_150px_150px] xl:items-center" key={summary.student.id}>
                   <button className="flex items-center gap-3 rounded-[7px] text-left transition hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-cyan-500" onClick={() => openStudent(summary.student.id)} type="button">
                     <span className="relative"><Avatar name={summary.student.name} size={36} />{summary.signals.length ? <CircleAlert aria-label="有干预信号" className="absolute -right-2 -top-2 fill-white text-[var(--pbl-danger)]" size={19} /> : null}</span>
                     <span><span className="block font-bold text-stone-900">{summary.student.name}</span><span className="text-xs text-stone-500">{summary.signals.length ? `${summary.signals.length} 条待处理` : summary.hasEvidence ? `有效学习 ${minutes(summary.effectiveDurationMs)}` : "尚未开始"}</span></span>
                   </button>
                   <span><span className="mb-1 flex justify-between text-xs text-stone-500"><span>主课进度</span><strong>{summary.progress}%</strong></span><ProgressBar className="h-2" tone={summary.signals.length ? "red" : summary.progress >= 90 ? "green" : "teal"} value={summary.progress} /><span className="mt-1 block truncate text-[10px] text-stone-400">{currentScene(summary.events)}</span></span>
                   <span>
-                    <span className="block text-[10px] font-bold uppercase tracking-wide text-stone-400">学习类别</span>
-                    <span className={cn(
-                      "mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-black",
-                      tier === "foundation" ? "bg-amber-100 text-amber-900" : tier === "advanced" ? "bg-sky-100 text-sky-900" : tier === "standard" ? "bg-cyan-100 text-cyan-900" : "bg-stone-100 text-stone-500",
-                    )}>
-                      {tier ? TIER_LABEL[tier] : "尚未分类"}
+                    <span className="block text-[10px] font-bold uppercase tracking-wide text-stone-400">先决知识证据</span>
+                    <span className={cn("mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-black", !adaptive?.pretestCompletedAt ? "bg-stone-100 text-stone-500" : weakCount ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800")}>
+                      {!adaptive?.pretestCompletedAt ? "等待前测" : weakCount ? `${weakCount} 个缺口` : "已具备"}
                     </span>
-                    {adaptive?.tierSource ? <small className="ml-1 text-[9px] text-stone-400">{adaptive.tierSource === "teacher" ? "教师调整" : "前测判定"}</small> : null}
+                    {typeof adaptive?.pretestScore === "number" ? <small className="ml-1 text-[9px] text-stone-400">{adaptive.pretestScore} 分</small> : null}
                   </span>
                   <span>
                     <span className="block text-[10px] font-bold uppercase tracking-wide text-stone-400">响应状态</span>
@@ -305,22 +261,11 @@ export function AiLearningTeacherView({
                     type="button"
                     ><Route size={11} />{response.label}</button>
                   </span>
-                  <span className="grid grid-cols-[1fr_auto] items-end gap-2 rounded-[8px] border border-stone-200 bg-stone-50 p-2">
-                    <label className="text-[10px] font-bold text-stone-500">
-                      人工调整层次
-                      <select
-                        aria-label={`${summary.student.name}学习层次`}
-                        className="mt-1 h-8 w-full rounded-[6px] border border-stone-300 bg-white px-2 text-xs font-semibold outline-none focus:border-cyan-700"
-                        disabled={!enabled}
-                        onChange={(event) => setStudentTier(summary.student.id, event.target.value)}
-                        value={adaptive?.tierSource === "teacher" ? tier : "auto"}
-                      >
-                        <option value="auto">自动（前测）</option>
-                        <option value="foundation">基础生</option>
-                        <option value="standard">平均生</option>
-                        <option value="advanced">优秀生</option>
-                      </select>
-                    </label>
+                  <span className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-[8px] border border-stone-200 bg-stone-50 p-2">
+                    <span className="text-[10px] font-bold text-stone-500">
+                      已学额外资源
+                      <strong className="mt-1 block text-xs text-stone-900">{learnedCount} 份</strong>
+                    </span>
                     <button
                       aria-label={`${enabled ? "关闭" : "开启"}${summary.student.name}的自适应路径`}
                       className={cn(
@@ -369,7 +314,7 @@ function AdaptiveTriggerAuditDialog({
 
   const evaluations = adaptive?.triggerEvaluations ?? [];
   const eligibleBranches =
-    plan ? eligibleAdaptiveBranches(plan, adaptive?.tier) : [];
+    plan ? eligibleAdaptiveBranches(plan, adaptive) : [];
   const remainingBudgetSec =
     plan && adaptive
       ? calculateAdaptiveRemainingBudgetSec(plan, adaptive)
@@ -383,7 +328,7 @@ function AdaptiveTriggerAuditDialog({
             ...evaluations.flatMap((evaluation) => {
               if (
                 typeof evaluation.score !== "number"
-                || evaluation.scoreSource === "pretest-fallback"
+                || evaluation.scoreSource === "pretest"
                 || adaptive.evidence.some((item) =>
                   item.source === "node-quiz"
                   && item.sceneId === evaluation.completedSceneId
@@ -407,22 +352,23 @@ function AdaptiveTriggerAuditDialog({
         }
       : adaptive;
   const liveEvaluations =
-    plan && auditState?.tier && auditState.pretestCompletedAt
-      ? evaluateAdaptiveBranchDecision({
+    plan && auditState?.pretestCompletedAt
+      ? eligibleBranches.flatMap((branch) => evaluateAdaptiveBranchDecision({
           plan,
           state: auditState,
-          anchorKnowledgePointIds: [],
+          anchorKnowledgePointIds: branch.anchorKnowledgePointIds,
           completedSceneId:
             progress?.completedOutlineIds?.at(-1)
             ?? progress?.completedScenes.at(-1),
           runtimeSceneId: progress?.completedScenes.at(-1),
           remainingBudgetSec,
-          candidateBranchIds: eligibleBranches.map((branch) => branch.id),
+          candidateBranchIds: [branch.id],
           reachedSceneIds:
             progress?.completedOutlineIds?.length
               ? progress.completedOutlineIds
               : progress?.completedScenes ?? [],
-        }).evaluations
+          phase: branch.trigger?.placement === "before-main-course" ? "pre-course" : "after-module",
+        }).evaluations)
       : [];
   const triggeredCount = new Set(
     (adaptive?.branchRuns ?? [])
@@ -430,12 +376,19 @@ function AdaptiveTriggerAuditDialog({
       .map((run) => run.branchOutlineId),
   ).size;
   const sceneTitle = (branch: AdaptiveBranchOutline) => {
-    const sceneId = branch.trigger?.afterSceneId;
-    return course.content._openmaicSceneOutlines?.find((scene) => scene.id === sceneId)?.title
+    const sceneIds = branch.trigger?.assessmentSceneIds?.length
+      ? branch.trigger.assessmentSceneIds
+      : branch.trigger?.afterSceneId
+        ? [branch.trigger.afterSceneId]
+        : [];
+    const titles = sceneIds.map((sceneId) =>
+      course.content._openmaicSceneOutlines?.find((scene) => scene.id === sceneId)?.title
       ?? course.content.lessonOutline.find((scene) => scene.id === sceneId)?.title
-      ?? sceneId
-      ?? branch.anchorKnowledgePointIds.join("、")
-      ?? "未设置";
+      ?? sceneId,
+    );
+    return titles.length
+      ? titles.join(" / ")
+      : branch.anchorKnowledgePointIds.join("、") || "未设置";
   };
 
   return (
@@ -445,26 +398,26 @@ function AdaptiveTriggerAuditDialog({
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-cyan-800">Adaptive trigger audit</p>
             <h3 className="mt-1 text-xl font-black text-stone-950">{student.name} · 自适应触发审计</h3>
-            <p className="mt-1 text-sm text-stone-500">逐个检查触发位置、学生层次、测评证据与剩余时间，解释为什么触发或没有触发。</p>
+            <p className="mt-1 text-sm text-stone-500">逐个检查插入位置、知识证据、内容去重与剩余时间，解释为什么选中或没有选中资源。</p>
           </div>
           <button aria-label="关闭触发审计" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-stone-500 hover:bg-stone-100" onClick={onClose} type="button"><X size={18} /></button>
         </header>
 
         <div className="overflow-y-auto p-5">
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <AuditMetric label="当前层次" value={adaptive?.tier ? TIER_LABEL[adaptive.tier] : "尚未分类"} helper={adaptive?.tierSource === "teacher" ? "教师人工调整" : adaptive?.tierSource === "pretest" ? "课前测判定" : "等待证据"} />
+            <AuditMetric label="先决知识缺口" value={`${adaptive?.pretestWeakKnowledgePointIds?.length ?? 0} 个`} helper={adaptive?.pretestCompletedAt ? "按前测逐题映射到知识点" : "等待完成前测"} />
             <AuditMetric label="课前测" value={typeof adaptive?.pretestScore === "number" ? `${adaptive.pretestScore} 分` : "未完成"} helper={adaptive?.pretestCompletedAt ? new Date(adaptive.pretestCompletedAt).toLocaleString("zh-CN") : "暂无完成时间"} />
             <AuditMetric label="已评估触发点" value={`${evaluations.length} 次`} helper={evaluations.length ? "包含未满足条件的记录" : "尚无运行时判定记录"} />
-            <AuditMetric label="已进入分支" value={`${triggeredCount} 个`} helper={(adaptive?.branchRuns ?? []).some((run) => run.status === "failed") ? "包含生成失败记录" : "补基础与拓展合计"} />
+            <AuditMetric label="已学习额外资源" value={`${triggeredCount} 个`} helper={(adaptive?.branchRuns ?? []).some((run) => run.status === "failed") ? "包含资源加载失败记录" : "先决回顾、案例、应用与拓展合计"} />
             <AuditMetric
               label="自适应预算剩余"
               value={`${Math.floor(remainingBudgetSec / 60)}分 ${remainingBudgetSec % 60}秒`}
-              helper={`课程为个性化分支预留 ${plan?.timeBudgetMin ?? 0} 分钟`}
+              helper={`课程为额外资源预留 ${plan?.timeBudgetMin ?? 0} 分钟`}
             />
           </section>
 
           {!plan?.enabled || plan.status !== "teacher-confirmed" ? (
-            <div className="mt-4 rounded-[9px] border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">课程自适应路径未启用或尚未由教师确认，所有分支均不会触发。</div>
+            <div className="mt-4 rounded-[9px] border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">个性化资源编排未启用或尚未由教师确认，额外资源不会插入。</div>
           ) : adaptive?.enabled === false ? (
             <div className="mt-4 rounded-[9px] border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">该学生的个体自适应路径已关闭。</div>
           ) : evaluations.length === 0 && (progress?.completedScenes.length ?? 0) > 0 ? (
@@ -492,12 +445,12 @@ function AdaptiveTriggerAuditDialog({
                 />
               );
             })}
-            {plan?.branches.length && adaptive?.tier && !eligibleBranches.length ? (
+            {plan?.branches.length && adaptive?.pretestCompletedAt && !eligibleBranches.length ? (
               <div className="rounded-[9px] border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">
-                当前层次没有可激活的自适应分支。
+                当前学习证据没有匹配的额外资源。
               </div>
             ) : null}
-            {!plan?.branches.length ? <div className="rounded-[9px] border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">课程尚未配置自适应分支。</div> : null}
+            {!plan?.branches.length ? <div className="rounded-[9px] border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">课程尚未配置额外学习资源。</div> : null}
           </div>
         </div>
       </div>
@@ -525,19 +478,25 @@ function TriggerAuditCard({
   const totalCount = evaluation?.conditions.length ?? 0;
   const progress = totalCount ? Math.round((passedCount / totalCount) * 100) : 0;
   const runLabel: Record<string, string> = {
-    generating: "分支生成中",
-    ready: "分支学习中",
+    generating: "资源准备中",
+    ready: "资源学习中",
     completed: "已完成学习",
     skipped: "已跳过",
-    failed: "分支生成失败",
+    failed: "资源加载失败",
+  };
+  const kindLabel: Record<AdaptiveBranchOutline["kind"], string> = {
+    prerequisite: "先决知识回顾",
+    "worked-example": "新例题",
+    application: "应用举例",
+    extension: "拓展与思考",
   };
   return (
     <article className={cn("rounded-[10px] border bg-white p-4", triggered ? "border-emerald-200" : evaluation ? "border-amber-200" : "border-stone-200")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone={branch.kind === "extension" ? "blue" : "orange"}>{branch.kind === "extension" ? "拓展分支" : "补基础分支"}</Pill>
-            <span className="text-xs font-semibold text-stone-400">触发位置：{sceneTitle}</span>
+            <Pill tone={branch.kind === "prerequisite" ? "orange" : "blue"}>{kindLabel[branch.kind]}</Pill>
+            <span className="text-xs font-semibold text-stone-400">插入位置：{branch.trigger?.placement === "before-main-course" ? "正式主课开始前" : sceneTitle}</span>
           </div>
           <h4 className="mt-2 font-black text-stone-900">{branch.title}</h4>
           <p className="mt-1 text-xs text-stone-500">{branch.objective}</p>
@@ -575,18 +534,18 @@ function TriggerAuditCard({
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
             <p>实时快照 · {evaluation.reason}</p>
             <p>
-              分支成品：
+              资源成品：
               {branch.preparedResource?.status === "ready"
                 ? `已准备（${branch.preparedResource.scenesCount ?? 1} 页）`
                 : branch.preparedResource?.status === "failed"
-                  ? "预生成失败，将运行时兜底"
+                  ? "预生成失败，课堂中将直接跳过"
                   : "尚未生成"}
             </p>
           </div>
         </>
       ) : (
         <div className="mt-3 rounded-[7px] border border-stone-200 bg-stone-50 p-3 text-xs text-stone-500">
-          学生完成前测后，系统将在这里显示层次、分数、到达页面和自适应预算的实时实际值。
+          学生完成前测后，系统将在这里显示知识缺口、模块分数、到达页面、内容去重与剩余预算的实际值。
         </div>
       )}
     </article>

@@ -2,6 +2,7 @@ import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js'
 import type { FederatedPointerEvent } from 'pixi.js'
 import type { AgentActionName } from '@/assets/agent'
 import type { AgentId } from '@/domain/studio'
+import type { VisualAnchorName } from './person'
 
 export type StudyZoneId = 'library' | 'planning' | 'archive'
 export type StudyZonePosture = 'normal' | 'crouched'
@@ -14,6 +15,8 @@ export type StudyZoneDefinition = {
   displayWidth: number
   approachPoint: { x: number; y: number }
   interactionPoint: { x: number; y: number }
+  actionAnchor?: VisualAnchorName
+  actionAnchorPoint?: { x: number; y: number }
   action: AgentActionName
   interactionActions: readonly AgentActionName[]
   posture: StudyZonePosture
@@ -60,6 +63,10 @@ export const studyZoneDefinitions = {
     displayWidth: 300,
     approachPoint: { x: 400, y: 754 },
     interactionPoint: { x: 195, y: 770 },
+    // Keep the visible placement unchanged while pinning the interaction to
+    // the torso/scarf junction instead of the full 192x208 canvas bounds.
+    actionAnchor: 'bodyCore',
+    actionAnchorPoint: { x: 205, y: 707 },
     action: 'organizing_files',
     interactionActions: ['organizing_files'],
     posture: 'normal',

@@ -39,6 +39,11 @@ import { cn } from "@/lib/utils";
 import { evaluateStageGate } from "@/lib/classroom/stage-gates";
 import { makeRecordId } from "@/lib/session/actions";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
+import type { Course } from "@/lib/session/types";
+import {
+  isProjectLaunchStage,
+  projectLaunchProgress,
+} from "@/lib/project-launch-readiness";
 
 type ToolPanel = "timer" | "invite" | "students" | null;
 
@@ -107,9 +112,16 @@ export default function TeachClassroomPage() {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   const timerText = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  const progressForCurrentStage = (student: Course["students"][number]) => {
+    if (!currentStage) return 0;
+    if (!isProjectLaunchStage(currentStage)) {
+      return student.stageProgress[currentStage.key] ?? 0;
+    }
+    return projectLaunchProgress(course.todos ?? [], student.id);
+  };
   const stageCompletion = currentStage
     ? Math.round(
-        course.students.reduce((sum, student) => sum + (student.stageProgress[currentStage.key] ?? 0), 0) /
+        course.students.reduce((sum, student) => sum + progressForCurrentStage(student), 0) /
           Math.max(1, course.students.length),
       )
     : 0;
@@ -122,7 +134,7 @@ export default function TeachClassroomPage() {
           if (!members.length) return null;
           const avg = members.reduce((sum, member) => {
             const student = course.students.find((item) => item.id === member.studentId);
-            return sum + (student?.stageProgress[currentStage.key] ?? 0);
+            return sum + (student ? progressForCurrentStage(student) : 0);
           }, 0) / members.length;
           return { group, avg };
         })
@@ -140,7 +152,7 @@ export default function TeachClassroomPage() {
       { range: "75-100%", min: 75, max: 101, count: 0, tone: "emerald" as const },
     ];
     course.students.forEach((s) => {
-      const p = s.stageProgress[currentStage.key] ?? 0;
+      const p = progressForCurrentStage(s);
       const bucket = buckets.find((b) => p >= b.min && p < b.max) ?? buckets[buckets.length - 1];
       bucket.count += 1;
     });
@@ -691,7 +703,14 @@ function StudentsPanel({
               return 0;
             })
             .map((s) => {
-              const progress = currentStageKey ? s.stageProgress[currentStageKey] ?? 0 : 0;
+              const currentStage = course.stages.find(
+                (stage) => stage.key === currentStageKey,
+              );
+              const progress = currentStage && isProjectLaunchStage(currentStage)
+                ? projectLaunchProgress(course.todos ?? [], s.id)
+                : currentStageKey
+                  ? s.stageProgress[currentStageKey] ?? 0
+                  : 0;
               const sOnline = isStudentOnline(s);
               return (
                 <li

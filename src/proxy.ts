@@ -6,7 +6,7 @@
 // When configured:
 //   - /teacher/* requires a valid teacher JWT, else redirect to /teacher/login
 //   - /student/* requires a valid student JWT, else redirect to / (home with join form)
-//   - /api/teacher/* / /api/uploads POST / /api/session/actions sensitive actions
+//   - teacher APIs, upload writes, and course actions
 //     require proper role; unauthenticated → 401
 //   - /api/openmaic/provider-config POST/DELETE requires teacher role
 //
@@ -14,6 +14,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { hasValidProxyAuthClaims } from "@/lib/auth/proxy-claims";
 
 export const config = {
   matcher: [
@@ -23,8 +24,9 @@ export const config = {
     // /student 裸路径是公开入口页（输入邀请码），不经过 middleware；
     // 仅 /student/* 子路径（classroom、ai-learning）需要认证。
     "/student/:path*",
-    "/api/session",
-    "/api/session/:path*",
+    "/api/:path*",
+    "/api/courses",
+    "/api/courses/:path*",
     "/api/uploads",
     "/api/uploads/:path*",
     "/api/teacher-directives",
@@ -57,10 +59,11 @@ async function verifyCookie(
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret, {
+      algorithms: ["HS256"],
       issuer: "openpbl",
       audience: "openpbl-app",
     });
-    if (payload.role !== "teacher" && payload.role !== "student") return null;
+    if (!hasValidProxyAuthClaims(payload)) return null;
     return payload as { role: "teacher" | "student"; [k: string]: unknown };
   } catch {
     return null;
@@ -82,7 +85,11 @@ export async function proxy(req: NextRequest) {
   // ---------- Page guards ----------
   // 注意：pathname.startsWith("/teacher/") 不匹配裸路径 "/teacher"，
   // 需要显式检查裸路径。
-  if ((pathname === "/teacher" || pathname.startsWith("/teacher/")) && pathname !== LOGIN_PATH) {
+  if (
+    (pathname === "/teacher" || pathname.startsWith("/teacher/")) &&
+    pathname !== LOGIN_PATH &&
+    pathname !== "/teacher/register"
+  ) {
     const token = readCookie(req, TEACHER_COOKIE);
     const claims = await verifyCookie(token ?? "", secret);
     if (!claims || claims.role !== "teacher") {
@@ -115,6 +122,23 @@ export async function proxy(req: NextRequest) {
 
     const isTeacher = !!teacherClaims && teacherClaims.role === "teacher";
     const isStudent = !!studentClaims && studentClaims.role === "student";
+    const publicApi =
+      pathname === "/api/auth/login" ||
+      pathname === "/api/auth/join" ||
+      pathname === "/api/auth/logout" ||
+      pathname === "/api/auth/me" ||
+      pathname === "/api/auth/register" ||
+      pathname === "/api/health/live";
+    const internallyProtectedApi =
+      pathname === "/api/health/ready" ||
+      pathname === "/api/metrics" ||
+      pathname.startsWith("/api/load-test/");
+    if (!publicApi && !internallyProtectedApi && !isTeacher && !isStudent) {
+      return NextResponse.json(
+        { code: "UNAUTHORIZED", message: "Authentication required." },
+        { status: 401 },
+      );
+    }
 
     // Teacher-only APIs
     if (
@@ -129,9 +153,9 @@ export async function proxy(req: NextRequest) {
       }
     }
 
-    // Session API (GET /api/session 和 POST /api/session/actions):
-    // 允许教师或学生身份，权限矩阵在路由处理器内部细化。
-    if (pathname === "/api/session" || pathname.startsWith("/api/session/")) {
+    // Course APIs allow either authenticated role. Route handlers enforce the
+    // course, group, and resource-level authorization boundaries.
+    if (pathname === "/api/courses" || pathname.startsWith("/api/courses/")) {
       if (!isTeacher && !isStudent) {
         return NextResponse.json(
           { error: "UNAUTHORIZED", message: "请先登录" },

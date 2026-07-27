@@ -5,11 +5,9 @@ import { useParams } from "next/navigation";
 import { useRef, useState } from "react";
 import {
   ArrowLeft,
-  Check,
   CircleAlert,
   Image as ImageIcon,
   Lightbulb,
-  Loader2,
   Search,
   Video,
   Volume2,
@@ -42,6 +40,16 @@ import { requestCourseCoverImage } from "@/lib/course-cover";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
+import { selectAdaptiveBranchesForGeneration } from "@/lib/teacher/adaptive-resource-generation";
+import {
+  CourseGenerationStage,
+  type CourseGenerationProgressStep,
+} from "@/components/teacher/course-generation-stage";
+import {
+  currentGenerationProgress,
+  mapAdaptiveGenerationProgress,
+  mapPrimaryGenerationProgress,
+} from "@/lib/teacher/course-generation-progress";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -63,13 +71,6 @@ type GenResult = {
   stage: { id: string; name: string };
 };
 
-type ProgressStep = {
-  step: string;
-  progress: number;
-  message: string;
-  ts: number;
-};
-
 type SseEvent =
   | { type: "progress"; step: string; progress: number; message: string }
   | {
@@ -87,15 +88,6 @@ type SseEvent =
   | { type: "error"; error?: string; details?: string };
 
 const SCENE_OUTLINE_TYPES = new Set(["slide", "quiz", "interactive", "pbl"]);
-const GENERATION_TIMELINE = [
-  { label: "整理课程结构", threshold: 10 },
-  { label: "生成学习场景", threshold: 30 },
-  { label: "补充教学素材", threshold: 50 },
-  { label: "配置互动活动", threshold: 70 },
-  { label: "检查教学目标覆盖", threshold: 88 },
-  { label: "准备课程预览", threshold: 100 },
-];
-
 function normalizeSceneOutline(outline: unknown, index: number): SceneOutline {
   const raw = outline && typeof outline === "object" ? outline as Record<string, unknown> : {};
   const type = typeof raw.type === "string" && SCENE_OUTLINE_TYPES.has(raw.type)
@@ -245,7 +237,8 @@ export default function GenerateCoursePage() {
   const [status, setStatus] = useState<GenStatus>("loading");
   const [result, setResult] = useState<GenResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [steps, setSteps] = useState<ProgressStep[]>([]);
+  const [steps, setSteps] = useState<CourseGenerationProgressStep[]>([]);
+  const [generationRun, setGenerationRun] = useState(0);
   const startedRef = useRef(false);
   // 生成选项开关（Phase 2.6-2.8：media/TTS/WebSearch 阶段）
   const [enableWebSearch, setEnableWebSearch] = useState(false);
@@ -258,6 +251,17 @@ export default function GenerateCoursePage() {
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
   const pblCoverage = checkPblStageCoverage(course ? buildConfirmedSceneOutlines() : []);
+  const adaptiveBranchCount =
+    course?.content.adaptiveLearningPlan?.enabled &&
+    course.content.adaptiveLearningPlan.status === "teacher-confirmed"
+      ? course.content.adaptiveLearningPlan.branches.filter(
+          (branch) => branch.status === "teacher-confirmed",
+        ).length
+      : 0;
+  const generationProgress = currentGenerationProgress(
+    steps.map((step) => step.progress),
+    status === "success",
+  );
   function buildRequirement(): string {
     return course
       ? buildPblCourseRequirement(course, course.content, buildConfirmedSceneOutlines())
@@ -280,20 +284,63 @@ export default function GenerateCoursePage() {
     const plan = course?.content.adaptiveLearningPlan;
     if (!course || !plan?.enabled || plan.status !== "teacher-confirmed") return plan;
     const activeCourse = course;
-    const branches = plan.branches.filter((branch) => branch.status === "teacher-confirmed");
-    if (!branches.length) return plan;
+    const confirmedBranches = plan.branches.filter(
+      (branch) => branch.status === "teacher-confirmed",
+    );
+    const branches = selectAdaptiveBranchesForGeneration(confirmedBranches);
+    if (!branches.length) {
+      if (confirmedBranches.length > 0) {
+        setSteps((previous) => [
+          ...previous,
+          {
+            step: "自适应资源已就绪",
+            progress: 98,
+            message: `已复用 ${confirmedBranches.length} 个完成生成的自适应分支，无需重复处理。`,
+            ts: Date.now(),
+          },
+        ]);
+      }
+      return plan;
+    }
+    const reusedCount = confirmedBranches.length - branches.length;
 
     setSteps((previous) => [
       ...previous,
       {
         step: "自适应分支资源",
-        progress: 92,
-        message: `开始生成 ${branches.length} 个教师已确认分支，最多同时处理 2 个`,
+        progress: 86,
+        message: reusedCount > 0
+          ? `复用 ${reusedCount} 个已就绪分支，仅生成 ${branches.length} 个缺失或失效分支`
+          : `开始生成 ${branches.length} 个教师已确认分支，最多同时处理 2 个`,
         ts: Date.now(),
       },
     ]);
 
     const resources = new Map<string, NonNullable<typeof branches[number]["preparedResource"]>>();
+    const branchProgress = new Map(branches.map((branch) => [branch.id, 0]));
+    const reportAdaptiveProgress = (
+      branchId: string,
+      progress: number,
+      step: string,
+      message: string,
+    ) => {
+      branchProgress.set(
+        branchId,
+        Math.max(
+          branchProgress.get(branchId) ?? 0,
+          Math.max(0, Math.min(100, progress)),
+        ),
+      );
+      setSteps((previous) => [
+        ...previous,
+        {
+          step,
+          progress: mapAdaptiveGenerationProgress(branchProgress.values()),
+          message,
+          ts: Date.now(),
+        },
+      ]);
+    };
     let cursor = 0;
     async function worker() {
       while (cursor < branches.length) {
@@ -302,10 +349,12 @@ export default function GenerateCoursePage() {
           const generated = await generateAdaptiveClassroom({
             title: `${activeCourse.name} · ${branch.title}`,
             requirement: [
-              `生成一个可由教师预览、可无缝插入主课程的${branch.kind === "foundation" ? "补基础" : "拓展"}分支。`,
+              `生成一份可由教师预览、可在同一播放器中连续插入主课程的${branch.kind === "prerequisite" ? "先决知识回顾" : "额外学习"}资源。`,
               `主课程：${activeCourse.name}`,
               `分支目标：${branch.objective}`,
               `知识要点：${branch.keyPoints.join("；")}`,
+              `相对主课新增价值：${branch.noveltyStatement}`,
+              `潜在重叠主课页：${branch.mainCourseOverlapSceneIds.join("、") || "无"}。不得复述这些页面已经讲过的定义、回顾、例题和结论。`,
               `教师指导：${branch.generationGuidance || "遵循分支目标与课程原有教学风格。"}`,
               `总时长控制在 ${branch.targetDurationSec} 秒左右，结尾自然返回主课程。`,
               "必须生成完整 PPT/互动内容、讲稿和 TTS，使用与主课程相同的播放管线。",
@@ -321,17 +370,22 @@ export default function GenerateCoursePage() {
               knowledgePointIds: branch.anchorKnowledgePointIds,
             }],
             onProgress: ({ progress, message }) => {
-              setSteps((previous) => [
-                ...previous,
-                {
-                  step: branch.kind === "foundation" ? "生成补基础分支" : "生成拓展分支",
-                  progress: Math.min(99, 92 + Math.round(progress * 0.07)),
-                  message: `${branch.title}：${message}`,
-                  ts: Date.now(),
-                },
-              ]);
+              reportAdaptiveProgress(
+                branch.id,
+                progress,
+                branch.kind === "prerequisite"
+                  ? "生成先决知识资源"
+                  : "生成额外学习资源",
+                `${branch.title}：${message}`,
+              );
             },
           });
+          reportAdaptiveProgress(
+            branch.id,
+            100,
+            "自适应资源已完成",
+            `${branch.title} 已生成并接入主课程播放流程。`,
+          );
           resources.set(branch.id, {
             status: "ready",
             classroomId: generated.classroomId,
@@ -340,20 +394,17 @@ export default function GenerateCoursePage() {
           });
         } catch (cause) {
           const error = cause instanceof Error ? cause.message : "分支生成失败";
+          reportAdaptiveProgress(
+            branch.id,
+            100,
+            "自适应资源生成失败",
+            `${branch.title}：${error}`,
+          );
           resources.set(branch.id, {
             status: "failed",
             generatedAt: new Date().toISOString(),
             error,
           });
-          setSteps((previous) => [
-            ...previous,
-            {
-              step: "自适应分支生成失败",
-              progress: 99,
-              message: `${branch.title}：${error}。课堂运行时不会现场生成；请在发布前重新生成该资源。`,
-              ts: Date.now(),
-            },
-          ]);
         }
       }
     }
@@ -378,6 +429,8 @@ export default function GenerateCoursePage() {
       return;
     }
     setStatus("loading");
+    setGenerationRun((current) => current + 1);
+    setResult(null);
     setError(null);
     setSteps([]);
 
@@ -475,7 +528,7 @@ export default function GenerateCoursePage() {
               ...prev,
               {
                 step: evt.step,
-                progress: evt.progress,
+                progress: mapPrimaryGenerationProgress(evt.progress),
                 message: evt.message,
                 ts: Date.now(),
               },
@@ -509,7 +562,7 @@ export default function GenerateCoursePage() {
           ...prev,
           {
             step: "内容分流",
-            progress: 100,
+            progress: 84,
             message: "正在拆分学生课堂与教师授课资源...",
             ts: Date.now(),
           },
@@ -552,13 +605,13 @@ export default function GenerateCoursePage() {
             ...prev,
             {
               step: "内容分流完成",
-              progress: 100,
+              progress: 86,
               message: `学生 ${splitResult.studentSceneCount} 场 · 普通课堂活动 ${splitResult.teacherSceneCount} 场`,
               ts: Date.now(),
             },
             {
               step: "PBL 阶段覆盖检查",
-              progress: 100,
+              progress: 99,
               message: splitResult.pblCoverage.ok
                 ? "六阶段覆盖与学生/教师分流符合课程契约"
                 : `需要教师复核：${[
@@ -577,7 +630,7 @@ export default function GenerateCoursePage() {
           ...prev,
           {
             step: "内容分流",
-            progress: 100,
+            progress: 86,
             message: `分流失败：${splitMessage}`,
             ts: Date.now(),
           },
@@ -585,6 +638,15 @@ export default function GenerateCoursePage() {
         throw new Error(`内容分流失败：${splitMessage}`);
       }
 
+      setSteps((previous) => [
+        ...previous,
+        {
+          step: "课程生成完成",
+          progress: 100,
+          message: "课程内容、自适应资源与教师支架已保存，可以进入预览。",
+          ts: Date.now(),
+        },
+      ]);
       setStatus("success");
 
     } catch (err) {
@@ -706,108 +768,14 @@ export default function GenerateCoursePage() {
 
           </Card>
         ) : (
-          <Card>
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold">生成状态</h2>
-              {status === "loading" && steps.length > 0 ? (
-                <span className="text-xs font-semibold text-stone-500">
-                  已接收 {steps.length} 条进度
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex items-start gap-4 rounded-[8px] border border-stone-200 px-4 py-4">
-              <span
-                className={cn(
-                  "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
-                  status === "loading" && "bg-blue-600 text-white",
-                  status === "success" && "bg-[var(--pbl-success)] text-white",
-                  status === "error" && "bg-[var(--pbl-danger)] text-white",
-                )}
-              >
-                {status === "loading" ? (
-                  <Loader2 className="animate-spin" size={16} />
-                ) : status === "success" ? (
-                  <Check size={16} />
-                ) : (
-                  <CircleAlert size={16} />
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div
-                  className={cn(
-                    "text-sm font-bold",
-                    status === "loading" && "text-blue-700",
-                    status === "success" && "text-[var(--pbl-success)]",
-                    status === "error" && "text-[var(--pbl-danger)]",
-                  )}
-                >
-                  {status === "loading"
-                    ? "正在生成课程内容..."
-                    : status === "success"
-                      ? "生成完成，等待教师确认"
-                      : "生成失败"}
-                </div>
-                <div className="mt-1 text-sm leading-7 text-stone-500">
-                  {status === "loading"
-                    ? "AI 正在根据课程信息生成完整授课内容，预计需要 1-5 分钟，请勿关闭页面。"
-                    : status === "success" && result
-                      ? `已生成 ${result.scenesCount} 个场景，阶段：${result.stage.name}`
-                      : error ?? "请重试或检查 LLM 配置"}
-                </div>
-              </div>
-            </div>
-
-            {/* 实时进度步骤列表 */}
-            {steps.length > 0 ? (
-              <div className="mt-5">
-                <h3 className="mb-3 text-sm font-semibold text-[var(--pbl-text)]">生成任务</h3>
-                <ol className="divide-y divide-[var(--pbl-border-soft)] border-y border-[var(--pbl-border)]">
-                  {GENERATION_TIMELINE.map((item, index) => { const progress = Math.max(0, ...steps.map((step) => step.progress)); const complete = status === "success" || progress >= item.threshold; const active = !complete && (index === 0 || progress >= GENERATION_TIMELINE[index - 1].threshold); return <li className="flex items-center gap-3 py-3 text-sm" key={item.label}><span className={cn("grid h-6 w-6 place-items-center rounded-full border text-xs", complete ? "border-[var(--pbl-success)] bg-[var(--pbl-success)] text-white" : active ? "border-[var(--pbl-ai)] text-[var(--pbl-ai)]" : "border-[var(--pbl-border-strong)] text-[var(--pbl-text-subtle)]")}>{complete ? <Check size={13} /> : index + 1}</span><span className={complete || active ? "font-semibold" : "text-[var(--pbl-text-muted)]"}>{item.label}</span>{active && status === "loading" ? <Loader2 className="ml-auto animate-spin text-[var(--pbl-ai)]" size={15} /> : null}</li>; })}
-                </ol>
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-[var(--pbl-text-muted)]">查看详细生成日志</summary>
-                <ol className="max-h-72 space-y-1 overflow-y-auto rounded-[6px] border border-stone-100 bg-stone-50/50 p-3 text-xs">
-                  {steps.map((s, i) => (
-                    <li
-                      key={`${s.ts}-${i}`}
-                      className="flex items-start gap-2 border-b border-stone-100 pb-1 last:border-0 last:pb-0"
-                    >
-                      <span className="shrink-0 font-bold text-blue-600">
-                        [{String(s.progress).padStart(3, " ")}%]
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-stone-700">{s.step}</div>
-                        {s.message ? (
-                          <div className="truncate text-stone-500" title={s.message}>
-                            {s.message}
-                          </div>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                </details>
-              </div>
-            ) : null}
-
-            {status === "success" && result ? (
-              <div className="mt-5 border-t border-[var(--pbl-border)] pt-5">
-                {result.qualityReport && (result.qualityReport.corrections.length > 0 || result.qualityReport.warnings.length > 0) ? (
-                  <details className="mb-4 rounded-[var(--radius-xs)] border border-[var(--pbl-warning)]/30 bg-[var(--pbl-warning)]/5 px-4 py-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-[var(--pbl-text)]">教学质量检查：已自动修复 {result.qualityReport.corrections.length} 项，仍有 {result.qualityReport.warnings.length} 项建议复核</summary>
-                    <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-[var(--pbl-text-muted)]">
-                      {result.qualityReport.corrections.map((item) => <li key={`fix-${item}`}>已修复：{item}</li>)}
-                      {result.qualityReport.warnings.map((item) => <li key={`warn-${item}`}>建议：{item}</li>)}
-                    </ul>
-                  </details>
-                ) : null}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-[var(--pbl-text-muted)]">已保留生成结果，不会自动离开本页。请查看摘要后主动进入预览。</p>
-                </div>
-              </div>
-            ) : null}
-          </Card>
+          <CourseGenerationStage
+            adaptiveBranchCount={adaptiveBranchCount}
+            error={error}
+            key={generationRun}
+            result={result}
+            status={status}
+            steps={steps}
+          />
         )}
 
         <aside className="space-y-5">
@@ -839,7 +807,45 @@ export default function GenerateCoursePage() {
           </Card>
         </aside>
       </div>
-      <FlowActionBar persistent back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/verify`}>上一步</Link>} saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}>{status === "success" && result ? <Link className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white" href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}>进入预览与发布</Link> : <Button disabled={started && status === "loading"} loading={started && status === "loading"} onClick={started ? () => void startGeneration() : beginGeneration}>{started && status === "error" ? "重新生成" : "生成课程内容"}</Button>}</FlowActionBar>
+      <FlowActionBar
+        persistent
+        back={(
+          <Link
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]"
+            href={`/teacher/prepare/${course.id}/verify`}
+          >
+            上一步
+          </Link>
+        )}
+        saveStatus={(
+          <SaveStatus
+            lastSavedAt={session.lastSavedAt}
+            onRetry={() => void session.retrySave()}
+            state={session.saveState}
+          />
+        )}
+      >
+        {status === "success" && result ? (
+          <Link
+            className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white"
+            href={`/teacher/prepare/${course.id}/preview?classroomId=${result.id}`}
+          >
+            进入预览与发布
+          </Link>
+        ) : (
+          <Button
+            disabled={started && status === "loading"}
+            loading={started && status === "loading"}
+            onClick={started ? () => void startGeneration() : beginGeneration}
+          >
+            {!started
+              ? "生成课程内容"
+              : status === "error"
+                ? "重新生成课程"
+                : `正在生成 · ${generationProgress}%`}
+          </Button>
+        )}
+      </FlowActionBar>
     </DashboardShell>
   );
 }

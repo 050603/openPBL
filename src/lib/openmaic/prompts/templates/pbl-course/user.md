@@ -18,10 +18,17 @@ Use this provider/model/voice rate before deciding student AI-learning narration
 
 ## Output planning rules
 
+### Mandatory knowledge-block assessment cadence
+
+- Divide student `ai-learning` into coherent knowledge blocks by dependency and `knowledgePointIds`.
+- Every knowledge block MUST end with a short `quiz` scene (normally 1–3 focused questions) using the same `knowledgePointIds`. The quiz must test the block that immediately precedes it.
+- Do not replace these checkpoint quizzes with one comprehensive quiz at the end. A final synthesis quiz may be added only after all required block-level quizzes.
+- Keep question reading, answering, feedback, and any adaptive follow-up inside the confirmed parent duration. Do not increase course time to add checkpoints.
+
 {{#if interactiveMode}}
 ### Interactive mode — mandatory explanation-practice cadence in student AI-learning
 
-- This is a structural constraint, not a style preference. Every coherent knowledge block must follow this rhythm: `slide` explanation (one or at most two closely related semantic pages) → one related `interactive` practice. Repeat that rhythm for the next knowledge block, then optionally finish with a comprehensive `quiz` or synthesis.
+- This is a structural constraint, not a style preference. Every coherent knowledge block must follow this rhythm: `slide` explanation (one or at most two closely related semantic pages) → one related `interactive` practice → the mandatory block-level `quiz`. Repeat that rhythm for the next knowledge block, then optionally finish with a comprehensive synthesis.
 - Slides remain responsible for explaining concepts, examples, evidence, and stable references. Do not replace all slides with widgets. After each one- or two-slide explanation block, however, the next student learning detail MUST be `type: "interactive"` and MUST apply, consolidate, or check transfer of the immediately preceding `knowledgePointIds`.
 - A `quiz` is an assessment and does NOT satisfy the interaction requirement. Do not produce slide-only or slide/quiz-only AI-learning sequences while this mode is enabled.
 - If there is any student `ai-learning` knowledge content, generate at least one interactive practice. Longer AI-learning modules must contain repeated explanation-practice pairs rather than placing all interactions at the end.

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import WebSocket from "ws";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { signStudentToken } from "@/lib/auth/session";
 import {
   __resetEventBusForTests,
@@ -11,6 +11,10 @@ import {
   closeWebSocketServer,
   startWebSocketServer,
 } from "./websocket-server";
+
+vi.mock("@/lib/auth/session-version", () => ({
+  hasCurrentSessionVersion: vi.fn().mockResolvedValue(true),
+}));
 
 const JWT_SECRET = "test-secret-that-is-longer-than-thirty-two-characters";
 
@@ -35,6 +39,7 @@ describe("realtime WebSocket authorization", () => {
       courseId: "course-allowed",
       studentId: "student-1",
       studentName: "Student",
+      sessionVersion: 1,
     });
     const headers = { Cookie: `${cookieName}=${encodeURIComponent(token)}` };
 
@@ -50,15 +55,18 @@ describe("realtime WebSocket authorization", () => {
     allowed.send(JSON.stringify({ type: "subscribe", courseId: "course-allowed" }));
     await subscribed;
 
-    const invalidation = waitForMessage(allowed, "course-invalidated");
+    const courseEvent = waitForMessage(allowed, "course-event");
     await publishCourseEvent("course-allowed", {
       type: "course-updated",
       courseId: "course-allowed",
       at: "2026-07-23T00:00:00.000Z",
     });
-    expect(await invalidation).toMatchObject({
+    expect(await courseEvent).toMatchObject({
       courseId: "course-allowed",
-      version: "2026-07-23T00:00:00.000Z",
+      event: {
+        type: "course-updated",
+        at: "2026-07-23T00:00:00.000Z",
+      },
     });
     allowed.close();
 

@@ -93,16 +93,12 @@ export function AiGenerationOverlay({ kind, hint }: Props) {
   const visible = kind !== null;
   const config = kind ? TASK_STAGES[kind] : TASK_STAGES.generic;
   const [elapsed, setElapsed] = useState(0);
-  const [stageIndex, setStageIndex] = useState(0);
 
   // 计时器：每 100ms 更新已用时间
   useEffect(() => {
-    if (!visible) {
-      setElapsed(0);
-      setStageIndex(0);
-      return;
-    }
+    if (!visible) return;
     const start = Date.now();
+    queueMicrotask(() => setElapsed(0));
     const timer = setInterval(() => {
       setElapsed(Date.now() - start);
     }, 100);
@@ -111,18 +107,16 @@ export function AiGenerationOverlay({ kind, hint }: Props) {
 
   // 阶段滚动：根据已用时间占总权重时间的比例推进
   const totalWeight = config.stages.reduce((sum, s) => sum + s.weight, 0);
-  useEffect(() => {
-    if (!visible) return;
-    // 假设每个 weight 单位 ≈ 4 秒，总时长 ≈ totalWeight * 4 秒
-    const totalSeconds = totalWeight * 4;
-    const elapsedSeconds = elapsed / 1000;
-    const ratio = Math.min(0.95, elapsedSeconds / totalSeconds);
-    const targetIndex = Math.min(
-      config.stages.length - 1,
-      Math.floor(ratio * config.stages.length),
-    );
-    setStageIndex(targetIndex);
-  }, [elapsed, visible, totalWeight, config.stages.length]);
+  // 假设每个 weight 单位 ≈ 4 秒，总时长 ≈ totalWeight * 4 秒。
+  // This is derived render state; storing it separately caused an avoidable
+  // effect/render cascade and could briefly display a stale stage.
+  const totalSeconds = totalWeight * 4;
+  const elapsedSeconds = elapsed / 1000;
+  const ratio = Math.min(0.95, elapsedSeconds / totalSeconds);
+  const stageIndex = Math.min(
+    config.stages.length - 1,
+    Math.floor(ratio * config.stages.length),
+  );
 
   if (!visible) return null;
 

@@ -1,6 +1,39 @@
-import type { Course, CourseTodo, ProjectGroup } from "@/lib/session/types";
+import type { Course, CourseTodo, ProjectGroup, Stage } from "@/lib/session/types";
 
 export type LaunchTodoKind = "resources" | "personal-space" | "topic" | "other";
+
+const PROJECT_LAUNCH_KEYS = new Set([
+  "launch",
+  "project-launch",
+  "project-start",
+  "start",
+  "introduction",
+]);
+
+export function isProjectLaunchStage(
+  stage: Pick<Stage, "key" | "view"> | undefined,
+): boolean {
+  return Boolean(
+    stage &&
+      (stage.view === "project-launch" || PROJECT_LAUNCH_KEYS.has(stage.key)),
+  );
+}
+
+export function isProjectLaunchTodo(todo: Pick<CourseTodo, "stageKey">): boolean {
+  return !todo.stageKey || PROJECT_LAUNCH_KEYS.has(todo.stageKey);
+}
+
+export function projectLaunchProgress(
+  todos: readonly CourseTodo[],
+  studentId: string,
+): number {
+  const launchTodos = todos.filter(isProjectLaunchTodo);
+  if (launchTodos.length === 0) return 100;
+  const completed = launchTodos.filter((todo) =>
+    todo.completedBy.includes(studentId),
+  ).length;
+  return Math.round((completed / launchTodos.length) * 100);
+}
 
 export function getLaunchTodoKind(todo: CourseTodo): LaunchTodoKind {
   const text = `${todo.id} ${todo.title}`.toLowerCase();

@@ -113,7 +113,7 @@ function toRgb(color: string): [number, number, number] {
   return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff]
 }
 
-function getRoleScarfShade(
+export function getRoleScarfShade(
   red: number,
   green: number,
   blue: number,
@@ -123,15 +123,20 @@ function getRoleScarfShade(
     return null
   }
 
+  const maxChannel = Math.max(red, green, blue)
+  const minChannel = Math.min(red, green, blue)
+  const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel
   const legacyRed = red > 90
     && red > green * 1.45
     && red > blue * 1.45
     && green < 110
     && blue < 110
+    && saturation >= 0.45
   const openPblBlue = blue > 105
-    && blue > red * 1.25
-    && blue > green * 1.08
+    && blue - red >= 52
+    && blue - green >= 26
     && red < 105
+    && saturation >= 0.42
 
   if (legacyRed) {
     return red / 229

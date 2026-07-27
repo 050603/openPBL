@@ -1,0 +1,564 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db/client";
+import type { AuthClaims } from "@/lib/auth/session";
+import { isActionAllowed, isStudentActionForSelf } from "@/lib/auth/action-permissions";
+import type { SessionAction } from "@/lib/session/actions";
+import { dispatchAction as dispatchLegacyAction } from "@/lib/db/session-repository";
+import { publishCourseEvent } from "@/lib/realtime/event-bus";
+import { runMutationTransaction } from "@/lib/db/transaction-retry";
+import type { ActionAck, ActionEnvelope } from "./contracts";
+
+const DIRECT_ACTIONS = new Set<SessionAction["type"]>([
+  "UPSERT_SUBMISSION",
+  "UPDATE_STUDENT_PROGRESS",
+  "SET_STUDENT_TODO_COMPLETION",
+  "MARK_RESOURCE_DOWNLOADED",
+  "ADD_ANNOUNCEMENT_REPLY",
+  "JOIN_GROUP",
+  "LEAVE_GROUP",
+]);
+
+export class CourseActionError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+    readonly details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export async function executeCourseAction(
+  courseId: string,
+  envelope: ActionEnvelope,
+  claims: AuthClaims,
+): Promise<ActionAck> {
+  const action = envelope.action;
+  if (!isActionAllowed(claims.role, action.type)) {
+    throw new CourseActionError("FORBIDDEN_ACTION", "Action is not allowed for this role.", 403);
+  }
+  if (
+    claims.role === "student" &&
+    (!isStudentActionForSelf(action, claims.studentId, claims.courseId) ||
+      claims.courseId !== courseId)
+  ) {
+    throw new CourseActionError("FORBIDDEN", "Action is outside the signed-in course or student.", 403);
+  }
+
+  const existing = await prisma.courseMutationReceipt.findUnique({
+    where: { requestId: envelope.requestId },
+  });
+  if (existing) return receiptToAck(existing);
+
+  if (DIRECT_ACTIONS.has(action.type)) {
+    const ack = await executeDirect(courseId, envelope, claims);
+    await publishAckEvent(courseId, action.type, ack);
+    return ack;
+  }
+  const ack = await executeLegacyWithReservation(courseId, envelope, claims);
+  await publishAckEvent(courseId, action.type, ack);
+  return ack;
+}
+
+async function executeDirect(
+  courseId: string,
+  envelope: ActionEnvelope,
+  claims: AuthClaims,
+): Promise<ActionAck> {
+  try {
+    return await runMutationTransaction(
+      async (tx) => {
+        // Serialize only this course's short mutation transaction. This keeps
+        // unrelated courses concurrent and prevents avoidable 40001 retries on
+        // the shared Course.version row.
+        await lockCourseMutation(tx, courseId);
+        await tx.courseMutationReceipt.create({
+          data: {
+            requestId: envelope.requestId,
+            courseId,
+            actorId: claims.sub!,
+          },
+        });
+        const course = await tx.course.findUnique({
+          where: { id: courseId },
+          select: { version: true },
+        });
+        if (!course) throw new CourseActionError("COURSE_NOT_FOUND", "Course not found.", 404);
+        if (
+          envelope.expectedVersion !== undefined &&
+          course.version !== envelope.expectedVersion
+        ) {
+          throw new CourseActionError(
+            "VERSION_CONFLICT",
+            "Course was updated by another request.",
+            409,
+            { currentVersion: course.version },
+          );
+        }
+
+        await applyDirectMutation(tx, courseId, envelope.action);
+        const updated = await tx.course.update({
+          where: { id: courseId },
+          data: { version: { increment: 1 } },
+          select: { version: true },
+        });
+        const event = await tx.courseEvent.create({
+          data: {
+            courseId,
+            requestId: envelope.requestId,
+            type: envelope.action.type,
+            actorId: claims.sub!,
+            actorRole: claims.role,
+            courseVersion: updated.version,
+          },
+          select: { cursor: true },
+        });
+        await tx.courseMutationReceipt.update({
+          where: { requestId: envelope.requestId },
+          data: {
+            status: "completed",
+            courseVersion: updated.version,
+            eventCursor: event.cursor,
+            completedAt: new Date(),
+          },
+        });
+        return {
+          requestId: envelope.requestId,
+          courseVersion: updated.version,
+          eventCursor: event.cursor.toString(),
+        };
+      },
+    );
+  } catch (error) {
+    return resolveDuplicateOrThrow(envelope.requestId, error);
+  }
+}
+
+async function applyDirectMutation(
+  tx: Prisma.TransactionClient,
+  courseId: string,
+  action: SessionAction,
+): Promise<void> {
+  if (action.type === "UPSERT_SUBMISSION") {
+    const submission = action.payload.submission;
+    await tx.classroomSubmission.upsert({
+      where: { courseId_id: { courseId, id: submission.id } },
+      create: {
+        id: submission.id,
+        courseId,
+        studentId: submission.studentId ?? "",
+        studentName: submission.studentName ?? "",
+        stageKey: submission.stageKey,
+        groupId: submission.groupId ?? null,
+        status: "draft",
+        payload: toJson({
+          type: submission.type,
+          title: submission.title,
+          content: submission.content,
+          files: submission.files,
+        }),
+      },
+      update: {
+        studentName: submission.studentName ?? "",
+        stageKey: submission.stageKey,
+        groupId: submission.groupId ?? null,
+        payload: toJson({
+          type: submission.type,
+          title: submission.title,
+          content: submission.content,
+          files: submission.files,
+        }),
+        version: { increment: 1 },
+      },
+    });
+    return;
+  }
+  if (action.type === "UPDATE_STUDENT_PROGRESS") {
+    const { studentId, stageKey, value } = action.payload;
+    const changed = await tx.$executeRaw`
+      UPDATE "Student"
+      SET "progress" = jsonb_set(
+            COALESCE("progress", '{}'::jsonb),
+            ARRAY[${stageKey}]::text[],
+            to_jsonb(${value}::double precision),
+            true
+          ),
+          "version" = "version" + 1,
+          "updatedAt" = NOW()
+      WHERE "courseId" = ${courseId} AND "id" = ${studentId}
+    `;
+    if (changed !== 1) {
+      throw new CourseActionError("STUDENT_NOT_FOUND", "Student not found.", 404);
+    }
+    return;
+  }
+  if (action.type === "SET_STUDENT_TODO_COMPLETION") {
+    const { todoId, studentId, completed } = action.payload;
+    const todo = await tx.courseTodo.findFirst({
+      where: { courseId, id: todoId },
+      select: { id: true },
+    });
+    if (!todo) {
+      throw new CourseActionError("TODO_NOT_FOUND", "Todo not found.", 404);
+    }
+    if (completed) {
+      await tx.todoCompletion.upsert({
+        where: {
+          courseId_todoId_studentId: { courseId, todoId, studentId },
+        },
+        create: { courseId, todoId, studentId },
+        update: { completedAt: new Date() },
+      });
+    } else {
+      await tx.todoCompletion.deleteMany({
+        where: { courseId, todoId, studentId },
+      });
+    }
+    const todoCompletions = await tx.todoCompletion.findMany({
+      where: { courseId, todoId },
+      select: { studentId: true },
+    });
+    await tx.courseTodo.update({
+      where: { id: todoId },
+      data: {
+        completedBy: toJson(todoCompletions.map((item) => item.studentId)),
+      },
+    });
+    const launchTodos = await tx.courseTodo.findMany({
+      where: {
+        courseId,
+        OR: [
+          { stageKey: null },
+          {
+            stageKey: {
+              in: ["launch", "project-launch", "project-start", "start", "introduction"],
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    const completedCount = launchTodos.length
+      ? await tx.todoCompletion.count({
+          where: {
+            courseId,
+            studentId,
+            todoId: { in: launchTodos.map((item) => item.id) },
+          },
+        })
+      : 0;
+    const launchProgress = launchTodos.length
+      ? Math.round((completedCount / launchTodos.length) * 100)
+      : 100;
+    const changed = await tx.$executeRaw`
+      UPDATE "Student"
+      SET "progress" = jsonb_set(
+            jsonb_set(
+              COALESCE("progress", '{}'::jsonb),
+              ARRAY['launch']::text[],
+              to_jsonb(${launchProgress}::double precision),
+              true
+            ),
+            ARRAY['project-launch']::text[],
+            to_jsonb(${launchProgress}::double precision),
+            true
+          ),
+          "version" = "version" + 1,
+          "updatedAt" = NOW()
+      WHERE "courseId" = ${courseId} AND "id" = ${studentId}
+    `;
+    if (changed !== 1) {
+      throw new CourseActionError("STUDENT_NOT_FOUND", "Student not found.", 404);
+    }
+    return;
+  }
+  if (action.type === "MARK_RESOURCE_DOWNLOADED") {
+    const { resourceId, studentId, studentName } = action.payload;
+    const resource = await tx.courseResource.findFirst({
+      where: { courseId, id: resourceId },
+      select: { id: true },
+    });
+    if (!resource) {
+      throw new CourseActionError("RESOURCE_NOT_FOUND", "Resource not found.", 404);
+    }
+    await tx.resourceDownload.upsert({
+      where: {
+        courseId_resourceId_studentId: { courseId, resourceId, studentId },
+      },
+      create: { courseId, resourceId, studentId, studentName },
+      update: { studentName, downloadedAt: new Date() },
+    });
+    return;
+  }
+  if (action.type === "ADD_ANNOUNCEMENT_REPLY") {
+    const { announcementId, reply } = action.payload;
+    const announcement = await tx.courseAnnouncement.findFirst({
+      where: { courseId, id: announcementId },
+      select: { id: true },
+    });
+    if (!announcement) {
+      throw new CourseActionError(
+        "ANNOUNCEMENT_NOT_FOUND",
+        "Announcement not found.",
+        404,
+      );
+    }
+    await tx.announcementReply.upsert({
+      where: {
+        courseId_announcementId_id: {
+          courseId,
+          announcementId,
+          id: reply.id,
+        },
+      },
+      create: {
+        id: reply.id,
+        courseId,
+        announcementId,
+        authorId: reply.studentId ?? "teacher",
+        authorName: reply.studentName,
+        content: reply.content,
+        createdAt: new Date(reply.createdAt),
+      },
+      update: {
+        authorName: reply.studentName,
+        content: reply.content,
+      },
+    });
+    return;
+  }
+  if (action.type === "JOIN_GROUP") {
+    const { groupId, studentId, studentName, role } = action.payload;
+    const group = await tx.projectGroup.findFirst({
+      where: { courseId, id: groupId },
+      select: { id: true },
+    });
+    if (!group) {
+      throw new CourseActionError("GROUP_NOT_FOUND", "Group not found.", 404);
+    }
+    await tx.groupMember.deleteMany({ where: { courseId, studentId } });
+    await tx.groupMember.create({
+      data: { courseId, groupId, studentId, studentName, role },
+    });
+    const groups = await tx.projectGroup.findMany({
+      where: { courseId },
+      select: { id: true, members: true },
+    });
+    for (const currentGroup of groups) {
+      const members = parseGroupMembers(currentGroup.members).filter(
+        (member) => member.studentId !== studentId,
+      );
+      if (currentGroup.id === groupId) {
+        members.push({ studentId, name: studentName, role });
+      }
+      await tx.projectGroup.update({
+        where: { id: currentGroup.id },
+        data: { members: toJson(members) },
+      });
+    }
+    return;
+  }
+  if (action.type === "LEAVE_GROUP") {
+    const { groupId, studentId } = action.payload;
+    await tx.groupMember.deleteMany({ where: { courseId, groupId, studentId } });
+    const group = await tx.projectGroup.findFirst({
+      where: { courseId, id: groupId },
+      select: { id: true, members: true },
+    });
+    if (!group) {
+      throw new CourseActionError("GROUP_NOT_FOUND", "Group not found.", 404);
+    }
+    await tx.projectGroup.update({
+      where: { id: group.id },
+      data: {
+        members: toJson(
+          parseGroupMembers(group.members).filter(
+            (member) => member.studentId !== studentId,
+          ),
+        ),
+      },
+    });
+    return;
+  }
+  throw new CourseActionError("UNSUPPORTED_ACTION", "Action is not implemented.", 400);
+}
+
+function parseGroupMembers(value: Prisma.JsonValue): Array<{
+  studentId: string;
+  name: string;
+  role?: string;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (member): member is { studentId: string; name: string; role?: string } =>
+      Boolean(
+        member &&
+          typeof member === "object" &&
+          !Array.isArray(member) &&
+          typeof member.studentId === "string" &&
+          typeof member.name === "string",
+      ),
+  );
+}
+
+async function executeLegacyWithReservation(
+  courseId: string,
+  envelope: ActionEnvelope,
+  claims: AuthClaims,
+): Promise<ActionAck> {
+  if (
+    claims.role === "teacher" &&
+    envelope.action.type !== "CREATE_COURSE" &&
+    envelope.expectedVersion === undefined
+  ) {
+    throw new CourseActionError(
+      "EXPECTED_VERSION_REQUIRED",
+      "Teacher mutations require expectedVersion.",
+      428,
+    );
+  }
+  try {
+    await runMutationTransaction(async (tx) => {
+      await lockCourseMutation(tx, courseId);
+      await tx.courseMutationReceipt.create({
+        data: {
+          requestId: envelope.requestId,
+          courseId,
+          actorId: claims.sub!,
+        },
+      });
+      if (envelope.expectedVersion !== undefined) {
+        const reserved = await tx.course.updateMany({
+          where: { id: courseId, version: envelope.expectedVersion },
+          data: { version: { increment: 1 } },
+        });
+        if (reserved.count !== 1) {
+          const current = await tx.course.findUnique({
+            where: { id: courseId },
+            select: { version: true },
+          });
+          throw new CourseActionError(
+            "VERSION_CONFLICT",
+            "Course was updated by another request.",
+            409,
+            { currentVersion: current?.version },
+          );
+        }
+      }
+    });
+  } catch (error) {
+    return resolveDuplicateOrThrow(envelope.requestId, error);
+  }
+
+  try {
+    await dispatchLegacyAction(envelope.action);
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { version: true },
+    });
+    const resultingVersion =
+      course?.version ??
+      (envelope.action.type === "DELETE_COURSE"
+        ? (envelope.expectedVersion ?? 0) + 1
+        : null);
+    if (resultingVersion === null) {
+      throw new CourseActionError("COURSE_NOT_FOUND", "Course not found.", 404);
+    }
+    const completed = await prisma.$transaction(async (tx) => {
+      const event = await tx.courseEvent.create({
+        data: {
+          courseId,
+          requestId: envelope.requestId,
+          type: envelope.action.type,
+          actorId: claims.sub!,
+          actorRole: claims.role,
+          courseVersion: resultingVersion,
+        },
+        select: { cursor: true },
+      });
+      await tx.courseMutationReceipt.update({
+        where: { requestId: envelope.requestId },
+        data: {
+          status: "completed",
+          courseVersion: resultingVersion,
+          eventCursor: event.cursor,
+          completedAt: new Date(),
+        },
+      });
+      return event.cursor;
+    });
+    return {
+      requestId: envelope.requestId,
+      courseVersion: resultingVersion,
+      eventCursor: completed.toString(),
+    };
+  } catch (error) {
+    await prisma.courseMutationReceipt.delete({
+      where: { requestId: envelope.requestId },
+    }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function lockCourseMutation(
+  tx: Prisma.TransactionClient,
+  courseId: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    SELECT pg_advisory_xact_lock(hashtextextended(${courseId}, 0))
+  `;
+}
+
+async function resolveDuplicateOrThrow(
+  requestId: string,
+  error: unknown,
+): Promise<ActionAck> {
+  if (error instanceof CourseActionError) throw error;
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    const existing = await prisma.courseMutationReceipt.findUnique({ where: { requestId } });
+    if (existing) return receiptToAck(existing);
+  }
+  throw error;
+}
+
+function receiptToAck(receipt: {
+  requestId: string;
+  status: string;
+  courseVersion: number | null;
+  eventCursor: bigint | null;
+}): ActionAck {
+  if (
+    receipt.status !== "completed" ||
+    receipt.courseVersion === null ||
+    receipt.eventCursor === null
+  ) {
+    throw new CourseActionError("REQUEST_IN_PROGRESS", "The original request is still processing.", 409);
+  }
+  return {
+    requestId: receipt.requestId,
+    courseVersion: receipt.courseVersion,
+    eventCursor: receipt.eventCursor.toString(),
+  };
+}
+
+async function publishAckEvent(
+  courseId: string,
+  type: SessionAction["type"],
+  ack: ActionAck,
+): Promise<void> {
+  await publishCourseEvent(courseId, {
+    type: type === "ADVANCE_STAGE" || type === "SET_STAGE" ? "stage-changed" : "course-updated",
+    courseId,
+    at: new Date().toISOString(),
+    payload: {
+      actionType: type,
+      courseVersion: ack.courseVersion,
+      eventCursor: ack.eventCursor,
+    },
+  });
+}
+
+function toJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}

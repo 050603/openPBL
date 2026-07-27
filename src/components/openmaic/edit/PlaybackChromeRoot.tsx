@@ -112,7 +112,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
 
     const currentScene = getCurrentScene();
     const capabilities = getStageExperienceCapabilities(experience);
-    const isStudentCourse = capabilities.showRoundtable;
+    const isStudentCourse = capabilities.isStudentCourse;
     const isTeacherResource = capabilities.showMinimalControls;
     const isProjectedReadonly = capabilities.readOnly;
     const onPlaybackStateChangeRef = useRef(onPlaybackStateChange);
@@ -544,7 +544,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             }
           });
         },
-        onSceneChange: (_sceneId) => {
+        onSceneChange: () => {
           // Scene change handled by engine
         },
         onSpeechStart: (text) => {
@@ -1158,7 +1158,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     // when entering Pro mode.
     const sceneViewerHeight = (() => {
       const headerHeight = isStudentCourse && !isPresenting ? 80 : 0;
-      const roundtableHeight = isStudentCourse && mode === 'playback' && !isPresenting ? 192 : 0;
+      const roundtableHeight =
+        capabilities.showRoundtable && mode === 'playback' && !isPresenting
+          ? activeActivity?.purpose === 'interaction'
+            ? 236
+            : 192
+          : 0;
       return `calc(100% - ${headerHeight + roundtableHeight}px)`;
     })();
 
@@ -1193,6 +1198,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               mode={mode}
               canEdit={!!canEnterProMode}
               onToggleEditMode={onEnterProMode}
+              showControls={capabilities.showHeaderControls}
             />
           )}
 
@@ -1219,7 +1225,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               sidebarCollapsed={sidebarCollapsed}
               chatCollapsed={chatAreaCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-              onToggleChat={isStudentCourse ? () => setChatAreaCollapsed(!chatAreaCollapsed) : undefined}
+              onToggleChat={capabilities.showChat
+                ? () => setChatAreaCollapsed(!chatAreaCollapsed)
+                : undefined}
               onPrevSlide={handlePreviousScene}
               onNextSlide={handleNextScene}
               onPlayPause={handlePlayPause}
@@ -1246,42 +1254,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                   : undefined
               }
             />
-            {isStudentCourse && activeActivity?.purpose === 'interaction' ? (
-              <div
-                className="absolute right-4 top-4 z-[10000] flex max-w-sm items-center gap-3 rounded-2xl border border-sky-200/80 bg-white/95 px-4 py-3 shadow-xl backdrop-blur dark:border-sky-800 dark:bg-gray-900/95"
-                role="status"
-                aria-live="polite"
-              >
-                <span className="relative flex h-3 w-3 shrink-0">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-70" />
-                  <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    现在由你操作仿真页面
-                  </p>
-                  <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    完成页面任务后会自动继续讲解；若页面没有响应，可手动继续。
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
-                  onClick={() => {
-                    engineRef.current?.completeActivity(
-                      activeActivity.sceneId,
-                      activeActivity.purpose,
-                    );
-                  }}
-                >
-                  我已完成
-                </button>
-              </div>
-            ) : null}
           </div>
 
           {/* Roundtable Area */}
-          {isStudentCourse && mode === 'playback' && (
+          {capabilities.showRoundtable && mode === 'playback' && (
             <div
               className={cn(
                 'transition-opacity duration-300',
@@ -1291,6 +1267,20 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             >
               <Roundtable
                 mode={mode}
+                hideCompanionArea={!capabilities.showCompanionArea}
+                interactionAssistance={
+                  activeActivity?.purpose === 'interaction'
+                    ? {
+                        active: true,
+                        onContinue: () => {
+                          engineRef.current?.completeActivity(
+                            activeActivity.sceneId,
+                            activeActivity.purpose,
+                          );
+                        },
+                      }
+                    : undefined
+                }
                 initialParticipants={participants}
                 playbackView={playbackView}
                 currentSpeech={liveSpeech}
@@ -1408,7 +1398,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 sidebarCollapsed={sidebarCollapsed}
                 chatCollapsed={chatAreaCollapsed}
                 onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-                onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}
+                onToggleChat={capabilities.showChat
+                  ? () => setChatAreaCollapsed(!chatAreaCollapsed)
+                  : undefined}
                 onPrevSlide={handlePreviousScene}
                 onNextSlide={handleNextScene}
                 onWhiteboardClose={handleWhiteboardToggle}
@@ -1425,7 +1417,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         {/* Chat Area — playback / autonomous always renders it here; Pro
           (edit) mode unmounts this whole PlaybackChromeRoot, so the
           edit branch has no chat. */}
-        {isStudentCourse ? <div className="flex shrink-0">
+        {capabilities.showChat ? <div className="flex shrink-0">
           <ChatArea
             ref={chatAreaRef}
             width={chatAreaWidth}
@@ -1471,7 +1463,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 setThinkingState(state);
               });
             }}
-            onCueUser={(_fromAgentId, _prompt) => {
+            onCueUser={() => {
               setIsCueUser(true);
             }}
             onLiveSessionError={handleLiveSessionError}

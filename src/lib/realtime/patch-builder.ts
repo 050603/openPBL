@@ -5,7 +5,7 @@
 // Instead we infer the affected event type from the action.type, plus the
 // courseId extracted from the action payload. This is enough for the
 // WebSocket server to broadcast a "you should refetch" signal to the room,
-// and clients simply re-pull the latest state via the existing /api/session
+// and clients re-pull only the affected course state after cursor catch-up.
 // endpoint. A future optimisation can swap this for true incremental patches
 // without changing the public RealtimePatch shape.
 

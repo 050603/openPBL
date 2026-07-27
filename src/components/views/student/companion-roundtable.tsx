@@ -12,9 +12,6 @@ export { useCompanionTTS } from "./companion-runtime";
  * component never creates another chat, history, SSE, or TTS pipeline.
  */
 export function CompanionRoundtable({
-  course: _course,
-  stageKey: _stageKey,
-  contextLabel: _contextLabel,
   autoSendMessage,
 }: {
   course: Course;

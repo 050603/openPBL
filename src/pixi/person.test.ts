@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { agentActionDefinitions } from '@/assets/agent'
 import {
   getActionAuthoredFacing,
   getActionFrameBodyOffset,
+  getActionFrameOrder,
   getFacingScaleSign,
 } from './person'
 
@@ -25,15 +27,39 @@ describe('getFacingScaleSign', () => {
 })
 
 describe('getActionFrameBodyOffset', () => {
-  it('pins the lower body during board and archive reaching frames', () => {
+  it('pins corrections to the body core instead of hand or prop bounds', () => {
     expect(getActionFrameBodyOffset('planning_board', 1)).toEqual({ x: -19, y: 0 })
     expect(getActionFrameBodyOffset('planning_board', 2)).toEqual({ x: -19, y: 0 })
-    expect(getActionFrameBodyOffset('organizing_files', 0)).toEqual({ x: -21, y: 0 })
-    expect(getActionFrameBodyOffset('organizing_files', 3)).toEqual({ x: -2, y: 0 })
+    expect(getActionFrameBodyOffset('organizing_files', 0)).toEqual({ x: 0, y: 0 })
+    expect(getActionFrameBodyOffset('organizing_files', 1)).toEqual({ x: -1, y: 1 })
+    expect(getActionFrameBodyOffset('organizing_files', 2)).toEqual({ x: 0, y: 0 })
   })
 
   it('uses the matching authored offset when a strip is reversed', () => {
     expect(getActionFrameBodyOffset('planning_board', 3, true)).toEqual({ x: -19, y: 0 })
     expect(getActionFrameBodyOffset('standby', 0)).toEqual({ x: 0, y: 0 })
+  })
+})
+
+describe('getActionFrameOrder', () => {
+  it('omits archive frames whose shoulder and hand detach from the body', () => {
+    expect(getActionFrameOrder('organizing_files', 5)).toEqual([1, 2, 4, 2])
+  })
+
+  it('keeps the authored order for ordinary actions', () => {
+    expect(getActionFrameOrder('standby', 4)).toEqual([0, 1, 2, 3])
+  })
+})
+
+describe('character playback cadence', () => {
+  it('keeps every explicitly tuned body action in the moderate classroom range', () => {
+    const bodySpeeds = Object.values(agentActionDefinitions)
+      .filter((definition) => definition.layer === 'body')
+      .map((definition) => definition.playback?.animationSpeed)
+      .filter((speed): speed is number => speed !== undefined)
+
+    expect(bodySpeeds.length).toBeGreaterThan(0)
+    expect(Math.min(...bodySpeeds)).toBeGreaterThanOrEqual(0.08)
+    expect(Math.max(...bodySpeeds)).toBeLessThanOrEqual(0.13)
   })
 })

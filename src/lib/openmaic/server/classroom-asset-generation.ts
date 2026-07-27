@@ -17,6 +17,7 @@ import {
   replaceMediaPlaceholders,
   type ServerTtsTimingSelection,
 } from '@openmaic/lib/server/classroom-media-generation';
+import { runIndependentClassroomAssetTasks } from '@openmaic/lib/server/classroom-asset-tasks';
 import type { SceneOutline } from '@openmaic/lib/types/generation';
 import type { Scene } from '@openmaic/lib/types/stage';
 import type { MediaGenerationRequest } from '@openmaic/lib/media/types';
@@ -139,9 +140,11 @@ function classroomGroups(input: ClassroomAssetGenerationInput): Array<{
 async function persistSceneGroups(
   groups: ReturnType<typeof classroomGroups>,
 ): Promise<void> {
-  for (const group of groups) {
-    await updatePersistedClassroomScenes(group.classroomId, group.scenes);
-  }
+  await Promise.all(
+    groups.map((group) =>
+      updatePersistedClassroomScenes(group.classroomId, group.scenes),
+    ),
+  );
 }
 
 /**
@@ -175,7 +178,8 @@ export async function generateClassroomAssets(
     })));
   };
 
-  if (hasMediaGeneration) {
+  const generateMediaAssets = async () => {
+    if (!hasMediaGeneration) return;
     try {
       throwIfAborted(input.signal);
       await updateAssetStatus('running', 0, []);
@@ -219,40 +223,52 @@ export async function generateClassroomAssets(
         error: error instanceof Error ? error.message : String(error),
       }]).catch((statusError) => log.warn('Failed to persist asset failure status:', statusError));
     }
-  }
+  };
 
-  if (!input.enableTTS) return;
+  const generateSpeechAssets = async () => {
+    if (!input.enableTTS) return;
 
-  // PBL teacher resources are intentionally excluded from server-side TTS.
-  // Non-PBL classrooms retain the previous behavior and receive audio for
-  // both split resource sets.
-  const ttsGroups = input.isPblCourse
-    ? groups.filter((group) => group.role === 'student')
-    : groups;
+    // PBL teacher resources are intentionally excluded from server-side TTS.
+    // Non-PBL classrooms retain the previous behavior and receive audio for
+    // both split resource sets.
+    const ttsGroups = input.isPblCourse
+      ? groups.filter((group) => group.role === 'student')
+      : groups;
 
-  // Process split classrooms one at a time so the provider concurrency limit
-  // remains global even when a non-PBL classroom has both student and teacher
-  // resources. Speech segments inside each call are finite-concurrent.
-  for (const group of ttsGroups) {
-    throwIfAborted(input.signal);
-    try {
-      await generateTTSForClassroom(
-        group.scenes,
-        group.classroomId,
-        input.baseUrl,
-        input.signal,
-        input.ttsTimingSelection,
-      );
-      await updatePersistedClassroomScenes(group.classroomId, group.scenes);
-      log.info(
-        `Classroom TTS backfilled [classroomId=${group.classroomId}, role=${group.role}]`,
-      );
-    } catch (error) {
-      if (input.signal?.aborted) throw error;
-      log.warn(
-        `Classroom TTS backfill failed [classroomId=${group.classroomId}]; content remains available:`,
-        error,
-      );
+    // Process split classrooms one at a time so the provider concurrency limit
+    // remains global even when a non-PBL classroom has both student and teacher
+    // resources. Speech segments inside each call are finite-concurrent.
+    for (const group of ttsGroups) {
+      throwIfAborted(input.signal);
+      try {
+        await generateTTSForClassroom(
+          group.scenes,
+          group.classroomId,
+          input.baseUrl,
+          input.signal,
+          input.ttsTimingSelection,
+        );
+        await updatePersistedClassroomScenes(group.classroomId, group.scenes);
+        log.info(
+          `Classroom TTS backfilled [classroomId=${group.classroomId}, role=${group.role}]`,
+        );
+      } catch (error) {
+        if (input.signal?.aborted) throw error;
+        log.warn(
+          `Classroom TTS backfill failed [classroomId=${group.classroomId}]; content remains available:`,
+          error,
+        );
+      }
     }
-  }
+  };
+
+  // Media/video providers and speech providers are independent. Their existing
+  // bounded pipelines can overlap without changing prompts, retry policies,
+  // provider concurrency, or quality checks. Persist once more after both have
+  // finished so the shared scene snapshots contain the merged asset updates.
+  await runIndependentClassroomAssetTasks({
+    media: generateMediaAssets,
+    tts: generateSpeechAssets,
+    persistMergedState: () => persistSceneGroups(groups),
+  });
 }

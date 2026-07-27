@@ -36,6 +36,7 @@ export type PixiOfficeController = {
   returnAgentToDesk: (agentId: AgentId) => Promise<void>
   resetAgent: (agentId: AgentId) => void
   resetAllAgents: () => void
+  setAmbientMotion: (enabled: boolean) => void
 }
 
 export function createOfficeOrchestrator(
@@ -57,6 +58,8 @@ export function createOfficeOrchestrator(
   const activeIdleActivities = new Set<AgentId>()
   const zoneInteractionTimers = new Map<AgentId, number>()
   const zoneInteractionRequests = new Map<AgentId, number>()
+  let ambientMotionEnabled = true
+  let destroyed = false
 
   type IdleActivity =
     | { kind: 'zone'; zoneId: StudyZoneId }
@@ -184,6 +187,8 @@ export function createOfficeOrchestrator(
 
   function scheduleIdleRoaming(agentId: AgentId, delay = idleStartDelays[agentId]): void {
     if (
+      !ambientMotionEnabled
+      ||
       stateByAgent.get(agentId) !== 'idle'
       || movingAgents.has(agentId)
       || awayAgents.has(agentId)
@@ -234,7 +239,7 @@ export function createOfficeOrchestrator(
       : getRoleActionName(agentId, 'walk')
     await person.play(walkAction, {
       loop: true,
-      animationSpeed: walkAction === 'fc_walking_up' ? 0.12 : 0.14,
+      animationSpeed: walkAction === 'fc_walking_up' ? 0.11 : 0.13,
       preserveVisualAnchor: 'bottomCenter',
     })
     await person.moveVisualAnchorTo(x, y, {
@@ -376,11 +381,15 @@ export function createOfficeOrchestrator(
         reverse: actions.length > 1 && actionIndex % 2 === 1,
         preserveVisualAnchor: 'bottomCenter',
       })
-      // Interaction strips may have different transparent canvas margins. Keep
-      // their world-space feet fixed on the authored interaction point.
+      const actionAnchor = definition.actionAnchor ?? 'bottomCenter'
+      const actionAnchorPoint = definition.actionAnchorPoint ?? definition.interactionPoint
+      // Archive props and hands are not stable registration points. Pin the
+      // authored torso/scarf junction to the scene while other zones continue
+      // using their grounded foot anchor.
       person.placeVisualAnchorAt(
-        definition.interactionPoint.x,
-        definition.interactionPoint.y,
+        actionAnchorPoint.x,
+        actionAnchorPoint.y,
+        actionAnchor,
       )
       actionIndex += 1
       if (!isCurrentZoneInteraction(agentId, zoneId, request)) {
@@ -448,6 +457,9 @@ export function createOfficeOrchestrator(
   }
 
   function endConversation(agentId: AgentId): void {
+    if (destroyed) {
+      return
+    }
     const targetAgentId = chatPartnerByAgent.get(agentId)
     if (!targetAgentId) {
       return
@@ -458,6 +470,8 @@ export function createOfficeOrchestrator(
     engagedAgents.delete(agentId)
     engagedAgents.delete(targetAgentId)
     const target = workstations[targetAgentId]
+    workstations[agentId].setOccludedBy(null)
+    target.setOccludedBy(null)
     workstations[agentId].setConversationActive(false)
     target.person.setFacing('left')
     target.setConversationActive(false)
@@ -478,7 +492,7 @@ export function createOfficeOrchestrator(
     const workstation = workstations[agentId]
     const target = workstations[targetAgentId]
     const targetExitDirection = target.homeAnchor.x > target.seatAnchor.x ? 1 : -1
-    const chatPoint = { ...target.homeAnchor }
+    const chatPoint = { ...target.conversationAnchor }
     const request = nextMotionRequest(agentId)
 
     movingAgents.add(agentId)
@@ -494,6 +508,10 @@ export function createOfficeOrchestrator(
       if (!await walkRoute(agentId, request, route)) return
       if (!isCurrentIdleRequest(agentId, idleRequest)) return
 
+      // The standing visitor is on the far side of the target workstation.
+      // Mount only its body behind the desk so the monitor naturally occludes
+      // part of it while the dialogue bubble remains unobstructed.
+      workstation.setOccludedBy(target)
       workstation.person.setFacing(targetExitDirection > 0 ? 'left' : 'right')
       target.person.setFacing(targetExitDirection > 0 ? 'right' : 'left')
       await Promise.all([
@@ -546,7 +564,8 @@ export function createOfficeOrchestrator(
       endConversation(agentId)
       activeIdleActivities.delete(agentId)
       if (
-        stateByAgent.get(agentId) === 'idle'
+        !destroyed
+        && stateByAgent.get(agentId) === 'idle'
         && !movingAgents.has(agentId)
         && !awayAgents.has(agentId)
         && !currentZoneByAgent.has(agentId)
@@ -762,6 +781,7 @@ export function createOfficeOrchestrator(
       await Promise.all(steps.map((step) => step()))
     },
     destroy: () => {
+      destroyed = true
       Object.keys(workstations).forEach((agentId) => {
         stopIdleRoaming(agentId as AgentId)
         stopZoneInteraction(agentId as AgentId)
@@ -801,6 +821,22 @@ export function createOfficeOrchestrator(
     resetAgent,
     resetAllAgents: () => {
       Object.keys(workstations).forEach((agentId) => resetAgent(agentId as AgentId))
+    },
+    setAmbientMotion: (enabled) => {
+      if (ambientMotionEnabled === enabled) return
+      ambientMotionEnabled = enabled
+      Object.keys(workstations).forEach((id) => {
+        const agentId = id as AgentId
+        if (enabled) {
+          if (stateByAgent.get(agentId) === 'idle') scheduleIdleRoaming(agentId, 4_000)
+          return
+        }
+        stopIdleRoaming(agentId)
+        if (stateByAgent.get(agentId) === 'idle') {
+          endConversation(agentId)
+          void returnAgentToDesk(agentId)
+        }
+      })
     },
   }
 }

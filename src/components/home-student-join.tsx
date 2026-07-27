@@ -26,7 +26,11 @@ export function HomeStudentJoin() {
       const res = await fetch("/api/auth/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteCode: code, studentName: name }),
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(),
+          inviteCode: code,
+          studentName: name,
+        }),
       });
       const data = await res.json().catch(() => ({}));
 

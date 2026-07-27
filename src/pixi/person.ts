@@ -10,7 +10,7 @@ import type { AgentRoleProfile } from '@/assets/agent/roles'
 import type { AgentId } from '@/domain/studio'
 import type { ActionTextureLoader } from './action-textures'
 
-export type VisualAnchorName = 'center' | 'bottomCenter'
+export type VisualAnchorName = 'center' | 'bottomCenter' | 'bodyCore'
 export type PersonPosture = 'normal' | 'crouched'
 export type PersonFacing = 'left' | 'right'
 
@@ -50,6 +50,21 @@ export function getActionFrameBodyOffset(
     ? offsets.length - 1 - frameIndex
     : frameIndex
   return offsets[sourceFrameIndex] ?? { x: 0, y: 0 }
+}
+
+export function getActionFrameOrder(
+  actionName: AgentActionName,
+  frameCount: number,
+): number[] {
+  const authoredOrder = getAgentActionDefinition(actionName).frameOrder
+  if (!authoredOrder?.length) {
+    return Array.from({ length: frameCount }, (_, index) => index)
+  }
+
+  const validOrder = authoredOrder.filter((index) => index >= 0 && index < frameCount)
+  return validOrder.length > 0
+    ? [...validOrder]
+    : Array.from({ length: frameCount }, (_, index) => index)
 }
 
 export type PersonController = {
@@ -93,6 +108,9 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     // using one quarter of the GPU memory.
     const baseScale = process.env.NEXT_PUBLIC_AGENT_ART === 'legacy' ? 0.45 : 0.78
     const textureOptions = { replaceDefaultRedWith: roleProfile.scarfColor }
+    // Pixi animationSpeed is frames per 60 Hz tick. 0.12 produces roughly
+    // 7.2 authored frames per second, keeping gestures legible and calm on a
+    // classroom display while still retaining continuous motion.
     let animationSpeed = 0.12
     let currentAction: AgentActionName = actions.default
     let currentTextureAction: AgentActionName | null = null
@@ -104,6 +122,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     let applyCurrentFrameCorrection: (() => void) | null = null
     const movementFrameIds = new Set<number>()
     const movementCancels = new Set<() => void>()
+    const lastVisualAnchorPositions = new Map<VisualAnchorName, { x: number; y: number }>()
 
     container.x = roleProfile.position.x
     container.y = roleProfile.position.y
@@ -131,11 +150,22 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       sprite: AnimatedSprite,
       anchor: VisualAnchorName,
       offset: VisualAnchorOffset = { x: 0, y: 0 },
+      actionName: AgentActionName = currentAction,
     ) {
       const bounds = getSpriteLocalBounds(sprite)
       // Frame stabilization moves the rendered canvas inside spriteLayer, but
       // it must not move the person's logical feet/label/navigation anchor.
       const frameCorrection = frameBodyCorrections.get(sprite) ?? { x: 0, y: 0 }
+      if (anchor === 'bodyCore') {
+        const bodyCore = getAgentActionDefinition(actionName).bodyCoreAnchor
+        if (bodyCore) {
+          return {
+            x: sprite.x - frameCorrection.x + bodyCore.x * sprite.scale.x + offset.x,
+            y: sprite.y - frameCorrection.y + bodyCore.y * sprite.scale.y + offset.y,
+          }
+        }
+      }
+
       return anchor === 'bottomCenter'
         ? {
             x: bounds.centerX - frameCorrection.x + offset.x,
@@ -204,7 +234,11 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
         return
       }
 
-      const nextSprite = new AnimatedSprite(options.reverse ? [...textures].reverse() : textures)
+      const orderedTextures = getActionFrameOrder(actionName, textures.length)
+        .map((index) => textures[index])
+      const nextSprite = new AnimatedSprite(
+        options.reverse ? [...orderedTextures].reverse() : orderedTextures,
+      )
       const playback = { ...definition.playback, ...options }
       nextSprite.x = playback.x ?? 0
       nextSprite.y = playback.y ?? 0
@@ -273,7 +307,12 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       currentTextureAction = actionName
 
       if (preserveAnchor && options.preserveVisualAnchor) {
-        const nextAnchor = getVisualAnchor(nextSprite, options.preserveVisualAnchor, nextOffset)
+        const nextAnchor = getVisualAnchor(
+          nextSprite,
+          options.preserveVisualAnchor,
+          nextOffset,
+          actionName,
+        )
         container.x += (preserveAnchor.x - nextAnchor.x) * container.scale.x
         container.y += (preserveAnchor.y - nextAnchor.y) * container.scale.y
       }
@@ -380,16 +419,26 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     }
 
     function getVisualAnchorPosition(anchor: VisualAnchorName = 'bottomCenter') {
+      if (disposed) {
+        return lastVisualAnchorPositions.get(anchor) ?? {
+          x: roleProfile.position.x,
+          y: roleProfile.position.y,
+        }
+      }
       const sprite = spritesByLayer.get('body')
       if (!sprite) {
-        return { x: container.x, y: container.y }
+        const position = { x: container.x, y: container.y }
+        lastVisualAnchorPositions.set(anchor, position)
+        return position
       }
 
       const visualAnchor = getVisualAnchor(sprite, anchor, visualAnchorOffsets.get('body'))
-      return {
+      const position = {
         x: container.x + visualAnchor.x * container.scale.x,
         y: container.y + visualAnchor.y * container.scale.y,
       }
+      lastVisualAnchorPositions.set(anchor, position)
+      return position
     }
 
     async function moveVisualAnchorTo(

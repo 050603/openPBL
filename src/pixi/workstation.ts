@@ -20,11 +20,13 @@ export type WorkstationController = {
   seatAnchor: { x: number; y: number }
   seatExitAnchor: { x: number; y: number }
   homeAnchor: { x: number; y: number }
+  conversationAnchor: { x: number; y: number }
   setState: (state: PartnerState) => void
   setSelected: (selected: boolean) => void
   setInfoVisible: (visible: boolean) => void
   setConversationActive: (active: boolean) => void
   setAway: (away: boolean) => void
+  setOccludedBy: (workstation: WorkstationController | null) => void
   setMessage: (message: string) => void
   setTask: (task: string) => void
   destroy: () => void
@@ -257,6 +259,12 @@ export function createWorkstationFactory({
     const homeAnchor = useClassroomFurniture
       ? { x: seatExitAnchor.x, y: seatExitAnchor.y + 76 }
       : seatAnchor
+    // Conversation is a distinct scene pose, not a navigation waiting point.
+    // Keeping the visitor's feet close to the seated partner's authored
+    // baseline makes their faces meet, while the x offset leaves the desk clear.
+    const conversationAnchor = useClassroomFurniture
+      ? { x: seatExitAnchor.x, y: seatAnchor.y + 14 }
+      : seatAnchor
     const screen = new AnimatedLayer(
       textureLoader,
       'screen',
@@ -273,6 +281,7 @@ export function createWorkstationFactory({
       roleScreenPositions.scale,
     )
     const container = new Container()
+    let disposed = false
     // Sprite frames use different canvas bounds, so labels must follow the
     // person's measured visual anchor instead of the nominal role position.
     const feedback = new Container()
@@ -379,7 +388,9 @@ export function createWorkstationFactory({
     let infoVisible = false
     let awayFromDesk = false
     let conversationActive = false
+    let occludingWorkstation: WorkstationController | null = null
     let idleRequest = 0
+    let actionTimer: number | null = null
     let messageScrollOffset = 0
     let messageDragY: number | null = null
     const messageBaseY = messageTextTop
@@ -447,21 +458,48 @@ export function createWorkstationFactory({
 
     function stopIdleActivity(): void {
       idleRequest += 1
+      if (actionTimer !== null) {
+        window.clearTimeout(actionTimer)
+        actionTimer = null
+      }
     }
 
-    function startIdleActivity(): void {
+    function startStateActivity(state: PartnerState): void {
       stopIdleActivity()
       const request = idleRequest
-      if (currentState !== 'idle' || awayFromDesk || conversationActive) return
-      void person.play('working', {
-        loop: true,
-        preserveVisualAnchor: 'bottomCenter',
-      }).then(() => {
-        if (request === idleRequest) syncFeedbackPosition()
-      })
+      if (currentState !== state || awayFromDesk || conversationActive) return
+      const sequence = getStatePresentation(roleProfile.id, state).bodySequence
+      let actionIndex = 0
+
+      const playNext = async () => {
+        if (
+          request !== idleRequest
+          || currentState !== state
+          || awayFromDesk
+          || conversationActive
+        ) return
+        const action = sequence[actionIndex % sequence.length]
+        await person.play(action, {
+          loop: true,
+          preserveVisualAnchor: 'bottomCenter',
+        })
+        if (request !== idleRequest) return
+        syncFeedbackPosition()
+        actionIndex += 1
+        if (sequence.length <= 1) return
+        actionTimer = window.setTimeout(
+          () => void playNext(),
+          3_200 + ((roleProfile.position.x + roleProfile.position.y + actionIndex * 173) % 900),
+        )
+      }
+
+      void playNext()
     }
 
     function syncFeedbackPosition(): void {
+      if (disposed) {
+        return
+      }
       const anchor = person.getVisualAnchorPosition('bottomCenter')
       feedback.position.set(anchor.x, anchor.y)
     }
@@ -516,10 +554,7 @@ export function createWorkstationFactory({
         return
       }
 
-      void person.play(presentation.body, {
-        loop: state !== 'completed' && state !== 'celebrating',
-        preserveVisualAnchor: 'bottomCenter',
-      }).then(syncFeedbackPosition)
+      startStateActivity(state)
 
       if (presentation.screen) {
         void screen.play(presentation.screen)
@@ -543,9 +578,6 @@ export function createWorkstationFactory({
       stopIdleActivity()
       applyStateVisuals(state)
       feedback.visible = state === 'speaking' || state === 'celebrating' || (selected && infoVisible)
-      if (state === 'idle' && !awayFromDesk) {
-        startIdleActivity()
-      }
     }
 
     function setSelected(isSelected: boolean): void {
@@ -571,6 +603,7 @@ export function createWorkstationFactory({
       feedback.visible = currentState === 'speaking' || currentState === 'celebrating' || (selected && infoVisible)
 
       if (away) {
+        occludingWorkstation = null
         actorLayer.addChild(person.container, feedback)
         syncFeedbackPosition()
         stopIdleActivity()
@@ -579,6 +612,7 @@ export function createWorkstationFactory({
         return
       }
 
+      occludingWorkstation = null
       if (useClassroomFurniture) {
         const deskIndex = container.getChildIndex(desk)
         container.addChildAt(person.container, deskIndex)
@@ -593,9 +627,29 @@ export function createWorkstationFactory({
 
       if (currentState) {
         applyStateVisuals(currentState)
-        if (currentState === 'idle') {
-          startIdleActivity()
-        }
+      }
+    }
+
+    function setOccludedBy(workstation: WorkstationController | null): void {
+      if (disposed) {
+        return
+      }
+      if (occludingWorkstation === workstation) {
+        return
+      }
+      occludingWorkstation = workstation
+
+      if (workstation && useClassroomFurniture) {
+        const deskIndex = workstation.container.getChildIndex(workstation.desk)
+        workstation.container.addChildAt(person.container, deskIndex)
+        actorLayer.addChild(feedback)
+        syncFeedbackPosition()
+        return
+      }
+
+      if (awayFromDesk) {
+        actorLayer.addChild(person.container, feedback)
+        syncFeedbackPosition()
       }
     }
 
@@ -611,11 +665,7 @@ export function createWorkstationFactory({
       }
 
       if (currentState === 'idle' && !awayFromDesk) {
-        void person.play('working', {
-          loop: true,
-          preserveVisualAnchor: 'bottomCenter',
-        })
-        startIdleActivity()
+        startStateActivity('idle')
       }
     }
 
@@ -673,14 +723,17 @@ export function createWorkstationFactory({
       seatAnchor,
       seatExitAnchor,
       homeAnchor,
+      conversationAnchor,
       setState,
       setSelected,
       setInfoVisible,
       setConversationActive,
       setAway,
+      setOccludedBy,
       setMessage,
       setTask,
       destroy: () => {
+        disposed = true
         stopIdleActivity()
         messageDragY = null
         person.destroy()

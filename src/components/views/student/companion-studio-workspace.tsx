@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import {
   Archive,
   ArrowUpRight,
@@ -20,6 +19,7 @@ import {
   Search,
   Send,
   Settings,
+  Sparkles,
   Square,
   UsersRound,
   Volume2,
@@ -121,13 +121,13 @@ function CompanionStudioRuntime({
   runtime: NonNullable<ReturnType<typeof useCompanionRuntime>>;
 }) {
   const session = useSession();
-  const router = useRouter();
   const activeTaskIdRef = useRef<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
   const [studioModal, setStudioModal] = useState<StudioModal>(null);
   const [studyZoneCommand, setStudyZoneCommand] = useState<StudyZoneCommand | null>(null);
   const [railView, setRailView] = useState<RailView>("overview");
   const [railOpen, setRailOpen] = useState(false);
+  const [ambientMotion, setAmbientMotion] = useState(true);
 
   useEffect(() => {
     if (!railOpen) return;
@@ -394,22 +394,11 @@ function CompanionStudioRuntime({
         ? STATUS_LABEL[activeTask.status]
         : "伙伴们已就位";
 
-  const openMicroLesson = useCallback(() => {
-    const task = runtime.microLessonTask;
-    if (!task?.lesson.classroomId || task.lesson.status !== "ready") return;
-    const query = new URLSearchParams({
-      courseId: course.id,
-      lessonId: task.lesson.id,
-      topic: task.lesson.topic,
-      returnTo: `/student/classroom/${course.id}`,
-    });
-    router.push(`/student/micro-lesson/${task.lesson.classroomId}?${query.toString()}`);
-  }, [course.id, router, runtime.microLessonTask]);
-
   return (
     <div className="companion-studio-shell" data-rail={railOpen ? "open" : "closed"}>
       <section className="companion-studio-scene" aria-label="AI 伴学工作室">
         <PixiStage
+          ambientMotion={ambientMotion}
           agentStates={partnerStates}
           onClearSelection={clearSelection}
           onSelectAgent={selectAgent}
@@ -424,14 +413,15 @@ function CompanionStudioRuntime({
           <small>阶段 {course.currentStageIndex + 1}/{course.stages.length} · {projectProgress}%</small>
         </div>
 
-        <button aria-label="课堂设置" className="studio-settings-trigger" onClick={() => { setRailView("settings"); setRailOpen(true); }} type="button">
-          <Settings size={17} /><span>设置</span>
-        </button>
-
-        <button className="studio-overview-trigger" onClick={() => { setRailView("overview"); setRailOpen(true); }} type="button">
-          <LayoutDashboard size={16} /> 小组动态
-          {runtime.unreadCount ? <span>{runtime.unreadCount}</span> : null}
-        </button>
+        <nav aria-label="伴学场景工具" className="studio-scene-tools">
+          <button aria-label="打开小组动态" className="studio-overview-trigger" onClick={() => { setRailView("overview"); setRailOpen(true); }} type="button">
+            <LayoutDashboard size={17} /><span>小组动态</span>
+            {runtime.unreadCount ? <b>{runtime.unreadCount}</b> : null}
+          </button>
+          <button aria-label="打开课堂设置" className="studio-settings-trigger" onClick={() => { setRailView("settings"); setRailOpen(true); }} type="button">
+            <Settings size={17} /><span>课堂设置</span>
+          </button>
+        </nav>
 
         {runtime.microLessonTask ? (
           <aside
@@ -474,9 +464,7 @@ function CompanionStudioRuntime({
             <div className="studio-micro-task__foot">
               <span>{Math.round(runtime.microLessonTask.progress)}%</span>
               {runtime.microLessonTask.lesson.status === "ready" ? (
-                <button className="studio-micro-task__open" onClick={openMicroLesson} type="button">
-                  进入学习 <ArrowUpRight size={13} />
-                </button>
+                <small>已加入主课程，将在 AI 授课窗口中自动播放</small>
               ) : runtime.microLessonTask.lesson.status === "failed" ? (
                 <button className="studio-micro-task__dismiss" onClick={runtime.dismissMicroLessonTask} type="button">
                   知道了
@@ -493,6 +481,7 @@ function CompanionStudioRuntime({
           disabled={!runtime.stageEnabled}
           initialSelectedIds={selectedCompanionId ? [selectedCompanionId] : []}
           isActive={runtime.isActive}
+          key={selectedCompanionId ?? "team"}
           onSend={(text, companionIds) => sendRequest(text, companionIds)}
           onStop={runtime.stop}
         />
@@ -524,7 +513,15 @@ function CompanionStudioRuntime({
         ) : railView === "activity" ? (
           <ActivityRail onBack={() => setRailView("overview")} records={records} tasks={stageTasks} />
         ) : railView === "settings" ? (
-          <SettingsRail canSwitchMode={canSwitchMode} onBack={() => setRailView("overview")} onHistory={() => setStudioModal("history")} onSwitchToTask={onSwitchToTask} runtime={runtime} />
+          <SettingsRail
+            ambientMotion={ambientMotion}
+            canSwitchMode={canSwitchMode}
+            onBack={() => setRailView("overview")}
+            onHistory={() => setStudioModal("history")}
+            onSwitchToTask={onSwitchToTask}
+            onToggleAmbientMotion={() => setAmbientMotion((value) => !value)}
+            runtime={runtime}
+          />
         ) : (
           <OverviewRail
             activeTask={activeTask}
@@ -642,14 +639,16 @@ function ActivityRail({ tasks, records, onBack }: { tasks: CompanionTask[]; reco
   return <div className="studio-rail-content"><RailHeading eyebrow="LIVE ACTIVITY" onBack={onBack} title="项目动态" /><section className="studio-rail-section"><div className="studio-section-title"><strong>伙伴任务</strong><span>{tasks.length}</span></div>{tasks.length ? <div className="studio-task-list">{tasks.slice(0, 7).map((task) => <TaskItem key={task.id} task={task} />)}</div> : <EmptyLine>还没有伙伴任务。</EmptyLine>}</section><section className="studio-rail-section"><div className="studio-section-title"><strong>过程记录</strong><span>{records?.length ?? 0}</span></div><div className="studio-record-list">{records?.slice(0, 8).map((record) => <article key={record.id}><i /><div><strong>{record.title}</strong><p>{record.summary}</p><small>{formatTime(record.createdAt)}</small></div></article>)}</div></section></div>;
 }
 
-function SettingsRail({ runtime, onBack, onHistory, onSwitchToTask, canSwitchMode }: {
+function SettingsRail({ runtime, onBack, onHistory, onSwitchToTask, canSwitchMode, ambientMotion, onToggleAmbientMotion }: {
   runtime: NonNullable<ReturnType<typeof useCompanionRuntime>>;
   onBack: () => void;
   onHistory: () => void;
   onSwitchToTask: () => void;
   canSwitchMode: boolean;
+  ambientMotion: boolean;
+  onToggleAmbientMotion: () => void;
 }) {
-  return <div className="studio-rail-content"><RailHeading eyebrow="CLASSROOM SETTINGS" onBack={onBack} title="课堂设置" /><section className="studio-responsibility-note"><strong>你是项目负责人</strong><p>伙伴可以整理、建议、评审和形成可修改草稿；你负责判断、核验、修改与最终提交。</p></section><section className="studio-mode-switch"><div className="studio-section-title"><strong>学习界面</strong><span>{canSwitchMode ? "随时切换" : "教师已指定"}</span></div><button aria-current="page" className="is-active" disabled type="button"><UsersRound size={17} /><span><strong>沉浸伴学模式</strong><small>以智能体小组与课堂场景为中心</small></span></button>{canSwitchMode ? <button onClick={onSwitchToTask} type="button"><ListTodo size={17} /><span><strong>普通课堂模式</strong><small>使用传统任务页面编辑与提交</small></span></button> : null}</section><section className="studio-settings-list"><button onClick={runtime.tts.toggle} type="button">{runtime.tts.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}<span><strong>伙伴朗读</strong><small>{runtime.tts.enabled ? "已开启" : "已关闭"}</small></span></button><button onClick={onHistory} type="button"><History size={17} /><span><strong>对话历史</strong><small>查看本阶段完整讨论</small></span></button></section></div>;
+  return <div className="studio-rail-content"><RailHeading eyebrow="CLASSROOM SETTINGS" onBack={onBack} title="课堂设置" /><section className="studio-responsibility-note"><strong>你是项目负责人</strong><p>伙伴可以整理、建议、评审和形成可修改草稿；你负责判断、核验、修改与最终提交。</p></section><section className="studio-mode-switch"><div className="studio-section-title"><strong>学习界面</strong><span>{canSwitchMode ? "随时切换" : "教师已指定"}</span></div><button aria-current="page" className="is-active" disabled type="button"><UsersRound size={17} /><span><strong>沉浸伴学模式</strong><small>以智能体小组与课堂场景为中心</small></span></button>{canSwitchMode ? <button onClick={onSwitchToTask} type="button"><ListTodo size={17} /><span><strong>普通课堂模式</strong><small>使用传统任务页面编辑与提交</small></span></button> : null}</section><section className="studio-settings-list"><div className="studio-section-title"><strong>课堂体验</strong><span>即时生效</span></div><button aria-pressed={ambientMotion} onClick={onToggleAmbientMotion} type="button"><Sparkles size={17} /><span><strong>伙伴自主活动</strong><small>{ambientMotion ? "丰富动作与场景漫游已开启" : "已暂停漫游，保留必要状态动作"}</small></span><i aria-hidden="true" data-on={ambientMotion ? "" : undefined} /></button><button aria-pressed={runtime.tts.enabled} onClick={runtime.tts.toggle} type="button">{runtime.tts.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}<span><strong>伙伴朗读</strong><small>{runtime.tts.enabled ? "已开启，发言将同步朗读" : "已关闭，仅显示文字"}</small></span><i aria-hidden="true" data-on={runtime.tts.enabled ? "" : undefined} /></button><button onClick={onHistory} type="button"><History size={17} /><span><strong>对话历史</strong><small>查看本阶段完整讨论</small></span><ChevronRight size={14} /></button></section></div>;
 }
 
 type ComposerCompanion = { id: AiCompanionId; name: string; shortName: string; color: string };
@@ -671,12 +670,6 @@ function StudioComposer({ availableCompanions, initialSelectedIds, isActive, dis
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, [pickerOpen]);
-
-  // selectedIds 与外部 initialSelectedIds 同步：当 initialSelectedIds 变化
-  // 时（用户在场景里选了别的 agent），重置内部选择
-  useEffect(() => {
-    setSelectedIds(initialSelectedIds);
-  }, [initialSelectedIds]);
 
   function toggleId(id: AiCompanionId) {
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);

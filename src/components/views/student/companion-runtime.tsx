@@ -825,7 +825,6 @@ export function CompanionRuntimeProvider({
   useEffect(() => {
     stop();
     // Resetting the runtime is an intentional response to changing classroom scope.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages([]);
     setLastCompletedRound(null);
     setSelectedCompanionId(null);

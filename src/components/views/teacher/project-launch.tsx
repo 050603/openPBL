@@ -21,6 +21,9 @@ import { Card, Pill, ProgressBar, PrimaryButton, TextArea, TextInput } from "@/c
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import {
+  isProjectLaunchTodo,
+} from "@/lib/project-launch-readiness";
 
 export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const session = useSession();
@@ -46,6 +49,19 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const selectedCount = studentSelections.filter(({ topic }) =>
     topic ? inquiryQuestions.includes(topic) : false,
   ).length;
+  const launchTodos = (course.todos ?? []).filter(isProjectLaunchTodo);
+  const completedTodoCount = launchTodos.reduce(
+    (sum, todo) =>
+      sum +
+      todo.completedBy.filter((studentId) =>
+        course.students.some((student) => student.id === studentId),
+      ).length,
+    0,
+  );
+  const totalTodoCount = launchTodos.length * joined;
+  const todoCompletion = totalTodoCount
+    ? Math.round((completedTodoCount / totalTodoCount) * 100)
+    : 100;
 
   function publish() {
     if (!title.trim() || !content.trim()) return;
@@ -73,7 +89,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard title="到课情况" value={`${joined} / ${totalSeats}`} sub={`出勤率 ${rate}%`} icon={<Users className="text-blue-600" size={22} />} progress={rate} />
         <StatCard title="个人项目空间" value={`${projectSpaces}`} sub={`${joined} 名学生独立完成`} icon={<Sparkles className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((projectSpaces / Math.max(1, joined)) * 100))} tone="emerald" />
-        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、理解任务、确认成果" icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={66} tone="amber" />
+        <StatCard title="学生待办" value={`${todoCompletion}%`} sub={`${completedTodoCount} / ${totalTodoCount} 项已完成`} icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={todoCompletion} tone="amber" />
         <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={announcementRead} tone="rose" />
       </div>
 

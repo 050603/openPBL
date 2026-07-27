@@ -46,16 +46,11 @@ function projectForStudent(course: Course, studentId: string): ProjectGroup | un
   return (course.groups ?? []).find((project) => project.members.some((member) => member.studentId === studentId));
 }
 
-function activeProjectIds(course: Course): string[] {
-  return course.students.map((student) => projectForStudent(course, student.id)?.id ?? student.id);
-}
-
 export function evaluateStageGate(course: Course, stageIndex = course.currentStageIndex): StageGateResult {
   const stage = course.stages[stageIndex] ?? course.stages[0];
   const blockers: StageGateItem[] = [];
   const warnings: StageGateItem[] = [];
   const completed: string[] = [];
-  const projectIds = activeProjectIds(course);
 
   if (stage.key === "launch") {
     if (!course.summary.trim() || !course.drivingQuestion.trim()) blockers.push({ code: "project-brief", message: "项目说明和驱动问题需要完整", targetIds: [course.id] });

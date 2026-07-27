@@ -1,20 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpenCheck, CheckCircle2, Loader2, Route, X } from "lucide-react";
+import { BookOpenCheck, CheckCircle2, Loader2 } from "lucide-react";
 import type { Scene } from "@openmaic/lib/types/stage";
-import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
+import {
+  StudentStageHost,
+  prefetchAdaptiveClassroom,
+  type AdaptiveSceneInsertion,
+} from "@/components/openmaic-bridge/student-stage-host";
 import {
   calculateAdaptiveRemainingBudgetSec,
+  deriveAdaptiveCheckpointSceneIds,
   evaluateAdaptiveBranchDecision,
   resolveAdaptiveSceneIdentity,
-  scoreAdaptiveAssessment,
 } from "@/lib/adaptive-learning";
 import type {
+  AdaptiveBranchOutline,
   AdaptiveBranchRun,
   Course,
   StudentAdaptiveLearningState,
 } from "@/lib/session/types";
+import { readSubmittedState } from "@openmaic/lib/quiz/persistence";
+
+type QueuedResource = {
+  branch: AdaptiveBranchOutline;
+  run: Omit<AdaptiveBranchRun, "classroomId"> & { classroomId: string };
+  placement: AdaptiveSceneInsertion["placement"];
+  anchorSceneId?: string;
+};
 
 export function AdaptiveAiLearningRuntime({
   course,
@@ -32,32 +45,85 @@ export function AdaptiveAiLearningRuntime({
   variant?: "embedded" | "fullscreen";
 }) {
   const plan = course.content.adaptiveLearningPlan;
-  const initialState =
-    course.aiLearningProgress?.[studentId]?.adaptiveLearning ?? {
-      evidence: [],
-      branchRuns: [],
-      microLessons: [],
-    };
-  const [adaptiveState, setAdaptiveState] =
-    useState<StudentAdaptiveLearningState>(initialState);
-  const [branchOverlay, setBranchOverlay] = useState<{
-    run: AdaptiveBranchRun;
-    title: string;
-  }>();
-  const activeBranchRef = useRef(false);
+  const initialState = course.aiLearningProgress?.[studentId]?.adaptiveLearning ?? {
+    evidence: [],
+    branchRuns: [],
+    microLessons: [],
+  };
+  const [adaptiveState, setAdaptiveState] = useState<StudentAdaptiveLearningState>(initialState);
+  const [insertedResources, setInsertedResources] = useState<QueuedResource[]>([]);
+  const switchingRef = useRef(false);
+  const checkpointSceneIds = useMemo(
+    () => new Set(deriveAdaptiveCheckpointSceneIds(course.content._openmaicSceneOutlines ?? [])),
+    [course.content._openmaicSceneOutlines],
+  );
   const remoteAdaptiveState = course.aiLearningProgress?.[studentId]?.adaptiveLearning;
+  const preparedClassroomIds = useMemo(
+    () => Array.from(new Set([
+      ...(plan?.branches.flatMap((branch) =>
+        branch.preparedResource?.status === "ready" &&
+        branch.preparedResource.classroomId
+          ? [branch.preparedResource.classroomId]
+          : [],
+      ) ?? []),
+      ...adaptiveState.branchRuns.flatMap((run) =>
+        run.status === "ready" && run.classroomId ? [run.classroomId] : [],
+      ),
+      ...adaptiveState.microLessons.flatMap((lesson) =>
+        lesson.status === "ready" && lesson.classroomId
+          ? [lesson.classroomId]
+          : [],
+      ),
+    ])),
+    [adaptiveState.branchRuns, adaptiveState.microLessons, plan],
+  );
+  const adaptiveInsertions = useMemo<AdaptiveSceneInsertion[]>(
+    () => {
+      const insertions = new Map<string, AdaptiveSceneInsertion>();
+      for (const resource of insertedResources) {
+        insertions.set(resource.run.id, {
+          id: resource.run.id,
+          classroomId: resource.run.classroomId,
+          placement: resource.placement,
+          anchorSceneId: resource.anchorSceneId,
+        });
+      }
+      for (const run of adaptiveState.branchRuns) {
+        if (run.status !== "ready" || !run.classroomId || insertions.has(run.id)) {
+          continue;
+        }
+        const branch = plan?.branches.find((item) => item.id === run.branchOutlineId);
+        insertions.set(run.id, {
+          id: run.id,
+          classroomId: run.classroomId,
+          placement: branch?.trigger?.placement === "before-main-course"
+            ? "before-current"
+            : "after-current",
+        });
+      }
+      for (const lesson of adaptiveState.microLessons) {
+        if (lesson.status !== "ready" || !lesson.classroomId) continue;
+        const id = `micro-lesson:${lesson.id}`;
+        insertions.set(id, {
+          id,
+          classroomId: lesson.classroomId,
+          placement: "after-current",
+        });
+      }
+      return [...insertions.values()];
+    },
+    [adaptiveState.branchRuns, adaptiveState.microLessons, insertedResources, plan],
+  );
+
+  useEffect(() => {
+    for (const preparedClassroomId of preparedClassroomIds) {
+      void prefetchAdaptiveClassroom(preparedClassroomId).catch(() => undefined);
+    }
+  }, [preparedClassroomIds]);
 
   useEffect(() => {
     if (!remoteAdaptiveState) return;
-    queueMicrotask(() => {
-      setAdaptiveState((current) => ({
-        ...current,
-        enabled: remoteAdaptiveState.enabled,
-        tier: remoteAdaptiveState.tier,
-        tierSource: remoteAdaptiveState.tierSource,
-        tierUpdatedAt: remoteAdaptiveState.tierUpdatedAt,
-      }));
-    });
+    queueMicrotask(() => setAdaptiveState(remoteAdaptiveState));
   }, [remoteAdaptiveState]);
 
   async function persistState(body: Record<string, unknown>) {
@@ -66,28 +132,112 @@ export function AdaptiveAiLearningRuntime({
       headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
       body: JSON.stringify({ courseId: course.id, studentId, ...body }),
     });
-    const payload = await response.json() as {
-      state?: StudentAdaptiveLearningState;
-      error?: string;
-    };
+    const payload = await response.json() as { state?: StudentAdaptiveLearningState; error?: string };
     if (!response.ok || !payload.state) throw new Error(payload.error || "学习路径保存失败");
     setAdaptiveState(payload.state);
     return payload.state;
   }
 
-  async function handlePretestSubmit(answers: Record<string, number>) {
-    await persistState({ action: "submit-pretest", answers });
+  function toQueuedResource(
+    branch: AdaptiveBranchOutline,
+    reason: string,
+    placement: AdaptiveSceneInsertion["placement"],
+    anchorSceneId?: string,
+  ): QueuedResource | null {
+    const preparedClassroomId = branch.preparedResource?.status === "ready"
+      ? branch.preparedResource.classroomId
+      : undefined;
+    if (!preparedClassroomId) return null;
+    return {
+      branch,
+      run: {
+        id: `resource-run-${branch.id}-${Date.now().toString(36)}`,
+        branchOutlineId: branch.id,
+        kind: branch.kind,
+        status: "ready",
+        classroomId: preparedClassroomId,
+        reason,
+        createdAt: new Date().toISOString(),
+      },
+      placement,
+      anchorSceneId,
+    };
   }
 
-  async function handleSceneComplete(detail: {
-    scene: Scene;
-    quizScore?: number;
-  }) {
-    if (!plan || adaptiveState.enabled === false || activeBranchRef.current) return;
+  async function insertResource(resource: QueuedResource) {
+    switchingRef.current = true;
+    try {
+      await persistState({ action: "upsert-branch-run", run: resource.run });
+      setInsertedResources((current) =>
+        current.some((item) => item.run.id === resource.run.id)
+          ? current
+          : [...current, resource],
+      );
+    } finally {
+      switchingRef.current = false;
+    }
+  }
+
+  async function preparePreCourseResources(state: StudentAdaptiveLearningState) {
+    if (!plan) return;
+    let simulatedState = state;
+    let budget = calculateAdaptiveRemainingBudgetSec(plan, simulatedState);
+    const queue: QueuedResource[] = [];
+    for (const branch of plan.branches.filter((item) => item.trigger?.placement === "before-main-course")) {
+      const result = evaluateAdaptiveBranchDecision({
+        plan,
+        state: simulatedState,
+        anchorKnowledgePointIds: [],
+        candidateBranchIds: [branch.id],
+        phase: "pre-course",
+        remainingBudgetSec: budget,
+      });
+      if (result.evaluations.length) {
+        await persistState({
+          action: "record-trigger-evaluations",
+          evaluations: result.evaluations,
+        }).catch(() => simulatedState);
+      }
+      if (result.decision.action !== "insert") continue;
+      const resource = toQueuedResource(
+        result.decision.branch,
+        result.decision.reason,
+        "before-current",
+      );
+      if (!resource) continue;
+      queue.push(resource);
+      simulatedState = {
+        ...simulatedState,
+        branchRuns: [...simulatedState.branchRuns, resource.run],
+      };
+      budget = calculateAdaptiveRemainingBudgetSec(plan, simulatedState);
+    }
+    if (!queue.length) return;
+    for (const resource of queue) {
+      await persistState({ action: "upsert-branch-run", run: resource.run });
+    }
+    setInsertedResources((current) => [...current, ...queue]);
+  }
+
+  async function handlePretestSubmit(answers: Record<string, number>) {
+    const nextState = await persistState({ action: "submit-pretest", answers });
+    await preparePreCourseResources(nextState);
+  }
+
+  async function handleMainSceneComplete(detail: { scene: Scene; quizScore?: number }) {
+    if (!plan || adaptiveState.enabled === false || switchingRef.current) return;
     const sceneIdentity = resolveAdaptiveSceneIdentity(detail.scene);
     const anchorKnowledgePointIds = detail.scene.knowledgePointIds ?? [];
+    const submittedQuiz = readSubmittedState(sceneIdentity.runtimeSceneId);
+    const questionResults = submittedQuiz?.kind === "reviewing"
+      ? submittedQuiz.results.map((result) => ({ questionId: result.questionId, correct: result.correct }))
+      : [];
     let evidenceState = adaptiveState;
-    if (detail.scene.type === "quiz" && typeof detail.quizScore === "number") {
+    if (typeof detail.quizScore === "number") {
+      const weakKnowledgePointIds = detail.quizScore < 100 ? anchorKnowledgePointIds : [];
+      const masteredKnowledgePointIds = detail.quizScore >= (plan.thresholds.enrichmentMasteryMin ?? 80)
+        ? anchorKnowledgePointIds
+        : [];
       evidenceState = await persistState({
         action: "record-node-assessment",
         evidence: {
@@ -97,9 +247,14 @@ export function AdaptiveAiLearningRuntime({
           occurredAt: new Date().toISOString(),
           sceneId: sceneIdentity.stableSceneId,
           knowledgePointIds: anchorKnowledgePointIds,
+          questionResults,
+          weakKnowledgePointIds,
+          masteredKnowledgePointIds,
         },
       }).catch(() => adaptiveState);
     }
+    // Only module mastery can add a resource here. Incorrect answers remain in
+    // the quiz review/analysis flow and are surfaced to teacher analytics.
     const evaluation = evaluateAdaptiveBranchDecision({
       plan,
       state: evidenceState,
@@ -108,62 +263,77 @@ export function AdaptiveAiLearningRuntime({
       completedSceneId: sceneIdentity.stableSceneId,
       runtimeSceneId: sceneIdentity.runtimeSceneId,
       completedSceneTitle: detail.scene.title,
+      questionResults,
+      isAutomaticCheckpoint: checkpointSceneIds.has(sceneIdentity.stableSceneId),
+      phase: "after-module",
       remainingBudgetSec: calculateAdaptiveRemainingBudgetSec(plan, evidenceState),
     });
-    if (evaluation.evaluations.length > 0) {
+    if (evaluation.evaluations.length) {
       await persistState({
         action: "record-trigger-evaluations",
         evaluations: evaluation.evaluations,
       }).catch(() => evidenceState);
     }
-    const decision = evaluation.decision;
-    if (decision.action !== "insert") return;
-
-    const preparedClassroomId =
-      decision.branch.preparedResource?.status === "ready"
-        ? decision.branch.preparedResource.classroomId
-        : undefined;
-    // Published adaptive paths are an offline resource pool. The classroom
-    // runtime never starts a generation job; a missing asset remains visible
-    // in teacher audit and the learner continues the main course.
-    if (!preparedClassroomId) return;
-
-    activeBranchRef.current = true;
-    const run: AdaptiveBranchRun = {
-      id: `branch-run-${Date.now().toString(36)}`,
-      branchOutlineId: decision.branch.id,
-      kind: decision.branch.kind,
-      status: "ready",
-      classroomId: preparedClassroomId,
-      reason: decision.reason,
-      createdAt: new Date().toISOString(),
-    };
-    setBranchOverlay({
-      run,
-      title: decision.branch.title,
-    });
-    try {
-      await persistState({ action: "upsert-branch-run", run });
-    } catch (error) {
-      activeBranchRef.current = false;
-      setBranchOverlay(undefined);
-      console.warn("Failed to open prepared adaptive branch", error);
-    }
+    if (evaluation.decision.action !== "insert") return;
+    const resource = toQueuedResource(
+      evaluation.decision.branch,
+      evaluation.decision.reason,
+      "after-current",
+      sceneIdentity.runtimeSceneId,
+    );
+    if (resource) await insertResource(resource);
   }
 
-  async function closeBranch() {
-    const overlay = branchOverlay;
-    setBranchOverlay(undefined);
-    activeBranchRef.current = false;
-    if (!overlay || overlay.run.status !== "ready") return;
-    await persistState({
-      action: "upsert-branch-run",
-      run: {
-        ...overlay.run,
-        status: "completed",
-        completedAt: new Date().toISOString(),
-      },
-    }).catch(() => undefined);
+  async function handleResourceComplete(scene: Scene) {
+    const adaptiveScene = scene as Scene & {
+      openpblAdaptiveInsertionId?: string;
+      openpblAdaptiveLastScene?: boolean;
+    };
+    if (
+      !adaptiveScene.openpblAdaptiveInsertionId ||
+      !adaptiveScene.openpblAdaptiveLastScene ||
+      switchingRef.current
+    ) return;
+    const insertionId = adaptiveScene.openpblAdaptiveInsertionId;
+    const resource = insertedResources.find((item) => item.run.id === insertionId);
+    switchingRef.current = true;
+    try {
+      if (resource) {
+        await persistState({
+          action: "upsert-branch-run",
+          run: {
+            ...resource.run,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+          },
+        });
+        return;
+      }
+      const persistedRun = adaptiveState.branchRuns.find(
+        (run) => run.id === insertionId && run.status === "ready",
+      );
+      if (persistedRun) {
+        await persistState({
+          action: "upsert-branch-run",
+          run: {
+            ...persistedRun,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+          },
+        });
+        return;
+      }
+      if (insertionId.startsWith("micro-lesson:")) {
+        await persistState({
+          action: "complete-micro-lesson",
+          lessonId: insertionId.slice("micro-lesson:".length),
+        });
+      }
+    } catch {
+      // The ready item stays in the persisted queue and can be retried safely.
+    } finally {
+      switchingRef.current = false;
+    }
   }
 
   if (
@@ -172,86 +342,36 @@ export function AdaptiveAiLearningRuntime({
     && adaptiveState.enabled !== false
     && !adaptiveState.pretestCompletedAt
   ) {
-    return (
-      <AdaptivePretest
-        plan={plan}
-        onSubmit={handlePretestSubmit}
-      />
-    );
+    return <AdaptivePretest plan={plan} onSubmit={handlePretestSubmit} />;
   }
 
   return (
-    <>
-      {!branchOverlay ? (
-        <StudentStageHost
-          backHref={backHref}
-          classroomId={classroomId}
-          className="rounded-none border-0"
-          courseId={course.id}
-          onSceneComplete={(detail) => void handleSceneComplete(detail)}
-          studentId={studentId}
-          studentName={studentName}
-          variant={variant}
-        />
-      ) : null}
-      {!branchOverlay && adaptiveState.enabled !== false && adaptiveState.tier ? (
-        <div className="flex items-center gap-2 border-t border-cyan-100 bg-cyan-50/70 px-4 py-2 text-xs text-cyan-950">
-          <Route size={14} />
-          <span className="font-bold">
-            当前学习路径：
-            {adaptiveState.tier === "foundation"
-              ? "基础巩固"
-              : adaptiveState.tier === "advanced"
-                ? "拓展挑战"
-                : "标准进阶"}
-          </span>
-          <span className="text-cyan-800">
-            {adaptiveState.tierSource === "teacher" ? "教师已人工调整" : "由课前前测判定"}
-            · 系统会在已配置触发点按需调整。
-          </span>
-        </div>
-      ) : null}
-      {branchOverlay ? (
-        <div className="fixed inset-0 z-[90] grid place-items-center bg-stone-950/60 p-3 backdrop-blur-sm">
-          <div className="flex h-[min(88vh,900px)] w-[min(1120px,96vw)] flex-col overflow-hidden rounded-[14px] border border-white/20 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-[7px] bg-cyan-950 text-white">
-                  <Route size={16} />
-                </span>
-                <div>
-                  <h3 className="text-sm font-bold text-stone-900">{branchOverlay.title}</h3>
-                  <p className="text-[11px] text-stone-500">已自然插入当前知识锚点，完成后返回主课程</p>
-                </div>
-              </div>
-              <button
-                aria-label="返回主课程"
-                className="grid h-8 w-8 place-items-center rounded-full text-stone-500 hover:bg-stone-100"
-                onClick={() => void closeBranch()}
-                type="button"
-              >
-                <X size={17} />
-              </button>
-            </div>
-            {branchOverlay.run.classroomId ? (
-              <StudentStageHost
-                backHref={backHref}
-                classroomId={branchOverlay.run.classroomId}
-                className="min-h-0 flex-1"
-                standalone
-                variant="embedded"
-              />
-            ) : (
-              <div className="grid flex-1 place-items-center bg-stone-50">
-                <p className="text-sm font-bold text-stone-700">
-                  该分支资源尚未发布，已返回主课程。
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : null}
-    </>
+    <div className="relative">
+      <span className="sr-only" aria-live="polite">
+        Adaptive resources play in the main course player.
+      </span>
+      <StudentStageHost
+        adaptiveInsertions={adaptiveInsertions}
+        backHref={backHref}
+        classroomId={classroomId}
+        className="rounded-none border-0"
+        courseId={course.id}
+        onSceneComplete={(detail) => {
+          if (
+            (detail.scene as Scene & { openpblAdaptiveInsertionId?: string })
+              .openpblAdaptiveInsertionId
+          ) {
+            void handleResourceComplete(detail.scene);
+          } else {
+            void handleMainSceneComplete(detail);
+          }
+        }}
+        prefetchClassroomIds={preparedClassroomIds}
+        studentId={studentId}
+        studentName={studentName}
+        variant={variant}
+      />
+    </div>
   );
 }
 
@@ -265,11 +385,8 @@ function AdaptivePretest({
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
-  const complete = plan.pretest.questions.every((question) => answers[question.id] !== undefined);
-  const previewScore = useMemo(
-    () => complete ? scoreAdaptiveAssessment(plan.pretest.questions, answers) : undefined,
-    [answers, complete, plan.pretest.questions],
-  );
+  const questions = plan.pretest.questions.slice(0, 5);
+  const complete = questions.every((question) => answers[question.id] !== undefined);
 
   return (
     <div className="min-h-[720px] bg-[radial-gradient(circle_at_top_left,#cffafe_0,transparent_32%),linear-gradient(145deg,#f8fafc,#fff)] p-5 sm:p-8">
@@ -280,16 +397,14 @@ function AdaptivePretest({
           </span>
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-800">
-              开课前 · 约 {plan.pretest.estimatedMinutes} 分钟
+              开课前 · 约 {plan.pretest.estimatedMinutes} 分钟 · 最多 5 题
             </p>
-            <h2 className="font-editorial mt-1 text-2xl font-semibold text-stone-950">
-              {plan.pretest.title}
-            </h2>
+            <h2 className="font-editorial mt-1 text-2xl font-semibold text-stone-950">{plan.pretest.title}</h2>
             <p className="mt-1 text-sm leading-6 text-stone-600">{plan.pretest.introduction}</p>
           </div>
         </div>
         <div className="mt-6 space-y-4">
-          {plan.pretest.questions.map((question, questionIndex) => (
+          {questions.map((question, questionIndex) => (
             <fieldset className="rounded-[10px] border border-stone-200 bg-white p-4 shadow-sm" key={question.id}>
               <legend className="px-1 text-sm font-bold text-stone-900">
                 {questionIndex + 1}. {question.prompt}
@@ -319,8 +434,8 @@ function AdaptivePretest({
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-cyan-200 bg-white p-4">
           <p className="text-xs text-stone-500">
             {complete
-              ? `已完成 ${plan.pretest.questions.length} 题，系统将据此安排学习路径。`
-              : `还需完成 ${plan.pretest.questions.length - Object.keys(answers).length} 题。`}
+              ? "检查已完成。系统只会在确有必要时，于主课开始前连续播放相应回顾内容。"
+              : `还需完成 ${questions.length - Object.keys(answers).length} 题。`}
           </p>
           <button
             className="inline-flex h-10 items-center gap-2 rounded-[8px] bg-cyan-950 px-5 text-sm font-bold text-white hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-40"
@@ -339,11 +454,10 @@ function AdaptivePretest({
             type="button"
           >
             {submitting ? <Loader2 className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
-            进入主课程
+            开始学习
           </button>
         </div>
         {error ? <p className="mt-2 text-right text-xs text-rose-700">{error}</p> : null}
-        {previewScore !== undefined ? <span className="sr-only">当前得分 {previewScore}</span> : null}
       </div>
     </div>
   );

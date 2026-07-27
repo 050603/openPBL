@@ -22,6 +22,7 @@ describe("scopeSessionStateForAuth", () => {
     const scoped = scopeSessionStateForAuth(state, {
       role: "teacher",
       sub: "teacher-1",
+      sv: 1,
       username: "teacher",
       displayName: "王老师",
     });
@@ -38,6 +39,7 @@ describe("scopeSessionStateForAuth", () => {
     const scoped = scopeSessionStateForAuth(state, {
       role: "student",
       sub: "student-1",
+      sv: 1,
       courseId: "course-2",
       studentId: "student-1",
       studentName: "张三",

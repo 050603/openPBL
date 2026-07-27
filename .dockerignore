@@ -6,7 +6,7 @@
 # ---- Dependencies & build artifacts (regenerated inside the image) ----
 node_modules
 **/node_modules
-.next
+.next*
 out
 dist
 build
@@ -23,6 +23,7 @@ output
 .env.*.local
 .env.production
 .env.development
+server-providers.yml
 *.pem
 *.key
 *.crt

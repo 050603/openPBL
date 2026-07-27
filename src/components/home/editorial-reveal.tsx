@@ -1,6 +1,6 @@
 "use client";
 
-import { createElement, useEffect, useRef, type ReactNode } from "react";
+import { createElement, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,10 +24,10 @@ export function EditorialReveal({
   delay?: number;
   as?: "div" | "section" | "article" | "li" | "span" | "ul" | "ol";
 }) {
-  const ref = useRef<HTMLElement | null>(null);
+  const [element, setElement] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const el = ref.current;
+    const el = element;
     if (!el) return;
 
     // 尊重 prefers-reduced-motion
@@ -54,12 +54,12 @@ export function EditorialReveal({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [delay]);
+  }, [delay, element]);
 
   return createElement(
     Tag,
     {
-      ref,
+      ref: setElement,
       className: cn(stagger ? "pbl-stagger" : "pbl-editorial-reveal", className),
     },
     children,

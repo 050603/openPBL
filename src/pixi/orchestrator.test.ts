@@ -21,6 +21,7 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
     const seatAnchor = { x: column === 0 ? 515 : 866, y: 158 + row * 261 }
     const seatExitAnchor = { x: seatAnchor.x + (column === 0 ? 138 : -138), y: seatAnchor.y }
     const homeAnchor = { x: seatExitAnchor.x, y: seatExitAnchor.y + 76 }
+    const conversationAnchor = { x: seatExitAnchor.x, y: seatAnchor.y + 14 }
     let anchor = { ...seatAnchor }
 
     const person = {
@@ -53,6 +54,7 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
       seatAnchor,
       seatExitAnchor,
       homeAnchor,
+      conversationAnchor,
       setConversationActive: vi.fn((active: boolean) => {
         timeline.push({ agentId, kind: 'conversation', value: active, at: Date.now() })
       }),
@@ -60,6 +62,7 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
       setSelected: vi.fn(),
       setInfoVisible: vi.fn(),
       setAway: vi.fn(),
+      setOccludedBy: vi.fn(),
       setMessage: vi.fn(),
       setTask: vi.fn(),
       destroy: vi.fn(),
@@ -135,6 +138,14 @@ describe('office orchestrator partner conversations', () => {
       ['zhizhi', 'talking_on_stand-0'],
     ])
     expect(new Set(talkingStarts.map((event) => event.at)).size).toBe(1)
+    const conversationMove = timeline.find(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'move'
+        && JSON.stringify(event.value) === JSON.stringify(workstations.wenwen.conversationAnchor),
+    )
+    expect(conversationMove).toBeTruthy()
+    expect(workstations.wenwen.conversationAnchor.y - workstations.wenwen.seatAnchor.y).toBe(14)
+    expect(workstations.zhizhi.setOccludedBy).toHaveBeenCalledWith(workstations.wenwen)
 
     await vi.advanceTimersByTimeAsync(10_000)
 
@@ -143,6 +154,7 @@ describe('office orchestrator partner conversations', () => {
     )
     expect(conversationEnds.map((event) => event.agentId)).toEqual(['zhizhi', 'wenwen'])
     expect(new Set(conversationEnds.map((event) => event.at)).size).toBe(1)
+    expect(workstations.zhizhi.setOccludedBy).toHaveBeenLastCalledWith(null)
 
     const finalPlacement = timeline.filter(
       (event) => event.agentId === 'zhizhi' && event.kind === 'place',
@@ -182,8 +194,13 @@ describe('office orchestrator partner conversations', () => {
         && event.value === 'organizing_files',
     )
     expect(archiveActions).toHaveLength(1)
-    expect(workstations.jiji.person.getVisualAnchorPosition('bottomCenter'))
-      .toEqual(studyZoneDefinitions.archive.interactionPoint)
+    expect(workstations.jiji.person.placeVisualAnchorAt).toHaveBeenCalledWith(
+      studyZoneDefinitions.archive.actionAnchorPoint.x,
+      studyZoneDefinitions.archive.actionAnchorPoint.y,
+      'bodyCore',
+    )
+    expect(workstations.jiji.person.getVisualAnchorPosition('bodyCore'))
+      .toEqual(studyZoneDefinitions.archive.actionAnchorPoint)
 
     office.destroy()
   })
@@ -235,5 +252,31 @@ describe('office orchestrator partner conversations', () => {
     expect(new Set(conversationStarts.map((event) => event.at)).size).toBe(1)
 
     office.destroy()
+  })
+
+  it('does not touch destroyed workstations when an idle conversation settles late', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.99,
+      idleStartDelays: {
+        zhizhi: 0,
+        wenwen: 60_000,
+        lingling: 60_000,
+        cece: 60_000,
+        pingping: 60_000,
+        jiji: 60_000,
+      },
+    })
+
+    agentIds.forEach((agentId) => office.setAgentState(agentId, 'idle'))
+    await vi.advanceTimersByTimeAsync(2_200)
+    expect(timeline.some((event) => event.kind === 'conversation' && event.value === true)).toBe(true)
+
+    office.destroy()
+    const eventsAtDestroy = timeline.length
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    expect(timeline).toHaveLength(eventsAtDestroy)
   })
 })

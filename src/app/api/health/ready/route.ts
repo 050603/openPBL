@@ -22,13 +22,16 @@ import {
 } from "@/lib/observability/request-id";
 import { logger } from "@/lib/observability/logger";
 import { isShuttingDown } from "@/lib/runtime/lifecycle";
+import { authorizeInternalMonitor } from "@/lib/auth/request-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const version = process.env.npm_package_version || "0.1.0";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = authorizeInternalMonitor(request);
+  if (denied) return denied;
   // Short-circuit during graceful shutdown: the orchestrator should stop
   // sending traffic to this pod regardless of downstream dependency health.
   if (isShuttingDown()) {

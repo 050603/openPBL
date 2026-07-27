@@ -1,132 +1,104 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Tldraw, type Editor, type TLEditorSnapshot } from "tldraw";
+import { useEffect, useMemo, useRef } from "react";
+import { useSync } from "@tldraw/sync";
+import {
+  Tldraw,
+  type Editor,
+  type TLAsset,
+  type TLAssetStore,
+} from "tldraw";
 import "tldraw/tldraw.css";
 import type { GroupBoardMode } from "@/lib/session/types";
 
 type TldrawWrapperProps = {
+  courseId: string;
   groupId: string;
-  initialSnapshot: unknown;
   mode: GroupBoardMode;
   readOnly?: boolean;
-  onSnapshot: (snapshot: unknown) => void;
-  /** Latest snapshot from the server (via polling). */
-  remoteSnapshot: unknown;
-  /** When the server snapshot was last updated. */
-  remoteUpdatedAt?: string;
 };
 
-/**
- * Wraps the tldraw <Tldraw> editor and wires it to the polling-based session
- * store. Strategy:
- * 1. On mount, load `initialSnapshot` (or an empty board if none).
- * 2. Subscribe to store changes; debounce-save (1000ms) via `onSnapshot`.
- * 3. When `remoteSnapshot` changes AND the local editor has been idle for
- *    >= 2 seconds, merge the remote snapshot to pick up peer edits.
- *
- * The merge is "last-writer-wins" at the snapshot level, which is appropriate
- * for a classroom demo where students rarely edit the same shape concurrently.
- * For a production setup we would switch to tldraw's CRDT sync engine.
- */
 export default function TldrawWrapper({
+  courseId,
   groupId,
-  initialSnapshot,
   mode,
   readOnly = false,
-  onSnapshot,
-  remoteSnapshot,
-  remoteUpdatedAt,
 }: TldrawWrapperProps) {
   const editorRef = useRef<Editor | null>(null);
-  const lastLocalEditAtRef = useRef<number>(Date.now());
-  const lastRemoteUpdatedAtRef = useRef<string | undefined>(remoteUpdatedAt);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Avoid reloading our own just-saved snapshot from the server.
-  const suppressRemoteLoadUntilRef = useRef<number>(0);
-
-  const handleMount = (editor: Editor) => {
-    editorRef.current = editor;
-    if (initialSnapshot) {
-      try {
-        editor.loadSnapshot(initialSnapshot as Partial<TLEditorSnapshot>);
-      } catch {
-        // ignore malformed snapshots
-      }
-    }
-    if (readOnly) {
-      editor.updateInstanceState({ isReadonly: true });
-    }
-    applyModeDefaults(editor, mode);
-
-    // Subscribe to store changes for debounced autosave.
-    // Only listen to user-sourced, document-scope changes to avoid echoing
-    // our own remote loads back into the autosave loop.
-    editor.store.listen(
-      () => {
-        if (readOnly) return;
-        lastLocalEditAtRef.current = Date.now();
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(() => {
-          const snap = editor.getSnapshot();
-          // Suppress remote reload for 2.5s after we emit, to avoid flicker
-          // when the polling refresh echoes our own save back to us.
-          suppressRemoteLoadUntilRef.current = Date.now() + 2500;
-          onSnapshot(snap);
-        }, 1000);
+  const uri = useMemo(() => {
+    const protocol =
+      typeof window !== "undefined" && window.location.protocol === "https:"
+        ? "wss:"
+        : "ws:";
+    const host =
+      typeof window !== "undefined" ? window.location.host : "localhost";
+    const url = new URL(`${protocol}//${host}/tldraw-sync`);
+    url.searchParams.set("courseId", courseId);
+    url.searchParams.set("groupId", groupId);
+    url.searchParams.set("role", readOnly ? "teacher" : "student");
+    return url.toString();
+  }, [courseId, groupId, readOnly]);
+  const assets = useMemo<TLAssetStore>(
+    () => ({
+      upload: async (_asset, file, abortSignal) => {
+        const form = new FormData();
+        form.set("courseId", courseId);
+        form.set("file", file);
+        const response = await fetch("/api/uploads", {
+          method: "POST",
+          body: form,
+          signal: abortSignal,
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { url?: string; message?: string }
+          | null;
+        if (!response.ok || !payload?.url) {
+          throw new Error(payload?.message ?? "Whiteboard asset upload failed.");
+        }
+        return { src: payload.url };
       },
-      { source: "user", scope: "document" },
-    );
-  };
+      resolve: (asset: TLAsset) => asset.props.src ?? null,
+    }),
+    [courseId],
+  );
+  const remoteStore = useSync({ uri, assets });
 
-  // Apply mode-driven UI hints (default tool & shape styling).
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
     applyModeDefaults(editor, mode);
-    if (readOnly) editor.updateInstanceState({ isReadonly: true });
+    editor.updateInstanceState({ isReadonly: readOnly });
   }, [mode, readOnly]);
 
-  // Watch remote snapshot changes from polling and merge if local is idle.
-  useEffect(() => {
-    if (!remoteUpdatedAt || remoteUpdatedAt === lastRemoteUpdatedAtRef.current) return;
-    lastRemoteUpdatedAtRef.current = remoteUpdatedAt;
-    if (Date.now() < suppressRemoteLoadUntilRef.current) return;
-    const editor = editorRef.current;
-    if (!editor || !remoteSnapshot) return;
-    // Only merge if local editor has been idle for >= 2s.
-    if (Date.now() - lastLocalEditAtRef.current < 2000) return;
-    try {
-      editor.store.mergeRemoteChanges(() => {
-        editor.loadSnapshot(remoteSnapshot as Partial<TLEditorSnapshot>);
-      });
-    } catch {
-      // ignore merge failures
-    }
-  }, [remoteSnapshot, remoteUpdatedAt]);
-
-  useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, []);
+  if (remoteStore.status === "loading") {
+    return (
+      <div className="grid h-full place-items-center bg-stone-50 text-sm text-stone-500">
+        正在连接协作画板…
+      </div>
+    );
+  }
+  if (remoteStore.status === "error") {
+    return (
+      <div className="grid h-full place-items-center bg-red-50 px-6 text-center text-sm text-red-700">
+        协作画板连接失败，请检查网络后重试。
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full">
       <Tldraw
-        key={`board-${groupId}`}
-        onMount={handleMount}
+        store={remoteStore.store}
+        onMount={(editor) => {
+          editorRef.current = editor;
+          editor.updateInstanceState({ isReadonly: readOnly });
+          applyModeDefaults(editor, mode);
+        }}
       />
     </div>
   );
 }
 
 function applyModeDefaults(editor: Editor, mode: GroupBoardMode) {
-  if (mode === "mindmap") {
-    // Default to the select tool; users can pick arrow/note shapes from the toolbar.
-    editor.setCurrentTool("select");
-  } else {
-    // Whiteboard mode: default to the draw tool for free-hand sketching.
-    editor.setCurrentTool("draw");
-  }
+  editor.setCurrentTool(mode === "mindmap" ? "select" : "draw");
 }

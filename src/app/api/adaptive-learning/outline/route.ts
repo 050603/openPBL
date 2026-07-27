@@ -1,6 +1,7 @@
 import { callLLM, parseLLMJson } from "@/lib/llm/client";
 import {
   createDefaultAdaptiveLearningPlan,
+  ensureAdaptiveResourceCoverage,
   normalizeAdaptiveLearningPlan,
 } from "@/lib/adaptive-learning";
 import { getCourse } from "@/lib/session/server-store";
@@ -67,6 +68,8 @@ export async function POST(request: Request) {
       id: scene.id,
       title: scene.title,
       type: scene.type,
+      description: scene.description,
+      keyPoints: scene.keyPoints ?? [],
       knowledgePointIds: scene.knowledgePointIds ?? [],
       targetDurationSec: scene.targetDurationSec ?? scene.estimatedDuration,
     }));
@@ -79,16 +82,18 @@ export async function POST(request: Request) {
     const response = await callLLM([
       {
         role: "system",
-        content: `你是课程自适应路径设计师。请为一节课生成轻量前测和可选分支大纲。
+        content: `你是课程自适应资源编排设计师。主课程必须完整讲清本节课大纲要求，额外资源只能补充先决知识或提供新的案例、应用、迁移与思考，不得替代主课，也不得重复主课已经讲过的定义、回顾、例题或结论。
 约束：
-1. 前测只检验本节课所需的前序知识，3-5 道单选题，每题 4 个选项，正确项不要总在同一位置。
-2. 分支先生成可由教师修改的大纲与 generationGuidance，不在此接口生成具体 PPT。每个主要知识锚点最多一个补基础分支和一个拓展分支。
-3. 每个分支 90-240 秒；补基础侧重先决概念和具体例子，拓展侧重迁移、边界或开放挑战。
+1. 前测只检验会直接影响本节新知识理解的前序知识，最多 5 道单选题；必要时把多个相关先决知识融合进一道情境题。每题 4 个选项，正确项不要总在同一位置。
+2. 每份资源先生成可由教师修改的大纲与 generationGuidance，不在此接口生成具体 PPT。
+3. 资源类型可为 prerequisite（开课前必要回顾）、worked-example（新例题）、application（新应用）或 extension（迁移/边界/开放思考），每份 90-240 秒。
 4. 所有 knowledgePointIds 必须来自给定目录。
-5. 每个分支必须绑定主课程中的 afterSceneId；beforeSceneId 表示分支结束后回到哪一页。
-6. 补基础默认使用 tier-or-low-score，拓展默认使用 tier-and-high-score；阈值与最小剩余时间要明确。
-7. generationGuidance 必须给教师一段可编辑的成品生成指导，明确案例类型、难度、讲解顺序、互动方式和应避免的内容。
-7. 仅返回 JSON，不要 Markdown。`,
+5. 每个被前测题关联的独立先决知识点都必须至少被一份 prerequisite 资源覆盖；一份资源可以覆盖多个紧密相关的先决知识点。prerequisite 使用 placement=before-main-course、evidenceRule=pretest-gap，并列出 prerequisiteKnowledgePointIds；只有前测对应知识答错才插入。
+6. 每一个主课模块测验都必须至少绑定一份 worked-example、application 或 extension 资源。资源使用 placement=after-module、evidenceRule=module-mastery，通过 assessmentSceneIds 关联模块测验；学生答错只看题目解析，不再次讲授相同内容，只有达到掌握阈值且时间充足才插入。
+7. 必须逐页审查 mainScenes。noveltyStatement 要明确说明相对主课新增了什么；mainCourseOverlapSceneIds 列出主题可能重叠、生成时必须避开的主课页。若主课已回顾某个先决知识，prerequisite 应针对前测暴露的具体误解设计诊断案例和新课连接，不得重复主课的完整讲解。
+8. generationGuidance 必须明确新案例类型、难度、讲解顺序、互动方式，以及不得复述的主课内容。
+9. 每个主课模块测验建议约 3 题；这里只绑定测验，不生成题目。
+10. 仅返回 JSON，不要 Markdown。`,
       },
       {
         role: "user",
@@ -120,19 +125,24 @@ export async function POST(request: Request) {
             },
             branches: [{
               id: "string",
-              kind: "foundation|extension",
+              kind: "prerequisite|worked-example|application|extension",
               title: "string",
               objective: "string",
               keyPoints: ["string"],
               anchorKnowledgePointIds: ["kp-id"],
+              prerequisiteKnowledgePointIds: ["kp-id"],
+              noveltyStatement: "string",
+              mainCourseOverlapSceneIds: ["main-scene-id"],
               sceneType: "slide|interactive",
               targetDurationSec: 180,
               generationGuidance: "string",
               trigger: {
-                afterSceneId: "main-scene-id",
-                beforeSceneId: "next-main-scene-id",
-                evidenceRule: "tier|tier-or-low-score|tier-and-high-score",
-                scoreThreshold: 70,
+                placement: "before-main-course|after-module",
+                assessmentSceneIds: ["quiz-outline-id"],
+                linkedQuestionIds: [],
+                answerRule: "score-at-least",
+                evidenceRule: "pretest-gap|module-mastery",
+                scoreThreshold: 80,
                 minimumRemainingSec: 180,
               },
             }],
@@ -140,9 +150,12 @@ export async function POST(request: Request) {
         }),
       },
     ], { jsonMode: true, abortSignal: request.signal });
-    const plan = normalizeAdaptiveLearningPlan(
-      parseLLMJson<unknown>(response),
-      fallback,
+    const plan = ensureAdaptiveResourceCoverage(
+      normalizeAdaptiveLearningPlan(
+        parseLLMJson<unknown>(response),
+        fallback,
+      ),
+      { knowledgePoints, mainScenes: sourceMainScenes },
     );
     return Response.json({ plan });
   } catch (error) {

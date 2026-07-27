@@ -163,4 +163,43 @@ describe("isStudentActionForSelf", () => {
     expect(isStudentActionForSelf(action, "student-1", "course-1")).toBe(true);
     expect(isStudentActionForSelf(action, "student-2", "course-1")).toBe(false);
   });
+
+  it.each([
+    "UPSERT_GROUP_ANNOUNCEMENT",
+    "UPSERT_WORK_PLAN_ITEM",
+    "DELETE_WORK_PLAN_ITEM",
+    "UPSERT_UPLOAD",
+    "SET_PREVIEW_UPLOAD",
+    "ADD_ANNOUNCEMENT_REPLY",
+  ] as const)("allows the student collaboration action %s", (type) => {
+    expect(isActionAllowed("student", type)).toBe(true);
+  });
+
+  it("requires self identity on student-owned group and preview mutations", () => {
+    const action = {
+      type: "DELETE_WORK_PLAN_ITEM",
+      payload: {
+        courseId: "course-1",
+        itemId: "item-1",
+        studentId: "student-1",
+      },
+    } as SessionAction;
+
+    expect(isStudentActionForSelf(action, "student-1", "course-1")).toBe(true);
+    expect(isStudentActionForSelf(action, "student-2", "course-1")).toBe(false);
+  });
+
+  it("scopes announcement replies to the authenticated student", () => {
+    const action = {
+      type: "ADD_ANNOUNCEMENT_REPLY",
+      payload: {
+        courseId: "course-1",
+        announcementId: "announcement-1",
+        reply: { studentId: "student-1" },
+      },
+    } as SessionAction;
+
+    expect(isStudentActionForSelf(action, "student-1", "course-1")).toBe(true);
+    expect(isStudentActionForSelf(action, "student-2", "course-1")).toBe(false);
+  });
 });

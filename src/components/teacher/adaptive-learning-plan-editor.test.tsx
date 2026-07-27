@@ -4,7 +4,7 @@ import { AdaptiveLearningPlanEditor } from "@/components/teacher/adaptive-learni
 import { createDefaultAdaptiveLearningPlan } from "@/lib/adaptive-learning";
 
 describe("AdaptiveLearningPlanEditor", () => {
-  it("shows the pretest and branch outlines and lets the teacher confirm them", () => {
+  it("shows a compact review dashboard and leaves confirmation to course generation", () => {
     const point = { id: "kp-1", name: "变量", description: "变量表示可变化的数据" };
     const mainScenes = [{
       id: "scene-1",
@@ -31,19 +31,24 @@ describe("AdaptiveLearningPlanEditor", () => {
       />,
     );
 
-    expect(screen.getByText("自适应学习路径")).not.toBeNull();
-    expect(screen.getByText("课前轻量前测")).not.toBeNull();
-    expect(screen.getByDisplayValue("变量 · 补基础")).not.toBeNull();
-    expect(screen.getByDisplayValue("变量 · 拓展挑战")).not.toBeNull();
-    expect(screen.getByText("整节课程完整走向")).not.toBeNull();
+    expect(screen.getByText("自适应课程审核台")).not.toBeNull();
+    expect(screen.getByText("学生可能经历的完整学习路径")).not.toBeNull();
+    expect(screen.getByText("课前测题目")).not.toBeNull();
+    expect(screen.getByText("课前先决知识资源")).not.toBeNull();
+    expect(screen.getByText("模块后拓展资源")).not.toBeNull();
+    expect(screen.getByDisplayValue("变量 · 先决知识诊断回顾")).not.toBeNull();
+    expect(screen.getByDisplayValue("变量 · 模块拓展")).not.toBeNull();
+    expect(screen.getByText("先决覆盖 1/1")).not.toBeNull();
+    expect(screen.getByText("模块覆盖 1/1")).not.toBeNull();
+    expect(screen.getAllByText("相对主课新增价值（必填）")).toHaveLength(2);
+    expect(screen.getByText("关联模块测验")).not.toBeNull();
     expect(screen.getAllByText("变量节点小测").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "确认资源方案" })).toBeNull();
+    expect(screen.getByText("无需在这里单独确认")).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "确认自适应路径" }));
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
-      status: "teacher-confirmed",
-      branches: expect.arrayContaining([
-        expect.objectContaining({ status: "teacher-confirmed" }),
-      ]),
-    }));
+    fireEvent.change(screen.getByDisplayValue("变量 · 模块拓展"), {
+      target: { value: "变量 · 新应用" },
+    });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ status: "draft" }));
   });
 });

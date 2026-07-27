@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { Bot, ChevronDown, Map, Maximize2, Network } from "lucide-react";
+import { Bot, ChevronDown, Map, Network } from "lucide-react";
 import { useStageStore } from "@openmaic/lib/store";
 import { KnowledgeGraphFlow } from "@/components/knowledge-graph-flow";
 import { AdaptiveAiLearningRuntime } from "@/components/views/student/adaptive-ai-learning-runtime";
@@ -109,12 +108,9 @@ export function AiLearningView({ course }: { course?: Course }) {
             知识地图
             <ChevronDown className={graphCollapsed ? "rotate-180 transition" : "transition"} size={14} />
           </button>
-          <Link
-            href={`/student/ai-learning/${classroomId}?courseId=${encodeURIComponent(course?.id ?? "")}`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-xs)] bg-[var(--pbl-student)] px-3 text-[13px] font-bold text-white shadow-sm transition hover:brightness-95"
-          >
-            <Maximize2 size={15} /> 专注大屏学习
-          </Link>
+          <span className="text-xs font-medium text-stone-500">
+            拓展内容会在当前课程中自动插播
+          </span>
         </div>
 
         {/* 播放器 */}

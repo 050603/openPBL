@@ -102,6 +102,15 @@ export function DashboardShell({
     setOpenPanel(null);
   }
 
+  async function logout() {
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "X-OpenPBL-Role": role },
+    });
+    if (!response.ok) return;
+    window.location.assign(isTeacher ? "/teacher/login" : "/student");
+  }
+
   return (
     <div className={cn("min-h-screen text-[var(--pbl-text)]", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
       {!immersive ? <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
@@ -208,13 +217,22 @@ export function DashboardShell({
                   <UserRound size={15} /> 个人中心
                 </Link>
               </div>
-              <Link
+              {isTeacher ? (
+                <Link
+                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[13px] font-semibold text-[var(--pbl-teacher)] transition hover:bg-white"
+                  href="/teacher/register"
+                  onClick={() => setOpenPanel(null)}
+                >
+                  <UserPlusIcon /> 创建其他教师
+                </Link>
+              ) : null}
+              <button
                 className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[13px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
-                href={homeHref}
-                onClick={() => setOpenPanel(null)}
+                onClick={() => void logout()}
+                type="button"
               >
-                <LogOut size={15} /> 返回首页
-              </Link>
+                <LogOut size={15} /> 退出登录
+              </button>
             </div>
           ) : null}
         </TopPopover>
@@ -227,6 +245,26 @@ export function DashboardShell({
         </div>
       </main>
     </div>
+  );
+}
+
+function UserPlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="15"
+      viewBox="0 0 24 24"
+      width="15"
+    >
+      <path
+        d="M15 19c0-2.21-2.69-4-6-4s-6 1.79-6 4m6-7a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm10-5v6m3-3h-6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
   );
 }
 

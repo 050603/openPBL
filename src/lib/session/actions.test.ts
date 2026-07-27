@@ -3,7 +3,6 @@ import {
   applySessionAction,
   initialSessionState,
   normalizeCourse,
-  type SessionAction,
   type SessionState,
 } from "./actions";
 import type { Course, CourseUpload, GroupBoard, Student } from "./types";
@@ -46,6 +45,10 @@ function stateWithCourses(...courses: Course[]): SessionState {
 describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
   it("changes only the requesting student's completion entry", () => {
     const course = makeCourse({
+      students: [
+        makeStudent("student-1", "张三"),
+        makeStudent("student-2", "李四"),
+      ],
       todos: [
         {
           id: "todo-1",
@@ -69,6 +72,18 @@ describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
       "student-2",
       "student-1",
     ]);
+    expect(
+      completed.courses[0].students.find((student) => student.id === "student-1")
+        ?.stageProgress["project-launch"],
+    ).toBe(100);
+    expect(
+      completed.courses[0].students.find((student) => student.id === "student-1")
+        ?.stageProgress.launch,
+    ).toBe(100);
+    expect(
+      completed.courses[0].students.find((student) => student.id === "student-2")
+        ?.stageProgress["project-launch"],
+    ).toBeUndefined();
 
     const reopened = applySessionAction(completed, {
       type: "SET_STUDENT_TODO_COMPLETION",
@@ -80,6 +95,41 @@ describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
       },
     });
     expect(reopened.courses[0].todos?.[0].completedBy).toEqual(["student-2"]);
+    expect(
+      reopened.courses[0].students.find((student) => student.id === "student-1")
+        ?.stageProgress["project-launch"],
+    ).toBe(0);
+  });
+
+  it("derives project-launch progress from all launch todos", () => {
+    const student = makeStudent("student-1", "张三");
+    const course = makeCourse({
+      students: [student],
+      todos: [
+        { id: "todo-1", title: "一", description: "", completedBy: [] },
+        { id: "todo-2", title: "二", description: "", completedBy: [] },
+        {
+          id: "later",
+          title: "后续任务",
+          description: "",
+          stageKey: "proposal",
+          completedBy: [],
+        },
+      ],
+    });
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "SET_STUDENT_TODO_COMPLETION",
+      payload: {
+        courseId: course.id,
+        todoId: "todo-1",
+        studentId: student.id,
+        completed: true,
+      },
+    });
+
+    expect(next.courses[0].students[0].stageProgress["project-launch"]).toBe(50);
+    expect(next.courses[0].students[0].stageProgress.launch).toBe(50);
   });
 });
 

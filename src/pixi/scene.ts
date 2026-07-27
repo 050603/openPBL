@@ -204,12 +204,34 @@ function layoutScene(viewport: Container, width: number, height: number): void {
 function createStudioBackground(studyZones: StudyZoneController): Container {
   const background = new Container()
   const paper = new Graphics()
+  const learningBays = new Graphics()
+  const aisle = new Graphics()
   // A cool, almost-white gray keeps the study furniture grounded while the
   // white materials and their contact shadows remain readable.
   paper.rect(0, 0, sceneWidth, sceneHeight).fill({ color: 0xf2f4f5 })
   paper.rect(0, 0, sceneWidth, 15).fill({ color: 0xffffff, alpha: 0.98 })
   paper.rect(0, 15, sceneWidth, 3).fill({ color: 0xe4e8ea, alpha: 0.9 })
-  background.addChild(paper)
+  ;[
+    { y: 26, accent: 0x5f9d97 },
+    { y: 287, accent: 0xd7a24f },
+    { y: 548, accent: 0x7891bd },
+  ].forEach(({ y, accent }) => {
+    learningBays
+      .roundRect(430, y, 700, 236, 30)
+      .fill({ color: 0xffffff, alpha: 0.2 })
+      .stroke({ color: accent, alpha: 0.08, width: 1 })
+      .roundRect(448, y + 218, 664, 2, 1)
+      .fill({ color: accent, alpha: 0.05 })
+  })
+  aisle
+    .roundRect(classroomMainAisleXForBackground() - 18, 34, 36, 804, 18)
+    .fill({ color: 0xffffff, alpha: 0.13 })
+    .stroke({ color: 0xaab6b9, alpha: 0.08, width: 1 })
+  background.addChild(paper, learningBays, aisle)
   background.addChild(studyZones.container)
   return background
+}
+
+function classroomMainAisleXForBackground(): number {
+  return 690
 }

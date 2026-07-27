@@ -14,6 +14,12 @@ let registered = false;
 
 export async function register(): Promise<void> {
   if (registered) return;
+  const { assertProductionEnvironment } = await import("@/lib/config/env");
+  assertProductionEnvironment();
+  const { initializeServerProviderConfig } = await import(
+    "@/lib/openmaic/server/provider-config"
+  );
+  await initializeServerProviderConfig();
   registered = true;
   // Side-effect import: triggers collectDefaultMetrics() exactly once.
   await import("@/lib/observability/metrics");
@@ -24,6 +30,12 @@ export async function register(): Promise<void> {
     await initializeEventBus();
     const wsPort = Number(process.env.WEBSOCKET_PORT ?? "3001");
     startWebSocketServer(wsPort);
+  }
+  if (process.env.ENABLE_TLDRAW_SYNC === "true") {
+    const { startTldrawSyncServer } = await import(
+      "@/lib/realtime/tldraw-sync-server"
+    );
+    startTldrawSyncServer(Number(process.env.TLDRAW_SYNC_PORT ?? "3002"));
   }
 
   // Register graceful-shutdown signal handlers (Stage 7).
@@ -66,10 +78,26 @@ async function installShutdownHandlers(): Promise<void> {
           await closeWebSocketServer();
           await closeEventBus();
         }
+        if (process.env.ENABLE_TLDRAW_SYNC === "true") {
+          const { closeTldrawSyncServer } = await import(
+            "@/lib/realtime/tldraw-sync-server"
+          );
+          await closeTldrawSyncServer();
+        }
 
         // 4) Close the database connection. Prisma is always instantiated
         //    (singleton), but if DATABASE_URL is unset (Demo mode) calling
         //    $disconnect is a safe no-op.
+        try {
+          const { closeRedisClient } = await import("@/lib/redis/client");
+          await closeRedisClient();
+        } catch (err) {
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "Redis client shutdown failed",
+          );
+        }
+
         try {
           const { prisma } = await import("@/lib/db/client");
           await prisma.$disconnect();

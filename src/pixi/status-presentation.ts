@@ -13,6 +13,7 @@ export type ScreenActionName = Extract<
 
 export type StatePresentation = {
   body: AgentActionName
+  bodySequence: readonly AgentActionName[]
   screen?: ScreenActionName
   label: string
   tone: number
@@ -33,14 +34,14 @@ export function getRoleScreenAction(agentId: AgentId): ScreenActionName {
 }
 
 export const statePresentationByState: Record<PartnerState, Omit<StatePresentation, 'screen'>> = {
-  idle: { body: 'working', label: '在座位上学习', tone: 0x718087, ring: 0x718087 },
-  selected: { body: 'working', label: '已选择', tone: 0x2c9b91, ring: 0x2c9b91 },
-  working: { body: 'working', label: '正在处理', tone: 0x2c9b91, ring: 0x2c9b91 },
-  speaking: { body: 'talking_on_seat', label: '正在发言', tone: 0xe6a53b, ring: 0xe6a53b },
-  celebrating: { body: 'cheer1_sub', label: '发言完成', tone: 0x48a56a, ring: 0x48a56a },
-  waiting_user: { body: 'working', label: '等待你确认', tone: 0x6f7fd3, ring: 0x6f7fd3 },
-  completed: { body: 'cheer1_sub', label: '已完成', tone: 0x48a56a, ring: 0x48a56a },
-  error: { body: 'standby', label: '任务失败', tone: 0xd55d56, ring: 0xd55d56 },
+  idle: { body: 'working', bodySequence: ['working'], label: '在座位上学习', tone: 0x718087, ring: 0x718087 },
+  selected: { body: 'selected', bodySequence: ['selected', 'agreeing'], label: '已选择', tone: 0x2c9b91, ring: 0x2c9b91 },
+  working: { body: 'working', bodySequence: ['working', 'thinking'], label: '正在处理', tone: 0x2c9b91, ring: 0x2c9b91 },
+  speaking: { body: 'talking_on_seat', bodySequence: ['talking_on_seat'], label: '正在发言', tone: 0xe6a53b, ring: 0xe6a53b },
+  celebrating: { body: 'completed', bodySequence: ['completed', 'agreeing'], label: '发言完成', tone: 0x48a56a, ring: 0x48a56a },
+  waiting_user: { body: 'waiting_user', bodySequence: ['waiting_user', 'listening'], label: '等待你确认', tone: 0x6f7fd3, ring: 0x6f7fd3 },
+  completed: { body: 'completed', bodySequence: ['completed', 'agreeing'], label: '已完成', tone: 0x48a56a, ring: 0x48a56a },
+  error: { body: 'error', bodySequence: ['error', 'questioning'], label: '任务失败', tone: 0xd55d56, ring: 0xd55d56 },
 }
 
 export function getStatePresentation(agentId: AgentId, state: PartnerState): StatePresentation {
@@ -53,9 +54,20 @@ export function getStatePresentation(agentId: AgentId, state: PartnerState): Sta
     pingping: '正在审阅成果',
     jiji: '正在整理记录',
   }
+  const roleWorkActions: Record<AgentId, AgentActionName> = {
+    zhizhi: 'searching_info',
+    wenwen: 'questioning',
+    lingling: 'brainstorming',
+    cece: 'planning_board',
+    pingping: 'reviewing_work',
+    jiji: 'writing_notes',
+  }
 
   return {
     ...presentation,
+    bodySequence: state === 'working'
+      ? ['working', roleWorkActions[agentId], 'thinking']
+      : presentation.bodySequence,
     label: state === 'working' ? workingLabelByAgent[agentId] : presentation.label,
     screen: state === 'working' ? roleScreenActions[agentId] : undefined,
   }

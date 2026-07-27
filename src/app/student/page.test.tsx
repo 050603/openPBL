@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import StudentEntryPage from "./page";
@@ -6,10 +6,6 @@ import StudentEntryPage from "./page";
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
 }));
-const sessionActions = vi.hoisted(() => ({
-  leaveClass: vi.fn<() => Promise<boolean>>(),
-}));
-
 const activeCourse = {
   id: "course-1",
   name: "正在进行的项目课堂",
@@ -29,7 +25,6 @@ vi.mock("@/lib/session/store", () => ({
     studentName: "测试学生",
     joinedCourseId: activeCourse.id,
     courses: [activeCourse],
-    leaveClass: sessionActions.leaveClass,
     getLeftClassHistory: () => [],
     refresh: vi.fn(),
   }),
@@ -39,47 +34,41 @@ vi.mock("@/components/dashboard-shell", () => ({
   DashboardShell: ({ children }: { children: ReactNode }) => <main>{children}</main>,
 }));
 
-describe("student rejoin confirmation", () => {
+describe("student classroom entry", () => {
   beforeEach(() => {
     activeCourse.status = "teaching";
     navigation.replace.mockClear();
-    sessionActions.leaveClass.mockReset();
-    sessionActions.leaveClass.mockResolvedValue(true);
     vi.restoreAllMocks();
   });
 
-  it("does not automatically enter an active classroom after restoring login state", () => {
+  it("shows the original invite-code form together with an available classroom card", () => {
     render(<StudentEntryPage />);
 
-    expect(screen.getByRole("heading", { name: "检测到上次加入的课堂" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "重新加入课堂" })).toBeTruthy();
+    expect(screen.getByText("可返回的课堂")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: activeCourse.name })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "返回课堂" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "加入课堂" })).toBeTruthy();
+    expect(screen.getByLabelText("邀请码")).toBeTruthy();
+    expect(screen.getByLabelText("姓名")).toBeTruthy();
+    expect(screen.queryByText("暂不加入，返回首页")).toBeNull();
     expect(navigation.replace).not.toHaveBeenCalled();
   });
 
-  it("enters the classroom only after the student clicks rejoin", () => {
+  it("returns to the classroom only after the student clicks the classroom card action", () => {
     render(<StudentEntryPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "重新加入课堂" }));
+    fireEvent.click(screen.getByRole("button", { name: "返回课堂" }));
 
     expect(navigation.replace).toHaveBeenCalledTimes(1);
     expect(navigation.replace).toHaveBeenCalledWith("/student/classroom/course-1");
   });
 
-  it("leaves the old class before clearing only the student login", async () => {
+  it("keeps the invite-code entry available when the restored classroom has ended", () => {
     activeCourse.status = "finished";
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     render(<StudentEntryPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "重新输入邀请码" }));
-
-    await waitFor(() => {
-      expect(sessionActions.leaveClass).toHaveBeenCalledTimes(1);
-      expect(fetchMock).toHaveBeenCalledWith("/api/auth/logout", {
-        method: "POST",
-        headers: { "X-OpenPBL-Role": "student" },
-      });
-    });
+    expect(screen.queryByText("可返回的课堂")).toBeNull();
+    expect(screen.getByRole("heading", { name: "加入课堂" })).toBeTruthy();
+    expect(screen.getByLabelText("邀请码")).toBeTruthy();
   });
 });

@@ -16,7 +16,6 @@ import { DOMParser } from '@xmldom/xmldom';
 import { parseDocxMathContent } from '../utils/eqFieldParser';
 import JSZip from 'jszip';
 
-// @ts-expect-error — omml2mathml has no type declarations
 import omml2mathml from 'omml2mathml';
 import mathmlToLatex from 'mathml-to-latex';
 const MathMLToLaTeX = mathmlToLatex.MathMLToLaTeX ?? mathmlToLatex;

@@ -1,89 +1,173 @@
-/**
- * Media Proxy API
- *
- * Server-side proxy for fetching remote media URLs (images/videos).
- * Required because browser fetch() to remote CDN URLs fails with CORS errors.
- * The media orchestrator uses this to download generated media as blobs
- * for IndexedDB persistence.
- *
- * POST /api/proxy-media
- * Body: { url: string }
- * Response: Binary blob with appropriate Content-Type
- */
+import { fetch } from "undici";
+import { z } from "zod";
+import { authenticateRequest, requireSameOrigin } from "@/lib/auth/request-guards";
+import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
+import { rateLimitedResponse } from "@/lib/auth/rate-limit";
+import { createSsrfSafeDispatcher } from "@/lib/openmaic/server/ssrf-guard";
+import { logger } from "@/lib/observability/logger";
 
-import { NextRequest, NextResponse } from 'next/server';
-import { validateUrlForSSRF } from '@openmaic/lib/server/ssrf-guard';
-import { apiError } from '@openmaic/lib/server/api-response';
-import { createLogger } from '@openmaic/lib/logger';
-
-const log = createLogger('ProxyMedia');
-
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function POST(request: NextRequest) {
-  let url: string | undefined;
+const RequestSchema = z.object({
+  url: z.string().url().max(4_096),
+});
+const MAX_REDIRECTS = 5;
+const MAX_PROXY_BYTES = 25 * 1024 * 1024;
+const ALLOWED_CONTENT_TYPE =
+  /^(image|video|audio)\/|^application\/(pdf|octet-stream)(?:;|$)/i;
+
+export async function POST(request: Request) {
+  const csrfError = requireSameOrigin(request);
+  if (csrfError) return csrfError;
+  const auth = await authenticateRequest(request);
+  if ("response" in auth) return auth.response;
+
+  const limit = await checkDistributedRateLimit({
+    namespace: "media-proxy",
+    key: auth.claims.sub ?? "unknown",
+    limit: 60,
+    windowSeconds: 60,
+  });
+  if (!limit.allowed) return rateLimitedResponse(limit.retryAfterMs);
+
+  const parsed = RequestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return apiError(request, "INVALID_REQUEST", "A valid media URL is required.", 400);
+  }
+
+  let currentUrl = parsed.data.url;
   try {
-    ({ url } = await request.json());
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      const connection = await createSsrfSafeDispatcher(currentUrl);
+      const upstream = await fetch(currentUrl, {
+        dispatcher: connection.dispatcher,
+        redirect: "manual",
+        headers: {
+          Accept: "image/*,video/*,audio/*,application/pdf,application/octet-stream",
+          "User-Agent": "OpenPBL-MediaProxy/1.0",
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
 
-    if (!url || typeof url !== 'string') {
-      return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing or invalid url');
-    }
-
-    // Initial SSRF validation
-    const ssrfError = await validateUrlForSSRF(url);
-    if (ssrfError) {
-      return apiError('INVALID_URL', 403, ssrfError);
-    }
-
-    const MAX_REDIRECTS = 5;
-    let currentUrl = url;
-    let response: Response;
-    for (let hop = 0; ; hop++) {
-      response = await fetch(currentUrl, { redirect: 'manual' });
-      if (response.status < 300 || response.status >= 400) break; // not a redirect
-      const location = response.headers.get('location');
-      if (!location)
-        return apiError('UPSTREAM_ERROR', 502, 'Redirect response without Location header');
-      if (hop >= MAX_REDIRECTS) return apiError('TOO_MANY_REDIRECTS', 502, 'Too many redirects');
-      let nextUrl: string;
-      try {
-        nextUrl = new URL(location, currentUrl).href; // resolve relative redirects
-      } catch {
-        return apiError('INVALID_URL', 502, 'Invalid redirect Location');
+      if (upstream.status >= 300 && upstream.status < 400) {
+        const location = upstream.headers.get("location");
+        await upstream.body?.cancel();
+        await connection.close();
+        if (!location) return apiError(request, "UPSTREAM_ERROR", "Invalid upstream redirect.", 502);
+        if (hop === MAX_REDIRECTS) {
+          return apiError(request, "TOO_MANY_REDIRECTS", "Too many upstream redirects.", 502);
+        }
+        currentUrl = new URL(location, currentUrl).href;
+        continue;
       }
-      // Re-validate each redirect hop to prevent redirect-to-internal SSRF (#398)
-      const hopError = await validateUrlForSSRF(nextUrl);
-      if (hopError) return apiError('INVALID_URL', 403, hopError);
-      currentUrl = nextUrl;
-    }
 
-    if (!response!.ok) {
-      // Forward client (4xx) errors as-is so the caller treats them as permanent
-      // (no retry); collapse upstream server (5xx) errors to 502.
-      const status = response!.status >= 400 && response!.status < 500 ? response!.status : 502;
-      return apiError('UPSTREAM_ERROR', status, `Upstream returned ${response!.status}`);
-    }
+      if (!upstream.ok) {
+        await upstream.body?.cancel();
+        await connection.close();
+        return apiError(request, "UPSTREAM_ERROR", "The upstream media request failed.", 502);
+      }
 
-    const MAX_PROXY_BYTES = 25 * 1024 * 1024; // 25 MiB
-    const contentLength = Number(response!.headers.get('content-length') ?? '');
-    if (Number.isFinite(contentLength) && contentLength > MAX_PROXY_BYTES) {
-      return apiError('UPSTREAM_ERROR', 502, `Upstream asset too large (${contentLength} bytes)`);
-    }
-    const blob = await response!.blob();
-    if (blob.size > MAX_PROXY_BYTES) {
-      return apiError('UPSTREAM_ERROR', 502, `Upstream asset too large (${blob.size} bytes)`);
-    }
-    const contentType = response!.headers.get('content-type') || 'application/octet-stream';
+      const contentType = upstream.headers.get("content-type")?.trim() ?? "";
+      if (!ALLOWED_CONTENT_TYPE.test(contentType)) {
+        await upstream.body?.cancel();
+        await connection.close();
+        return apiError(request, "UNSUPPORTED_MEDIA_TYPE", "Unsupported upstream media type.", 415);
+      }
+      const contentLength = Number(upstream.headers.get("content-length") ?? "");
+      if (Number.isFinite(contentLength) && contentLength > MAX_PROXY_BYTES) {
+        await upstream.body?.cancel();
+        await connection.close();
+        return apiError(request, "MEDIA_TOO_LARGE", "Upstream media exceeds 25 MiB.", 413);
+      }
+      if (!upstream.body) {
+        await connection.close();
+        return apiError(request, "UPSTREAM_ERROR", "Upstream returned an empty body.", 502);
+      }
 
-    return new NextResponse(blob, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(blob.size),
-        'Cache-Control': 'private, max-age=3600',
-      },
-    });
+      const body = boundedStream(
+        upstream.body as unknown as ReadableStream<Uint8Array>,
+        connection.close,
+      );
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "private, max-age=3600",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
   } catch (error) {
-    log.error(`Proxy media failed [url="${url?.substring(0, 100) ?? 'unknown'}"]:`, error);
-    return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
+    logger.warn(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        host: safeHost(currentUrl),
+        requestId: request.headers.get("x-request-id"),
+      },
+      "media proxy request rejected",
+    );
+  }
+  return apiError(request, "INVALID_URL", "The media URL is not allowed.", 403);
+}
+
+function boundedStream(
+  source: ReadableStream<Uint8Array>,
+  close: () => Promise<void>,
+): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  let received = 0;
+  let closed = false;
+  const cleanup = async () => {
+    if (closed) return;
+    closed = true;
+    await close().catch(() => undefined);
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          controller.close();
+          await cleanup();
+          return;
+        }
+        received += chunk.value.byteLength;
+        if (received > MAX_PROXY_BYTES) {
+          await reader.cancel("media too large");
+          controller.error(new Error("Upstream media exceeds the configured limit."));
+          await cleanup();
+          return;
+        }
+        controller.enqueue(chunk.value);
+      } catch (error) {
+        controller.error(error);
+        await cleanup();
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+      await cleanup();
+    },
+  });
+}
+
+function apiError(request: Request, code: string, message: string, status: number): Response {
+  return Response.json(
+    {
+      code,
+      message,
+      requestId: request.headers.get("x-request-id") ?? "unknown",
+    },
+    { status },
+  );
+}
+
+function safeHost(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).hostname;
+  } catch {
+    return "invalid";
   }
 }

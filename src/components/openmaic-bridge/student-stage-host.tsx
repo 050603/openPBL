@@ -46,6 +46,38 @@ interface ClassroomPayload {
   scenes: Scene[];
 }
 
+const preparedClassroomCache = new Map<string, Promise<ClassroomPayload>>();
+
+export function prefetchAdaptiveClassroom(
+  preparedClassroomId: string,
+): Promise<ClassroomPayload> {
+  const cached = preparedClassroomCache.get(preparedClassroomId);
+  if (cached) return cached;
+  const request = fetch(
+    `/api/openmaic/classroom?id=${encodeURIComponent(preparedClassroomId)}`,
+    { cache: 'no-store' },
+  )
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Prepared classroom failed to load (${response.status})`);
+      }
+      const payload = (await response.json()) as {
+        success: boolean;
+        classroom?: ClassroomPayload;
+      };
+      if (!payload.success || !payload.classroom?.scenes.length) {
+        throw new Error('Prepared classroom is empty');
+      }
+      return payload.classroom;
+    })
+    .catch((error) => {
+      preparedClassroomCache.delete(preparedClassroomId);
+      throw error;
+    });
+  preparedClassroomCache.set(preparedClassroomId, request);
+  return request;
+}
+
 interface ProgressEntry {
   currentSceneIndex: number;
   totalScenes: number;
@@ -79,7 +111,25 @@ interface StudentStageHostProps {
   }) => void;
   /** Plays an independently generated branch or micro lesson without course progress writes. */
   standalone?: boolean;
+  /** Prepared adaptive classrooms to splice into the already-mounted player. */
+  adaptiveInsertions?: AdaptiveSceneInsertion[];
+  /** Prepared classroom ids to warm while the student completes the pretest/main lesson. */
+  prefetchClassroomIds?: string[];
 }
+
+export type AdaptiveSceneInsertion = {
+  id: string;
+  classroomId: string;
+  placement: 'before-current' | 'after-current';
+  /** Runtime id of the assessment that caused this insertion. */
+  anchorSceneId?: string;
+};
+
+type AdaptiveScene = Scene & {
+  openpblAdaptiveInsertionId?: string;
+  openpblAdaptiveLastScene?: boolean;
+  openpblAdaptiveClassroomId?: string;
+};
 
 type LoadState = 'loading' | 'ready' | 'error';
 export type StudentStageHostMode = 'student' | 'teacher-preview';
@@ -111,6 +161,36 @@ export function selectStudentLearningScenes(scenes: Scene[]): Scene[] {
   if (!hasPblRoutingMetadata) return scenes;
 
   return scenes.filter(isStudentAiLearningScene);
+}
+
+export function prepareAdaptiveInsertionScenes(
+  insertionId: string,
+  classroomId: string,
+  scenes: Scene[],
+): Scene[] {
+  return scenes.map((scene, index) => ({
+    ...migrateScene(scene),
+    id: `adaptive:${insertionId}:${scene.id}`,
+    openpblAdaptiveInsertionId: insertionId,
+    openpblAdaptiveLastScene: index === scenes.length - 1,
+    openpblAdaptiveClassroomId: classroomId,
+  })) as AdaptiveScene[];
+}
+
+export function resolveAdaptiveInsertionIndex(
+  scenes: Scene[],
+  currentSceneId: string | null,
+  insertion: AdaptiveSceneInsertion,
+): number {
+  const currentIndex = Math.max(
+    0,
+    scenes.findIndex((scene) => scene.id === currentSceneId),
+  );
+  if (insertion.placement === 'before-current') return currentIndex;
+  const anchorIndex = insertion.anchorSceneId
+    ? scenes.findIndex((scene) => scene.id === insertion.anchorSceneId)
+    : -1;
+  return (anchorIndex >= 0 ? anchorIndex : currentIndex) + 1;
 }
 
 function expectedDurationSec(scene?: Scene): number | undefined {
@@ -177,9 +257,12 @@ export function StudentStageHost({
   className,
   onSceneComplete,
   standalone = false,
+  adaptiveInsertions = [],
+  prefetchClassroomIds = [],
 }: StudentStageHostProps) {
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
+  const [activeMediaClassroomId, setActiveMediaClassroomId] = useState(classroomId);
 
   // 已完成的场景 ID 集合（在内存中维护，避免重复上报）
   const completedRef = useRef<Set<string>>(new Set());
@@ -198,7 +281,10 @@ export function StudentStageHost({
   const lastHeartbeatAtRef = useRef<number | null>(null);
   const seenSceneIdsRef = useRef<Set<string>>(new Set());
   const ttsDurationBySceneRef = useRef<Map<string, number>>(new Map());
+  const mainSceneIdsRef = useRef<Set<string>>(new Set());
+  const insertedAdaptiveIdsRef = useRef<Set<string>>(new Set());
   const trackingEnabled = !standalone && shouldTrackStudentLearning(mode) && Boolean(courseId && studentId);
+  const prefetchClassroomKey = prefetchClassroomIds.join('|');
 
   useEffect(() => {
     if (variant !== 'embedded') return;
@@ -338,6 +424,7 @@ export function StudentStageHost({
 
       // 3. hydrate useStageStore（与 OpenMAIC classroom page 一致）
       const migrated = studentScenes.map(migrateScene);
+      mainSceneIdsRef.current = new Set(migrated.map((scene) => scene.id));
       useStageStore.getState().setStage(stage);
       useStageStore.setState({
         scenes: migrated,
@@ -350,6 +437,7 @@ export function StudentStageHost({
         generationComplete: true,
         generationStatus: 'completed',
       });
+      setActiveMediaClassroomId(classroomId);
       // 学生端强制启用 TTS：默认使用 browser-native-tts（无需 API key），
       // 让 PlaybackEngine 在处理 speech action 时能调用浏览器原生语音合成。
       useSettingsStore.setState((s) => ({
@@ -408,19 +496,94 @@ export function StudentStageHost({
     }
   }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, standalone, studentId, trackingEnabled]);
 
+  const loadPreparedClassroom = useCallback(
+    (preparedClassroomId: string) =>
+      prefetchAdaptiveClassroom(preparedClassroomId),
+    [],
+  );
+
+  useEffect(() => {
+    if (!prefetchClassroomKey) return;
+    for (const preparedClassroomId of prefetchClassroomIds) {
+      void loadPreparedClassroom(preparedClassroomId).catch(() => undefined);
+    }
+  }, [loadPreparedClassroom, prefetchClassroomIds, prefetchClassroomKey]);
+
+  useEffect(() => {
+    if (state !== 'ready') return;
+    const pending = adaptiveInsertions.filter(
+      (insertion) => !insertedAdaptiveIdsRef.current.has(insertion.id),
+    );
+    if (!pending.length) return;
+    let cancelled = false;
+    void (async () => {
+      const prepared = await Promise.all(
+        pending.map(async (insertion) => {
+          const classroom = await loadPreparedClassroom(insertion.classroomId);
+          const studentScenes = selectStudentLearningScenes(classroom.scenes);
+          return {
+            insertion,
+            scenes: prepareAdaptiveInsertionScenes(
+              insertion.id,
+              insertion.classroomId,
+              studentScenes.length ? studentScenes : classroom.scenes,
+            ),
+          };
+        }),
+      );
+      if (cancelled) return;
+      const storeState = useStageStore.getState();
+      const nextScenes = [...storeState.scenes];
+      let activatedSceneId: string | undefined;
+      for (const item of prepared) {
+        const insertionIndex = resolveAdaptiveInsertionIndex(
+          nextScenes,
+          storeState.currentSceneId,
+          item.insertion,
+        );
+        nextScenes.splice(insertionIndex, 0, ...item.scenes);
+        activatedSceneId ??= item.scenes[0]?.id;
+      }
+      prepared.forEach(({ insertion }) =>
+        insertedAdaptiveIdsRef.current.add(insertion.id),
+      );
+      useStageStore.setState({
+        scenes: nextScenes,
+        currentSceneId: activatedSceneId ?? storeState.currentSceneId,
+      });
+    })().catch((error) => {
+      log.error('Failed to insert prepared adaptive classroom:', error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [adaptiveInsertions, loadPreparedClassroom, state]);
+
   // 上报进度到 /api/openmaic/progress
   const reportProgress = useCallback(
     async (nextSceneId: string | null, quizScore?: number) => {
       if (standalone || mode !== 'student' || !courseId || !studentId || !classroomId) return;
       // 取当前 store 的 scenes 列表
       const storeState = useStageStore.getState();
-      const scenes = storeState.scenes;
+      const scenes = storeState.scenes.filter((scene) =>
+        mainSceneIdsRef.current.has(scene.id),
+      );
       if (scenes.length === 0) return;
 
-      const currentIdx = nextSceneId
-        ? Math.max(0, scenes.findIndex((s) => s.id === nextSceneId))
-        : scenes.length - 1;
-      const completedScenes = Array.from(completedRef.current);
+      const directIndex = nextSceneId
+        ? scenes.findIndex((scene) => scene.id === nextSceneId)
+        : -1;
+      const currentIdx = directIndex >= 0
+        ? directIndex
+        : Math.min(
+            scenes.length - 1,
+            Array.from(completedRef.current).filter((id) =>
+              mainSceneIdsRef.current.has(id),
+            ).length,
+          );
+      const completedScenes = Array.from(completedRef.current).filter((id) =>
+        mainSceneIdsRef.current.has(id),
+      );
       const isAllComplete = completedScenes.length >= scenes.length;
 
       // 已上报过完成且状态未变化则跳过
@@ -453,17 +616,22 @@ export function StudentStageHost({
     [courseId, studentId, studentName, classroomId, mode, standalone],
   );
 
-  const handlePlaybackStateChange = useCallback(
-    (playbackState: Omit<PlaybackSyncState, 'version'>) => {
-      if (mode !== 'student') return;
-      const storeState = useStageStore.getState();
-      const scene = storeState.scenes.find((item) => item.id === storeState.currentSceneId);
-      if (!scene || !isScenePlaybackExhausted(scene, playbackState)) return;
-      if (completedRef.current.has(scene.id)) return;
-      completedRef.current.add(scene.id);
+  const settleScene = useCallback(
+    (
+      scene: Scene,
+      storeScenes: Scene[],
+      options: { requireSubmittedAssessment?: boolean } = {},
+    ): boolean => {
+      if (completedRef.current.has(scene.id)) return false;
       const quizScore = quizScoreForScene(scene);
+      if (options.requireSubmittedAssessment && quizScore === undefined) return false;
+
+      completedRef.current.add(scene.id);
       queueTelemetry('scene-complete', scene.id, { progressMarker: 'completed' });
-      if (completedRef.current.size >= storeState.scenes.length) {
+      const completedMainSceneCount = Array.from(completedRef.current).filter((id) =>
+        mainSceneIdsRef.current.has(id),
+      ).length;
+      if (completedMainSceneCount >= mainSceneIdsRef.current.size) {
         queueTelemetry('stage-goal-complete', null, { progressMarker: 'completed' });
       }
       void flushTelemetry();
@@ -471,11 +639,31 @@ export function StudentStageHost({
         scene,
         quizScore,
         completedSceneCount: completedRef.current.size,
-        totalSceneCount: storeState.scenes.length,
+        totalSceneCount: storeScenes.length,
       });
       void reportProgress(scene.id, quizScore);
+      return true;
     },
-    [flushTelemetry, mode, onSceneComplete, queueTelemetry, reportProgress],
+    [flushTelemetry, onSceneComplete, queueTelemetry, reportProgress],
+  );
+
+  const handlePlaybackStateChange = useCallback(
+    (playbackState: Omit<PlaybackSyncState, 'version'>) => {
+      if (mode !== 'student') return;
+      const storeState = useStageStore.getState();
+      const scene = storeState.scenes.find((item) => item.id === storeState.currentSceneId);
+      if (!scene || !isScenePlaybackExhausted(scene, playbackState)) return;
+      if (!settleScene(scene, storeState.scenes)) return;
+      const adaptiveScene = scene as AdaptiveScene;
+      if (adaptiveScene.openpblAdaptiveLastScene) {
+        const sceneIndex = storeState.scenes.findIndex((item) => item.id === scene.id);
+        const nextScene = storeState.scenes[sceneIndex + 1];
+        if (nextScene) {
+          queueMicrotask(() => useStageStore.getState().setCurrentSceneId(nextScene.id));
+        }
+      }
+    },
+    [mode, settleScene],
   );
 
   // 订阅 useStageStore 的 currentSceneId 变化
@@ -492,12 +680,26 @@ export function StudentStageHost({
         previous.currentSceneId &&
         previous.currentSceneId !== current.currentSceneId
       ) {
+        const previousScene = previous.scenes.find(
+          (scene) => scene.id === previous.currentSceneId,
+        );
+        if (previousScene) {
+          settleScene(previousScene, previous.scenes, {
+            requireSubmittedAssessment: true,
+          });
+        }
         queueTelemetry('scene-leave', previous.currentSceneId, {
           durationMs: Math.max(0, Date.now() - (sceneEnteredAtRef.current ?? Date.now())),
           visible: typeof document === 'undefined' ? true : document.visibilityState === 'visible',
         });
       }
       if (current.currentSceneId) {
+        const currentScene = current.scenes.find(
+          (scene) => scene.id === current.currentSceneId,
+        ) as AdaptiveScene | undefined;
+        setActiveMediaClassroomId(
+          currentScene?.openpblAdaptiveClassroomId ?? classroomId,
+        );
         if (seenSceneIdsRef.current.has(current.currentSceneId)) {
           queueTelemetry('scene-replay', current.currentSceneId);
         }
@@ -516,7 +718,7 @@ export function StudentStageHost({
         unsubscribeRef.current = null;
       }
     };
-  }, [flushTelemetry, queueTelemetry, state, reportProgress]);
+  }, [classroomId, flushTelemetry, queueTelemetry, reportProgress, settleScene, state]);
 
   useEffect(() => {
     if (state !== 'ready' || !trackingEnabled) return;
@@ -566,7 +768,7 @@ export function StudentStageHost({
     <ThemeProvider>
       <I18nProvider>
         <ServerProvidersInit />
-        <MediaStageProvider value={classroomId}>
+        <MediaStageProvider value={activeMediaClassroomId}>
           <div
             data-openpbl-embed
             data-stage-host-mode={mode}

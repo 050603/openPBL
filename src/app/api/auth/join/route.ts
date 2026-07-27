@@ -1,151 +1,227 @@
-// Student join endpoint — student joins a class via invite code.
-// On success, sets an httpOnly cookie with a signed student JWT (1-day expiry).
-
-import { prisma, isDatabaseConfigured } from "@/lib/db/client";
-import {
-  dispatchSessionAction,
-  readSessionState,
-} from "@/lib/session/server-store";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { isDatabaseConfigured } from "@/lib/db/client";
 import { normalizeInviteCode } from "@/lib/session/invite-code";
 import {
+  getAuthCookieOptions,
   isAuthConfigured,
   signStudentToken,
   STUDENT_COOKIE_NAME,
-  getAuthCookieOptions,
 } from "@/lib/auth/session";
-import { z } from "zod";
-import { randomUUID } from "node:crypto";
+import { requireSameOrigin } from "@/lib/auth/request-guards";
+import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
+import { getClientIp, rateLimitedResponse } from "@/lib/auth/rate-limit";
+import { publishCourseEvent } from "@/lib/realtime/event-bus";
+import { runMutationTransaction } from "@/lib/db/transaction-retry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const JoinSchema = z.object({
-  inviteCode: z.string().min(4).max(32),
-  studentName: z.string().min(1).max(64),
+  requestId: z.string().uuid().optional(),
+  inviteCode: z.string().trim().min(4).max(32),
+  studentName: z.string().trim().min(1).max(64),
 });
 
 export async function POST(req: Request) {
-  if (!isAuthConfigured()) {
-    return Response.json(
-      { error: "AUTH_NOT_CONFIGURED", message: "未配置 JWT_SECRET,鉴权未启用" },
-      { status: 503 },
-    );
+  const csrfError = requireSameOrigin(req);
+  if (csrfError) return csrfError;
+  if (!isAuthConfigured() || !isDatabaseConfigured()) {
+    return apiError(req, "AUTH_UNAVAILABLE", "Authentication service is unavailable.", 503);
   }
+  const joinLimit = await checkDistributedRateLimit({
+    namespace: "join",
+    key: getClientIp(req),
+    limit: 20,
+    windowSeconds: 60,
+  });
+  if (!joinLimit.allowed) return rateLimitedResponse(joinLimit.retryAfterMs);
 
-  let parsed: z.infer<typeof JoinSchema>;
+  const parsed = JoinSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return apiError(req, "INVALID_INPUT", "Invalid invite code or name.", 400);
+  const requestId = parsed.data.requestId ?? randomUUID();
+  const inviteCode = normalizeInviteCode(parsed.data.inviteCode);
+  const studentName = parsed.data.studentName.normalize("NFC").trim();
+  const nameKey = studentName.toLocaleLowerCase("zh-CN");
+
   try {
-    parsed = JoinSchema.parse(await req.json());
-  } catch {
-    return Response.json(
-      { error: "INVALID_INPUT", message: "邀请码或姓名格式不正确" },
-      { status: 400 },
-    );
-  }
-
-  const inviteCode = normalizeInviteCode(parsed.inviteCode);
-  const studentName = parsed.studentName.trim();
-
-  try {
-    const state = await readSessionState();
-    const course = state.courses.find(
-      (candidate) =>
-        candidate.inviteCode &&
-        normalizeInviteCode(candidate.inviteCode) === inviteCode &&
-        candidate.status === "teaching",
-    );
-    if (!course) {
-      return Response.json(
-        { error: "INVITE_CODE_INVALID", message: "邀请码无效或课堂尚未开始" },
-        { status: 404 },
-      );
-    }
-
-    const rosterStudent = course.students.find(
-      (student) => student.name.trim().toLocaleLowerCase() === studentName.toLocaleLowerCase(),
-    );
-    const account = isDatabaseConfigured()
-      ? await prisma.studentAccount.findFirst({
-          where: { courseId: course.id, studentName },
-        })
-      : null;
-    const studentId = account?.studentId ?? rosterStudent?.id ?? randomUUID();
-    const joinedAt =
-      rosterStudent?.joinedAt ?? account?.createdAt.toISOString() ?? new Date().toISOString();
-
-    if (isDatabaseConfigured()) {
-      await prisma.studentAccount.upsert({
-        where: {
-          courseId_studentId: {
+    const result = await runMutationTransaction(
+      async (tx) => {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${"student-join:" + inviteCode}, 0)
+          )
+        `;
+        const previous = await tx.courseMutationReceipt.findUnique({ where: { requestId } });
+        if (previous?.status === "completed") {
+          const account = await tx.studentAccount.findUnique({
+            where: { courseId_nameKey: { courseId: previous.courseId, nameKey } },
+          });
+          if (account) return { account, courseVersion: previous.courseVersion ?? 1, cursor: previous.eventCursor };
+        }
+        const course = await tx.course.findFirst({
+          where: { inviteCode, status: "teaching" },
+          select: { id: true, version: true },
+        });
+        if (!course) throw new JoinError("INVITE_CODE_INVALID", "Invite code is invalid.", 404);
+        const existing = await tx.studentAccount.findUnique({
+          where: { courseId_nameKey: { courseId: course.id, nameKey } },
+        });
+        const studentId = existing?.studentId ?? randomUUID();
+        const account = await tx.studentAccount.upsert({
+          where: { courseId_nameKey: { courseId: course.id, nameKey } },
+          create: {
             courseId: course.id,
             studentId,
+            studentName,
+            nameKey,
+            inviteCode,
+            lastLoginAt: new Date(),
           },
-        },
-        create: {
-          courseId: course.id,
-          studentId,
-          studentName,
-          inviteCode,
-          lastLoginAt: new Date(),
-        },
-        update: {
-          studentName,
-          inviteCode,
-          lastLoginAt: new Date(),
-        },
-      });
-    }
+          update: {
+            studentName,
+            inviteCode,
+            lastLoginAt: new Date(),
+          },
+        });
+        await tx.student.upsert({
+          where: { courseId_id: { courseId: course.id, id: studentId } },
+          create: {
+            id: studentId,
+            courseId: course.id,
+            name: studentName,
+            progress: {},
+          },
+          update: { name: studentName },
+        });
 
-    await dispatchSessionAction({
-      type: "JOIN_CLASS",
+        const groupId = `grp-${studentId}`;
+        await tx.projectGroup.upsert({
+          where: { id: groupId },
+          create: {
+            id: groupId,
+            courseId: course.id,
+            name: `${studentName}的个人项目`,
+            topic: "待确定选题方向",
+            keywords: [],
+            selectedForms: [],
+            members: [{ studentId, name: studentName, role: "项目负责人" }],
+          },
+          update: {
+            name: `${studentName}的个人项目`,
+            members: [{ studentId, name: studentName, role: "项目负责人" }],
+          },
+        });
+        await tx.groupMember.upsert({
+          where: {
+            courseId_groupId_studentId: {
+              courseId: course.id,
+              groupId,
+              studentId,
+            },
+          },
+          create: {
+            courseId: course.id,
+            groupId,
+            studentId,
+            studentName,
+            role: "项目负责人",
+          },
+          update: { studentName, role: "项目负责人" },
+        });
+        const updated = await tx.course.update({
+          where: { id: course.id },
+          data: { version: { increment: 1 } },
+          select: { version: true },
+        });
+        await tx.courseMutationReceipt.upsert({
+          where: { requestId },
+          create: {
+            requestId,
+            courseId: course.id,
+            actorId: studentId,
+            status: "processing",
+          },
+          update: {},
+        });
+        const event = await tx.courseEvent.create({
+          data: {
+            courseId: course.id,
+            requestId,
+            type: "JOIN_CLASS",
+            actorId: studentId,
+            actorRole: "student",
+            courseVersion: updated.version,
+          },
+        });
+        await tx.courseMutationReceipt.update({
+          where: { requestId },
+          data: {
+            status: "completed",
+            courseVersion: updated.version,
+            eventCursor: event.cursor,
+            completedAt: new Date(),
+          },
+        });
+        return { account, courseVersion: updated.version, cursor: event.cursor };
+      },
+    );
+
+    const { token, maxAge } = await signStudentToken({
+      courseId: result.account.courseId,
+      studentId: result.account.studentId,
+      studentName: result.account.studentName,
+      sessionVersion: result.account.sessionVersion,
+    });
+    const cookie = getAuthCookieOptions(maxAge);
+    void publishCourseEvent(result.account.courseId, {
+      type: "student-joined",
+      courseId: result.account.courseId,
+      at: new Date().toISOString(),
       payload: {
-        courseId: course.id,
-        student: {
-          id: studentId,
-          name: studentName,
-          joinedAt,
-          stageProgress: rosterStudent?.stageProgress ?? {},
-          lastSeenAt: new Date().toISOString(),
-        },
+        courseVersion: result.courseVersion,
+        eventCursor: result.cursor?.toString() ?? "0",
       },
     });
-
-    const { token, cookieName, maxAge } = await signStudentToken({
-      courseId: course.id,
-      studentId,
-      studentName,
-    });
-    if (cookieName !== STUDENT_COOKIE_NAME) {
-      return Response.json(
-        { error: "INTERNAL_ERROR", message: "Cookie 名称不一致" },
-        { status: 500 },
-      );
-    }
-
-    const cookieOpts = getAuthCookieOptions(maxAge);
-    const cookieValue = `${STUDENT_COOKIE_NAME}=${encodeURIComponent(token)}; Path=${cookieOpts.path}; Max-Age=${cookieOpts.maxAge}; HttpOnly; SameSite=${cookieOpts.sameSite}${cookieOpts.secure ? "; Secure" : ""}`;
-
     return Response.json(
       {
         user: {
           role: "student",
-          courseId: course.id,
-          studentId,
-          studentName,
+          courseId: result.account.courseId,
+          studentId: result.account.studentId,
+          studentName: result.account.studentName,
         },
       },
       {
-        status: 200,
         headers: {
-          "Set-Cookie": cookieValue,
-          "Content-Type": "application/json; charset=utf-8",
+          "Set-Cookie": `${STUDENT_COOKIE_NAME}=${encodeURIComponent(token)}; Path=${cookie.path}; Max-Age=${cookie.maxAge}; HttpOnly; SameSite=${cookie.sameSite}${cookie.secure ? "; Secure" : ""}`,
+          "Cache-Control": "no-store",
         },
       },
     );
   } catch (error) {
-    console.error("[auth/join] unable to join classroom:", error);
-    return Response.json(
-      { error: "JOIN_UNAVAILABLE", message: "课堂服务暂时不可用，请稍后重试" },
-      { status: 503 },
-    );
+    if (error instanceof JoinError) return apiError(req, error.code, error.message, error.status);
+    console.error("[auth/join] unable to join classroom:", {
+      requestId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return apiError(req, "JOIN_UNAVAILABLE", "Classroom service is temporarily unavailable.", 503);
   }
+}
+
+class JoinError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+function apiError(request: Request, code: string, message: string, status: number): Response {
+  return Response.json(
+    { code, error: code, message, requestId: request.headers.get("x-request-id") ?? "unknown" },
+    { status },
+  );
 }

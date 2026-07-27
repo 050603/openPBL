@@ -1,5 +1,5 @@
 "use client";
-import { createElement, useEffect, useRef, type ReactNode } from "react";
+import { createElement, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -21,10 +21,10 @@ export function CosmicReveal({
   delay?: number;
   as?: "div" | "section" | "article" | "li" | "span" | "ul" | "ol";
 }) {
-  const ref = useRef<HTMLElement | null>(null);
+  const [element, setElement] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const el = ref.current;
+    const el = element;
     if (!el) return;
 
     // 可访问性：减少动画时直接显示
@@ -51,12 +51,12 @@ export function CosmicReveal({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [delay]);
+  }, [delay, element]);
 
   return createElement(
     Tag,
     {
-      ref,
+      ref: setElement,
       className: cn(stagger ? "pbl-stagger" : "pbl-cosmic-reveal", className),
     },
     children,

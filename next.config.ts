@@ -1,6 +1,46 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Local production verification can use a dedicated output directory while
+  // `next dev` is running. Containers and CI keep the standard `.next` path.
+  distDir: process.env.NEXT_DIST_DIR?.trim() || ".next",
+  // Uploads live on a runtime volume and must never be copied into the
+  // standalone image. Node file tracing cannot infer this from a dynamic
+  // stored filename, so keep project/runtime data out of these route traces.
+  outputFileTracingExcludes: {
+    "/api/uploads": [
+      "./.openpbl-data/**/*",
+      "./coverage/**/*",
+      "./deploy/**/*",
+      "./docs/**/*",
+      "./e2e/**/*",
+      "./output/**/*",
+      "./packages/**/*",
+      "./public/**/*",
+      "./src/**/*",
+      "./tests/**/*",
+      "./*.md",
+      "./*.ts",
+      "./*.yml",
+      "./*.yaml",
+    ],
+    "/api/uploads/[id]": [
+      "./.openpbl-data/**/*",
+      "./coverage/**/*",
+      "./deploy/**/*",
+      "./docs/**/*",
+      "./e2e/**/*",
+      "./output/**/*",
+      "./packages/**/*",
+      "./public/**/*",
+      "./src/**/*",
+      "./tests/**/*",
+      "./*.md",
+      "./*.ts",
+      "./*.yml",
+      "./*.yaml",
+    ],
+  },
   // Stage 9: standalone output for minimal Docker images.
   // Produces `.next/standalone` with only the files needed to run the
   // production server (no `node_modules` install required at runtime).
@@ -9,7 +49,7 @@ const nextConfig: NextConfig = {
   // v8 的 Assets.load（模块级单例 cache），StrictMode 的双 mount 会污染
   // cache 状态导致 Promise.all 永久挂起，伴学工作室卡在 0%。
   // 生产环境本来就只 mount 一次，关闭 StrictMode 不影响生产行为。
-  reactStrictMode: false,
+  reactStrictMode: true,
   transpilePackages: [
     "@openmaic/dsl",
     "@openmaic/importer",
@@ -98,7 +138,7 @@ const nextConfig: NextConfig = {
           // header if needed.
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            value: "camera=(), microphone=(self), geolocation=()",
           },
           // Content Security Policy. Allows same-origin scripts/styles,
           // inline styles (Tailwind / styled-components need this), data:
@@ -111,12 +151,16 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              process.env.NODE_ENV === "development"
+                ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+                : "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "media-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https: ws: wss:",
+              process.env.NODE_ENV === "development"
+                ? "connect-src 'self' https: ws: wss:"
+                : "connect-src 'self' wss:",
               "frame-src 'self' blob: data:",
               "worker-src 'self' blob:",
               "object-src 'none'",
