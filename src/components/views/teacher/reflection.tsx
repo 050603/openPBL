@@ -1,76 +1,71 @@
 import { useMemo, useState } from "react";
 import {
-  Award,
   CheckCircle2,
   ClipboardCheck,
   Edit3,
+  Eye,
+  FileCheck2,
   Lightbulb,
   Loader2,
   MessageSquare,
-  Save,
   Send,
-  Star,
-  TrendingUp,
   Users,
   Wand2,
 } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
-import {
-  Card,
-  Pill,
-  PrimaryButton,
-  ProgressBar,
-  toast,
-} from "@/components/ui";
+import { Card, Pill, PrimaryButton, ProgressBar, toast } from "@/components/ui";
 import type {
   Course,
   EvaluationDimension,
+  ReflectionRecord,
   RubricScore,
   TeacherFeedback,
 } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { generateProcessEvaluation, type ProcessEvaluationResult } from "@/lib/teaching-ai/client-api";
+import {
+  generateProcessEvaluation,
+  type ProcessEvaluationResult,
+} from "@/lib/teaching-ai/client-api";
 import { buildCourseSummaryPresentation } from "@/lib/evaluation/course-summary";
 
-type ProcessEvaluation = ProcessEvaluationResult;
-
-/**
- * 计算某学生个人项目的真实综合得分。
- * 优先从 rubricScores 取最新一条；无评分时按 stageProgress 均值兜底。
- */
-function computeRealScore(
+function latestShowcaseScore(
   rubricScores: RubricScore[],
-  targetId: string,
-  stageProgress: Record<string, number>,
-  stageKeys: string[],
-): number {
-  // 取最新一条 rubric（按 updatedAt 降序）
-  const sorted = [...rubricScores]
-    .filter((s) => s.groupId === targetId)
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  if (sorted.length > 0 && typeof sorted[0].total === "number") {
-    return sorted[0].total;
-  }
-  // 兜底：stageProgress 均值
-  if (stageKeys.length === 0) return 0;
-  const sum = stageKeys.reduce((acc, k) => acc + (stageProgress[k] ?? 0), 0);
-  return Math.round(sum / stageKeys.length);
+  projectId?: string,
+): RubricScore | undefined {
+  if (!projectId) return undefined;
+  return [...rubricScores]
+    .filter((score) => score.groupId === projectId && score.stageKey === "showcase")
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
 }
 
-/**
- * 计算维度均分：从 rubricScores 的 dimensionScores 汇总。
- */
 function computeDimensionAverages(
   rubricScores: RubricScore[],
   dimensions: EvaluationDimension[],
-): Record<string, number> {
-  const result: Record<string, number> = {};
-  for (const d of dimensions) {
-    const scores = rubricScores
-      .map((s) => s.dimensionScores?.[d.id])
-      .filter((v): v is number => typeof v === "number");
-    result[d.id] = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-  }
+): Record<string, number | null> {
+  return Object.fromEntries(
+    dimensions.map((dimension) => {
+      const values = rubricScores
+        .map((score) => score.dimensionScores?.[dimension.id])
+        .filter((value): value is number => typeof value === "number");
+      return [
+        dimension.id,
+        values.length
+          ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+          : null,
+      ];
+    }),
+  );
+}
+
+function latestByStudent(
+  records: ReflectionRecord[],
+): Map<string, ReflectionRecord> {
+  const result = new Map<string, ReflectionRecord>();
+  [...records]
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .forEach((record) => {
+      if (!result.has(record.studentId)) result.set(record.studentId, record);
+    });
   return result;
 }
 
@@ -81,226 +76,275 @@ export function ReflectionTeacherView({
   course: Course;
   onSelectStudent?: (id: string) => void;
 }) {
-  const { addFeedback, upsertRubricScore, addActivity, updateCourse } = useSession();
+  const { addFeedback, addActivity, updateCourse } = useSession();
   const [comments, setComments] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
-
-  const students = course.students;
-  const dimensions = course.content.evaluationPlan.dimensions;
-  const rubricScores = useMemo(() => course.rubricScores ?? [], [course.rubricScores]);
-  const feedback = useMemo(() => course.feedback ?? [], [course.feedback]);
-  const groups = useMemo(() => course.groups ?? [], [course.groups]);
-  const stageKeys = course.stages.map((s) => s.key);
-
-  // 每个学生的真实综合得分
-  const studentScores = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of students) {
-      // 个人项目沿用旧项目容器 ID 关联评分。
-      const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
-      const targetId = group?.id ?? s.id;
-      map.set(s.id, computeRealScore(rubricScores, targetId, s.stageProgress ?? {}, stageKeys));
-    }
-    return map;
-  }, [students, rubricScores, groups, stageKeys]);
-
-  // 班级维度均分
-  const dimensionAverages = useMemo(
-    () => computeDimensionAverages(rubricScores, dimensions),
-    [rubricScores, dimensions],
+  const [message, setMessage] = useState<{
+    tone: "ok" | "err";
+    text: string;
+  } | null>(null);
+  const [processEval, setProcessEval] =
+    useState<ProcessEvaluationResult | null>(null);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [evalError, setEvalError] = useState<string>();
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [editedSummary, setEditedSummary] = useState("");
+  const [summaryDeck, setSummaryDeck] = useState(
+    course.content.courseSummaryPresentation ?? null,
   );
 
-  // 班级平均分
-  const classAvg = useMemo(() => {
-    if (students.length === 0) return 0;
-    const sum = students.reduce((acc, s) => acc + (studentScores.get(s.id) ?? 0), 0);
-    return Math.round(sum / students.length);
-  }, [students, studentScores]);
+  const students = course.students;
+  const groups = useMemo(() => course.groups ?? [], [course.groups]);
+  const reflections = useMemo(
+    () => course.reflections ?? [],
+    [course.reflections],
+  );
+  const showcaseScores = useMemo(
+    () =>
+      (course.rubricScores ?? []).filter(
+        (score) => score.stageKey === "showcase",
+      ),
+    [course.rubricScores],
+  );
+  const dimensions = course.content.evaluationPlan.dimensions;
+  const dimensionAverages = useMemo(
+    () => computeDimensionAverages(showcaseScores, dimensions),
+    [showcaseScores, dimensions],
+  );
+  const reflectionsByStudent = useMemo(
+    () => latestByStudent(reflections),
+    [reflections],
+  );
 
-  const excellentCount = students.filter((s) => (studentScores.get(s.id) ?? 0) >= 90).length;
-  const passCount = students.filter((s) => {
-    const sc = studentScores.get(s.id) ?? 0;
-    return sc >= 75 && sc < 90;
-  }).length;
-  const needImproveCount = students.filter((s) => (studentScores.get(s.id) ?? 0) < 75).length;
+  const projectByStudent = useMemo(() => {
+    const result = new Map<string, (typeof groups)[number]>();
+    groups.forEach((project) => {
+      project.members.forEach((member) =>
+        result.set(member.studentId, project),
+      );
+    });
+    return result;
+  }, [groups]);
 
-  // AI 班级整体点评：基于维度均分动态生成
-  const aiClassComment = useMemo(() => {
-    const strongDims = dimensions.filter((d) => (dimensionAverages[d.id] ?? 0) >= 85);
-    const weakDims = dimensions.filter((d) => (dimensionAverages[d.id] ?? 0) < 70);
-    const parts: string[] = [];
-    if (rubricScores.length === 0) {
-      parts.push("尚未对任何个人项目提交评分，请先在「成果汇报与评价」阶段完成评分后查看班级整体分析。");
-    } else {
-      if (strongDims.length > 0) {
-        parts.push(`班级整体在「${strongDims.map((d) => d.name).join("」「")}」维度表现突出（85+）。`);
-      }
-      if (weakDims.length > 0) {
-        parts.push(`建议在下一轮加强「${weakDims.map((d) => d.name).join("」「")}」的练习。`);
-      }
-      if (strongDims.length === 0 && weakDims.length === 0) {
-        parts.push("班级各维度表现均衡，整体处于良好水平。");
-      }
-      if (excellentCount > 0) {
-        parts.push(`${excellentCount} 个个人项目达到优秀水平，可作为示范案例。`);
-      }
-    }
-    return parts.join("");
-  }, [rubricScores, dimensions, dimensionAverages, excellentCount]);
+  const feedbackByStudent = useMemo(() => {
+    const result = new Map<string, TeacherFeedback>();
+    const feedback = [...(course.feedback ?? [])]
+      .filter(
+        (item) =>
+          item.stageKey === "reflection" && item.sourceRole !== "ai",
+      )
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    feedback.forEach((item) => {
+      const studentIds =
+        item.targetType === "student"
+          ? [item.targetId]
+          : (groups.find((group) => group.id === item.targetId)?.members ?? []).map(
+              (member) => member.studentId,
+            );
+      studentIds.forEach((studentId) => {
+        if (!result.has(studentId)) result.set(studentId, item);
+      });
+    });
+    return result;
+  }, [course.feedback, groups]);
 
-  // 个别学生最新 feedback
-  const studentLatestFeedback = useMemo(() => {
-    const map = new Map<string, TeacherFeedback>();
-    for (const f of feedback) {
-      if (f.targetType === "student" || f.targetType === "group") {
-        const existing = map.get(f.targetId);
-        if (!existing || new Date(f.createdAt) > new Date(existing.createdAt)) {
-          map.set(f.targetId, f);
-        }
+  const studentEvidenceIds = useMemo(() => {
+    const result = new Set<string>();
+    const validStudentIds = new Set(students.map((student) => student.id));
+    const markStudent = (studentId: string) => {
+      if (validStudentIds.has(studentId)) result.add(studentId);
+    };
+    (course.companionProcessRecords ?? []).forEach((record) =>
+      markStudent(record.studentId),
+    );
+    (course.learningEvents ?? []).forEach((event) =>
+      markStudent(event.studentId),
+    );
+    (course.companionThreads ?? []).forEach((thread) => {
+      if (thread.messages.length) markStudent(thread.studentId);
+    });
+    (course.submissions ?? []).forEach((submission) => {
+      if (submission.studentId) {
+        markStudent(submission.studentId);
+      } else if (submission.groupId) {
+        groups
+          .find((group) => group.id === submission.groupId)
+          ?.members.forEach((member) => markStudent(member.studentId));
       }
-    }
-    return map;
-  }, [feedback]);
+    });
+    (course.uploads ?? []).forEach((upload) => {
+      if (upload.studentId) {
+        markStudent(upload.studentId);
+      } else if (upload.groupId) {
+        groups
+          .find((group) => group.id === upload.groupId)
+          ?.members.forEach((member) => markStudent(member.studentId));
+      }
+    });
+    return result;
+  }, [
+    course.companionProcessRecords,
+    course.companionThreads,
+    course.learningEvents,
+    course.submissions,
+    course.uploads,
+    groups,
+    students,
+  ]);
+
+  const evaluatedStudentIds = useMemo(() => {
+    const result = new Set<string>();
+    showcaseScores.forEach((score) => {
+      groups
+        .find((group) => group.id === score.groupId)
+        ?.members.forEach((member) => result.add(member.studentId));
+    });
+    return result;
+  }, [groups, showcaseScores]);
+
+  const pendingStudents = students.filter(
+    (student) =>
+      !evaluatedStudentIds.has(student.id) ||
+      !reflectionsByStudent.has(student.id),
+  );
+  const evaluatedStudentCount = students.filter((student) =>
+    evaluatedStudentIds.has(student.id),
+  ).length;
+  const reflectionStudentCount = students.filter((student) =>
+    reflectionsByStudent.has(student.id),
+  ).length;
+  const draftedCommentCount = Object.values(comments).filter((comment) =>
+    comment.trim(),
+  ).length;
+  const hasStudentProcessEvidence = studentEvidenceIds.size > 0;
+  const canBuildSummary =
+    showcaseScores.length > 0 ||
+    reflections.length > 0 ||
+    Boolean(processEval);
 
   function flashMessage(text: string, tone: "ok" | "err") {
     setMessage({ tone, text });
     window.setTimeout(() => setMessage(null), 3500);
   }
 
-  // ===== 阶段七：AI 过程性评价报告 =====
-  const [processEval, setProcessEval] = useState<ProcessEvaluation | null>(null);
-  const [evalLoading, setEvalLoading] = useState(false);
-  const [evalError, setEvalError] = useState<string | undefined>();
-  const [editingSummary, setEditingSummary] = useState(false);
-  const [editedSummary, setEditedSummary] = useState("");
-  const [sendingToStudents, setSendingToStudents] = useState(false);
-  const [summaryDeck, setSummaryDeck] = useState(course.content.courseSummaryPresentation ?? null);
-
   async function runProcessEval() {
+    if (!hasStudentProcessEvidence) return;
     setEvalLoading(true);
     setEvalError(undefined);
     try {
       const result = await generateProcessEvaluation({ course });
       setProcessEval(result);
       setEditedSummary(result.summary);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "AI 过程评价失败";
-      setEvalError(message);
-      toast.error("AI 过程评价失败", { description: message });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "AI 过程评价失败";
+      setEvalError(errorMessage);
+      toast.error("AI 过程评价失败", { description: errorMessage });
     } finally {
       setEvalLoading(false);
     }
   }
 
   function saveEditedSummary() {
-    if (!processEval) return;
-    setProcessEval({ ...processEval, summary: editedSummary });
+    if (!processEval || !editedSummary.trim()) return;
+    setProcessEval({ ...processEval, summary: editedSummary.trim() });
     setEditingSummary(false);
-    flashMessage("已保存编辑后的总结", "ok");
+    flashMessage("已保留教师核验后的过程总结", "ok");
   }
 
   function generateSummaryDeck() {
+    if (!canBuildSummary) return;
     const nextDeck = buildCourseSummaryPresentation(course, processEval);
     setSummaryDeck(nextDeck);
     updateCourse(course.id, {
-      content: { ...course.content, courseSummaryPresentation: nextDeck },
+      content: {
+        ...course.content,
+        courseSummaryPresentation: nextDeck,
+      },
     });
-    flashMessage("课程总结 PPT 与讲稿已生成，等待教师确认", "ok");
+    flashMessage("总结演示结构与教师讲稿已生成，等待教师确认", "ok");
   }
 
   function confirmSummaryDeck() {
     if (!summaryDeck) return;
-    const confirmed = { ...summaryDeck, status: "teacher-confirmed" as const, updatedAt: new Date().toISOString() };
+    const confirmed = {
+      ...summaryDeck,
+      status: "teacher-confirmed" as const,
+      updatedAt: new Date().toISOString(),
+    };
     setSummaryDeck(confirmed);
     updateCourse(course.id, {
-      content: { ...course.content, courseSummaryPresentation: confirmed },
+      content: {
+        ...course.content,
+        courseSummaryPresentation: confirmed,
+      },
     });
     addActivity(course.id, "确认课程总结演示", confirmed.title, "教师");
     flashMessage("课程总结演示已确认，可用于课堂收束", "ok");
   }
 
-  async function sendProcessEvalToStudents() {
-    if (!processEval) return;
-    setSendingToStudents(true);
-    try {
-      const summary = processEval.summary;
-      for (const s of students) {
-        addFeedback({
-          courseId: course.id,
-          targetType: "student",
-          targetId: s.id,
-          stageKey: "reflection",
-          kind: "praise",
-          content: summary,
-        });
-      }
-      addActivity(course.id, "发送 AI 过程评价", `已发送给 ${students.length} 位学生`, "教师");
-      flashMessage(`已向 ${students.length} 位学生发送 AI 过程评价`, "ok");
-    } catch (e) {
-      flashMessage(`发送失败：${e instanceof Error ? e.message : "未知错误"}`, "err");
-    } finally {
-      setSendingToStudents(false);
+  function sendComment(studentId: string) {
+    const content = comments[studentId]?.trim();
+    if (!content) {
+      flashMessage("请先填写针对性评语", "err");
+      return;
     }
-  }
-
-  async function setExcellent(s: { id: string; name: string }) {
     setSaving(true);
     try {
-      const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
-      const targetId = group?.id ?? s.id;
       addFeedback({
         courseId: course.id,
-        targetType: group ? "group" : "student",
-        targetId,
+        targetType: "student",
+        targetId: studentId,
         stageKey: "reflection",
-        kind: "praise",
-        content: comments[s.id] || `${s.name} 在本项目中表现优秀，建议作为课堂示范案例。`,
+        kind: "comment",
+        content,
       });
-      upsertRubricScore({
-        courseId: course.id,
-        groupId: targetId,
-        stageKey: "reflection",
-        dimensionScores: Object.fromEntries(dimensions.map((d) => [d.id, 95])),
-        comment: comments[s.id] || "综合表现优秀。",
-        total: 95,
-        status: "passed",
-      });
-      flashMessage(`已将 ${s.name} 标记为优秀（95 分）`, "ok");
-    } catch (e) {
-      flashMessage(`操作失败：${e instanceof Error ? e.message : "未知错误"}`, "err");
+      setComments((current) => ({ ...current, [studentId]: "" }));
+      addActivity(course.id, "发送个人课程评语", content, "教师");
+      flashMessage("个人评语已发送", "ok");
     } finally {
       setSaving(false);
     }
   }
 
-  async function batchSendComments() {
+  function batchSendComments() {
+    const entries = students
+      .map((student) => ({
+        student,
+        content: comments[student.id]?.trim() ?? "",
+      }))
+      .filter((entry) => entry.content);
+    if (!entries.length) {
+      flashMessage("请先为至少一位学生填写针对性评语", "err");
+      return;
+    }
     setSaving(true);
     try {
-      students.forEach((s) => {
+      entries.forEach(({ student, content }) => {
         addFeedback({
           courseId: course.id,
           targetType: "student",
-          targetId: s.id,
+          targetId: student.id,
           stageKey: "reflection",
           kind: "comment",
-          content: comments[s.id] || "已生成并发送课程综合评语，请结合成长建议完成个人反思。",
+          content,
         });
       });
-      addActivity(course.id, "批量发送课程评语", `已发送给 ${students.length} 位学生`, "教师");
-      flashMessage(`已向 ${students.length} 位学生发送评语`, "ok");
-    } catch (e) {
-      flashMessage(`发送失败：${e instanceof Error ? e.message : "未知错误"}`, "err");
+      setComments({});
+      addActivity(
+        course.id,
+        "批量发送课程评语",
+        `已发送 ${entries.length} 条教师撰写的评语`,
+        "教师",
+      );
+      flashMessage(`已发送 ${entries.length} 条教师评语`, "ok");
     } finally {
       setSaving(false);
     }
   }
-
-  const anyScored = rubricScores.length > 0;
 
   return (
     <div className="space-y-5">
-      {/* 状态提示条 */}
       {message ? (
         <div
           className={`flex items-start gap-2 rounded-[8px] border px-4 py-3 text-sm font-semibold ${
@@ -309,111 +353,142 @@ export function ReflectionTeacherView({
               : "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[var(--pbl-danger)]"
           }`}
         >
-          {message.tone === "ok" ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : null}
+          {message.tone === "ok" ? (
+            <CheckCircle2 className="mt-0.5 shrink-0" size={16} />
+          ) : (
+            <Lightbulb className="mt-0.5 shrink-0" size={16} />
+          )}
           <span>{message.text}</span>
         </div>
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-stone-500">班级平均分</div>
-            <TrendingUp className="text-blue-600" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-blue-700">
-            {students.length > 0 ? classAvg : "—"}
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-stone-500">优秀（≥90）</div>
-            <Award className="text-emerald-600" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-[var(--pbl-success)]">{excellentCount}</div>
-        </Card>
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-stone-500">合格（75-89）</div>
-            <Star className="text-[var(--pbl-warning)]" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-[var(--pbl-warning)]">{passCount}</div>
-        </Card>
-        <Card>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-stone-500">待改进（&lt;75）</div>
-            <Lightbulb className="text-[var(--pbl-danger)]" size={20} />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-[var(--pbl-danger)]">{needImproveCount}</div>
-        </Card>
+        <MetricCard
+          icon={<FileCheck2 className="text-blue-600" size={20} />}
+          label="成果已评价"
+          value={`${evaluatedStudentCount} / ${students.length}`}
+        />
+        <MetricCard
+          icon={<Edit3 className="text-emerald-600" size={20} />}
+          label="已交个人反思"
+          value={`${reflectionStudentCount} / ${students.length}`}
+        />
+        <MetricCard
+          icon={<Users className="text-[var(--pbl-warning)]" size={20} />}
+          label="有过程证据"
+          value={`${studentEvidenceIds.size} / ${students.length}`}
+        />
+        <MetricCard
+          icon={<Lightbulb className="text-[var(--pbl-danger)]" size={20} />}
+          label="待补齐记录"
+          value={`${pendingStudents.length}`}
+        />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Users className="text-blue-700" size={20} /> 班级综合评价汇总
-            {!anyScored ? (
-              <span className="ml-2 rounded-[6px] bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--pbl-warning)]">
-                暂无评分
-              </span>
-            ) : null}
+            <FileCheck2 className="text-blue-700" size={20} />
+            已提交成果评价的维度均值
           </h2>
-          <ul className="space-y-2">
-            {dimensions.map((d) => {
-              const avg = dimensionAverages[d.id] ?? 0;
-              return (
-                <li className="flex items-center gap-3" key={d.id}>
-                  <span className="w-32 text-sm text-stone-600">{d.name}</span>
-                  <div className="flex-1">
+          {showcaseScores.length ? (
+            <ul className="space-y-3">
+              {dimensions.map((dimension) => {
+                const average = dimensionAverages[dimension.id];
+                return (
+                  <li className="flex items-center gap-3" key={dimension.id}>
+                    <span className="w-32 text-sm text-stone-600">
+                      {dimension.name}
+                    </span>
                     <ProgressBar
-                      className="h-2"
-                      tone={avg >= 90 ? "green" : avg >= 75 ? "blue" : "slate"}
-                      value={avg}
+                      className="h-2 flex-1"
+                      tone={
+                        average !== null && average >= 85
+                          ? "green"
+                          : average !== null && average >= 70
+                            ? "blue"
+                            : "slate"
+                      }
+                      value={average ?? 0}
                     />
-                  </div>
-                  <span className="w-10 text-right text-sm font-bold">{avg}</span>
-                </li>
-              );
-            })}
-          </ul>
+                    <span className="w-10 text-right text-sm font-bold">
+                      {average ?? "—"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <EmptyState text="尚无教师提交的展示阶段评分，不使用进度数据代替成绩。" />
+          )}
         </Card>
 
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Lightbulb className="text-[var(--pbl-warning)]" size={20} /> AI 班级整体点评
+            <ClipboardCheck className="text-[var(--pbl-warning)]" size={20} />
+            数据完整性
           </h2>
-          <div className="rounded-[8px] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/60 p-4 text-sm leading-7 text-stone-700">
-            {aiClassComment}
-          </div>
+          {pendingStudents.length ? (
+            <div className="space-y-3">
+              <p className="text-sm leading-6 text-stone-600">
+                以下学生仍缺少成果评价或个人反思。补齐真实记录后，再生成班级过程评价和总结演示。
+              </p>
+              <ul className="flex flex-wrap gap-2">
+                {pendingStudents.map((student) => (
+                  <li key={student.id}>
+                    <button
+                      className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 hover:border-amber-400"
+                      onClick={() => onSelectStudent?.(student.id)}
+                      type="button"
+                    >
+                      {student.name}
+                      {!evaluatedStudentIds.has(student.id)
+                        ? " · 缺评价"
+                        : ""}
+                      {!reflectionsByStudent.has(student.id)
+                        ? " · 缺反思"
+                        : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800">
+              全班成果评价与个人反思记录已齐备。
+            </div>
+          )}
         </Card>
       </div>
 
       <Card>
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold">
-              <ClipboardCheck className="text-[var(--pbl-warning)]" size={20} /> AI 过程性评价报告
+              <ClipboardCheck className="text-[var(--pbl-warning)]" size={20} />
+              AI 过程性评价草案
             </h2>
-            <p className="mt-1 text-sm text-stone-500">
-              基于学生过程数据（活动记录、AI 支架采纳率、上传材料、提交记录）生成全班过程评价；总结可编辑后发送给学生。
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">
+              只基于已有对话、过程事件、提交和上传记录生成，供教师核验，不会自动写入学生成绩或个人评语。
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {processEval ? (
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${processEval.source === "llm" ? "bg-emerald-50 text-[var(--pbl-success)]" : "bg-stone-100 text-stone-600"}`}>
-                {processEval.source === "llm" ? "AI 生成" : "已记录"}
-              </span>
-            ) : null}
-            <PrimaryButton
-              className="h-9 px-3 text-sm"
-              disabled={evalLoading}
-              onClick={() => void runProcessEval()}
-              type="button"
-            >
-              {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-              {evalLoading ? "评价中..." : "生成全班过程评价"}
-            </PrimaryButton>
-          </div>
+          <PrimaryButton
+            className="h-9 px-3 text-sm"
+            disabled={evalLoading || !hasStudentProcessEvidence}
+            onClick={() => void runProcessEval()}
+            type="button"
+          >
+            {evalLoading ? (
+              <Loader2 className="animate-spin" size={15} />
+            ) : (
+              <Wand2 size={15} />
+            )}
+            {evalLoading ? "生成中..." : "基于现有证据生成"}
+          </PrimaryButton>
         </div>
+        {!hasStudentProcessEvidence ? (
+          <EmptyState text="尚无学生过程证据，暂不生成推测性评价。" />
+        ) : null}
         {evalError ? (
           <div className="rounded-[6px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-3 py-2 text-sm font-semibold text-[var(--pbl-danger)]">
             {evalError}
@@ -422,84 +497,77 @@ export function ReflectionTeacherView({
         {processEval ? (
           <div className="space-y-4">
             <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-bold text-stone-700">过程评价总结（可编辑）</span>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-xs font-bold text-stone-700">
+                  全班过程总结 · 待教师核验
+                </span>
                 {editingSummary ? (
                   <button
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                    className="text-xs font-semibold text-blue-700 hover:underline"
                     onClick={saveEditedSummary}
                     type="button"
                   >
-                    <Save size={12} /> 保存
+                    保存核验结果
                   </button>
                 ) : (
                   <button
                     className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
-                    onClick={() => { setEditingSummary(true); setEditedSummary(processEval.summary); }}
+                    onClick={() => {
+                      setEditingSummary(true);
+                      setEditedSummary(processEval.summary);
+                    }}
                     type="button"
                   >
-                    <Edit3 size={12} /> 编辑
+                    <Edit3 size={12} /> 编辑核验
                   </button>
                 )}
               </div>
               {editingSummary ? (
                 <textarea
                   className="min-h-[6.25rem] w-full rounded-[6px] border border-stone-200 bg-white px-3 py-2 text-sm leading-7 outline-none focus:border-blue-500"
-                  onChange={(e) => setEditedSummary(e.target.value)}
+                  onChange={(event) => setEditedSummary(event.target.value)}
                   value={editedSummary}
                 />
               ) : (
-                <p className="text-sm leading-7 text-stone-700">{processEval.summary}</p>
+                <p className="text-sm leading-7 text-stone-700">
+                  {processEval.summary}
+                </p>
               )}
             </div>
-
-            <div>
-              <div className="mb-2 text-xs font-bold text-stone-700">维度评分与证据</div>
-              <ul className="space-y-2">
-                {processEval.dimensions.map((d) => (
-                  <li key={d.name} className="rounded-[6px] border border-stone-200 bg-white px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-stone-800">{d.name}</span>
-                      <span className="text-sm font-bold text-blue-700">{d.score} 分</span>
-                    </div>
-                    <ProgressBar
-                      className="mt-2 h-1.5"
-                      tone={d.score >= 85 ? "green" : d.score >= 70 ? "blue" : "red"}
-                      value={d.score}
-                    />
-                    {d.evidence.length > 0 ? (
-                      <div className="mt-1 text-xs leading-5 text-stone-500">证据：{d.evidence.join("；")}</div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {processEval.dimensions.map((dimension) => (
+                <article
+                  className="rounded-[8px] border border-stone-200 bg-white p-3"
+                  key={dimension.name}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold">
+                      {dimension.name}
+                    </span>
+                    <span className="text-sm font-bold text-blue-700">
+                      {dimension.score} 分
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-stone-500">
+                    证据：
+                    {dimension.evidence.length
+                      ? dimension.evidence.join("；")
+                      : "模型未返回证据，请勿采用该分数"}
+                  </p>
+                </article>
+              ))}
             </div>
-
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-[6px] border border-emerald-200 bg-emerald-50/60 p-3">
-                <div className="mb-1 text-xs font-bold text-[var(--pbl-success)]">过程亮点</div>
-                <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
-                  {processEval.highlights.map((h, i) => <li key={i}>{h}</li>)}
-                </ul>
-              </div>
-              <div className="rounded-[6px] border border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/60 p-3">
-                <div className="mb-1 text-xs font-bold text-[var(--pbl-warning)]">改进建议</div>
-                <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
-                  {processEval.improvements.map((h, i) => <li key={i}>{h}</li>)}
-                </ul>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <PrimaryButton
-                className="h-10 px-4"
-                disabled={sendingToStudents}
-                onClick={() => void sendProcessEvalToStudents()}
-                type="button"
-              >
-                {sendingToStudents ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                发送评价给学生（{students.length} 人）
-              </PrimaryButton>
+              <EvidenceList
+                items={processEval.highlights}
+                title="有证据支持的亮点"
+                tone="green"
+              />
+              <EvidenceList
+                items={processEval.improvements}
+                title="需核验的改进方向"
+                tone="amber"
+              />
             </div>
           </div>
         ) : null}
@@ -508,134 +576,263 @@ export function ReflectionTeacherView({
       <Card>
         <div className="flex flex-col gap-3 border-b border-stone-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold"><Wand2 className="text-[var(--pbl-teacher)]" size={20} />课程总结演示</h2>
-            <p className="mt-1 text-sm leading-6 text-stone-500">生成不预设学生结论的总结 PPT 与教师讲稿；生成后可根据真实班级证据编辑并确认。</p>
+            <h2 className="flex items-center gap-2 text-lg font-bold">
+              <Wand2 className="text-[var(--pbl-teacher)]" size={20} />
+              课程总结演示
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-stone-500">
+              将已有课程信息、真实评价与反思组织成演示结构和教师讲稿；这不是可下载的 PPT 文件。
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            {summaryDeck ? <Pill tone={summaryDeck.status === "teacher-confirmed" ? "green" : "orange"}>{summaryDeck.status === "teacher-confirmed" ? "教师已确认" : "待确认"}</Pill> : null}
-            <PrimaryButton className="h-9 px-3 text-sm" onClick={generateSummaryDeck} type="button"><Wand2 size={15} />{summaryDeck ? "重新生成总结" : "生成总结 PPT + 讲稿"}</PrimaryButton>
+            {summaryDeck ? (
+              <Pill
+                tone={
+                  summaryDeck.status === "teacher-confirmed"
+                    ? "green"
+                    : "orange"
+                }
+              >
+                {summaryDeck.status === "teacher-confirmed"
+                  ? "教师已确认"
+                  : "待确认"}
+              </Pill>
+            ) : null}
+            <PrimaryButton
+              className="h-9 px-3 text-sm"
+              disabled={!canBuildSummary}
+              onClick={generateSummaryDeck}
+              type="button"
+            >
+              <Wand2 size={15} />
+              {summaryDeck ? "重新生成结构" : "生成演示结构与讲稿"}
+            </PrimaryButton>
           </div>
         </div>
         {summaryDeck ? (
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,.75fr)]">
             <div className="grid gap-3 sm:grid-cols-2">
-              {summaryDeck.slides.map((slide, index) => <article className="aspect-[16/10] rounded-lg border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-4 shadow-sm" key={slide.id}><div className="flex items-center justify-between text-[11px] font-bold text-[var(--pbl-teacher-border)]"><span>SLIDE {String(index + 1).padStart(2, "0")}</span><span>{slide.evidenceIds.length ? `${slide.evidenceIds.length} 条证据` : "课程框架"}</span></div><h3 className="mt-5 text-base font-black text-stone-900">{slide.title}</h3><ul className="mt-3 space-y-1.5 text-sm leading-5 text-stone-700">{slide.bullets.map((bullet) => <li className="flex gap-2" key={bullet}><span className="text-[var(--pbl-teacher-border)]">•</span><span>{bullet}</span></li>)}</ul></article>)}
+              {summaryDeck.slides.map((slide, index) => (
+                <article
+                  className="aspect-[16/10] rounded-lg border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-4 shadow-sm"
+                  key={slide.id}
+                >
+                  <div className="flex items-center justify-between text-[11px] font-bold text-[var(--pbl-teacher-border)]">
+                    <span>页面 {String(index + 1).padStart(2, "0")}</span>
+                    <span>
+                      {slide.evidenceIds.length
+                        ? `${slide.evidenceIds.length} 条证据`
+                        : "课程信息"}
+                    </span>
+                  </div>
+                  <h3 className="mt-5 text-base font-black text-stone-900">
+                    {slide.title}
+                  </h3>
+                  <ul className="mt-3 space-y-1.5 text-sm leading-5 text-stone-700">
+                    {slide.bullets.map((bullet) => (
+                      <li className="flex gap-2" key={bullet}>
+                        <span className="text-[var(--pbl-teacher-border)]">
+                          •
+                        </span>
+                        <span>{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
             </div>
-            <aside className="rounded-lg border border-amber-100 bg-[var(--pbl-warning-soft)]/60 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-[var(--pbl-warning)]">教师讲稿</h3><span className="text-xs text-[var(--pbl-warning)]">{summaryDeck.script.length} 字</span></div><div className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-stone-700">{summaryDeck.script}</div>{summaryDeck.status !== "teacher-confirmed" ? <PrimaryButton className="mt-4 w-full" onClick={confirmSummaryDeck} type="button"><CheckCircle2 size={16} />确认总结演示</PrimaryButton> : <p className="mt-4 rounded-md bg-white/70 px-3 py-2 text-xs font-semibold text-[var(--pbl-success)]">已确认，可在课程总结环节使用。</p>}</aside>
+            <aside className="rounded-lg border border-amber-100 bg-[var(--pbl-warning-soft)]/60 p-4">
+              <h3 className="font-bold text-[var(--pbl-warning)]">
+                教师讲稿
+              </h3>
+              <div className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-7 text-stone-700">
+                {summaryDeck.script}
+              </div>
+              {summaryDeck.status !== "teacher-confirmed" ? (
+                <PrimaryButton
+                  className="mt-4 w-full"
+                  onClick={confirmSummaryDeck}
+                  type="button"
+                >
+                  <CheckCircle2 size={16} /> 确认总结演示
+                </PrimaryButton>
+              ) : (
+                <p className="mt-4 rounded-md bg-white/70 px-3 py-2 text-xs font-semibold text-[var(--pbl-success)]">
+                  已确认，可在课程总结环节使用。
+                </p>
+              )}
+            </aside>
           </div>
-        ) : <div className="mt-4 rounded-lg border border-dashed border-stone-200 bg-stone-50 py-10 text-center text-sm text-stone-500">尚未生成课程总结演示。点击右上角生成一个可编辑的 PPT 结构和讲稿。</div>}
+        ) : (
+          <EmptyState
+            text={
+              canBuildSummary
+                ? "尚未生成总结演示。"
+                : "至少需要一条真实评价或个人反思，才可生成总结演示。"
+            }
+          />
+        )}
       </Card>
 
       <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-          <MessageSquare className="text-blue-700" size={20} /> 个别学生评语
-        </h2>
-        {students.length > 0 ? (
-          <ul className="max-h-[38rem] space-y-2 overflow-auto pr-1">
-            {students.map((s) => {
-              const score = studentScores.get(s.id) ?? 0;
-              const tone = score >= 90 ? "green" : score >= 75 ? "blue" : "orange";
-              const group = groups.find((g) => g.members.some((m) => m.studentId === s.id));
-              // 取该学生个人项目的最新 feedback
-              const latestFb = studentLatestFeedback.get(group?.id ?? s.id);
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold">
+              <MessageSquare className="text-blue-700" size={20} />
+              个别学生反思与教师评语
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">
+              只发送教师实际填写的内容；不会自动补写统一评语。
+            </p>
+          </div>
+          <PrimaryButton
+            className="h-9 px-3 text-sm"
+            disabled={saving || draftedCommentCount === 0}
+            onClick={batchSendComments}
+            type="button"
+          >
+            {saving ? (
+              <Loader2 className="animate-spin" size={15} />
+            ) : (
+              <Send size={15} />
+            )}
+            发送已填写评语（{draftedCommentCount}）
+          </PrimaryButton>
+        </div>
+        {students.length ? (
+          <ul className="max-h-[42rem] space-y-3 overflow-auto pr-1">
+            {students.map((student) => {
+              const project = projectByStudent.get(student.id);
+              const score = latestShowcaseScore(showcaseScores, project?.id);
+              const reflection = reflectionsByStudent.get(student.id);
+              const latestFeedback = feedbackByStudent.get(student.id);
               return (
                 <li
-                  className="rounded-[8px] border border-stone-200 bg-white p-2.5"
-                  key={s.id}
+                  className="rounded-[8px] border border-stone-200 bg-white p-3"
+                  key={student.id}
                 >
-                  <div className="flex items-center gap-3">
-                    <Avatar name={s.name} size={36} />
-                    <div className="flex-1">
-                      <div
-                        className="cursor-pointer font-semibold hover:text-blue-600"
-                        onClick={() => onSelectStudent?.(s.id)}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Avatar name={student.name} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <button
+                        className="inline-flex items-center gap-1 font-semibold hover:text-blue-600"
+                        onClick={() => onSelectStudent?.(student.id)}
+                        type="button"
                       >
-                        {s.name}
-                      </div>
-                      <div className="text-xs text-stone-500">
-                        综合分 {score} · {group ? `项目：${group.name}` : "个人项目待同步"} · 已加入课堂
+                        {student.name} <Eye size={13} />
+                      </button>
+                      <div className="mt-0.5 text-xs text-stone-500">
+                        {project ? `项目：${project.name}` : "个人项目待同步"}
+                        {" · "}
+                        {score ? `展示评价 ${score.total} 分` : "展示评价待提交"}
                       </div>
                     </div>
-                    <Pill tone={tone}>
-                      {score >= 90 ? "优秀" : score >= 75 ? "合格" : "待改进"}
+                    <Pill tone={reflection ? "green" : "orange"}>
+                      {reflection ? "已交反思" : "待交反思"}
                     </Pill>
+                  </div>
+                  {reflection ? (
+                    <div className="mt-3 rounded-[6px] border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-xs leading-5 text-stone-600">
+                      <span className="font-semibold">最近反思：</span>
+                      {reflection.content.replace(/\s+/g, " ").slice(0, 180)}
+                      {reflection.content.length > 180 ? "…" : ""}
+                      {reflection.improvementPlan
+                        ? `；下一步：${reflection.improvementPlan}`
+                        : ""}
+                    </div>
+                  ) : null}
+                  {latestFeedback ? (
+                    <div className="mt-2 text-xs leading-5 text-stone-500">
+                      最近教师评语：{latestFeedback.content}
+                    </div>
+                  ) : null}
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <textarea
+                      className="min-h-16 flex-1 rounded-[6px] border border-stone-200 p-2 text-sm outline-none focus:border-blue-500"
+                      onChange={(event) =>
+                        setComments((current) => ({
+                          ...current,
+                          [student.id]: event.target.value,
+                        }))
+                      }
+                      placeholder={`根据 ${student.name} 的成果和反思填写针对性评语…`}
+                      value={comments[student.id] ?? ""}
+                    />
                     <PrimaryButton
-                      className="h-8 px-3 text-xs"
-                      disabled={saving}
-                      onClick={() => void setExcellent(s)}
+                      className="self-end sm:h-10"
+                      disabled={saving || !comments[student.id]?.trim()}
+                      onClick={() => sendComment(student.id)}
                       type="button"
                       variant="outline"
                     >
-                      {saving ? (
-                        <Loader2 className="animate-spin" size={14} />
-                      ) : (
-                        <CheckCircle2 size={14} />
-                      )}{" "}
-                      设为优秀
+                      <Send size={15} /> 发送此评语
                     </PrimaryButton>
                   </div>
-                  {/* 已有 feedback 提示 */}
-                  {latestFb ? (
-                    <div className="mt-2 rounded-[6px] border border-stone-100 bg-stone-50 px-3 py-2 text-xs text-stone-600">
-                      <span className="font-semibold">最近评语：</span>
-                      {latestFb.content.slice(0, 80)}{latestFb.content.length > 80 ? "..." : ""}
-                    </div>
-                  ) : null}
-                  <textarea
-                    className="mt-2 h-11 w-full rounded-[6px] border border-stone-200 p-2 text-sm outline-none focus:border-blue-500"
-                    onChange={(e) =>
-                      setComments((p) => ({ ...p, [s.id]: e.target.value }))
-                    }
-                    placeholder={`为 ${s.name} 写一条针对性评语...`}
-                    value={comments[s.id] ?? ""}
-                  />
                 </li>
               );
             })}
           </ul>
         ) : (
-          <div className="rounded-[6px] border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">
-            暂无学生数据
-          </div>
+          <EmptyState text="暂无学生数据。" />
         )}
       </Card>
+    </div>
+  );
+}
 
-      <Card>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-          <Send className="text-blue-700" size={20} /> 批量操作
-        </h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <PrimaryButton
-            className="h-10 px-4"
-            disabled={saving}
-            onClick={() => void batchSendComments()}
-            type="button"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}{" "}
-            一键发送课程评语给学生
-          </PrimaryButton>
-          <PrimaryButton
-            className="h-10 px-4"
-            onClick={() =>
-              addActivity(course.id, "保存评价结果", `已保存 ${students.length} 位学生的综合评价`, "教师")
-            }
-            tone="green"
-            type="button"
-          >
-            <Save size={16} /> 保存评价结果
-          </PrimaryButton>
-          <PrimaryButton
-            className="h-10 px-4"
-            onClick={() =>
-              addActivity(course.id, "导出班级报告", `已保存 ${rubricScores.length} 条评分记录`, "教师")
-            }
-            type="button"
-            variant="outline"
-          >
-            导出班级报告（PDF）
-          </PrimaryButton>
-        </div>
-      </Card>
+function MetricCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-stone-500">{label}</div>
+        {icon}
+      </div>
+      <div className="mt-2 text-2xl font-bold text-stone-900">{value}</div>
+    </Card>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="mt-4 rounded-[8px] border border-dashed border-stone-300 bg-stone-50 py-8 text-center text-sm text-stone-500">
+      {text}
+    </div>
+  );
+}
+
+function EvidenceList({
+  items,
+  title,
+  tone,
+}: {
+  items: string[];
+  title: string;
+  tone: "green" | "amber";
+}) {
+  const style =
+    tone === "green"
+      ? "border-emerald-200 bg-emerald-50/60 text-emerald-800"
+      : "border-amber-200 bg-amber-50/60 text-amber-800";
+  return (
+    <div className={`rounded-[8px] border p-3 ${style}`}>
+      <div className="mb-1 text-xs font-bold">{title}</div>
+      {items.length ? (
+        <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-stone-700">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-stone-600">没有返回可核验内容。</p>
+      )}
     </div>
   );
 }

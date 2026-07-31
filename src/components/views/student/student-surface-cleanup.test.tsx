@@ -18,10 +18,10 @@ const course: Course = {
 };
 
 describe("student workspace cleanup", () => {
-  it("keeps the editor and companion roundtable without duplicate scaffold or process cards", () => {
+  it("keeps the formal editor without a duplicate companion surface or process cards", () => {
     render(<WorkspaceView course={course} />);
     expect(screen.getByText("项目编辑器")).toBeTruthy();
-    expect(screen.getByText("AI 伴学圆桌")).toBeTruthy();
+    expect(screen.queryByText("AI 伴学圆桌")).toBeNull();
     expect(screen.queryByText("AI任务支架")).toBeNull();
     expect(screen.queryByText("过程记录")).toBeNull();
   });

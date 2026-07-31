@@ -1,13 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applySessionAction,
   initialSessionState,
   normalizeCourse,
-  type SessionAction,
   type SessionState,
 } from "./actions";
 import type { Course, CourseUpload, GroupBoard, Student } from "./types";
 import { DEFAULT_STAGES } from "./types";
+import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 
 function makeCourse(overrides: Partial<Course> = {}): Course {
   return {
@@ -41,6 +41,162 @@ function makeStudent(id: string, name: string): Student {
 function stateWithCourses(...courses: Course[]): SessionState {
   return { ...initialSessionState(), courses, hydrated: true };
 }
+
+describe("applySessionAction — classroom timing", () => {
+  it("persists an absolute stage clock across start, stage changes, and finish", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-28T01:00:00.000Z"));
+      const course = makeCourse({ status: "ready", hours: 1 });
+      const started = applySessionAction(stateWithCourses(course), {
+        type: "START_TEACHING",
+        payload: {
+          id: course.id,
+          classConfig: { groupMode: "solo", totalStudents: 30 },
+          inviteCode: "123456",
+        },
+      });
+      const startedTiming = started.courses[0]!.uiState?.classroomTiming;
+      expect(startedTiming).toMatchObject({
+        status: "running",
+        activeStageKey: "launch",
+        sessionStartedAt: "2026-07-28T01:00:00.000Z",
+      });
+      expect(
+        startedTiming?.stages.reduce(
+          (sum, stage) => sum + stage.basePlannedSec + stage.adjustmentSec,
+          0,
+        ),
+      ).toBe(3_600);
+
+      vi.setSystemTime(new Date("2026-07-28T01:02:00.000Z"));
+      const advanced = applySessionAction(started, {
+        type: "SET_STAGE",
+        payload: { id: course.id, index: 1 },
+      });
+      const advancedTiming = advanced.courses[0]!.uiState?.classroomTiming;
+      expect(advancedTiming?.activeStageKey).toBe("ai-learning");
+      expect(advancedTiming?.stages[0]).toMatchObject({
+        stageKey: "launch",
+        status: "completed",
+        elapsedSec: 120,
+      });
+      expect(advancedTiming?.stages[1]).toMatchObject({
+        stageKey: "ai-learning",
+        status: "active",
+      });
+
+      vi.setSystemTime(new Date("2026-07-28T01:05:00.000Z"));
+      const finished = applySessionAction(advanced, {
+        type: "END_TEACHING",
+        payload: { id: course.id },
+      });
+      const finishedTiming = finished.courses[0]!.uiState?.classroomTiming;
+      expect(finishedTiming).toMatchObject({
+        status: "completed",
+        sessionEndedAt: "2026-07-28T01:05:00.000Z",
+      });
+      expect(finishedTiming?.stages[0]).toMatchObject({ elapsedSec: 120 });
+      expect(finishedTiming?.stages[1]).toMatchObject({
+        elapsedSec: 180,
+        status: "completed",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
+  it("changes only the requesting student's completion entry", () => {
+    const course = makeCourse({
+      students: [
+        makeStudent("student-1", "张三"),
+        makeStudent("student-2", "李四"),
+      ],
+      todos: [
+        {
+          id: "todo-1",
+          title: "阅读项目说明",
+          description: "",
+          completedBy: ["student-2"],
+        },
+      ],
+    });
+
+    const completed = applySessionAction(stateWithCourses(course), {
+      type: "SET_STUDENT_TODO_COMPLETION",
+      payload: {
+        courseId: course.id,
+        todoId: "todo-1",
+        studentId: "student-1",
+        completed: true,
+      },
+    });
+    expect(completed.courses[0].todos?.[0].completedBy).toEqual([
+      "student-2",
+      "student-1",
+    ]);
+    expect(
+      completed.courses[0].students.find((student) => student.id === "student-1")
+        ?.stageProgress["project-launch"],
+    ).toBe(100);
+    expect(
+      completed.courses[0].students.find((student) => student.id === "student-1")
+        ?.stageProgress.launch,
+    ).toBe(100);
+    expect(
+      completed.courses[0].students.find((student) => student.id === "student-2")
+        ?.stageProgress["project-launch"],
+    ).toBeUndefined();
+
+    const reopened = applySessionAction(completed, {
+      type: "SET_STUDENT_TODO_COMPLETION",
+      payload: {
+        courseId: course.id,
+        todoId: "todo-1",
+        studentId: "student-1",
+        completed: false,
+      },
+    });
+    expect(reopened.courses[0].todos?.[0].completedBy).toEqual(["student-2"]);
+    expect(
+      reopened.courses[0].students.find((student) => student.id === "student-1")
+        ?.stageProgress["project-launch"],
+    ).toBe(0);
+  });
+
+  it("derives project-launch progress from all launch todos", () => {
+    const student = makeStudent("student-1", "张三");
+    const course = makeCourse({
+      students: [student],
+      todos: [
+        { id: "todo-1", title: "一", description: "", completedBy: [] },
+        { id: "todo-2", title: "二", description: "", completedBy: [] },
+        {
+          id: "later",
+          title: "后续任务",
+          description: "",
+          stageKey: "proposal",
+          completedBy: [],
+        },
+      ],
+    });
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "SET_STUDENT_TODO_COMPLETION",
+      payload: {
+        courseId: course.id,
+        todoId: "todo-1",
+        studentId: student.id,
+        completed: true,
+      },
+    });
+
+    expect(next.courses[0].students[0].stageProgress["project-launch"]).toBe(50);
+    expect(next.courses[0].students[0].stageProgress.launch).toBe(50);
+  });
+});
 
 describe("applySessionAction — JOIN_CLASS", () => {
   it("adds the student to the course and sets joinedCourseId/studentId/studentName", () => {
@@ -245,6 +401,22 @@ describe("applySessionAction — ADVANCE_STAGE", () => {
     });
 
     expect(next.courses[0].uiState?.teacherResourceProjection).toBeNull();
+  });
+
+  it("automatically selects the only teacher-authored inquiry question", () => {
+    const course = makeCourse({
+      pblConfig: {
+        ...DEFAULT_PBL_COURSE_CONFIG,
+        inquiryQuestions: ["我们如何减少校园用水浪费？"],
+      },
+    });
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "JOIN_CLASS",
+      payload: { courseId: course.id, student: makeStudent("s1", "张三") },
+    });
+
+    expect(next.courses[0].groups?.[0].topic).toBe("我们如何减少校园用水浪费？");
   });
 });
 

@@ -23,7 +23,6 @@ export function StageStepper({
 }) {
   const isTeacher = variant === "teacher";
   const accentBg = isTeacher ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]";
-  const accentSoft = isTeacher ? "bg-[var(--pbl-teacher-border)]" : "bg-[var(--pbl-student-border)]";
   const activeBorder = isTeacher ? "border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "border-[var(--pbl-student-border)] bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]";
   const doneBorder = "border-[var(--pbl-student-border)] bg-[var(--pbl-surface)]/82 text-[var(--pbl-text)] hover:border-[var(--pbl-student)]";
   const advanceBtn = isTeacher ? "bg-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-hover)] text-white" : "bg-[var(--pbl-student)] hover:bg-[var(--pbl-student-hover)] text-white";

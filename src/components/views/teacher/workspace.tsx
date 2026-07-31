@@ -24,8 +24,10 @@ type ProposalDiagnosis = ProposalDiagnosisResult;
 
 export function WorkspaceTeacherView({
   course,
+  onSelectStudent,
 }: {
   course: Course;
+  onSelectStudent?: (studentId: string) => void;
 }) {
   const { addFeedback, addActivity, upsertAiSupport, setUiState } = useSession();
   const groups = course.groups ?? [];
@@ -102,15 +104,15 @@ export function WorkspaceTeacherView({
   }
 
   const groupUploads = useMemo(
-    () => (course.uploads ?? []).filter((u) => u.groupId === active?.id),
-    [course.uploads, active?.id],
+    () => (course.uploads ?? []).filter((u) => u.groupId === active?.id && u.stageKey === stageKey),
+    [course.uploads, active?.id, stageKey],
   );
   const groupSubmission = useMemo(
     () =>
       (course.submissions ?? []).find(
-        (s) => s.groupId === active?.id && s.type === "document",
+        (s) => s.groupId === active?.id && s.stageKey === stageKey && s.type === "document",
       ),
-    [course.submissions, active?.id],
+    [course.submissions, active?.id, stageKey],
   );
   const groupProgressValue = useMemo(() => {
     if (!active) return 0;
@@ -179,9 +181,9 @@ export function WorkspaceTeacherView({
           <div className="mt-2 text-2xl font-bold">{groups.length}</div>
         </Card>
         <Card>
-          <div className="text-sm text-[var(--pbl-text-muted)]">已上传作品</div>
+          <div className="text-sm text-[var(--pbl-text-muted)]">当前阶段材料</div>
           <div className="mt-2 text-2xl font-bold text-[var(--pbl-success)]">
-            {(course.uploads ?? []).filter((u) => u.stageKey === "showcase" || u.stageKey === stageKey).length}
+            {(course.uploads ?? []).filter((u) => u.stageKey === stageKey).length}
           </div>
         </Card>
         <Card>
@@ -202,12 +204,7 @@ export function WorkspaceTeacherView({
         <Card>
           <div className="text-sm text-[var(--pbl-text-muted)]">需介入</div>
           <div className="mt-2 text-2xl font-bold text-[var(--pbl-danger)]">
-            {groups.filter((g) => {
-              const m = g.members;
-              if (!m.length) return false;
-              const avg = m.reduce((s, mem) => s + (course.students.find((st) => st.id === mem.studentId)?.stageProgress?.[stageKey] ?? 0), 0) / m.length;
-              return avg < 30;
-            }).length}
+            {interventionSignals.length}
           </div>
         </Card>
       </div>
@@ -306,7 +303,7 @@ export function WorkspaceTeacherView({
       <div className="grid gap-3 xl:grid-cols-[minmax(18rem,20rem)_minmax(0,1fr)]">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Users className="text-[var(--pbl-teacher)]" size={20} /> 各组制作进度
+            <Users className="text-[var(--pbl-teacher)]" size={20} /> 个人项目制作进度
           </h2>
           <ul className="max-h-[32rem] space-y-1.5 overflow-auto pr-1">
             {groups.map((g) => {
@@ -349,7 +346,7 @@ export function WorkspaceTeacherView({
                     <Pill tone="blue">{active.topic || "待确定"}</Pill>
                   </h2>
                   <div className="mt-1 text-sm text-[var(--pbl-text-muted)]">
-                    {active.members.length} 人
+                    负责人：{active.members.map((member) => member.name).join("、") || "待分配"}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -366,10 +363,13 @@ export function WorkspaceTeacherView({
                     className="h-9 px-3 text-sm"
                     variant="outline"
                     tone="blue"
-                    onClick={() => sendFeedback("comment", `请${active.name}补充数据来源、实施步骤和预期效果。`)}
+                    onClick={() => {
+                      const studentId = active.members[0]?.studentId;
+                      if (studentId) onSelectStudent?.(studentId);
+                    }}
                     type="button"
                   >
-                    <MessageSquare size={15} /> 留言反馈
+                    <MessageSquare size={15} /> 查看伴学过程
                   </PrimaryButton>
                 </div>
               </div>
@@ -469,30 +469,33 @@ export function WorkspaceTeacherView({
               </Card>
             </div>
 
-            {groupProgressValue < 30 ? (
+            {activeSignal ? (
               <Card>
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-1 text-[var(--pbl-danger)]" size={20} />
                   <div>
-                    <h3 className="font-bold text-[var(--pbl-danger)]">此个人项目进展停滞</h3>
+                    <h3 className="font-bold text-[var(--pbl-danger)]">此个人项目需要教师介入</h3>
                     <p className="mt-1 text-sm text-[var(--pbl-text-muted)]">
-                      当前进度仅 {groupProgressValue}%，建议发起一对一沟通或推送 AI 支架内容。
+                      {activeSignal.reasons.join("、")}
                     </p>
                     <div className="mt-3 flex gap-2">
                       <PrimaryButton
                         className="h-9 px-3 text-sm"
-                        onClick={() => activeSignal ? confirmAiSupport() : sendFeedback("ai-support", "请先列出可获取的数据，再用三步法完善实施路径。")}
+                        onClick={confirmAiSupport}
                         type="button"
                       >
                         <Send size={15} /> 推送 AI 支架
                       </PrimaryButton>
                       <PrimaryButton
                         className="h-9 px-3 text-sm"
-                        onClick={() => sendFeedback("comment", "教师已发起一对一沟通，请学生在 5 分钟内回应当前卡点。")}
+                        onClick={() => {
+                          const studentId = active.members[0]?.studentId;
+                          if (studentId) onSelectStudent?.(studentId);
+                        }}
                         type="button"
                         variant="outline"
                       >
-                        发起一对一
+                        查看并介入
                       </PrimaryButton>
                     </div>
                   </div>

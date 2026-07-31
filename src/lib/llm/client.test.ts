@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import type { GenerateInput } from "./types";
-import { normalizeTeachingOutlineResponse } from "./client";
+import {
+  normalizePblTimingRecommendationResponse,
+  normalizeTeachingOutlineResponse,
+} from "./client";
+import { LlmOutputIncompleteError } from "./errors";
 import {
   buildEvaluationPlanPrompt,
   buildKnowledgeGraphPrompt,
   buildLessonOutlinePrompt,
+  buildModuleTimingPlanPrompt,
   buildTeachingOutlinePrompt,
 } from "./prompts";
 import { createPblTimingSkeleton } from "@/lib/pbl-outline-normalization";
@@ -85,12 +90,18 @@ describe("normalizeTeachingOutlineResponse", () => {
   });
 
   it("fills editable defaults when a model omits operational role fields", () => {
+    // Provide 4 of the 6 role fields so the section stays under the
+    // MISSING_FIELDS_THRESHOLD (>3) and exercises the transparent
+    // normalizationNote path rather than the hard-failure path.
     const result = normalizeTeachingOutlineResponse(
       {
         teachingOutline: [
           {
             stageKey: "ai-learning",
             title: "核心知识建构",
+            teacherRole: "教师组织学习并答疑",
+            platformRole: "平台展示学习资源",
+            studentActivity: "学生独立完成任务并提交",
           },
         ],
       },
@@ -103,9 +114,35 @@ describe("normalizeTeachingOutlineResponse", () => {
       openMaicUse: "student-ai-learning",
       resourceTypes: ["ppt"],
     });
+    // teachingGoal + aiRole are the two missing fields → defaults are filled in.
     expect(result[0]?.teachingGoal).toContain("核心知识建构");
     expect(result[0]?.aiRole).toContain("不直接给出最终答案");
     expect(result[0]?.notes).toContain("AI 输出缺少字段");
+  });
+
+  it("throws LlmOutputIncompleteError when a section is missing more than 3 role fields", () => {
+    // Only stageKey + title are provided → 5 role fields missing (>3) → throw.
+    try {
+      normalizeTeachingOutlineResponse(
+        {
+          teachingOutline: [
+            {
+              stageKey: "ai-learning",
+              title: "核心知识建构",
+            },
+          ],
+        },
+        input,
+      );
+      expect.fail("Expected normalizeTeachingOutlineResponse to throw LlmOutputIncompleteError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(LlmOutputIncompleteError);
+      const incomplete = err as LlmOutputIncompleteError;
+      expect(incomplete.missingFields).toEqual(
+        expect.arrayContaining(["teachingGoal", "aiRole", "platformRole", "teacherRole", "studentActivity"]),
+      );
+      expect(incomplete.message).toContain("LLM_OUTPUT_INCOMPLETE");
+    }
   });
 
   it("unwraps a JSON string returned under a data envelope", () => {
@@ -174,6 +211,69 @@ describe("normalizeTeachingOutlineResponse", () => {
     ]);
     expect(result.map((module) => module.durationMin)).toEqual(confirmedDurations);
     expect(result[1]?.teachingGoal).toContain(timedSkeleton[1]!.teachingGoal);
+  });
+});
+
+describe("module timing recommendation", () => {
+  it("builds a prompt that explicitly uses learner and knowledge evidence", () => {
+    const prompt = buildModuleTimingPlanPrompt(
+      { ...input, pblConfig: DEFAULT_PBL_COURSE_CONFIG },
+      {
+        knowledgePoints: [
+          { id: "kp-1", name: "证据判断", level: "core" },
+          { id: "kp-2", name: "方案迭代", level: "application" },
+        ],
+        knowledgeGraph: {
+          nodes: [],
+          edges: [{ id: "edge-1", source: "kp-1", target: "kp-2", label: "支撑" }],
+        },
+      },
+    ).user;
+
+    expect(prompt).toContain("priorKnowledge");
+    expect(prompt).toContain("learningNeeds");
+    expect(prompt).toContain("knowledgeGraph");
+    expect(prompt).toContain("rationale");
+    expect(prompt).toContain("confidence");
+    expect(prompt).toContain("六个阶段");
+  });
+
+  it("normalizes a structured model response into a fixed-total plan and skeleton", () => {
+    const result = normalizePblTimingRecommendationResponse(
+      {
+        moduleTimingRecommendation: {
+          allocations: [
+            { stageKey: "project-launch", durationMin: 8, rationale: "建立情境。" },
+            { stageKey: "knowledge", durationMin: 18, rationale: "处理先修依赖。" },
+            { stageKey: "proposal", durationMin: 8, rationale: "比较方案。" },
+            { stageKey: "make", durationMin: 42, rationale: "制作与迭代。" },
+            { stageKey: "showcase", durationMin: 10, rationale: "表达与反馈。" },
+            { stageKey: "reflection", durationMin: 4, rationale: "迁移反思。" },
+          ],
+          evidence: ["知识图谱存在依赖", "学生需要分步案例"],
+          assumptions: ["按常规班额估算"],
+          confidence: "high",
+        },
+      },
+      { ...input, hours: 1.5, pblConfig: DEFAULT_PBL_COURSE_CONFIG },
+      {
+        knowledgePoints: [
+          { id: "kp-1", name: "证据判断", description: "判断证据质量", level: "core" },
+        ],
+      },
+      "2026-07-28T00:00:00.000Z",
+    );
+
+    expect(result.teachingOutline).toHaveLength(6);
+    expect(result.moduleTimingPlan.allocations.reduce(
+      (sum, allocation) => sum + allocation.durationMin,
+      0,
+    )).toBe(90);
+    expect(result.moduleTimingPlan.recommendationSource).toBe("llm");
+    expect(result.moduleTimingPlan.confidence).toBe("high");
+    expect(result.teachingOutline.map((item) => item.durationMin)).toEqual(
+      result.moduleTimingPlan.allocations.map((item) => item.durationMin),
+    );
   });
 });
 

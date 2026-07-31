@@ -14,6 +14,8 @@ import {
   registerTtsVoiceTimingCalibration,
   type TtsVoiceTimingCalibration,
 } from '@openmaic/lib/audio/tts-timing';
+import { prisma, isDatabaseConfigured } from '@/lib/db/client';
+import { decryptCredential } from '@/lib/security/credential-encryption';
 
 const log = createLogger('ServerProviderConfig');
 const DEFAULT_FILENAME = 'server-providers.yml';
@@ -293,6 +295,38 @@ const OPENAI_IMAGE_PROVIDER_ID = 'openai-image';
 
 /** Cache keyed by YAML filename (empty string = default file). */
 const _configs: Map<string, ServerConfig> = new Map();
+let databaseYamlData: YamlData | null = null;
+
+export async function initializeServerProviderConfig(): Promise<void> {
+  if (!isDatabaseConfigured()) {
+    databaseYamlData = {};
+    return;
+  }
+  const rows = await prisma.providerCredential.findMany();
+  const data: YamlData = {};
+  for (const row of rows) {
+    const section = row.section as keyof YamlData;
+    if (!['providers', 'tts', 'asr', 'pdf', 'image', 'video', 'web-search'].includes(section)) {
+      continue;
+    }
+    const config =
+      row.config && typeof row.config === 'object' && !Array.isArray(row.config)
+        ? (row.config as Record<string, unknown>)
+        : {};
+    const target = (data[section] ??= {});
+    target[row.providerId] = {
+      ...config,
+      apiKey: decryptCredential(
+        row.encryptedApiKey,
+        row.iv,
+        row.authTag,
+        `${row.section}:${row.providerId}`,
+      ),
+    } as Partial<ServerProviderEntry>;
+  }
+  databaseYamlData = data;
+  clearServerProviderConfigCache();
+}
 
 function applyOpenAIImageFallback(
   imageConfig: Record<string, ServerProviderEntry>,
@@ -364,7 +398,10 @@ function getConfig(): ServerConfig {
   const cached = _configs.get('');
   if (cached) return cached;
 
-  const yamlData = loadDefaultYamlFile();
+  if (process.env.NODE_ENV === 'production' && databaseYamlData === null) {
+    throw new Error('Provider configuration was not initialized.');
+  }
+  const yamlData = databaseYamlData ?? loadDefaultYamlFile();
   const config = buildConfig(yamlData);
   logConfig(config, DEFAULT_FILENAME);
   _configs.set('', config);

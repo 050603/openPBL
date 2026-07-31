@@ -9,6 +9,7 @@ import type {
 import type { PblModuleTimingPlan, PblProjectMainline } from "@/lib/pbl-time-model";
 import type { PblActivityTimingInput } from "@/lib/pbl-time-estimation";
 import type { TtsTimingPlan } from "@/lib/openmaic/audio/tts-timing";
+import type { ClassroomTimingState } from "@/lib/classroom/timing";
 
 export type CourseStatus =
   | "draft"
@@ -137,6 +138,90 @@ export type WorkPlanItem = {
   memberName: string;
   task: string;
   progress: number;
+};
+
+/**
+ * A companion task is a piece of work the student has explicitly asked a
+ * partner to handle. It is intentionally separate from a chat message: the
+ * task can wait for input, wait for confirmation, or produce a result without
+ * claiming that a formal project operation already happened.
+ */
+export type CompanionTaskStatus =
+  | "queued"
+  | "assigned"
+  | "processing"
+  | "responding"
+  | "waiting-student"
+  | "waiting-confirmation"
+  | "result"
+  | "saved"
+  | "failed";
+
+export type CompanionTaskKind =
+  | "conversation"
+  | "knowledge"
+  | "ideation"
+  | "critique"
+  | "planning"
+  | "review"
+  | "record"
+  | "formal-action";
+
+export type CompanionTask = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  companionId?: string;
+  kind: CompanionTaskKind;
+  title: string;
+  request: string;
+  status: CompanionTaskStatus;
+  result?: string;
+  error?: string;
+  confirmationId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CompanionConfirmationAction =
+  | "save"
+  | "overwrite"
+  | "delete"
+  | "upload"
+  | "submit"
+  | "mark-complete"
+  | "adopt-draft";
+
+export type CompanionConfirmationStatus = "pending" | "confirmed" | "rejected";
+
+export type CompanionConfirmation = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  action: CompanionConfirmationAction;
+  title: string;
+  summary: string;
+  taskId?: string;
+  payload?: Record<string, unknown>;
+  status: CompanionConfirmationStatus;
+  createdAt: string;
+  resolvedAt?: string;
+};
+
+export type CompanionProcessRecord = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  title: string;
+  summary: string;
+  source: "student" | "agent" | "system";
+  companionId?: string;
+  taskId?: string;
+  evidenceIds?: string[];
+  createdAt: string;
 };
 
 export type WhiteboardNode = {
@@ -269,12 +354,8 @@ export type CourseUiState = {
   aiPanelCollapsed?: boolean;
   presentationTimerSeconds?: number;
   timerRunning?: boolean;
-  /**
-   * 教师控制：哪些阶段向学生开放 AI 对话面板。
-   * 取 stage.key，如 ["launch", "group", "workspace", "reflection"]。
-   * 教师可在授课界面按阶段一键开关，避免学生过度依赖 AI。
-   */
-  aiChatStagesEnabled?: string[];
+  /** Persisted stage-aware classroom clock; live elapsed time is derived from absolute timestamps. */
+  classroomTiming?: ClassroomTimingState;
   /**
    * 学生端有更新时，系统置位此标志提醒教师。
    * 教师下次进入监控页时主动触发 LLM 重新分析后清除此标志。
@@ -285,6 +366,18 @@ export type CourseUiState = {
   aiAnalysisRefreshedAt?: string;
   /** 教师当前投屏的 OpenMAIC 授课资源；null 表示已停止投屏。 */
   teacherResourceProjection?: TeacherResourceProjection | null;
+};
+
+/** Student-facing workspace surfaces available during a classroom stage. */
+export type StageWorkspaceMode = "task" | "companions";
+
+/** Which workspace surfaces the teacher makes available for one stage. */
+export type StageWorkspaceAccess = "task-only" | "companions-only" | "student-choice";
+
+export type StageWorkspacePolicy = {
+  access: StageWorkspaceAccess;
+  /** Used when students may choose and have not made a stage-scoped choice yet. */
+  defaultMode: StageWorkspaceMode;
 };
 
 export type ProjectionMode = "forced" | "optional";
@@ -541,6 +634,12 @@ export type StudentAiProgress = {
   currentSceneIndex: number;
   totalScenes: number;
   completedScenes: string[];
+  /**
+   * Stable generation-outline ids corresponding to completed runtime scenes.
+   * Runtime scene ids may change when classroom resources are regenerated;
+   * adaptive triggers must use these stable teaching-node identities instead.
+   */
+  completedOutlineIds?: string[];
   /** v2 means scenes were completed by an exhausted PlaybackEngine cursor. */
   completionModelVersion?: number;
   quizScore?: number;
@@ -552,6 +651,181 @@ export type StudentAiProgress = {
   pathAdjustmentReason?: string;
   currentTeachingAction?: string;
   nextStageCondition?: string;
+  /** Per-student adaptive path state for pretests, branch lessons, and just-in-time micro lessons. */
+  adaptiveLearning?: StudentAdaptiveLearningState;
+};
+
+/**
+ * @deprecated Adaptive teaching is evidence-driven. This alias remains only
+ * for unrelated historical snapshots and must not be shown in the UI.
+ */
+export type StudentLearningTier = "foundation" | "standard" | "advanced";
+
+export type AdaptiveAssessmentQuestion = {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctOptionIndex: number;
+  rationale?: string;
+  knowledgePointIds: string[];
+};
+
+export type AdaptiveBranchKind =
+  | "prerequisite"
+  | "worked-example"
+  | "application"
+  | "extension";
+
+export type AdaptiveBranchTrigger = {
+  /** Prerequisite resources run before the main course; other resources run after a module quiz. */
+  placement: "before-main-course" | "after-module";
+  /** Legacy/manual fixed insertion point. Prefer assessmentSceneIds for module resources. */
+  afterSceneId?: string;
+  /** Informational next scene: the branch is visually inserted before it. */
+  beforeSceneId?: string;
+  /** Stable quiz-outline ids whose submitted answers may activate this material. */
+  assessmentSceneIds?: string[];
+  /** Optional exact generated question ids; empty means all questions in the linked quiz. */
+  linkedQuestionIds?: string[];
+  answerRule?: "all-correct" | "score-at-least";
+  evidenceRule: "pretest-gap" | "module-mastery";
+  scoreThreshold?: number;
+  minimumRemainingSec: number;
+};
+
+export type AdaptivePreparedBranchResource = {
+  status: "generating" | "ready" | "failed";
+  classroomId?: string;
+  scenesCount?: number;
+  generatedAt?: string;
+  error?: string;
+};
+
+export type AdaptiveBranchOutline = {
+  id: string;
+  kind: AdaptiveBranchKind;
+  title: string;
+  objective: string;
+  keyPoints: string[];
+  anchorKnowledgePointIds: string[];
+  /** Explicit prerequisite concepts covered by this resource. */
+  prerequisiteKnowledgePointIds: string[];
+  /** What this resource adds beyond the complete main course. */
+  noveltyStatement: string;
+  /** Main-course scenes checked during preparation to prevent re-teaching. */
+  mainCourseOverlapSceneIds: string[];
+  sceneType: "slide" | "interactive";
+  targetDurationSec: number;
+  trigger?: AdaptiveBranchTrigger;
+  /** Teacher-authored constraints that guide the final branch classroom generation. */
+  generationGuidance?: string;
+  /** Prepared during course generation and reused by students at runtime. */
+  preparedResource?: AdaptivePreparedBranchResource;
+  status: "draft" | "teacher-confirmed";
+};
+
+export type AdaptiveLearningPlan = {
+  enabled: boolean;
+  status: "draft" | "teacher-confirmed";
+  generatedAt?: string;
+  updatedAt: string;
+  timeBudgetMin: number;
+  thresholds: {
+    /** Module score required before optional enrichment may be inserted. */
+    enrichmentMasteryMin: number;
+  };
+  pretest: {
+    title: string;
+    introduction: string;
+    estimatedMinutes: number;
+    questions: AdaptiveAssessmentQuestion[];
+  };
+  branches: AdaptiveBranchOutline[];
+};
+
+export type AdaptiveAssessmentEvidence = {
+  id: string;
+  source: "pretest" | "node-quiz";
+  score: number;
+  occurredAt: string;
+  sceneId?: string;
+  knowledgePointIds: string[];
+  questionResults?: Array<{
+    questionId: string;
+    correct: boolean | null;
+  }>;
+  /** Knowledge points answered incorrectly in this assessment. */
+  weakKnowledgePointIds?: string[];
+  /** Knowledge points answered correctly in this assessment. */
+  masteredKnowledgePointIds?: string[];
+};
+
+export type AdaptiveBranchRun = {
+  id: string;
+  branchOutlineId: string;
+  kind: AdaptiveBranchKind;
+  status: "generating" | "ready" | "completed" | "skipped" | "failed";
+  classroomId?: string;
+  reason: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type AdaptiveTriggerCondition = {
+  key: "plan" | "resource" | "student-path" | "anchor" | "unused" | "evidence" | "score" | "time" | "novelty";
+  label: string;
+  expected: string;
+  actual: string;
+  passed: boolean;
+};
+
+export type AdaptiveTriggerEvaluation = {
+  id: string;
+  branchOutlineId: string;
+  branchKind: AdaptiveBranchKind;
+  completedSceneId: string;
+  /** Concrete player scene id, retained only for diagnostics. */
+  runtimeSceneId?: string;
+  completedSceneTitle?: string;
+  matchedBy: "pretest-gap" | "scene-id" | "knowledge-point";
+  evaluatedAt: string;
+  result: "triggered" | "conditions-not-met";
+  reason: string;
+  score?: number;
+  scoreSource?: "current-node-quiz" | "recorded-node-quiz" | "pretest";
+  remainingBudgetSec: number;
+  conditions: AdaptiveTriggerCondition[];
+};
+
+export type AdaptiveMicroLesson = {
+  id: string;
+  stageKey: "proposal" | "make" | "showcase" | "reflection";
+  topic: string;
+  decision: "brief-answer" | "systematic-lesson";
+  rationale: string;
+  classroomId?: string;
+  status: "decided" | "generating" | "ready" | "completed" | "failed";
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type StudentAdaptiveLearningState = {
+  /** Undefined keeps backwards compatibility and means enabled. */
+  enabled?: boolean;
+  tier?: StudentLearningTier;
+  tierSource?: "pretest" | "teacher";
+  tierUpdatedAt?: string;
+  pretestScore?: number;
+  pretestCompletedAt?: string;
+  /** Knowledge-level pretest evidence used to select prerequisite resources. */
+  pretestWeakKnowledgePointIds?: string[];
+  pretestMasteredKnowledgePointIds?: string[];
+  startedAt?: string;
+  evidence: AdaptiveAssessmentEvidence[];
+  branchRuns: AdaptiveBranchRun[];
+  /** Runtime trigger decisions, including failed conditions, for teacher inspection. */
+  triggerEvaluations?: AdaptiveTriggerEvaluation[];
+  microLessons: AdaptiveMicroLesson[];
 };
 
 export type TeacherInterventionScope = "student" | "group" | "course";
@@ -595,6 +869,7 @@ export type StageTransitionRecord = {
 
 export type Course = {
   id: string;
+  version?: number;
   name: string;
   subject: string;
   grade: string;
@@ -611,6 +886,8 @@ export type Course = {
   content: CourseContent;
   /** Structured configuration for the personal-project AI-companion mode. */
   pblConfig?: PblCourseConfig;
+  /** Teacher-authored student workspace availability, keyed by stage.key. */
+  stageWorkspacePolicies?: Record<string, StageWorkspacePolicy>;
   classConfig?: ClassConfig;
   inviteCode?: string;
   /** AI 生成的项目封面图 URL */
@@ -650,6 +927,12 @@ export type Course = {
   learningEvents?: LearningEvent[];
   /** 学生与伴学圆桌的后端持久化会话。 */
   companionThreads?: CompanionThread[];
+  /** 学生明确分配给伴学伙伴的可视化任务。 */
+  companionTasks?: CompanionTask[];
+  /** 需要学生确认后才能执行的正式项目动作。 */
+  companionConfirmations?: CompanionConfirmation[];
+  /** 记记整理的可查看过程记录。 */
+  companionProcessRecords?: CompanionProcessRecord[];
   /** 由确定性规则从学习事件和会话中派生的个体信号。 */
   learningSignals?: LearningSignal[];
   /** 达到班级阈值的共性问题。 */
@@ -701,6 +984,8 @@ export type CourseContent = {
    * 该值由备课阶段页面编辑，generate 页面读取后传给生成 API。
    */
   interactiveMode?: boolean;
+  /** Teacher-confirmed pretest and adaptive branch outlines for new courses. */
+  adaptiveLearningPlan?: AdaptiveLearningPlan;
 };
 
 /**
@@ -949,6 +1234,8 @@ export type RubricScore = {
   teacherTotal?: number;
   aiDimensionScores?: Record<string, number>;
   aiTotal?: number | null;
+  aiProcessSummary?: string;
+  aiProcessEvidence?: string[];
   finalTotal?: number;
   scoringMode?: "teacher" | "hybrid" | "ai-import";
   comment: string;
@@ -980,6 +1267,48 @@ export type ActivityRecord = {
 export type SessionSnapshot = {
   courses: Course[];
   updatedAt: string;
+};
+
+// ============================================================================
+// CourseSession — archived historical teaching session (Stage 2: RESTART_TEACHING)
+// ============================================================================
+
+export type ArchivedCourseData = {
+  students?: Student[];
+  submissions?: ClassroomSubmission[];
+  feedback?: TeacherFeedback[];
+  rubricScores?: RubricScore[];
+  reflections?: ReflectionRecord[];
+  activityLog?: ActivityRecord[];
+  groups?: ProjectGroup[];
+  workPlan?: WorkPlanItem[];
+  whiteboard?: WhiteboardNode[];
+  groupAnnouncements?: GroupAnnouncement[];
+  boards?: GroupBoard[];
+  uploads?: CourseUpload[];
+  teamContributions?: TeamContribution[];
+  aiSupports?: AiSupportRecord[];
+  teacherInterventions?: TeacherIntervention[];
+  learningSignals?: LearningSignal[];
+  classCommonIssues?: ClassCommonIssue[];
+  teacherAgentDirectives?: TeacherAgentDirective[];
+  offlineInterventions?: OfflineInterventionRecord[];
+  companionThreads?: CompanionThread[];
+  stageTransitions?: StageTransitionRecord[];
+  evaluations?: EvaluationRecord[];
+  learningEvents?: LearningEvent[];
+};
+
+export type CourseSession = {
+  id: string;
+  courseId: string;
+  inviteCode: string;
+  startedAt: string;
+  endedAt: string;
+  archivedData: ArchivedCourseData;
+  studentCount: number;
+  submissionCount: number;
+  createdAt: string;
 };
 
 export type AiProviderSettings = {

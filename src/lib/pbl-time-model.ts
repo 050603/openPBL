@@ -64,8 +64,23 @@ export type PblModuleTimingAllocation = PblTimeActivity & {
   recommendedDurationMin: number;
 };
 
+export type PblTimingRecommendationSource =
+  | 'llm'
+  | 'deterministic-fallback'
+  | 'teacher';
+
+export type PblTimingRecommendationConfidence = 'low' | 'medium' | 'high';
+
+export type PblTimingRecommendationAudit = {
+  recommendationSource?: PblTimingRecommendationSource;
+  confidence?: PblTimingRecommendationConfidence;
+  rationaleByStage?: Partial<Record<PblStageKey, string>>;
+  evidence?: string[];
+  assumptions?: string[];
+};
+
 /** The only course-level timing state used by the teacher workflow. */
-export type PblModuleTimingPlan = {
+export type PblModuleTimingPlan = PblTimingRecommendationAudit & {
   schemaVersion: 1;
   totalMinutes: number;
   status: PblModuleTimingStatus;
@@ -73,6 +88,17 @@ export type PblModuleTimingPlan = {
   recommendedStageTotals: Record<PblTimeActivityKind, number>;
   generatedAt: string;
   confirmedAt?: string;
+};
+
+export type PblModelTimingRecommendation = {
+  allocations: Array<{
+    stageKey: string;
+    durationMin: number;
+    rationale?: string;
+  }>;
+  evidence?: string[];
+  assumptions?: string[];
+  confidence?: PblTimingRecommendationConfidence;
 };
 
 export type PblModuleDefinition = {
@@ -467,6 +493,7 @@ export function buildPblModuleTimingPlan(
     status?: PblModuleTimingStatus;
     preserveCurrentDurations?: boolean;
     now?: string;
+    recommendationMetadata?: PblTimingRecommendationAudit;
   } = {},
 ): PblModuleTimingPlan {
   const safeTotal = Math.max(0, Math.round(totalMinutes));
@@ -489,6 +516,135 @@ export function buildPblModuleTimingPlan(
     recommendedStageTotals: recommendPblStageTotals(safeTotal, context),
     generatedAt,
     ...(status === 'confirmed' ? { confirmedAt: generatedAt } : {}),
+    ...options.recommendationMetadata,
+  };
+}
+
+function allocateStageMinutesWithMinimum(
+  totalMinutes: number,
+  weights: readonly number[],
+): number[] {
+  const safeTotal = Math.max(0, Math.round(totalMinutes));
+  if (weights.length === 0) return [];
+  if (safeTotal < weights.length) {
+    return allocateIntegerByWeights(safeTotal, weights);
+  }
+  return allocateIntegerByWeights(
+    safeTotal - weights.length,
+    weights,
+  ).map((minutes) => minutes + 1);
+}
+
+/**
+ * Turn an LLM's pedagogical timing judgment into the same deterministic,
+ * fixed-total contract used everywhere else. The model supplies relative
+ * emphasis and explanations; this function owns stage identity, integer
+ * minutes, minimums, missing-stage fallback, and total preservation.
+ */
+export function buildPblModelTimingPlan(
+  totalMinutes: number,
+  activities: ReadonlyArray<PblTimeActivity>,
+  recommendation: PblModelTimingRecommendation,
+  context?: PblTimeModelContext,
+  options: { now?: string } = {},
+): PblModuleTimingPlan {
+  const safeTotal = Math.max(0, Math.round(totalMinutes));
+  const deterministicTotals = recommendPblStageTotals(safeTotal, context);
+  const modelByStage = new Map<
+    PblStageKey,
+    { durationMin: number; rationale?: string }
+  >();
+
+  for (const allocation of recommendation.allocations ?? []) {
+    const stageKey = normalizePblStageKey(allocation.stageKey);
+    const durationMin = Number(allocation.durationMin);
+    if (
+      !stageKey ||
+      !Number.isFinite(durationMin) ||
+      durationMin <= 0 ||
+      modelByStage.has(stageKey)
+    ) {
+      continue;
+    }
+    modelByStage.set(stageKey, {
+      durationMin,
+      ...(allocation.rationale?.trim()
+        ? { rationale: allocation.rationale.trim() }
+        : {}),
+    });
+  }
+
+  const missingDefinitions = PBL_MODULE_DEFINITIONS.filter(
+    (definition) => !modelByStage.has(definition.stageKey),
+  );
+  const weights = PBL_MODULE_DEFINITIONS.map((definition) => (
+    modelByStage.get(definition.stageKey)?.durationMin ??
+    deterministicTotals[definition.kind]
+  ));
+  const normalizedStageMinutes = allocateStageMinutesWithMinimum(
+    safeTotal,
+    weights,
+  );
+  const recommendedStageTotals = emptyStageTotals();
+  const rationaleByStage: Partial<Record<PblStageKey, string>> = {};
+  const allocations: PblModuleTimingAllocation[] = [];
+
+  PBL_MODULE_DEFINITIONS.forEach((definition, definitionIndex) => {
+    const stageMinutes = normalizedStageMinutes[definitionIndex] ?? 0;
+    recommendedStageTotals[definition.kind] = stageMinutes;
+    const modelStage = modelByStage.get(definition.stageKey);
+    if (modelStage?.rationale) {
+      rationaleByStage[definition.stageKey] = modelStage.rationale;
+    }
+    const matching = activities.filter(
+      (activity) => classifyPblActivityKind(activity) === definition.kind,
+    );
+    const distributed = distributeActivityMinutesWithMinimum(
+      stageMinutes,
+      matching,
+      context,
+    );
+    matching.forEach((activity, index) => {
+      const durationMin = distributed[index] ?? 0;
+      allocations.push({
+        ...activity,
+        stageKey: definition.stageKey,
+        activityKind: definition.kind,
+        durationMin,
+        recommendedDurationMin: durationMin,
+      });
+    });
+  });
+
+  const assumptions = [
+    ...(recommendation.assumptions ?? [])
+      .map((item) => item.trim())
+      .filter(Boolean),
+    ...(missingDefinitions.length > 0
+      ? [
+          `模型缺失阶段：${missingDefinitions.map((item) => item.label).join('、')}；已使用课程上下文的确定性建议补齐。`,
+        ]
+      : []),
+  ];
+  const now = options.now ?? new Date().toISOString();
+  return {
+    schemaVersion: 1,
+    totalMinutes: safeTotal,
+    status: 'suggested',
+    allocations,
+    recommendedStageTotals,
+    generatedAt: now,
+    recommendationSource: 'llm',
+    confidence:
+      recommendation.confidence === 'low' ||
+      recommendation.confidence === 'high'
+        ? recommendation.confidence
+        : 'medium',
+    ...(Object.keys(rationaleByStage).length > 0 ? { rationaleByStage } : {}),
+    evidence: (recommendation.evidence ?? [])
+      .map((item) => item.trim())
+      .filter(Boolean),
+    ...(assumptions.length > 0 ? { assumptions } : {}),
   };
 }
 

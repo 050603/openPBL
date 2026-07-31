@@ -44,6 +44,10 @@ describe("AI companions", () => {
     expect(prompt).toContain("不直接代替学生完成最终作品");
     expect(prompt).toContain("不替学生作最终决定");
     expect(prompt).toContain("采纳或拒绝建议的理由");
+    expect(prompt).toContain("供学生审核的草稿");
+    expect(prompt).toContain("不能替学生确定项目方向");
+    expect(prompt).toContain("学生始终是项目负责人");
+    expect(prompt).toContain("核验、选择、修改或亲自完成");
     expect(prompt).toContain("校园用电提醒器");
     expect(prompt).toContain("不要复述前序伙伴");
     expect(prompt).toContain("现在就能完成的动作");

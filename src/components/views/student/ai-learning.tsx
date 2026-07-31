@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Bot, ChevronDown, ExternalLink, Map, Network } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, ChevronDown, Map, Network } from "lucide-react";
 import { useStageStore } from "@openmaic/lib/store";
 import { KnowledgeGraphFlow } from "@/components/knowledge-graph-flow";
-import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
+import { AdaptiveAiLearningRuntime } from "@/components/views/student/adaptive-ai-learning-runtime";
 import { Card, PrimaryButton, ProgressBar } from "@/components/ui";
 import { useSession } from "@/lib/session/store";
 import type { Course, KnowledgePoint } from "@/lib/session/types";
@@ -12,13 +11,14 @@ export function AiLearningView({ course }: { course?: Course }) {
   const classroomId = course?.aiLearningClassroomId;
   const hasClassroom = Boolean(classroomId);
   const { studentId, studentName, user } = useSession();
-  const [graphCollapsed, setGraphCollapsed] = useState(false);
+  const [graphCollapsed, setGraphCollapsed] = useState(true);
 
-  const knowledgePoints = course?.content?.knowledgePoints ?? [];
+  const knowledgePoints = useMemo(
+    () => course?.content?.knowledgePoints ?? [],
+    [course?.content?.knowledgePoints],
+  );
   const graph = course?.content?.knowledgeGraph;
   const progress = course?.students.find((student) => student.id === studentId)?.stageProgress["ai-learning"] ?? 0;
-  const aiProgress = studentId ? course?.aiLearningProgress?.[studentId] : undefined;
-  const goals = aiProgress?.currentGoals?.length ? aiProgress.currentGoals : (course?.learningObjectives ?? course?.content?.lessonOutline?.flatMap((section) => section.objectives ?? []).slice(0, 4) ?? []);
 
   // ===== OpenMAIC 场景-知识点联动 =====
   // 订阅 useStageStore 的 currentSceneId 变化，匹配当前讲解的知识点
@@ -97,7 +97,7 @@ export function AiLearningView({ course }: { course?: Course }) {
     <div className="space-y-3">
       <section className="overflow-hidden rounded-[var(--radius-lg)] border border-stone-200 bg-white shadow-sm">
         {/* 集成工具条 */}
-        <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/80 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/90 px-3 py-2.5">
           <button
             type="button"
             onClick={() => setGraphCollapsed((v) => !v)}
@@ -108,23 +108,20 @@ export function AiLearningView({ course }: { course?: Course }) {
             知识地图
             <ChevronDown className={graphCollapsed ? "rotate-180 transition" : "transition"} size={14} />
           </button>
-          <Link
-            href={`/student/ai-learning/${classroomId}?courseId=${encodeURIComponent(course?.id ?? "")}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] px-2.5 text-[13px] font-semibold text-stone-500 transition hover:bg-white hover:text-[var(--pbl-student)]"
-          >
-            <ExternalLink size={14} /> 全屏学习
-          </Link>
+          <div className="flex min-w-[180px] flex-1 items-center justify-end gap-2 sm:flex-none">
+            <span className="shrink-0 text-xs font-semibold text-stone-500">学习进度</span>
+            <ProgressBar value={progress} className="max-w-32 flex-1 sm:w-28" />
+            <span className="shrink-0 text-xs font-bold text-[var(--pbl-student)]">{progress}%</span>
+          </div>
         </div>
 
         {/* 播放器 */}
-        <StudentStageHost
+        <AdaptiveAiLearningRuntime
           classroomId={classroomId}
-          courseId={course?.id}
+          course={course}
           studentId={studentId}
           studentName={studentName ?? user.name}
           backHref={course?.id ? `/student/classroom/${course.id}` : "/student"}
-          variant="embedded"
-          className="min-h-[560px] border-0 rounded-none"
         />
 
         {/* 底部独立知识图谱展示区 */}
@@ -165,13 +162,6 @@ export function AiLearningView({ course }: { course?: Course }) {
           </div>
         ) : null}
       </section>
-
-      {/* 简洁进度条 */}
-      <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-4 py-2.5">
-        <span className="shrink-0 text-[13px] font-semibold text-stone-600">学习进度</span>
-        <ProgressBar value={progress} className="flex-1" />
-        <span className="shrink-0 text-[13px] font-bold text-[var(--pbl-student)]">{progress}%</span>
-      </div>
     </div>
   );
 }

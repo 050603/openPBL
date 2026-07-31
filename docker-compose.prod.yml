@@ -1,0 +1,456 @@
+name: openpbl
+
+x-app: &app
+  image: ${OPENPBL_IMAGE:?Set OPENPBL_IMAGE to an immutable GHCR digest or Git SHA tag}
+  env_file:
+    - ./deploy/.deploy.env
+  environment:
+    NODE_ENV: production
+    PUBLIC_BASE_URL: https://${PUBLIC_HOST:?Set PUBLIC_HOST to the certificate IP or hostname}
+    REDIS_URL: redis://redis:6379
+    ENABLE_WEBSOCKET: "true"
+    WEBSOCKET_PORT: "3001"
+    ENABLE_TLDRAW_SYNC: "true"
+    TLDRAW_SYNC_PORT: "3002"
+    TRUST_PROXY_HEADERS: "true"
+    UPLOAD_DIR: /app/.openpbl-data/uploads
+    WHITEBOARD_DATA_DIR: /app/.openpbl-data/whiteboards
+    ENABLE_LOAD_TEST_API: ${ENABLE_LOAD_TEST_API:-false}
+  secrets:
+    - database_url
+    - jwt_secret
+    - provider_encryption_key
+    - monitor_token
+    - load_test_admin_token
+  volumes:
+    - uploads:/app/.openpbl-data/uploads
+    - whiteboards:/app/.openpbl-data/whiteboards
+  expose:
+    - "3000"
+    - "3001"
+    - "3002"
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health/live"]
+    interval: 15s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+  stop_grace_period: 30s
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        cpus: "2.0"
+        memory: 2500m
+      reservations:
+        memory: 512m
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "5"
+
+services:
+  postgres:
+    build:
+      context: ./deploy/postgres
+    image: ${OPENPBL_POSTGRES_IMAGE:-openpbl-postgres:16.9-pgbackrest}
+    environment:
+      POSTGRES_DB: openpbl
+      POSTGRES_USER: openpbl
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGBACKREST_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      PGBACKREST_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      PGBACKREST_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    secrets:
+      - postgres_password
+      - s3_access_key
+      - s3_secret_key
+    command:
+      - postgres
+      - -c
+      - max_connections=120
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=openpbl archive-push %p
+      - -c
+      - archive_timeout=300s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - pgbackrest-spool:/var/spool/pgbackrest
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openpbl -d openpbl"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    logging: *logging
+
+  pgbackrest:
+    image: ${OPENPBL_POSTGRES_IMAGE:-openpbl-postgres:16.9-pgbackrest}
+    profiles: ["backup"]
+    entrypoint: ["/usr/local/bin/openpbl-pgbackrest-backup"]
+    environment:
+      PGBACKREST_S3_BUCKET: ${BACKUP_S3_BUCKET:?Set BACKUP_S3_BUCKET}
+      PGBACKREST_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?Set BACKUP_S3_ENDPOINT}
+      PGBACKREST_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    secrets:
+      - s3_access_key
+      - s3_secret_key
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:ro
+      - pgbackrest-spool:/var/spool/pgbackrest
+      - backup-status:/var/lib/openpbl-backup-status
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    image: redis:7.4.5-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --timeout
+      - "0"
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+
+  migrate:
+    image: ${OPENPBL_MIGRATOR_IMAGE:?Set OPENPBL_MIGRATOR_IMAGE to the matching immutable image}
+    environment:
+      NODE_ENV: production
+    secrets:
+      - database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *logging
+
+  app-blue:
+    <<: *app
+    profiles: ["blue"]
+
+  app-green:
+    <<: *app
+    profiles: ["green"]
+
+  nginx:
+    image: nginx:1.28.0-alpine
+    environment:
+      OPENPBL_UPSTREAM: ${OPENPBL_UPSTREAM:-app-blue}
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST}
+      LOAD_TEST_CLIENT_IP: ${LOAD_TEST_CLIENT_IP:-127.0.0.1}
+    volumes:
+      - ./deploy/nginx/openpbl.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - acme-webroot:/var/www/acme:ro
+      - nginx-logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        (while sleep 21600; do nginx -s reload; done) &
+        exec nginx -g 'daemon off;'
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    logging: *logging
+
+  nginx-bootstrap:
+    image: nginx:1.28.0-alpine
+    profiles: ["certificate-bootstrap"]
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST}
+    volumes:
+      - ./deploy/nginx/bootstrap.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - acme-webroot:/var/www/acme
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    logging: *logging
+
+  certbot:
+    image: certbot/certbot:v5.4.0
+    profiles: ["certificate"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - acme-webroot:/var/www/acme
+    entrypoint: /bin/sh
+    command:
+      - -ec
+      - |
+        trap exit TERM INT
+        while :; do
+          certbot renew --webroot --webroot-path /var/www/acme --quiet
+          sleep 43200 & wait $!
+        done
+    restart: unless-stopped
+    logging: *logging
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    secrets:
+      - monitor_token
+    expose:
+      - "9090"
+    restart: unless-stopped
+    logging: *logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    profiles: ["observability"]
+    command:
+      - --path.rootfs=/host
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+      - backup-status:/var/lib/node_exporter/textfile:ro
+    expose:
+      - "9100"
+    restart: unless-stopped
+    logging: *logging
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    profiles: ["observability"]
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    expose:
+      - "8080"
+    restart: unless-stopped
+    logging: *logging
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.76.0
+    profiles: ["observability"]
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    expose:
+      - "9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: ["observability"]
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - export DATA_SOURCE_NAME="$$(cat /run/secrets/database_url)"; exec /bin/postgres_exporter
+    secrets:
+      - database_url
+    expose:
+      - "9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  certificate-metrics:
+    image: alpine:3.22
+    profiles: ["observability"]
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST}
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+      - backup-status:/metrics
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        apk add --no-cache openssl
+        while :; do
+          certificate="/etc/letsencrypt/live/$${PUBLIC_HOST}/fullchain.pem"
+          if openssl x509 -checkend 172800 -noout -in "$$certificate"; then value=0; else value=1; fi
+          printf 'openpbl_certificate_expires_within_48h %s\n' "$$value" > /metrics/certificate.prom.tmp
+          mv /metrics/certificate.prom.tmp /metrics/certificate.prom
+          sleep 3600
+        done
+    restart: unless-stopped
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    profiles: ["observability"]
+    environment:
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/openpbl.yml:ro
+    ports:
+      - "127.0.0.1:3002:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    logging: *logging
+
+  volume-backup:
+    image: restic/restic:0.18.0
+    profiles: ["backup"]
+    environment:
+      RESTIC_REPOSITORY: s3:${BACKUP_S3_ENDPOINT:?Set BACKUP_S3_ENDPOINT}/${BACKUP_S3_BUCKET:?Set BACKUP_S3_BUCKET}/openpbl-volumes
+      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    secrets:
+      - s3_access_key
+      - s3_secret_key
+      - restic_password
+    volumes:
+      - uploads:/data/uploads:ro
+      - whiteboards:/data/whiteboards:ro
+      - backup-status:/status
+      - ./deploy/backup/restic-loop.sh:/usr/local/bin/openpbl-restic-loop:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/openpbl-restic-loop"]
+    restart: unless-stopped
+    logging: *logging
+
+  restore-drill:
+    image: ${OPENPBL_POSTGRES_IMAGE:-openpbl-postgres:16.9-pgbackrest}
+    profiles: ["restore-drill"]
+    entrypoint: ["/bin/sh", "/usr/local/bin/openpbl-restore-drill"]
+    environment:
+      PGBACKREST_S3_BUCKET: ${BACKUP_S3_BUCKET:?Set BACKUP_S3_BUCKET}
+      PGBACKREST_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?Set BACKUP_S3_ENDPOINT}
+      PGBACKREST_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    secrets:
+      - s3_access_key
+      - s3_secret_key
+    volumes:
+      - restore-drill-data:/var/lib/postgresql/data
+      - ./deploy/backup/restore-drill-container.sh:/usr/local/bin/openpbl-restore-drill:ro
+    restart: "no"
+    logging: *logging
+
+  restore-drill-db:
+    image: ${OPENPBL_POSTGRES_IMAGE:-openpbl-postgres:16.9-pgbackrest}
+    profiles: ["restore-drill"]
+    environment:
+      POSTGRES_DB: openpbl
+      POSTGRES_USER: openpbl
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGBACKREST_S3_BUCKET: ${BACKUP_S3_BUCKET:?Set BACKUP_S3_BUCKET}
+      PGBACKREST_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?Set BACKUP_S3_ENDPOINT}
+      PGBACKREST_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    secrets:
+      - postgres_password
+      - s3_access_key
+      - s3_secret_key
+    volumes:
+      - restore-drill-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openpbl -d openpbl"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+    logging: *logging
+
+secrets:
+  database_url:
+    file: ./deploy/secrets/database_url.txt
+  postgres_password:
+    file: ./deploy/secrets/postgres_password.txt
+  jwt_secret:
+    file: ./deploy/secrets/jwt_secret.txt
+  provider_encryption_key:
+    file: ./deploy/secrets/provider_encryption_key.txt
+  monitor_token:
+    file: ./deploy/secrets/monitor_token.txt
+  grafana_admin_password:
+    file: ./deploy/secrets/grafana_admin_password.txt
+  load_test_admin_token:
+    file: ./deploy/secrets/load_test_admin_token.txt
+  s3_access_key:
+    file: ./deploy/secrets/s3_access_key.txt
+  s3_secret_key:
+    file: ./deploy/secrets/s3_secret_key.txt
+  restic_password:
+    file: ./deploy/secrets/restic_password.txt
+
+volumes:
+  postgres-data:
+  pgbackrest-spool:
+  uploads:
+  whiteboards:
+  letsencrypt:
+  acme-webroot:
+  nginx-logs:
+  prometheus-data:
+  grafana-data:
+  backup-status:
+  restore-drill-data:
+    name: openpbl-restore-drill-data

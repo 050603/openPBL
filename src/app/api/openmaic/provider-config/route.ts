@@ -1,22 +1,51 @@
-// 给教师设置页用：返回每个 provider 的详细配置（不含 apiKey，只含 hasApiKey 标志）
-import { type NextRequest } from 'next/server';
+import { z } from "zod";
 import {
+  deleteProviderEntry,
   listProviders,
   saveProviderEntry,
-  deleteProviderEntry,
-  type ProviderSection,
-} from '@/lib/openmaic-bridge/provider-config-editor';
-import { apiError, apiSuccess, API_ERROR_CODES } from '@openmaic/lib/server/api-response';
+} from "@/lib/openmaic-bridge/provider-config-editor";
+import { authenticateRequest, requireSameOrigin } from "@/lib/auth/request-guards";
+import { validateUrlForSSRF } from "@/lib/openmaic/server/ssrf-guard";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
-  try {
-    const section = (request.nextUrl.searchParams.get('section') ?? 'providers') as ProviderSection;
-    const providers = await listProviders(section);
-    // 不返回 apiKey，只返回 hasApiKey 标志
-    const safe = Object.fromEntries(
+const SectionSchema = z.enum([
+  "providers",
+  "tts",
+  "asr",
+  "pdf",
+  "image",
+  "video",
+  "web-search",
+]);
+const ProviderIdSchema = z.string().trim().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/i);
+const SaveSchema = z.object({
+  section: SectionSchema,
+  providerId: ProviderIdSchema,
+  apiKey: z.string().max(8_192).optional(),
+  baseUrl: z.string().url().max(2_048).optional(),
+  models: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  enabled: z.boolean().optional(),
+  defaultModel: z.string().trim().max(200).optional(),
+  priority: z.number().int().min(0).max(10_000).optional(),
+  defaultVoice: z.string().trim().max(200).optional(),
+  timingCalibrations: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
+}).strict();
+const DeleteSchema = z.object({
+  section: SectionSchema,
+  providerId: ProviderIdSchema,
+}).strict();
+
+export async function GET(request: Request) {
+  const auth = await authenticateRequest(request, "teacher");
+  if ("response" in auth) return auth.response;
+  const section = SectionSchema.safeParse(new URL(request.url).searchParams.get("section") ?? "providers");
+  if (!section.success) return apiError(request, "INVALID_SECTION", "Provider section is invalid.", 400);
+  const providers = await listProviders(section.data);
+  return Response.json({
+    section: section.data,
+    providers: Object.fromEntries(
       Object.entries(providers).map(([id, entry]) => [
         id,
         {
@@ -30,80 +59,43 @@ export async function GET(request: NextRequest) {
           timingCalibrations: entry.timingCalibrations,
         },
       ]),
-    );
-    return apiSuccess({ section, providers: safe });
-  } catch (error) {
-    return apiError(
-      API_ERROR_CODES.INTERNAL_ERROR,
-      500,
-      error instanceof Error ? error.message : 'Unknown error',
-    );
-  }
+    ),
+  });
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { section, providerId, apiKey, baseUrl, models, enabled, defaultModel, priority, defaultVoice, timingCalibrations } = body as {
-      section: ProviderSection;
-      providerId: string;
-      apiKey?: string;
-      baseUrl?: string;
-      models?: string[];
-      enabled?: boolean;
-      defaultModel?: string;
-      priority?: number;
-      defaultVoice?: string;
-      timingCalibrations?: import('@openmaic/lib/audio/tts-timing').TtsVoiceTimingCalibration[];
-    };
-    if (!section || !providerId) {
-      return apiError(
-        API_ERROR_CODES.MISSING_REQUIRED_FIELD,
-        400,
-        'section and providerId are required',
-      );
-    }
-    await saveProviderEntry(section, providerId, {
-      apiKey: apiKey ?? '',
-      baseUrl,
-      models,
-      enabled,
-      defaultModel,
-      priority,
-      defaultVoice,
-      timingCalibrations,
-    });
-    return apiSuccess({ ok: true });
-  } catch (error) {
-    return apiError(
-      API_ERROR_CODES.INTERNAL_ERROR,
-      500,
-      error instanceof Error ? error.message : 'Unknown error',
-    );
+export async function POST(request: Request) {
+  const csrfError = requireSameOrigin(request);
+  if (csrfError) return csrfError;
+  const auth = await authenticateRequest(request, "teacher");
+  if ("response" in auth) return auth.response;
+  const parsed = SaveSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return apiError(request, "INVALID_PROVIDER", "Provider configuration is invalid.", 400);
+  if (parsed.data.baseUrl) {
+    const ssrfError = await validateUrlForSSRF(parsed.data.baseUrl);
+    if (ssrfError) return apiError(request, "INVALID_PROVIDER_URL", "Provider URL is not allowed.", 400);
   }
+  await saveProviderEntry(parsed.data.section, parsed.data.providerId, {
+    ...parsed.data,
+    timingCalibrations: parsed.data.timingCalibrations as never,
+    apiKey: parsed.data.apiKey ?? "",
+  });
+  return Response.json({ ok: true });
 }
 
-export async function DELETE(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { section, providerId } = body as {
-      section: ProviderSection;
-      providerId: string;
-    };
-    if (!section || !providerId) {
-      return apiError(
-        API_ERROR_CODES.MISSING_REQUIRED_FIELD,
-        400,
-        'section and providerId are required',
-      );
-    }
-    await deleteProviderEntry(section, providerId);
-    return apiSuccess({ ok: true });
-  } catch (error) {
-    return apiError(
-      API_ERROR_CODES.INTERNAL_ERROR,
-      500,
-      error instanceof Error ? error.message : 'Unknown error',
-    );
-  }
+export async function DELETE(request: Request) {
+  const csrfError = requireSameOrigin(request);
+  if (csrfError) return csrfError;
+  const auth = await authenticateRequest(request, "teacher");
+  if ("response" in auth) return auth.response;
+  const parsed = DeleteSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return apiError(request, "INVALID_PROVIDER", "Provider configuration is invalid.", 400);
+  await deleteProviderEntry(parsed.data.section, parsed.data.providerId);
+  return Response.json({ ok: true });
+}
+
+function apiError(request: Request, code: string, message: string, status: number): Response {
+  return Response.json(
+    { code, message, requestId: request.headers.get("x-request-id") ?? "unknown" },
+    { status },
+  );
 }

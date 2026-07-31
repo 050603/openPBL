@@ -113,7 +113,7 @@ function formatFeedback(item: TeacherFeedback): string {
 }
 
 function formatRubric(item: RubricScore): string {
-  return `[${item.stageKey}/${item.status}] 教师分=${item.teacherTotal ?? "无"}；AI分=${item.aiTotal ?? "无"}；最终分=${item.finalTotal ?? "无"}；记录总分=${item.total}；教师维度=${formatScoreMap(item.dimensionScores)}；AI维度=${formatScoreMap(item.aiDimensionScores)}；评语=${compact(item.comment, 600)}（${item.updatedAt}）`;
+  return `[${item.stageKey}/${item.status}] 教师分=${item.teacherTotal ?? "无"}；AI分=${item.aiTotal ?? "无"}；最终分=${item.finalTotal ?? "无"}；记录总分=${item.total}；教师维度=${formatScoreMap(item.dimensionScores)}；AI维度=${formatScoreMap(item.aiDimensionScores)}；AI过程总结=${compact(item.aiProcessSummary ?? "无", 600)}；AI过程证据=${(item.aiProcessEvidence ?? []).join("、") || "无"}；教师评语=${compact(item.comment, 600)}（${item.updatedAt}）`;
 }
 
 function formatEvaluation(item: EvaluationRecord): string {

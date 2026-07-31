@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSceneAPI } from "./stage-api-scene";
 import type { StageStore } from "./stage-api-types";
 import type { Scene, Stage } from "@openmaic/lib/types/stage";
+import { buildTtsTimingPlan } from "@openmaic/lib/audio/tts-timing";
 
 function createStore() {
   let state = {
@@ -49,5 +50,33 @@ describe("createSceneAPI PBL metadata", () => {
       activityId: "activity-1",
       resourceTypes: ["ppt"],
     });
+  });
+
+  it("persists the executable per-page timing plan for runtime telemetry", () => {
+    const { store, getState } = createStore();
+    const api = createSceneAPI(store);
+    const timingPlan = buildTtsTimingPlan({
+      targetDurationSec: 100,
+      activityTargetDurationSec: 180,
+      providerId: "qwen-tts",
+      modelId: "qwen3-tts-flash",
+      voiceId: "Serena",
+      naturalSpeedLocked: true,
+      pageKind: "interactive",
+      readingThinkingSec: 25,
+      operationSec: 50,
+      studentActivitySec: 75,
+      transitionSec: 5,
+    });
+
+    const result = api.create({
+      type: "interactive",
+      title: "变量模拟",
+      targetDurationSec: 180,
+      timingPlan,
+    });
+
+    expect(result.success).toBe(true);
+    expect(getState().scenes[0].timingPlan).toEqual(timingPlan);
   });
 });

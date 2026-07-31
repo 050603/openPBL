@@ -7,10 +7,8 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowLeft,
-  BadgeCheck,
   Bot,
   CheckCircle2,
-  ChevronRight,
   Circle,
   CircleDot,
   Eye,
@@ -37,7 +35,6 @@ import {
 import { DashboardShell } from "@/components/dashboard-shell";
 import {
   Card,
-  PageHeader,
   Pill,
   PrimaryButton,
   SectionTitle,
@@ -180,17 +177,6 @@ const TAB_COPY: Record<TabKey, { title: string; description: string; tips: strin
     description: "为每个 AI 伙伴选择符合性格的朗读音色，让课堂对话更生动。",
     tips: ["确认语音服务商已配置", "为每个智能体选择音色", "可一键应用推荐配置", "点击试听效果"],
   },
-};
-
-const TEST_EXPLANATIONS: Record<TabKey, string> = {
-  llm: "发送最小对话请求，验证完整模型标识、服务地址、鉴权和响应格式。",
-  tts: "生成固定测试文本并提供试听，同时按音频实际时长更新当前模型、音色、语言和自然语速的共享建模数据。",
-  asr: "上传一段标准 WAV 测试样本，验证识别接口、鉴权、模型和音频参数。",
-  image: "实际生成一张低分辨率测试图，验证接口地址、鉴权、模型、请求参数和图片返回格式。",
-  video: "调用对应视频供应商的专用连通性检查，返回供应商提供的具体错误信息。",
-  "web-search": "执行一次仅返回少量结果的真实搜索，验证密钥、地址和结果解析。",
-  pdf: "上传一页最小测试 PDF 并执行真实解析，验证服务地址、鉴权和返回结构。",
-  "agent-voice": "试听使用当前已保存的 TTS 服务与音色配置，不会调用其他类型的模型。",
 };
 
 function getProvidersForTab(tab: TabKey): ProviderMeta[] {
@@ -566,21 +552,6 @@ export default function TeacherSettingsPage() {
       `${provider.name} ${provider.id}`.toLowerCase().includes(needle),
     );
   }, [providers, query]);
-
-  const configuredCount = providers.filter((provider) => {
-    const saved = savedConfigs[configKey(currentTab.section, provider.id)];
-    return saved?.hasApiKey || saved?.enabled !== undefined;
-  }).length;
-  const currentDefaultProvider = useMemo(() => {
-    const configured = providers
-      .map((provider) => ({
-        provider,
-        saved: savedConfigs[configKey(currentTab.section, provider.id)],
-      }))
-      .filter((item) => item.saved?.hasApiKey || item.saved?.enabled !== undefined)
-      .sort((a, b) => (a.saved?.priority ?? 100) - (b.saved?.priority ?? 100));
-    return configured[0] ?? null;
-  }, [currentTab.section, providers, savedConfigs]);
 
   const getSavedConfig = useCallback(
     (section: ProviderSection, providerId: string) => savedConfigs[configKey(section, providerId)],
@@ -1801,35 +1772,6 @@ function ResultNotice({ result, compact = false }: { result: ResultState; compac
         <span className="block font-semibold">{result.message}</span>
         {result.detail ? <span className="mt-1 block break-all opacity-80">{result.detail}</span> : null}
       </span>
-    </div>
-  );
-}
-
-function StatusTile({
-  icon: Icon,
-  label,
-  value,
-  helper,
-}: {
-  icon: ComponentType<{ size?: number; className?: string }>;
-  label: string;
-  value: string;
-  helper: string;
-}) {
-  return (
-    <div className="rounded-[8px] border border-stone-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
-      <div className="flex items-start gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[8px] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
-          <Icon size={19} />
-        </span>
-        <span className="min-w-0">
-          <span className="block text-xs font-bold uppercase tracking-[0.08em] text-stone-400">
-            {label}
-          </span>
-          <span className="mt-1 block truncate text-lg font-bold text-stone-900">{value}</span>
-          <span className="mt-1 block line-clamp-2 text-xs leading-5 text-stone-500">{helper}</span>
-        </span>
-      </div>
     </div>
   );
 }

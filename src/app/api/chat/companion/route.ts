@@ -12,9 +12,22 @@ import { buildCompanionSystemPrompt, getCompanion, type AiCompanionId } from "@/
 import { activeDirectivesForStudent, isSubstantiallyRepeatedResponse, maxSpeakersForTurn, recorderVisibility, shouldUseReviewer } from "@/lib/companion/orchestrator";
 import { buildCompanionContext, type CompanionContextSnapshot } from "@/lib/companion/context";
 import { appendCompanionMessages, companionMessage, getCompanionThread } from "@/lib/companion/server-store";
+import { sanitizeCompanionResponse } from "@/lib/companion/response";
+import { buildStageBoundaryInstruction } from "@/lib/companion/stage-policy";
+import { buildWorkspaceEditInstruction, extractWorkspacePatch, type CompanionWorkspacePatch } from "@/lib/companion/workspace-operation";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type { CompanionTriggerKind } from "@/lib/session/types";
 import { aggregateCommonIssues } from "@/lib/learning-analytics/analyzer";
+import {
+  companionLimiter,
+  getClientIp,
+  rateLimitKey,
+  rateLimitedResponse,
+} from "@/lib/auth/rate-limit";
+import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
+import type { StudentClaims } from "@/lib/auth/session";
+import { isCompanionStageEnabled } from "@/lib/companion/stage-access";
+import { isShuttingDown } from "@/lib/runtime/lifecycle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -34,6 +47,8 @@ type CompanionChatRequest = {
   courseId?: string;
   studentId?: string;
   studentName?: string;
+  preferredCompanionId?: AiCompanionId;
+  taskId?: string;
   trigger?: { kind: CompanionTriggerKind; reason?: string; preferredCompanionId?: AiCompanionId };
 };
 
@@ -47,6 +62,7 @@ type SSEEvent =
   | { type: "director_result"; speakers: AiCompanionId[] }
   | { type: "agent_start"; companionId: AiCompanionId }
   | { type: "text_delta"; companionId: AiCompanionId; delta: string }
+  | { type: "workspace_patch"; companionId: AiCompanionId; taskId?: string; patch: CompanionWorkspacePatch }
   | { type: "agent_end"; companionId: AiCompanionId }
   | { type: "cue_user" }
   | { type: "done" }
@@ -98,6 +114,7 @@ function buildDirectorPrompt(input: {
   companions: { id: AiCompanionId; name: string; role: string; description: string; canQuestion: boolean }[];
   stageLabel: string;
   trigger?: CompanionTriggerKind;
+  preferredCompanionId?: AiCompanionId;
 }): { system: string; user: string } {
   const companionList = input.companions
     .map((c) => `- ${c.id}（${c.name}，${c.role}）：${c.description}${c.canQuestion ? " [唯一可提问角色]" : " [仅陈述]"}`)
@@ -125,6 +142,7 @@ ${companionList}
 
   const user = `本轮来源：${input.trigger ? `系统主动介入（${input.trigger}）` : "学生主动请求"}
 学生最新消息：${input.message}
+${input.preferredCompanionId ? `学生点名希望先听${input.preferredCompanionId}的意见；如果该角色可用，必须让其先发言。` : ""}
 ${recentHistory ? `最近对话：\n${recentHistory}` : ""}
 
 请决定哪些伴学角色应该回应，返回 JSON。`;
@@ -133,6 +151,33 @@ ${recentHistory ? `最近对话：\n${recentHistory}` : ""}
 }
 
 export async function POST(req: NextRequest) {
+  // Reject new requests immediately during graceful shutdown (Stage 7).
+  if (isShuttingDown()) {
+    return Response.json(
+      { error: "SERVER_SHUTTING_DOWN", message: "服务器维护中,请稍后重试" },
+      { status: 503 },
+    );
+  }
+
+  let authenticatedStudent: StudentClaims | null = null;
+
+  // This endpoint is student-only. Prefer the student cookie when a browser
+  // also contains a teacher session from a second tab.
+  if (isAuthConfigured()) {
+    const claims = await readAuthFromRequest(req, "student");
+    if (!claims) {
+      return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+    }
+    if (claims.role !== "student") {
+      return Response.json({ error: "STUDENT_AUTH_REQUIRED" }, { status: 403 });
+    }
+    authenticatedStudent = claims;
+    const ip = getClientIp(req);
+    const userKey = claims.studentId || ip;
+    const rl = companionLimiter.check(rateLimitKey(req, userKey));
+    if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
+  }
+
   let body: CompanionChatRequest;
   try {
     body = (await req.json()) as CompanionChatRequest;
@@ -148,6 +193,19 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "MISSING_COMPANIONS" }, { status: 400 });
   }
 
+  if (
+    authenticatedStudent
+    && (
+      body.courseId !== authenticatedStudent.courseId
+      || body.studentId !== authenticatedStudent.studentId
+    )
+  ) {
+    return Response.json({ error: "STUDENT_SCOPE_MISMATCH" }, { status: 403 });
+  }
+  if (authenticatedStudent) {
+    body.studentName = authenticatedStudent.studentName;
+  }
+
   let authoritativeHistory = body.history ?? [];
   let teacherContext = body.teacherContext;
   let effectiveCompanionIds = body.companionIds;
@@ -156,6 +214,9 @@ export async function POST(req: NextRequest) {
   if (canPersist) {
     const course = await getCourse(body.courseId!);
     if (!course) return Response.json({ error: "COURSE_NOT_FOUND" }, { status: 404 });
+    if (!isCompanionStageEnabled(course, body.stageKey)) {
+      return Response.json({ error: "COMPANION_STAGE_DISABLED" }, { status: 403 });
+    }
     if (!course.students.some((student) => student.id === body.studentId)) {
       return Response.json({ error: "STUDENT_NOT_IN_COURSE" }, { status: 403 });
     }
@@ -175,7 +236,9 @@ export async function POST(req: NextRequest) {
       .slice(-12)
       .map((message) => ({
         role: message.role === "student" ? "user" as const : "assistant" as const,
-        content: message.content,
+        content: message.role === "student"
+          ? message.content
+          : sanitizeCompanionResponse(message.content),
       }));
     const directives = activeDirectivesForStudent(
       course.teacherAgentDirectives ?? [],
@@ -248,6 +311,30 @@ export async function POST(req: NextRequest) {
 
   const write = (event: SSEEvent) => writer.write(encoder.encode(sseEncode(event)));
 
+  // Graceful shutdown (Stage 7): emit a dedicated `shutdown` SSE event so
+  // the client can surface "服务器维护中" and stop waiting. Uses the SSE
+  // `event:` field so it is distinguishable from regular `data:` events.
+  const writeShutdown = async (): Promise<void> => {
+    const payload = `event: shutdown\ndata: ${JSON.stringify({
+      reason: "server_shutting_down",
+      message: "服务器维护中,请稍后重试",
+    })}\n\n`;
+    try {
+      await writer.write(encoder.encode(payload));
+    } catch {
+      // writer already closed — nothing more we can do.
+    }
+  };
+
+  // Returns true when the process is shutting down. Callers should `return`
+  // from the IIFE immediately after a truthy result so the finally block can
+  // close the stream.
+  const checkShutdown = async (): Promise<boolean> => {
+    if (!isShuttingDown()) return false;
+    await writeShutdown();
+    return true;
+  };
+
   (async () => {
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     const startHeartbeat = () => {
@@ -273,6 +360,7 @@ export async function POST(req: NextRequest) {
       }));
 
       // === Step 1: Director 分析 ===
+      if (await checkShutdown()) return;
       await write({ type: "director_start" });
 
       const directorPrompt = buildDirectorPrompt({
@@ -281,6 +369,7 @@ export async function POST(req: NextRequest) {
         companions: availableCompanions,
         stageLabel: body.stageLabel,
         trigger: body.trigger?.kind,
+        preferredCompanionId: body.preferredCompanionId,
       });
 
       let directorResult: DirectorResult;
@@ -297,8 +386,9 @@ export async function POST(req: NextRequest) {
           ? parsed.speakers.filter((id) => effectiveCompanionIds.includes(id))
           : [];
         const selectedSpeakers = speakers.length ? speakers : [effectiveCompanionIds[0]];
-        if (body.trigger?.preferredCompanionId && effectiveCompanionIds.includes(body.trigger.preferredCompanionId)) {
-          selectedSpeakers.unshift(body.trigger.preferredCompanionId);
+        const preferredCompanionId = body.preferredCompanionId ?? body.trigger?.preferredCompanionId;
+        if (preferredCompanionId && effectiveCompanionIds.includes(preferredCompanionId)) {
+          selectedSpeakers.unshift(preferredCompanionId);
         }
         if (
           shouldUseReviewer(body.trigger?.kind) &&
@@ -311,14 +401,19 @@ export async function POST(req: NextRequest) {
           speakers: [...new Set(selectedSpeakers)].slice(0, maxSpeakersForTurn(body.trigger?.kind, body.message)),
           cueUser: Boolean(parsed.cueUser),
         };
-      } catch {
-        // Director 失败时降级：用第一个可用角色
-        directorResult = { speakers: [effectiveCompanionIds[0]], cueUser: false };
+      } catch (err) {
+        // Director LLM 失败不再降级到第一个 companion —— 直接抛错让外层
+        // 通过 SSE 推送 COMPANION_DIRECTOR_FAILED，前端展示明确提示。
+        if (signal.aborted) return;
+        if (await checkShutdown()) return;
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`COMPANION_DIRECTOR_FAILED: ${reason}`);
       }
 
       await write({ type: "director_result", speakers: directorResult.speakers });
 
       if (signal.aborted) return;
+      if (await checkShutdown()) return;
 
       // === Step 2: 依次让每个选中角色发言 ===
       const conversationHistory = [...authoritativeHistory, { role: "user" as const, content: body.message }];
@@ -327,6 +422,7 @@ export async function POST(req: NextRequest) {
 
       for (const [speakerIndex, companionId] of directorResult.speakers.entries()) {
         if (signal.aborted) return;
+        if (await checkShutdown()) return;
 
         const companion = getCompanion(companionId);
         if (speakerIndex === 0) await write({ type: "agent_start", companionId });
@@ -341,10 +437,20 @@ export async function POST(req: NextRequest) {
           context: companionContext,
           peerResponses,
         });
+        const boundaryInstruction = buildStageBoundaryInstruction(body.stageKey, body.message);
+        const workspaceEditInstruction = speakerIndex === 0
+          ? buildWorkspaceEditInstruction(body.stageKey, body.message)
+          : undefined;
 
         // 构建该角色的对话历史（包含其他角色的发言作为上下文）
         const agentMessages: ChatMessage[] = [
           { role: "system", content: systemPrompt },
+          ...(boundaryInstruction
+            ? [{ role: "system" as const, content: boundaryInstruction }]
+            : []),
+          ...(workspaceEditInstruction
+            ? [{ role: "system" as const, content: workspaceEditInstruction }]
+            : []),
           ...conversationHistory,
         ];
 
@@ -352,26 +458,29 @@ export async function POST(req: NextRequest) {
         try {
           for await (const delta of callLLMStream(agentMessages, { abortSignal: signal })) {
             if (signal.aborted) return;
+            if (await checkShutdown()) return;
             fullResponse += delta;
-            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta });
+            // Buffer the complete reply so role/stage directions can be removed
+            // before any text reaches the classroom or TTS queue.
           }
-        } catch {
-          // 单个角色流式失败时，用非流式降级
+        } catch (err) {
+          // 流式失败不再降级到非流式 + 占位文本 —— 直接抛错让外层通过 SSE
+          // 推送 COMPANION_GENERATION_FAILED，前端展示明确提示。
           if (signal.aborted) return;
-          try {
-            fullResponse = await callLLM(agentMessages, { abortSignal: signal });
-            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta: fullResponse });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (speakerIndex === 0) await write({ type: "text_delta", companionId, delta: `（${companion.name}暂时无法回应：${msg}）` });
-            fullResponse = "";
-          }
+          if (await checkShutdown()) return;
+          const reason = err instanceof Error ? err.message : String(err);
+          throw new Error(`COMPANION_GENERATION_FAILED: ${companion.name} 回复失败：${reason}`);
         }
 
+        const workspaceResult = extractWorkspacePatch(fullResponse);
+        fullResponse = sanitizeCompanionResponse(workspaceResult.speech);
         const repeated = speakerIndex > 0 && isSubstantiallyRepeatedResponse(fullResponse, peerResponses);
-        if (speakerIndex > 0 && fullResponse && !repeated) {
-          await write({ type: "agent_start", companionId });
+        if (fullResponse && !repeated) {
+          if (speakerIndex > 0) await write({ type: "agent_start", companionId });
           await write({ type: "text_delta", companionId, delta: fullResponse });
+          if (workspaceResult.patch) {
+            await write({ type: "workspace_patch", companionId, taskId: body.taskId, patch: workspaceResult.patch });
+          }
         }
         if (!repeated) await write({ type: "agent_end", companionId });
 
@@ -404,6 +513,7 @@ export async function POST(req: NextRequest) {
       }
 
       // === Step 3: 结束 ===
+      if (await checkShutdown()) return;
       if (directorResult.cueUser) {
         await write({ type: "cue_user" });
       } else {

@@ -120,6 +120,9 @@ export function buildPblCourseRequirement(
     outlines?.length
       ? `已确认场景大纲：\n${JSON.stringify(outlines, null, 2)}`
       : "",
+    content?.adaptiveLearningPlan
+      ? `已确认学习证据与额外资源模型（主课程必须完整覆盖本节大纲；前测最多 5 题，只检查会影响新课理解的先决知识；AI 授知每个知识模块以约 3 道题的测验结束；错题仅进入解析与教师统计，不重复讲授相同内容；先决知识缺口可在主课前插入必要回顾，模块掌握良好且时间充足时可插入新例题、应用或拓展；所有额外资源均在备课期生成审核，运行时只编排播放；不得把候选资源混入所有学生的主场景）：\n${JSON.stringify(content.adaptiveLearningPlan, null, 2)}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

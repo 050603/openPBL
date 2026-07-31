@@ -34,6 +34,7 @@ export type DashboardShellProps = {
   course?: string;
   children: ReactNode;
   wide?: boolean;
+  immersive?: boolean;
   variant?: "default" | "bare";
   headerSlot?: ReactNode;
   classroomBar?: ReactNode;
@@ -55,6 +56,7 @@ export function DashboardShell({
   course,
   children,
   wide = false,
+  immersive = false,
   headerSlot,
   classroomBar,
   hideCourseSwitcher = false,
@@ -100,14 +102,25 @@ export function DashboardShell({
     setOpenPanel(null);
   }
 
+  async function logout() {
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "X-OpenPBL-Role": role },
+    });
+    if (!response.ok) return;
+    window.location.assign(isTeacher ? "/teacher/login" : "/student");
+  }
+
   return (
     <div className={cn("min-h-screen text-[var(--pbl-text)]", isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student")}>
-      <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+      {!immersive ? <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
         <div className="flex min-h-16 items-center px-3 py-2 md:px-5">
           <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
-              <div className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</div>
+              <div className="flex items-baseline gap-1">
+                <span className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</span>
+              </div>
               <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
             </div>
           </Link>
@@ -176,9 +189,9 @@ export function DashboardShell({
             {classroomBar}
           </div>
         ) : null}
-      </header>
+      </header> : null}
 
-      {openPanel ? (
+      {!immersive && openPanel ? (
         <TopPopover onClose={() => setOpenPanel(null)}>
           {openPanel === "courses" ? (
             <CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} />
@@ -204,25 +217,54 @@ export function DashboardShell({
                   <UserRound size={15} /> 个人中心
                 </Link>
               </div>
-              <Link
+              {isTeacher ? (
+                <Link
+                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[13px] font-semibold text-[var(--pbl-teacher)] transition hover:bg-white"
+                  href="/teacher/register"
+                  onClick={() => setOpenPanel(null)}
+                >
+                  <UserPlusIcon /> 创建其他教师
+                </Link>
+              ) : null}
+              <button
                 className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[13px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
-                href={homeHref}
-                onClick={() => setOpenPanel(null)}
+                onClick={() => void logout()}
+                type="button"
               >
-                <LogOut size={15} /> 返回首页
-              </Link>
+                <LogOut size={15} /> 退出登录
+              </button>
             </div>
           ) : null}
         </TopPopover>
       ) : null}
 
-      <main className={classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
-        <div className={cn("mx-auto w-full px-4 pb-10 md:px-5", wide ? "max-w-[1600px]" : "max-w-[1280px]")}>
+      <main className={immersive ? "p-0" : classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
+        <div className={immersive ? "w-full" : cn("mx-auto w-full px-4 pb-10 md:px-5", wide ? "max-w-[1600px]" : "max-w-[1280px]")}>
           {subtitle ? <p className="mb-2 text-sm font-medium text-[var(--pbl-text-muted)]">{subtitle}</p> : null}
           {children}
         </div>
       </main>
     </div>
+  );
+}
+
+function UserPlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="15"
+      viewBox="0 0 24 24"
+      width="15"
+    >
+      <path
+        d="M15 19c0-2.21-2.69-4-6-4s-6 1.79-6 4m6-7a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm10-5v6m3-3h-6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
   );
 }
 
@@ -330,13 +372,26 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
 }
 
 export function LogoMark({ role = "teacher" }: { role?: Role }) {
-  const isTeacher = role === "teacher";
+  // 使用统一品牌 Logo 图标（不再按 role 切换颜色，保持品牌一致性）
   return (
-    <div className="relative h-9 w-9 shrink-0">
-      <div className={cn("absolute left-0 top-0 h-9 w-4 skew-x-[-21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-hover)]" : "bg-[var(--pbl-student-hover)]")} />
-      <div className={cn("absolute right-0 top-0 h-9 w-4 skew-x-[21deg] rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]")} />
-      <div className="absolute bottom-0 left-[12px] h-3 w-3 rotate-45 bg-white" />
-    </div>
+    <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/logo-icon.png"
+        alt="openPBL"
+        width={36}
+        height={36}
+        className="h-9 w-9 object-contain"
+        draggable={false}
+      />
+      {/* 角色 dot 标识 */}
+      <span
+        className={cn(
+          "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white",
+          role === "teacher" ? "bg-[var(--pbl-teacher)]" : "bg-[var(--pbl-student)]"
+        )}
+      />
+    </span>
   );
 }
 

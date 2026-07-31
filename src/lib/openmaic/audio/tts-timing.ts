@@ -60,8 +60,19 @@ export type TtsTimingPlan = {
   language: string;
   speed: number;
   contentType: string;
+  pageKind?: 'slide' | 'interactive' | 'quiz';
+  /** Whether duration fitting is forbidden from changing the natural 1.0 rate. */
+  naturalSpeedLocked?: boolean;
+  /** Exact voice calibration when available; otherwise a conservative seeded model profile. */
+  calibrationSource?: TtsTimingProfile['source'];
+  /** Effective rate after punctuation pauses, expressed in the plan's speech unit. */
+  effectiveUnitsPerMinute?: number;
   /** Natural-speed speech guidance and explanation. */
   narrationSec?: number;
+  /** Silent comprehension time before/during the learner task. */
+  readingThinkingSec?: number;
+  /** Silent manipulation, writing, coding, selection, and submission time. */
+  operationSec?: number;
   /** Silent time reserved for reading, thinking, answering, coding, or manipulating a widget. */
   studentActivitySec?: number;
   /** Feedback or answer-analysis time included in narrationSec. */
@@ -74,6 +85,10 @@ export type TtsTimingPlan = {
   targetUnits: number;
   minUnits: number;
   maxUnits: number;
+  taskComplexity?: 'low' | 'medium' | 'high';
+  recommendedStudentActivitySec?: number;
+  taskFitsBudget?: boolean;
+  timingRationale?: string[];
 };
 
 export type TtsDurationAssessment = {
@@ -399,18 +414,35 @@ export function buildTtsTimingPlan(options: {
   speed?: number;
   language?: string;
   contentType?: string;
+  pageKind?: 'slide' | 'interactive' | 'quiz';
+  naturalSpeedLocked?: boolean;
+  readingThinkingSec?: number;
+  operationSec?: number;
   studentActivitySec?: number;
   feedbackSec?: number;
   transitionSec?: number;
+  taskComplexity?: 'low' | 'medium' | 'high';
+  recommendedStudentActivitySec?: number;
+  taskFitsBudget?: boolean;
+  timingRationale?: string[];
 }): TtsTimingPlan {
   const profile = getTtsTimingProfile(options.providerId, options.modelId, options.voiceId);
   const language = options.language || 'zh-CN';
+  const naturalSpeedLocked = Boolean(options.naturalSpeedLocked);
+  const requestedSpeed = naturalSpeedLocked ? 1 : options.speed;
   const budget = calculateTtsContentBudget(options.targetDurationSec, {
     profile,
-    speed: options.speed,
+    speed: requestedSpeed,
     language,
   });
-  const speed = clamp(Number(options.speed ?? profile.defaultSpeed) || profile.defaultSpeed, 0.25, 4);
+  const speed = clamp(
+    Number(requestedSpeed ?? profile.defaultSpeed) || profile.defaultSpeed,
+    0.25,
+    4,
+  );
+  const effectiveUnitsPerMinute = (
+    budget.effectiveCharsPerMinute ?? budget.effectiveWordsPerMinute
+  );
   return {
     providerId: profile.providerId,
     modelId: profile.modelId,
@@ -419,7 +451,15 @@ export function buildTtsTimingPlan(options: {
     language,
     speed,
     contentType: options.contentType || 'other',
+    ...(options.pageKind ? { pageKind: options.pageKind } : {}),
+    naturalSpeedLocked,
+    calibrationSource: profile.source,
+    ...(effectiveUnitsPerMinute !== undefined
+      ? { effectiveUnitsPerMinute: Math.round(effectiveUnitsPerMinute * 10) / 10 }
+      : {}),
     narrationSec: budget.targetDurationSec,
+    readingThinkingSec: Math.max(0, Math.round(options.readingThinkingSec ?? 0)),
+    operationSec: Math.max(0, Math.round(options.operationSec ?? 0)),
     studentActivitySec: Math.max(0, Math.round(options.studentActivitySec ?? 0)),
     feedbackSec: Math.max(0, Math.round(options.feedbackSec ?? 0)),
     transitionSec: Math.max(0, Math.round(options.transitionSec ?? 0)),
@@ -431,6 +471,21 @@ export function buildTtsTimingPlan(options: {
     targetUnits: budget.targetUnits,
     minUnits: budget.minUnits,
     maxUnits: budget.maxUnits,
+    ...(options.taskComplexity ? { taskComplexity: options.taskComplexity } : {}),
+    ...(options.recommendedStudentActivitySec !== undefined
+      ? {
+          recommendedStudentActivitySec: Math.max(
+            0,
+            Math.round(options.recommendedStudentActivitySec),
+          ),
+        }
+      : {}),
+    ...(options.taskFitsBudget !== undefined
+      ? { taskFitsBudget: options.taskFitsBudget }
+      : {}),
+    ...(options.timingRationale?.length
+      ? { timingRationale: [...options.timingRationale] }
+      : {}),
   };
 }
 
@@ -467,4 +522,24 @@ export function assessTtsDurationError(options: {
     status,
     suggestions,
   };
+}
+
+/**
+ * Compare both drafts against the full classroom activity target. This keeps
+ * narration, student wait time, and transitions on one consistent time axis.
+ */
+export function isActivityTimingCorrectionCloser(options: {
+  activityTargetSec: number;
+  reservedActivitySec: number;
+  firstNarrationSec: number;
+  correctedNarrationSec: number;
+}): boolean {
+  const activityTargetSec = Math.max(1, Math.round(options.activityTargetSec));
+  const reservedActivitySec = Math.max(0, Math.round(options.reservedActivitySec));
+  const firstTotalSec =
+    Math.max(0, Math.round(options.firstNarrationSec)) + reservedActivitySec;
+  const correctedTotalSec =
+    Math.max(0, Math.round(options.correctedNarrationSec)) + reservedActivitySec;
+  return Math.abs(correctedTotalSec - activityTargetSec)
+    < Math.abs(firstTotalSec - activityTargetSec);
 }

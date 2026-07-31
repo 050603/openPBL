@@ -61,14 +61,15 @@ You MUST output a JSON array directly. Use these item shapes:
 6. Use stable selectors from the widget HTML/config when available
 7. `content` on widget actions is iframe-local helper text. Put spoken narration in separate `type:"text"` objects
 8. The `]` closing bracket marks the end of your response
-9. Include at least two `type:"text"` items: concise guidance first and feedback/transition last. The runtime inserts a silent student activity gate after the first speech.
+9. Include at least two `type:"text"` items: concise guidance first and feedback/transition last. The runtime inserts a silent student activity gate after the first speech and any immediately following `widget_highlight`.
+10. The learner must perform every click, selection, drag, parameter change, submission, or experiment requested by the guidance speech. Never use `widget_setState`, `widget_reveal`, or `widget_annotation` to perform or expose the requested task before the learner acts.
 
 ## Widget Action Semantics
 
 - `widget_highlight`: use when a student should notice a control, display, or key visual element. Required params: `target`; optional `content`.
-- `widget_setState`: use when the lesson should demonstrate a meaningful state. Required params: `state`; optional `content`.
-- `widget_annotation`: use when a specific element needs a short explanatory label. Required params: `target`; optional `content`.
-- `widget_reveal`: use when hidden content should become visible after context is established. Required params: `target`; optional `content`.
+- `widget_setState`: use only for an explanatory comparison after learner completion. Required params: `state`; optional `content`.
+- `widget_annotation`: use only for feedback after learner completion. Required params: `target`; optional `content`.
+- `widget_reveal`: use only to reveal an explanation after learner completion. Required params: `target`; optional `content`.
 
 For procedural-skill widgets, prefer these stable targets when they are present:
 
@@ -111,6 +112,7 @@ Other principles:
 5. 3-8 items: generate 3-8 total items for a natural teaching flow
 6. Visible actions: prefer widget actions only when they create a clear user-visible change
 7. Activity flow: first tell the student what to observe or do; after the runtime activity gate, interpret the evidence they should have observed and connect it to the current teaching objective.
+8. Learner agency: platform widget actions may focus attention or explain completed work, but must never substitute for the learner action named in the narration.
 
 ## Important Notes
 

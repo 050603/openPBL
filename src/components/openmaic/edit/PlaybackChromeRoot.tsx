@@ -19,7 +19,7 @@ import { Header } from '@openmaic/components/header';
 import { CanvasArea } from '@openmaic/components/canvas/canvas-area';
 import { Roundtable } from '@openmaic/components/roundtable';
 import { PlaybackEngine, computePlaybackView } from '@openmaic/lib/playback';
-import type { EngineMode, TriggerEvent, Effect } from '@openmaic/lib/playback';
+import type { ActivityGate, EngineMode, TriggerEvent, Effect } from '@openmaic/lib/playback';
 import { ActionEngine } from '@openmaic/lib/action/engine';
 import { createAudioPlayer } from '@openmaic/lib/utils/audio-player';
 import { useDiscussionTTS } from '@openmaic/lib/hooks/use-discussion-tts';
@@ -112,7 +112,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
 
     const currentScene = getCurrentScene();
     const capabilities = getStageExperienceCapabilities(experience);
-    const isStudentCourse = capabilities.showRoundtable;
+    const isStudentCourse = capabilities.isStudentCourse;
     const isTeacherResource = capabilities.showMinimalControls;
     const isProjectedReadonly = capabilities.readOnly;
     const onPlaybackStateChangeRef = useRef(onPlaybackStateChange);
@@ -137,6 +137,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
     const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
     const [discussionTrigger, setDiscussionTrigger] = useState<TriggerEvent | null>(null);
+    const [activeActivity, setActiveActivity] = useState<ActivityGate | null>(null);
 
     // Speaking agent tracking (Issue 2)
     const [speakingAgentId, setSpeakingAgentId] = useState<string | null>(null);
@@ -304,6 +305,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       setShowEndFlash(false);
       setActiveBubbleId(null);
       setDiscussionTrigger(null);
+      setActiveActivity(null);
     }, [resetLiveState]);
 
     /** Request failure should exit live discussion UI without hard-closing the session. */
@@ -542,7 +544,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             }
           });
         },
-        onSceneChange: (_sceneId) => {
+        onSceneChange: () => {
           // Scene change handled by engine
         },
         onSpeechStart: (text) => {
@@ -587,6 +589,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           }
         },
         onActivityStart: (activity) => {
+          setActiveActivity(activity);
           if (
             completedActivitySceneIdsRef.current.has(activity.sceneId) ||
             isPlaybackActivityComplete(activity)
@@ -597,6 +600,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         },
         onActivityComplete: (activity) => {
           completedActivitySceneIdsRef.current.add(activity.sceneId);
+          setActiveActivity((current) => (
+            current?.sceneId === activity.sceneId ? null : current
+          ));
         },
         onProactiveShow: (trigger) => {
           if (!trigger.agentId) {
@@ -1152,7 +1158,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     // when entering Pro mode.
     const sceneViewerHeight = (() => {
       const headerHeight = isStudentCourse && !isPresenting ? 80 : 0;
-      const roundtableHeight = isStudentCourse && mode === 'playback' && !isPresenting ? 192 : 0;
+      const roundtableHeight =
+        capabilities.showRoundtable && mode === 'playback' && !isPresenting
+          ? activeActivity?.purpose === 'interaction'
+            ? 236
+            : 192
+          : 0;
       return `calc(100% - ${headerHeight + roundtableHeight}px)`;
     })();
 
@@ -1187,6 +1198,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               mode={mode}
               canEdit={!!canEnterProMode}
               onToggleEditMode={onEnterProMode}
+              showControls={capabilities.showHeaderControls}
             />
           )}
 
@@ -1213,7 +1225,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               sidebarCollapsed={sidebarCollapsed}
               chatCollapsed={chatAreaCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-              onToggleChat={isStudentCourse ? () => setChatAreaCollapsed(!chatAreaCollapsed) : undefined}
+              onToggleChat={capabilities.showChat
+                ? () => setChatAreaCollapsed(!chatAreaCollapsed)
+                : undefined}
               onPrevSlide={handlePreviousScene}
               onNextSlide={handleNextScene}
               onPlayPause={handlePlayPause}
@@ -1243,7 +1257,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           </div>
 
           {/* Roundtable Area */}
-          {isStudentCourse && mode === 'playback' && (
+          {capabilities.showRoundtable && mode === 'playback' && (
             <div
               className={cn(
                 'transition-opacity duration-300',
@@ -1253,6 +1267,20 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             >
               <Roundtable
                 mode={mode}
+                hideCompanionArea={!capabilities.showCompanionArea}
+                interactionAssistance={
+                  activeActivity?.purpose === 'interaction'
+                    ? {
+                        active: true,
+                        onContinue: () => {
+                          engineRef.current?.completeActivity(
+                            activeActivity.sceneId,
+                            activeActivity.purpose,
+                          );
+                        },
+                      }
+                    : undefined
+                }
                 initialParticipants={participants}
                 playbackView={playbackView}
                 currentSpeech={liveSpeech}
@@ -1370,7 +1398,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 sidebarCollapsed={sidebarCollapsed}
                 chatCollapsed={chatAreaCollapsed}
                 onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-                onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}
+                onToggleChat={capabilities.showChat
+                  ? () => setChatAreaCollapsed(!chatAreaCollapsed)
+                  : undefined}
                 onPrevSlide={handlePreviousScene}
                 onNextSlide={handleNextScene}
                 onWhiteboardClose={handleWhiteboardToggle}
@@ -1387,7 +1417,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         {/* Chat Area — playback / autonomous always renders it here; Pro
           (edit) mode unmounts this whole PlaybackChromeRoot, so the
           edit branch has no chat. */}
-        {isStudentCourse ? <div className="flex shrink-0">
+        {capabilities.showChat ? <div className="flex shrink-0">
           <ChatArea
             ref={chatAreaRef}
             width={chatAreaWidth}
@@ -1433,7 +1463,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 setThinkingState(state);
               });
             }}
-            onCueUser={(_fromAgentId, _prompt) => {
+            onCueUser={() => {
               setIsCueUser(true);
             }}
             onLiveSessionError={handleLiveSessionError}

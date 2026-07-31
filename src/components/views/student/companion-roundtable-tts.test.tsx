@@ -60,6 +60,9 @@ describe("companion TTS pipeline", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.preparingCompanionId).toBe("knowledge");
+    expect(result.current.currentTTS).toBeNull();
+    expect(result.current.speaking).toBe(false);
 
     await act(async () => {
       secondResponse.resolve({ ok: true, json: async () => ({ success: true, base64: "SECOND", format: "mp3" }) });
@@ -74,13 +77,43 @@ describe("companion TTS pipeline", () => {
       await Promise.resolve();
     });
     expect(FakeAudio.instances[0]?.src).toContain("FIRST");
+    expect(result.current.currentTTS?.companionId).toBe("knowledge");
+    expect(result.current.speaking).toBe(true);
 
     await act(async () => {
       FakeAudio.instances[0]?.onended?.();
-      vi.advanceTimersByTime(121);
+      vi.advanceTimersByTime(2_199);
+      await Promise.resolve();
+    });
+    expect(result.current.speaking).toBe(false);
+    expect(result.current.currentTTS?.companionId).toBe("knowledge");
+    expect(FakeAudio.instances).toHaveLength(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(2);
+      await Promise.resolve();
       await Promise.resolve();
     });
     expect(FakeAudio.instances[1]?.src).toContain("SECOND");
+    unmount();
+  });
+
+  it("keeps serial text presentation but makes no audio request when voice is disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onItemStart = vi.fn();
+    const { result, unmount } = renderHook(() => useCompanionTTS({ onItemStart }));
+
+    await act(async () => {
+      result.current.toggle();
+      await Promise.resolve();
+    });
+    act(() => result.current.enqueue("这条消息只显示文字，不生成语音。", "planner"));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.currentTTS?.companionId).toBe("planner");
+    expect(result.current.speaking).toBe(true);
+    expect(onItemStart).toHaveBeenCalledWith(expect.objectContaining({ companionId: "planner" }));
     unmount();
   });
 });

@@ -17,18 +17,17 @@ export type GenerateInput = {
   pblConfig?: PblCourseConfig;
 };
 
-export class LlmNotConfiguredError extends Error {
-  constructor() {
-    super("LLM_NOT_CONFIGURED");
-    this.name = "LlmNotConfiguredError";
-  }
-}
+// Re-exported from errors.ts so existing imports from "./types" keep working.
+// The canonical definition lives in errors.ts alongside the rest of the
+// LLM error hierarchy.
+export { LlmNotConfiguredError } from "./errors";
 
 export type LlmCallRequest = {
   action:
-    | "pblOutline"
-    | "knowledgeGraph"
-    | "teachingOutline"
+      | "pblOutline"
+      | "knowledgeGraph"
+      | "moduleTimingPlan"
+      | "teachingOutline"
     | "lessonOutline"
     | "evaluationPlan"
     | "fullCourse";

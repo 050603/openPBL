@@ -27,6 +27,10 @@ export type PblInteractionType =
 
 export type PblQuizQuestionType = 'single' | 'multiple' | 'short_answer' | 'true_false' | 'fill_blank' | 'scenario_task';
 
+export type PblPageKind = 'slide' | 'interactive' | 'quiz';
+
+export type PblTaskComplexity = 'low' | 'medium' | 'high';
+
 export type PblActivityTimingInput = {
   id: string;
   title?: string;
@@ -69,6 +73,37 @@ export type PblActivityTimeEstimate = {
   transitionSec: number;
   totalSec: number;
   recommendations: string[];
+};
+
+export type PblPageTimingInput = {
+  activityTargetSec: number;
+  pageKind?: PblPageKind;
+  contentType?: PblActivityContentType;
+  interaction?: PblActivityTimingInput['interaction'];
+  quiz?: PblActivityTimingInput['quiz'];
+};
+
+export type PblPageTimingBreakdown = {
+  pageKind: PblPageKind;
+  contentType: PblActivityContentType;
+  activityTargetSec: number;
+  /** Natural-speed TTS guidance and feedback. */
+  narrationSec: number;
+  /** Silent time for reading instructions, interpreting evidence, and thinking. */
+  readingThinkingSec: number;
+  /** Silent time for manipulating, coding, selecting, writing, and submitting. */
+  operationSec: number;
+  /** readingThinkingSec + operationSec. */
+  studentActivitySec: number;
+  /** Part of narrationSec, not an additional time bucket. */
+  feedbackSec: number;
+  transitionSec: number;
+  taskComplexity: PblTaskComplexity;
+  recommendedReadingThinkingSec: number;
+  recommendedOperationSec: number;
+  recommendedStudentActivitySec: number;
+  taskFitsBudget: boolean;
+  rationale: string[];
 };
 
 export type PblSceneTimingSource = {
@@ -126,6 +161,25 @@ const QUIZ_SECONDS_PER_QUESTION: Record<PblQuizQuestionType, number> = {
   scenario_task: 150,
 };
 
+const INTERACTION_READING_THINKING_SECONDS: Record<PblInteractionType, number> = {
+  simulation: 25,
+  'case-analysis': 45,
+  discussion: 45,
+  code: 35,
+  diagram: 20,
+  game: 25,
+  custom: 30,
+};
+
+const QUIZ_READING_THINKING_SECONDS: Record<PblQuizQuestionType, number> = {
+  single: 35,
+  multiple: 45,
+  short_answer: 55,
+  true_false: 25,
+  fill_blank: 30,
+  scenario_task: 90,
+};
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -177,6 +231,210 @@ function estimateQuizSec(input: PblActivityTimingInput): number {
     (15 + questionSeconds.reduce((sum, seconds) => sum + seconds, 0))
       * difficultyFactor(input.quiz.difficulty),
   );
+}
+
+function inferPageKind(input: PblPageTimingInput): PblPageKind {
+  if (input.pageKind) return input.pageKind;
+  if (input.quiz) return 'quiz';
+  if (input.interaction) return 'interactive';
+  return 'slide';
+}
+
+function pageTransitionSec(pageKind: PblPageKind, activityTargetSec: number): number {
+  const desired = pageKind === 'slide'
+    ? clamp(Math.round(activityTargetSec * 0.02), 3, 6)
+    : clamp(Math.round(activityTargetSec * 0.025), 5, 10);
+  return Math.min(Math.max(0, activityTargetSec - 1), desired);
+}
+
+function interactiveTaskDemand(
+  interaction: NonNullable<PblPageTimingInput['interaction']>,
+): {
+  readingThinkingSec: number;
+  operationSec: number;
+} {
+  const stepCount = clamp(Math.round(interaction.stepCount ?? 1), 1, 30);
+  const factor = difficultyFactor(interaction.difficulty);
+  const configuredOperationSec = Number(interaction.averageCompletionSec);
+  const operationPerStep = Number.isFinite(configuredOperationSec) && configuredOperationSec > 0
+    ? configuredOperationSec
+    : INTERACTION_SECONDS_PER_STEP[interaction.type];
+  return {
+    readingThinkingSec: roundSeconds(
+      INTERACTION_READING_THINKING_SECONDS[interaction.type] * factor,
+    ),
+    operationSec: roundSeconds(operationPerStep * stepCount * factor),
+  };
+}
+
+function quizTaskDemand(
+  quiz: NonNullable<PblPageTimingInput['quiz']>,
+): {
+  readingThinkingSec: number;
+  operationSec: number;
+} {
+  const questionCount = clamp(Math.round(quiz.questionCount), 0, 100);
+  if (questionCount === 0) {
+    return { readingThinkingSec: 0, operationSec: 0 };
+  }
+  const types = quiz.questionTypes?.length
+    ? quiz.questionTypes
+    : (['single'] as PblQuizQuestionType[]);
+  const factor = difficultyFactor(quiz.difficulty);
+  let readingThinkingSec = 15;
+  let operationSec = 0;
+  for (let index = 0; index < questionCount; index += 1) {
+    const type = types[index % types.length] ?? 'single';
+    const totalSec = QUIZ_SECONDS_PER_QUESTION[type];
+    const readingSec = QUIZ_READING_THINKING_SECONDS[type];
+    readingThinkingSec += readingSec;
+    operationSec += Math.max(0, totalSec - readingSec);
+  }
+  return {
+    readingThinkingSec: roundSeconds(readingThinkingSec * factor),
+    operationSec: roundSeconds(operationSec * factor),
+  };
+}
+
+function taskComplexityForSeconds(seconds: number): PblTaskComplexity {
+  if (seconds <= 75) return 'low';
+  if (seconds <= 210) return 'medium';
+  return 'high';
+}
+
+function allocateStudentTime(options: {
+  availableSec: number;
+  recommendedReadingThinkingSec: number;
+  recommendedOperationSec: number;
+}): {
+  readingThinkingSec: number;
+  operationSec: number;
+} {
+  const availableSec = Math.max(0, Math.round(options.availableSec));
+  const recommendedTotal = (
+    options.recommendedReadingThinkingSec + options.recommendedOperationSec
+  );
+  if (recommendedTotal <= availableSec) {
+    return {
+      readingThinkingSec: options.recommendedReadingThinkingSec,
+      operationSec: options.recommendedOperationSec,
+    };
+  }
+  if (recommendedTotal <= 0 || availableSec <= 0) {
+    return { readingThinkingSec: 0, operationSec: 0 };
+  }
+
+  let readingThinkingSec = Math.round(
+    availableSec * (options.recommendedReadingThinkingSec / recommendedTotal),
+  );
+  if (options.recommendedReadingThinkingSec > 0 && options.recommendedOperationSec > 0) {
+    readingThinkingSec = clamp(readingThinkingSec, 1, Math.max(1, availableSec - 1));
+  }
+  return {
+    readingThinkingSec,
+    operationSec: Math.max(0, availableSec - readingThinkingSec),
+  };
+}
+
+/**
+ * Decompose one confirmed semantic page into executable time buckets.
+ *
+ * Task demand comes from the interaction/question model. When the confirmed
+ * page is too short, the returned flag tells generation to simplify the task;
+ * the planner never changes playback speed or silently lengthens the page.
+ */
+export function planPblPageTiming(input: PblPageTimingInput): PblPageTimingBreakdown {
+  const rawActivityTargetSec = Number(input.activityTargetSec);
+  const activityTargetSec = Number.isFinite(rawActivityTargetSec) && rawActivityTargetSec > 0
+    ? Math.max(1, Math.round(rawActivityTargetSec))
+    : 1;
+  const pageKind = inferPageKind(input);
+  const contentType = inferContentType({
+    id: 'page-timing',
+    contentType: input.contentType
+      ?? (pageKind === 'quiz' ? 'quiz' : pageKind === 'interactive' ? 'interaction' : undefined),
+    interaction: input.interaction,
+    quiz: input.quiz,
+  });
+  const transitionSec = pageTransitionSec(pageKind, activityTargetSec);
+
+  let recommendedReadingThinkingSec = 0;
+  let recommendedOperationSec = 0;
+  if (pageKind === 'interactive') {
+    const demand = interactiveTaskDemand(input.interaction ?? {
+      type: 'custom',
+      stepCount: 1,
+      difficulty: 'standard',
+    });
+    recommendedReadingThinkingSec = demand.readingThinkingSec;
+    recommendedOperationSec = demand.operationSec;
+  } else if (pageKind === 'quiz') {
+    const demand = quizTaskDemand(input.quiz ?? {
+      questionCount: 1,
+      questionTypes: ['single'],
+      difficulty: 'standard',
+    });
+    recommendedReadingThinkingSec = demand.readingThinkingSec;
+    recommendedOperationSec = demand.operationSec;
+  }
+
+  const recommendedStudentActivitySec = (
+    recommendedReadingThinkingSec + recommendedOperationSec
+  );
+  const minimumNarrationSec = pageKind === 'slide'
+    ? 0
+    : Math.min(
+        activityTargetSec - transitionSec,
+        clamp(Math.round(activityTargetSec * 0.22), 20, 90),
+      );
+  const availableStudentSec = Math.max(
+    0,
+    activityTargetSec - transitionSec - minimumNarrationSec,
+  );
+  const allocation = allocateStudentTime({
+    availableSec: availableStudentSec,
+    recommendedReadingThinkingSec,
+    recommendedOperationSec,
+  });
+  const studentActivitySec = allocation.readingThinkingSec + allocation.operationSec;
+  const narrationSec = Math.max(
+    1,
+    activityTargetSec - transitionSec - studentActivitySec,
+  );
+  const taskFitsBudget = recommendedStudentActivitySec <= availableStudentSec;
+  const feedbackSec = pageKind === 'quiz'
+    ? Math.min(narrationSec, Math.max(10, Math.round(narrationSec * 0.55)))
+    : pageKind === 'interactive'
+      ? Math.min(narrationSec, Math.max(8, Math.round(narrationSec * 0.3)))
+      : 0;
+  const rationale = pageKind === 'slide'
+    ? ['Slide pages reserve only a short page-change interval; the remaining budget is natural-speed narration.']
+    : [
+        pageKind === 'quiz'
+          ? 'Question count, question type, and difficulty determine reading, thinking, and response demand.'
+          : 'Widget type, step count, and difficulty determine comprehension and hands-on demand.',
+        taskFitsBudget
+          ? 'The modeled task fits the confirmed page budget.'
+          : 'Simplify the generated task to fit the confirmed page budget; never speed up TTS or extend the page.',
+      ];
+
+  return {
+    pageKind,
+    contentType,
+    activityTargetSec,
+    narrationSec,
+    readingThinkingSec: allocation.readingThinkingSec,
+    operationSec: allocation.operationSec,
+    studentActivitySec,
+    feedbackSec,
+    transitionSec,
+    taskComplexity: taskComplexityForSeconds(recommendedStudentActivitySec),
+    recommendedReadingThinkingSec,
+    recommendedOperationSec,
+    recommendedStudentActivitySec,
+    taskFitsBudget,
+    rationale,
+  };
 }
 
 function defaultTeacherSec(input: PblActivityTimingInput, contentType: PblActivityContentType): number {

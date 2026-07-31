@@ -12,7 +12,7 @@ async function ensureDataDir() {
 export function settingsFromEnv(): AiProviderSettings {
   return {
     endpoint: process.env.OPENPBL_LLM_ENDPOINT ?? "",
-    model: process.env.OPENPBL_LLM_MODEL ?? "gpt-5.4-mini",
+    model: process.env.OPENPBL_LLM_MODEL ?? "",
     apiKey: process.env.OPENPBL_LLM_API_KEY ?? "",
   };
 }
@@ -39,7 +39,7 @@ export async function saveAiSettings(input: AiProviderSettings): Promise<AiProvi
   const current = await readAiSettings();
   const next: AiProviderSettings = {
     endpoint: input.endpoint.trim(),
-    model: input.model.trim() || "gpt-5.4-mini",
+    model: input.model.trim(),
     apiKey: input.apiKey === undefined ? current.apiKey : input.apiKey.trim(),
     updatedAt: new Date().toISOString(),
   };

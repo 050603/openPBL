@@ -55,6 +55,16 @@ const log = createLogger('ClassroomMedia');
 const imageProviderQueue = new Map<ImageProviderId, Promise<void>>();
 const imageProviderLastStartedAt = new Map<ImageProviderId, number>();
 
+export function isStudentNarratedScene(scene: Scene): boolean {
+  if (scene.ttsPolicy === 'none') return false;
+  if (isStudentAiLearningScene(scene)) return true;
+  return (
+    scene.audience === 'student'
+    && scene.generationPurpose === 'knowledge-teaching'
+    && (scene.stageKey === 'proposal' || scene.stageKey === 'make')
+  );
+}
+
 function imageRequestSpacingMs(providerId: ImageProviderId): number {
   if (providerId !== 'qwen-image') return 0;
   const configured = Number(process.env.OPENMAIC_QWEN_IMAGE_MIN_INTERVAL_MS ?? 5_000);
@@ -432,9 +442,7 @@ export async function generateTTSForClassroom(
   // future callers from accidentally reintroducing TTS on teacher resources.
   const hasRoutedScenes = scenes.some(hasPblRoutingMetadata);
   const eligibleScenes = hasRoutedScenes
-    ? scenes.filter(
-        (scene) => isStudentAiLearningScene(scene) && scene.ttsPolicy !== 'none',
-      )
+    ? scenes.filter(isStudentNarratedScene)
     : scenes;
 
   const audioDir = path.join(CLASSROOMS_DIR, classroomId, 'audio');

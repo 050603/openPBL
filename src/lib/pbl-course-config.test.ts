@@ -27,6 +27,14 @@ describe("PBL course configuration", () => {
     expect(config.companionIds).toEqual(["critic", "recorder"]);
   });
 
+  it("normalizes and deduplicates teacher-authored inquiry questions", () => {
+    const config = normalizePblCourseConfig({
+      inquiryQuestions: ["  如何节水？ ", "如何节水？", "如何回收雨水？"],
+    });
+
+    expect(config.inquiryQuestions).toEqual(["如何节水？", "如何回收雨水？"]);
+  });
+
   it("treats evidence requirements as selected entries", () => {
     const config = normalizePblCourseConfig({
       evidenceRequirements: [

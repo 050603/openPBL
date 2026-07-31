@@ -130,9 +130,15 @@ export function SceneSidebar({
             className="flex items-center gap-2 cursor-pointer rounded-lg px-1.5 -mx-1.5 py-1 -my-1 hover:bg-gray-100/80 dark:hover:bg-gray-800/60 active:scale-[0.97] transition-all duration-150"
             title={t('generation.backToHome')}
           >
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-600 text-[11px] font-bold text-white shadow-sm">
-              AI
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/logo-icon.png"
+              alt="openPBL"
+              width={28}
+              height={28}
+              className="h-7 w-7 shrink-0 object-contain"
+              draggable={false}
+            />
             <span className="min-w-0">
               <span className="block text-sm font-bold leading-4 text-stone-900 dark:text-slate-100">
                 openPBL

@@ -33,6 +33,13 @@ import type { ImageProviderId, ImageGenerationOptions } from '@openmaic/lib/medi
 import { createLogger } from '@openmaic/lib/logger';
 import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
 import { validateUrlForSSRF } from '@openmaic/lib/server/ssrf-guard';
+import {
+  imageLimiter,
+  getClientIp,
+  rateLimitKey,
+  rateLimitedResponse,
+} from '@/lib/auth/rate-limit';
+import { isAuthConfigured } from '@/lib/auth/session';
 
 const log = createLogger('ImageGeneration API');
 
@@ -77,6 +84,13 @@ function resolveRequestProvider(
 }
 
 export async function POST(request: NextRequest) {
+  // Stage 3: rate limit (only enforced when auth configured).
+  if (isAuthConfigured()) {
+    const ip = getClientIp(request);
+    const rl = imageLimiter.check(rateLimitKey(request, ip));
+    if (!rl.allowed) return rateLimitedResponse(rl.retryAfterMs);
+  }
+
   try {
     const body = (await request.json()) as ImageGenerationOptions;
 

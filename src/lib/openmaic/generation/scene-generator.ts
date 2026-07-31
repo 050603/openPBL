@@ -6,7 +6,7 @@
  */
 
 import { nanoid } from 'nanoid';
-import { addStudentActivityPause } from './activity-gate';
+import { addPageTimingPauses } from './activity-gate';
 import katex from 'katex';
 import { MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import type {
@@ -153,18 +153,25 @@ function formatTimingPlanForPrompt(outline: SceneOutline, timingCorrection?: str
   if (!plan) return '';
   const activityTarget = plan.activityTargetDurationSec ?? plan.targetDurationSec;
   const unitLabel = plan.unit === 'latin-word' ? '英文词' : '中文字符/混合文本单位';
+  const calibrationLabel = plan.calibrationSource === 'configured'
+    ? '该模型与音色的实测校准'
+    : '该模型的保守种子参数（暂无音色实测）';
+  const taskFitInstruction = plan.taskFitsBudget === false
+    ? `- 当前任务的模型化完成需求约 ${plan.recommendedStudentActivitySec ?? 0} 秒，超过本页可用的学生时间。必须减少步骤、题目或操作复杂度，使任务能在 ${plan.studentActivitySec ?? 0} 秒内真实完成；不得挤占讲解、延长页面或加快语速。`
+    : '';
   return [
     '## 时间预算（必须执行）',
-    `- TTS 模型：${plan.providerId}/${plan.modelId || 'default'}`,
-    `- 内容类型：${plan.contentType}`,
+    `- TTS：${plan.providerId}/${plan.modelId || 'default'}/${plan.voiceId || 'default'}；预算依据：${calibrationLabel}${plan.effectiveUnitsPerMinute ? `，自然语速有效速率约 ${plan.effectiveUnitsPerMinute} ${unitLabel}/分钟` : ''}`,
+    `- 页面类型：${plan.pageKind ?? 'slide'}；内容类型：${plan.contentType}；任务复杂度：${plan.taskComplexity ?? 'low'}`,
     `- 总活动目标：约 ${activityTarget} 秒；本场景 AI 朗读目标：约 ${plan.targetDurationSec} 秒`,
     `- 讲稿量：${plan.minUnits}-${plan.maxUnits} ${unitLabel}，目标约 ${plan.targetUnits} ${unitLabel}`,
     '- 讲稿要通过增加与当前场景知识点直接相关的有效概念、依据、例子、反例或分步解释达到时长，不得用重复套话、图谱之外的知识或故意放慢语速凑时长。',
     timingCorrection ? `- 上一次生成偏离目标，请优先修正：${timingCorrection}` : '',
-    `- Activity breakdown: natural-speed narration ${plan.narrationSec ?? plan.targetDurationSec}s; silent student operation/thinking ${plan.studentActivitySec ?? 0}s; feedback/analysis within narration ${plan.feedbackSec ?? 0}s; transition ${plan.transitionSec ?? 0}s.`,
-    '- For interactive, code, and quiz pages, speech must stop during the reserved student activity period. Do not narrate continuously through reading, thinking, answering, coding, or manipulation time.',
-    '- Interactive/code/quiz action order must be: one concise guidance speech, the student activity period, then a separate feedback or answer-analysis speech. Produce at least two speech actions so runtime can place the silent period between them.',
-    '- Keep TTS at its natural stable rate. Meet the budget with relevant content depth, semantic pages, and teaching activities; never stretch or compress audio to fill time.',
+    `- 逐页分解：自然语速讲解 ${plan.narrationSec ?? plan.targetDurationSec} 秒；学生阅读/理解 ${plan.readingThinkingSec ?? 0} 秒；学生实际操作/作答 ${plan.operationSec ?? 0} 秒；页面切换 ${plan.transitionSec ?? 0} 秒。反馈/解析 ${plan.feedbackSec ?? 0} 秒已包含在讲解中，不得重复计时。`,
+    taskFitInstruction,
+    '- 互动、代码和测验页必须在学生阅读、思考、作答、编码或操作期间停止朗读。动作顺序必须是：简短任务引导讲稿 → 学生活动 → 独立反馈/答案解析讲稿；至少生成两条 speech action。',
+    '- PPT 页只执行末尾几秒的页面切换，不得人为加入长空白。所有页面切换期间都不得继续朗读。',
+    '- TTS 必须使用自然稳定的 1.0 语速。只能通过调整相关内容量、内容深度和任务复杂度匹配时间，禁止拉伸、压缩或变速音频。',
   ].filter(Boolean).join('\n');
 }
 
@@ -1766,7 +1773,7 @@ export function createSceneWithActions(
   actions: Action[],
   api: ReturnType<typeof createStageAPI>,
 ): string | null {
-  const timedActions = addStudentActivityPause(outline, actions);
+  const timedActions = addPageTimingPauses(outline, actions);
   const pblMetadata = {
     ...(outline.stageKey ? { stageKey: outline.stageKey } : {}),
     ...(outline.stageLabel ? { stageLabel: outline.stageLabel } : {}),

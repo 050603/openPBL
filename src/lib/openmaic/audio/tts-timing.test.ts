@@ -5,6 +5,7 @@ import {
   calculateTtsContentBudget,
   createTtsVoiceTimingCalibration,
   getTtsCalibrationKey,
+  isActivityTimingCorrectionCloser,
   mergeTtsVoiceTimingCalibrations,
   estimateSpeechDurationSec,
   getTtsTimingProfile,
@@ -119,6 +120,87 @@ describe('TTS timing model', () => {
     expect(plan.studentActivitySec).toBe(115);
     expect(plan.feedbackSec).toBe(25);
     expect(plan.transitionSec).toBe(10);
+  });
+
+  it('uses exact voice calibration to reverse-calculate different script sizes', () => {
+    const calibrationText = '这是用于音色自然语速建模的标准课程讲解样本。'.repeat(12);
+    registerTtsVoiceTimingCalibration(createTtsVoiceTimingCalibration({
+      providerId: 'page-budget-test',
+      modelId: 'voice-model',
+      voiceId: 'fast-voice',
+      text: calibrationText,
+      measuredDurationSec: 20,
+    }));
+    registerTtsVoiceTimingCalibration(createTtsVoiceTimingCalibration({
+      providerId: 'page-budget-test',
+      modelId: 'voice-model',
+      voiceId: 'slow-voice',
+      text: calibrationText,
+      measuredDurationSec: 40,
+    }));
+
+    const fast = buildTtsTimingPlan({
+      targetDurationSec: 120,
+      providerId: 'page-budget-test',
+      modelId: 'voice-model',
+      voiceId: 'fast-voice',
+      language: 'zh-CN',
+      naturalSpeedLocked: true,
+    });
+    const slow = buildTtsTimingPlan({
+      targetDurationSec: 120,
+      providerId: 'page-budget-test',
+      modelId: 'voice-model',
+      voiceId: 'slow-voice',
+      language: 'zh-CN',
+      naturalSpeedLocked: true,
+    });
+
+    expect(fast.calibrationSource).toBe('configured');
+    expect(slow.calibrationSource).toBe('configured');
+    expect(fast.targetUnits).toBeGreaterThan(slow.targetUnits);
+    expect(fast.effectiveUnitsPerMinute!).toBeGreaterThan(slow.effectiveUnitsPerMinute!);
+    expect(fast.speed).toBe(1);
+    expect(slow.speed).toBe(1);
+  });
+
+  it('locks AI narration to natural speed and carries the full page breakdown', () => {
+    const plan = buildTtsTimingPlan({
+      targetDurationSec: 80,
+      activityTargetDurationSec: 180,
+      providerId: 'qwen-tts',
+      modelId: 'qwen3-tts-flash',
+      voiceId: 'Serena',
+      speed: 1.75,
+      naturalSpeedLocked: true,
+      pageKind: 'interactive',
+      readingThinkingSec: 35,
+      operationSec: 55,
+      studentActivitySec: 90,
+      feedbackSec: 20,
+      transitionSec: 10,
+      taskComplexity: 'high',
+      recommendedStudentActivitySec: 120,
+      taskFitsBudget: false,
+      timingRationale: ['Simplify the task to fit the confirmed page budget.'],
+    });
+
+    expect(plan.speed).toBe(1);
+    expect(plan.naturalSpeedLocked).toBe(true);
+    expect(plan.pageKind).toBe('interactive');
+    expect(plan.readingThinkingSec).toBe(35);
+    expect(plan.operationSec).toBe(55);
+    expect(plan.studentActivitySec).toBe(90);
+    expect(plan.taskFitsBudget).toBe(false);
+  });
+
+  it('selects a correction against the same total activity target', () => {
+    expect(isActivityTimingCorrectionCloser({
+      activityTargetSec: 180,
+      reservedActivitySec: 80,
+      firstNarrationSec: 80,
+      correctedNarrationSec: 105,
+    })).toBe(true);
   });
 
   it('binds calibration identity to provider, model, voice, language, and speed', () => {

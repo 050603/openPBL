@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   List,
@@ -22,6 +21,7 @@ import {
   CheckSquare,
   Lightbulb,
   RefreshCw,
+  Plus,
   Square,
   UsersRound,
 } from "lucide-react";
@@ -79,6 +79,7 @@ import {
   normalizePblTeachingOutline,
 } from "@/lib/pbl-outline-normalization";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
+import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 import { getTtsTimingProfile } from "@/lib/openmaic/audio/tts-timing";
 import {
@@ -89,6 +90,14 @@ import {
   type CourseBasicsDraft,
 } from "@/lib/teacher/course-basics-draft";
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
+import { AiGenerationOverlay, type AiTaskKind } from "@/components/ai-generation-overlay";
+import { AdaptiveLearningPlanEditor } from "@/components/teacher/adaptive-learning-plan-editor";
+import { PreparationJourney } from "@/components/teacher/preparation-journey";
+import {
+  PREPARATION_FLOW_STEPS,
+  type PreparationStepKey,
+} from "@/lib/teacher/preparation-flow";
+import { confirmAdaptiveLearningPlan } from "@/lib/adaptive-learning";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -286,24 +295,16 @@ type Section = "knowledgePoints" | "teachingOutline" | "lessonOutline" | "evalua
 const SECTION_LABEL: Record<Section, string> = {
   knowledgePoints: "知识图谱",
   teachingOutline: "课程模块",
-  lessonOutline: "课程大纲",
+  lessonOutline: "主课程与个性化资源",
   evaluationPlan: "评价方案",
 };
 
 const SECTION_DESC: Record<Section, string> = {
   knowledgePoints: "学生需掌握的核心概念、关键信息与节点关系",
   teachingOutline: "整节课的六个宏观课程模块：明确目标、分工和时间",
-  lessonOutline: "基于课程模块独立深化的课程大纲：PPT、互动、讲稿与支架",
+  lessonOutline: "先确认完整主课程页面，再配置先决知识前测、模块测验与额外资源",
   evaluationPlan: "项目各维度的评价指标与权重",
 };
-
-const FLOW_STEPS: { key: "base" | Section; label: string; desc: string }[] = [
-  { key: "base", label: "基础信息", desc: "编辑课程名称、学科、年级、课时与驱动问题" },
-  { key: "knowledgePoints", label: "知识图谱", desc: "确认本课知识节点和节点间关系" },
-  { key: "teachingOutline", label: "课程模块", desc: "确认六个宏观环节、时间分配与人机分工" },
-  { key: "lessonOutline", label: "课程大纲", desc: "确认每个课程模块下独立展开的具体教学资源" },
-  { key: "evaluationPlan", label: "评价方案", desc: "基于知识图谱与项目目标生成评价维度" },
-];
 
 export default function VerifyCoursePage() {
   const params = useParams<{ id: string }>();
@@ -322,8 +323,8 @@ export default function VerifyCoursePage() {
   const [open, setOpen] = useState<Record<Section, boolean>>({
     knowledgePoints: true,
     teachingOutline: true,
-    lessonOutline: false,
-    evaluationPlan: false,
+    lessonOutline: true,
+    evaluationPlan: true,
   });
   const [busy, setBusy] = useState<Section | "all" | null>(null);
   const [error, setError] = useState<string | undefined>();
@@ -355,6 +356,33 @@ export default function VerifyCoursePage() {
     setBaseDraftDirty(true);
   }
 
+  function updateDrivingQuestion(index: number, value: string) {
+    const draft = baseDraft ?? (course ? createCourseBasicsDraft(course) : null);
+    if (!draft) return;
+    const drivingQuestions = [...draft.drivingQuestions];
+    drivingQuestions[index] = value;
+    editBaseDraft({ drivingQuestions });
+  }
+
+  function addDrivingQuestion(value = "") {
+    const draft = baseDraft ?? (course ? createCourseBasicsDraft(course) : null);
+    if (!draft) return;
+    const normalized = value.trim();
+    if (normalized && draft.drivingQuestions.some((question) => question.trim() === normalized)) return;
+    const drivingQuestions =
+      draft.drivingQuestions.length === 1 && !draft.drivingQuestions[0].trim()
+        ? [value]
+        : [...draft.drivingQuestions, value];
+    editBaseDraft({ drivingQuestions });
+  }
+
+  function removeDrivingQuestion(index: number) {
+    const draft = baseDraft ?? (course ? createCourseBasicsDraft(course) : null);
+    if (!draft) return;
+    const drivingQuestions = draft.drivingQuestions.filter((_, itemIndex) => itemIndex !== index);
+    editBaseDraft({ drivingQuestions: drivingQuestions.length ? drivingQuestions : [""] });
+  }
+
   async function requestSkeleton(
     part: "courseHours" | "learningObjectives" | "summary" | "learnerProfile" | "drivingQuestions",
   ) {
@@ -369,7 +397,7 @@ export default function VerifyCoursePage() {
         grade: draft.grade,
         hours: draft.hours,
         summary: draft.summary,
-        initialDrivingQuestion: draft.drivingQuestion,
+        initialDrivingQuestion: draft.drivingQuestions.find((question) => question.trim()) ?? "",
         learningObjectives: parseLearningObjectives(draft.learningObjectivesText),
         learnerProfile: {
           priorKnowledge: draft.priorKnowledge,
@@ -392,7 +420,7 @@ export default function VerifyCoursePage() {
   ) {
     await requestSkeleton(part);
   }
-  const [flowStep, setFlowStep] = useState(0);
+  const [flowStepKey, setFlowStepKey] = useState<PreparationStepKey>("base");
   // 知识图谱视图状态
   const [kgViewMode, setKgViewMode] = useState<"graph" | "list">("graph");
   const [kgSelectedNode, setKgSelectedNode] = useState<string | null>(null);
@@ -477,6 +505,15 @@ export default function VerifyCoursePage() {
         ? buildPblModuleTimingPlan(totalMinutes, nextTeachingOutline, pblTimeContext, {
             status: "suggested",
             preserveCurrentDurations: true,
+            recommendationMetadata: content?.moduleTimingPlan
+              ? {
+                  recommendationSource: content.moduleTimingPlan.recommendationSource,
+                  confidence: content.moduleTimingPlan.confidence,
+                  rationaleByStage: content.moduleTimingPlan.rationaleByStage,
+                  evidence: content.moduleTimingPlan.evidence,
+                  assumptions: content.moduleTimingPlan.assumptions,
+                }
+              : undefined,
           })
         : undefined;
       const validActivityIds = new Set(nextTeachingOutline.map((activity) => activity.id));
@@ -507,7 +544,7 @@ export default function VerifyCoursePage() {
           : current,
       );
     },
-    [course?.hours, pblTimeContext, sceneOutlines, stageKeys],
+    [content, course?.hours, pblTimeContext, sceneOutlines, stageKeys],
   );
 
   const applyPblStageDurationChange = useCallback(
@@ -534,7 +571,19 @@ export default function VerifyCoursePage() {
       totalMinutes,
       activities,
       pblTimeContext,
-      { status: "confirmed", preserveCurrentDurations: true },
+      {
+        status: "confirmed",
+        preserveCurrentDurations: true,
+        recommendationMetadata: currentContent.moduleTimingPlan
+          ? {
+              recommendationSource: currentContent.moduleTimingPlan.recommendationSource,
+              confidence: currentContent.moduleTimingPlan.confidence,
+              rationaleByStage: currentContent.moduleTimingPlan.rationaleByStage,
+              evidence: currentContent.moduleTimingPlan.evidence,
+              assumptions: currentContent.moduleTimingPlan.assumptions,
+            }
+          : { recommendationSource: "teacher" },
+      },
     );
     if (!isPblModuleTimingPlanConfirmed(moduleTimingPlan)) {
       const message = "请先完成六个模块的时间分配，并确保模块合计等于课程总时长。";
@@ -712,16 +761,73 @@ export default function VerifyCoursePage() {
           && course.pblConfig?.generationTemplate === "pbl-six-stage"
         ) {
           const totalMinutes = Math.max(0, Math.round(course.hours * 60));
-          const timingSkeleton = createPblTimingSkeleton({
+          const currentContent = content ?? course.content;
+          let timingSkeleton = createPblTimingSkeleton({
             totalMinutes,
             ...pblTimeContext,
           });
-          const moduleTimingPlan = buildPblModuleTimingPlan(
+          let moduleTimingPlan = buildPblModuleTimingPlan(
             totalMinutes,
             timingSkeleton,
             pblTimeContext,
-            { status: "suggested", preserveCurrentDurations: true },
+            {
+              status: "suggested",
+              preserveCurrentDurations: true,
+              recommendationMetadata: {
+                recommendationSource: "deterministic-fallback",
+                confidence: "medium",
+                evidence: [
+                  `课程总时长 ${totalMinutes} 分钟`,
+                  `年级：${course.grade}`,
+                  `课程难度：${course.pblConfig?.difficultyLevel ?? "standard"}`,
+                  `知识点数量：${currentContent.knowledgePoints.length}`,
+                ],
+                assumptions: [
+                  "当前建议由确定性课程时间模型生成；大模型不可用时用于保证六阶段完整和总时长守恒。",
+                ],
+              },
+            },
           );
+          let fallbackReason = "";
+          try {
+            const timingResponse = await fetch("/api/llm", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "moduleTimingPlan",
+                input: buildCourseGenerationInput(course),
+                context: {
+                  knowledgePoints: currentContent.knowledgePoints,
+                  knowledgeGraph: currentContent.knowledgeGraph,
+                },
+              }),
+            });
+            if (!timingResponse.ok) {
+              let detail = `HTTP ${timingResponse.status}`;
+              try {
+                const body = await timingResponse.json() as { detail?: string; error?: string };
+                detail = body.detail || body.error || detail;
+              } catch {
+                // Keep the status-only reason when the upstream body is not JSON.
+              }
+              throw new Error(detail);
+            }
+            const timingData = await timingResponse.json() as {
+              content: CourseContent;
+              source: "llm";
+            };
+            const generatedPlan = timingData.content.moduleTimingPlan;
+            const generatedSkeleton = timingData.content.teachingOutline ?? [];
+            if (!generatedPlan || generatedSkeleton.length !== PBL_MODULE_DEFINITIONS.length) {
+              throw new Error("模型未返回完整的六阶段时间建议");
+            }
+            moduleTimingPlan = generatedPlan;
+            timingSkeleton = generatedSkeleton;
+          } catch (timingError) {
+            fallbackReason = timingError instanceof Error
+              ? timingError.message
+              : "模型时间建议不可用";
+          }
           setContent((current) => ({
             ...(current ?? course.content),
             pblOutline: "",
@@ -732,7 +838,11 @@ export default function VerifyCoursePage() {
             _openmaicSceneOutlines: undefined,
           }));
           setSceneOutlines([]);
-          setInfo("已根据课程信息生成六阶段时间建议。请调整并确认时间后，再生成 PBL 项目主线和课程模块。");
+          setInfo(
+            fallbackReason
+              ? `大模型时间分析暂不可用（${fallbackReason}），已明确降级为确定性建议。请调整并确认后继续生成课程。`
+              : "已由大模型结合课程内容、难度、知识图谱与学情生成六阶段时间建议；系统已完成总时长和阶段边界校验。",
+          );
           return;
         }
         const action =
@@ -1139,7 +1249,9 @@ export default function VerifyCoursePage() {
     setSceneOutlines(outlines);
   }, [content, outlineStreaming, sceneOutlines.length]);
 
-  function buildPersistableContent(): CourseContent | null {
+  function buildPersistableContent(
+    adaptiveLearningPlanOverride?: CourseContent["adaptiveLearningPlan"],
+  ): CourseContent | null {
     if (!content) return null;
     const teachingOutline = content.teachingOutline ?? [];
     const totalMinutes = Math.max(0, Math.round((course?.hours ?? 0) * 60));
@@ -1161,6 +1273,7 @@ export default function VerifyCoursePage() {
       teachingOutline,
       projectMainline,
       moduleTimingPlan,
+      adaptiveLearningPlan: adaptiveLearningPlanOverride ?? content.adaptiveLearningPlan,
     };
     return sceneOutlines.length > 0
       ? {
@@ -1173,16 +1286,19 @@ export default function VerifyCoursePage() {
       : nextContent;
   }
 
-  function saveDraft(showMessage = true): CourseContent | null {
+  function saveDraft(
+    showMessage = true,
+    adaptiveLearningPlanOverride?: CourseContent["adaptiveLearningPlan"],
+  ): CourseContent | null {
     if (!course) return null;
     const draftToSave = baseDraft ?? createCourseBasicsDraft(course);
     const validationError = validateCourseBasicsDraft(draftToSave);
     if (validationError) {
       toast.error(validationError);
-      setFlowStep(0);
+      setFlowStepKey("base");
       return null;
     }
-    const nextContent = buildPersistableContent();
+    const nextContent = buildPersistableContent(adaptiveLearningPlanOverride);
     if (!nextContent) return null;
     updateCourse(course.id, {
       ...buildCourseBasicsPatch(course, draftToSave),
@@ -1224,19 +1340,55 @@ export default function VerifyCoursePage() {
     return content.evaluationPlan.dimensions.length > 0;
   }
 
+  function isPreparationStepReady(stepKey: PreparationStepKey): boolean {
+    if (!course) return false;
+    if (stepKey === "base") {
+      return !validateCourseBasicsDraft(
+        baseDraft ?? createCourseBasicsDraft(course),
+      );
+    }
+    if (stepKey === "projectDesign") {
+      const currentDraft = baseDraft ?? createCourseBasicsDraft(course);
+      return Boolean(
+        currentDraft.drivingQuestions.some((question) => question.trim())
+        && currentDraft.outcomeArtifact.trim()
+        && currentDraft.outcomePresentation.trim()
+        && currentDraft.outcomeReflection.trim(),
+      );
+    }
+    if (stepKey === "adaptiveLearning") {
+      const plan = content?.adaptiveLearningPlan;
+      if (!plan) return false;
+      if (!plan.enabled) return true;
+      return plan.branches.every((branch) =>
+          branch.trigger?.placement === "before-main-course"
+            ? (branch.prerequisiteKnowledgePointIds?.length ?? 0) > 0
+              && Boolean(branch.noveltyStatement?.trim())
+            : branch.trigger?.afterSceneId
+            ? sceneOutlines.some((scene) => scene.id === branch.trigger?.afterSceneId)
+            : (branch.trigger?.assessmentSceneIds?.length ?? 0) > 0
+              && branch.trigger!.assessmentSceneIds!.every((id) =>
+                sceneOutlines.some((scene) => scene.id === id && scene.type === "quiz"),
+              ),
+        );
+    }
+    return isStepReady(stepKey);
+  }
+
   function persistAndNext() {
     if (!course) return;
     const requiredSections: Section[] = [
       "knowledgePoints",
+      "evaluationPlan",
       "teachingOutline",
       "lessonOutline",
-      "evaluationPlan",
     ];
     const missing = requiredSections.find((section) => !isStepReady(section));
     if (missing) {
       const message = `请先完成并保存${SECTION_LABEL[missing]}，再进入课程生成。`;
       setError(message);
       toast.error("备课阶段尚未完成", { description: message });
+      setFlowStepKey(missing);
       return;
     }
     const knowledgeIssues = pblKnowledgeValidation.issues;
@@ -1245,6 +1397,7 @@ export default function VerifyCoursePage() {
       setError(message);
       toast.error("请先校验课程大纲", { description: message });
       setOpen((current) => ({ ...current, lessonOutline: true }));
+      setFlowStepKey("lessonOutline");
       return;
     }
     const missingParents = sceneOutlines.filter(
@@ -1255,10 +1408,42 @@ export default function VerifyCoursePage() {
       setError(message);
       toast.error("课程大纲层级不完整", { description: message });
       setOpen((current) => ({ ...current, lessonOutline: true }));
+      setFlowStepKey("lessonOutline");
       return;
     }
-    const nextContent = saveDraft(false);
+    const adaptivePlan = content?.adaptiveLearningPlan;
+    if (!adaptivePlan) {
+      const message = "请进入个性化资源步骤生成方案，并确认是否启用学习证据编排。";
+      setError(message);
+      toast.error("个性化资源尚未建模", { description: message });
+      setFlowStepKey("adaptiveLearning");
+      return;
+    }
+    if (
+      adaptivePlan.enabled
+      && adaptivePlan.branches.some((branch) =>
+        branch.trigger?.placement === "before-main-course"
+          ? (branch.prerequisiteKnowledgePointIds?.length ?? 0) === 0 || !branch.noveltyStatement?.trim()
+          : branch.trigger?.afterSceneId
+          ? !sceneOutlines.some((scene) => scene.id === branch.trigger?.afterSceneId)
+            || !branch.noveltyStatement?.trim()
+          : (branch.trigger?.assessmentSceneIds?.length ?? 0) === 0
+            || branch.trigger!.assessmentSceneIds!.some((id) =>
+              !sceneOutlines.some((scene) => scene.id === id && scene.type === "quiz"),
+            )
+            || !branch.noveltyStatement?.trim(),
+      )
+    ) {
+      const message = "仍有模块后额外资源没有关联有效的模块测验，请完成学习证据配置。";
+      setError(message);
+      toast.error("触发点尚未绑定", { description: message });
+      setFlowStepKey("adaptiveLearning");
+      return;
+    }
+    const confirmedAdaptivePlan = confirmAdaptiveLearningPlan(adaptivePlan);
+    const nextContent = saveDraft(false, confirmedAdaptivePlan);
     if (!nextContent) return;
+    setContent(nextContent);
     router.push(`/teacher/prepare/${course.id}/generate`);
   }
 
@@ -1288,6 +1473,18 @@ export default function VerifyCoursePage() {
   }
 
   const draft = baseDraft ?? createCourseBasicsDraft(course);
+  const completedPreparationKeys = PREPARATION_FLOW_STEPS
+    .filter((step) => isPreparationStepReady(step.key))
+    .map((step) => step.key);
+  const currentFlowIndex = PREPARATION_FLOW_STEPS.findIndex(
+    (step) => step.key === flowStepKey,
+  );
+  const currentFlowStep =
+    PREPARATION_FLOW_STEPS[currentFlowIndex] ?? PREPARATION_FLOW_STEPS[0];
+  const nextFlowStep =
+    currentFlowIndex >= 0
+      ? PREPARATION_FLOW_STEPS[currentFlowIndex + 1]
+      : PREPARATION_FLOW_STEPS[1];
 
   const sections: { key: Section; node: React.ReactNode }[] = [
     {
@@ -1950,10 +2147,14 @@ export default function VerifyCoursePage() {
       key: "lessonOutline",
       node: (
         <div className="space-y-4">
+          <StageWorkspacePolicyPanel
+            onChange={(stageWorkspacePolicies) => updateCourse(course.id, { stageWorkspacePolicies })}
+            policies={course.stageWorkspacePolicies}
+            stages={course.stages}
+          />
           <PblDetailHierarchySummary
             activities={content?.teachingOutline ?? []}
             details={sceneOutlines}
-            knowledgeValidation={pblKnowledgeValidation}
           />
           <PblCoverageSummary coverage={pblCoverage} />
           {sceneOutlines.length > 0 || outlineStreaming ? (
@@ -2231,6 +2432,18 @@ export default function VerifyCoursePage() {
     },
   ];
 
+  // AI 生成全屏加载动画：仅在非流式 generateSection 调用时显示。
+  // 流式生成（outlineStreaming）有 OutlinesEditor 自己的实时反馈，不遮罩。
+  const aiOverlayKind: AiTaskKind | null = (() => {
+    if (!busy) return null;
+    if (busy === "lessonOutline" && outlineStreaming) return null;
+    if (busy === "knowledgePoints") return "knowledgeGraph";
+    if (busy === "teachingOutline") return "teachingOutline";
+    if (busy === "lessonOutline") return "lessonOutline";
+    if (busy === "evaluationPlan") return "evaluationPlan";
+    return "generic";
+  })();
+
   return (
     <DashboardShell
       role="teacher"
@@ -2243,21 +2456,12 @@ export default function VerifyCoursePage() {
         </div>
       }
     >
-      <div className="mb-5 flex items-center gap-3">
-        <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-          href="/teacher"
-        >
-          <ArrowLeft size={17} />
-        </Link>
-        <div>
-          <h1 className="font-editorial text-3xl font-semibold">备课阶段</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {course.name} · {course.subject} · {course.grade} · {course.hours} 课时
-          </p>
-        </div>
-
-      </div>
+      <PreparationJourney
+        backHref="/teacher"
+        completedKeys={completedPreparationKeys}
+        currentKey={flowStepKey}
+        onSelect={setFlowStepKey}
+      />
 
       {info ? (
         <div className="mb-4 rounded-[8px] border border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] px-4 py-3 text-sm font-semibold text-[var(--pbl-success)]">
@@ -2270,19 +2474,11 @@ export default function VerifyCoursePage() {
         </div>
       ) : null}
 
-      <nav aria-label="备课阶段步骤" className="mb-6 overflow-x-auto border-b border-[var(--pbl-border)]">
-        <ol className="flex min-w-max items-end gap-1">
-        {FLOW_STEPS.map((step, index) => (
-          <li key={step.key}><button aria-current={flowStep === index ? "step" : undefined} className={cn("min-h-12 border-b-2 px-4 text-sm font-semibold transition-colors", flowStep === index ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]" : "border-transparent text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]")} onClick={() => setFlowStep(index)} type="button"><span className="mr-2 text-xs">{index + 1}</span>{step.label}</button></li>
-        ))}
-        </ol>
-      </nav>
-
       <div className="space-y-4">
-        {FLOW_STEPS[flowStep]?.key === "base" ? (
+        {flowStepKey === "base" || flowStepKey === "projectDesign" ? (
           <div className="space-y-5">
             {/* ── 课程底稿 ── */}
-            <Card className="p-5">
+            {flowStepKey === "base" ? <Card className="p-5">
               <div className="grid gap-5 lg:grid-cols-2 lg:items-end">
                 <div className="min-w-0">
                   <div>
@@ -2408,32 +2604,60 @@ export default function VerifyCoursePage() {
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-stone-800">驱动问题</label>
+                    <label className="text-sm font-bold text-stone-800">项目启发问题</label>
                     <AiFieldButton busy={skeletonLoading} label="AI 生成驱动问题建议" loading={skeletonLoading && activeSuggestionPart === "drivingQuestions"} onClick={() => void requestSkeleton("drivingQuestions")} />
                   </div>
-                  <p className="mt-0.5 text-xs text-stone-500">一个好的驱动问题有真实对象、开放空间和可完成边界。</p>
-                  <textarea
-                    className="mt-1 min-h-[100px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
-                    value={draft.drivingQuestion}
-                    onChange={(e) => editBaseDraft({ drivingQuestion: e.target.value })}
-                    placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？"
-                  />
+                  <p className="mt-0.5 text-xs text-stone-500">设置一个或多个真实、开放、可探究的问题。第一题同时作为课程生成使用的主驱动问题。</p>
+                  <div className="mt-3 space-y-2">
+                    {draft.drivingQuestions.map((question, index) => (
+                      <div className="flex items-start gap-2" key={index}>
+                        <span className="mt-2.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-xs font-bold text-[var(--pbl-teacher)]">
+                          {index + 1}
+                        </span>
+                        <textarea
+                          aria-label={`项目启发问题 ${index + 1}`}
+                          className="min-h-[76px] flex-1 rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
+                          value={question}
+                          onChange={(event) => updateDrivingQuestion(index, event.target.value)}
+                          placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？"
+                        />
+                        <button
+                          aria-label={`删除项目启发问题 ${index + 1}`}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-stone-200 text-stone-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                          onClick={() => removeDrivingQuestion(index)}
+                          type="button"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-dashed border-[var(--pbl-teacher-border)] px-3 text-sm font-semibold text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]"
+                      onClick={() => addDrivingQuestion()}
+                      type="button"
+                    >
+                      <Plus size={15} /> 增加一个启发问题
+                    </button>
+                  </div>
                   {skeleton && activeSuggestionPart === "drivingQuestions" ? (
                     <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("drivingQuestions")}>
                       {skeleton.drivingQuestions.map((question, index) => (
-                        <AiSuggestionCard key={index} onAdopt={() => editBaseDraft({ drivingQuestion: question })}>{question}</AiSuggestionCard>
+                        <AiSuggestionCard key={index} onAdopt={() => addDrivingQuestion(question)}>{question}</AiSuggestionCard>
                       ))}
                     </AiSuggestionPanel>
                   ) : null}
                 </div>
               </div>
-            </Card>
+            </Card> : null}
 
             {/* ── PBL 项目配置 ── */}
-            <Card className="p-5">
+            {flowStepKey === "projectDesign" ? <Card className="p-5">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-ai)]">PBL 项目配置</p>
                 <h2 className="font-editorial mt-2 text-xl font-semibold">个人项目 + AI 伴学小组</h2>
+                <p className="mt-1 text-sm leading-6 text-stone-500">
+                  以“{draft.drivingQuestions.find((question) => question.trim()) || "尚未填写主驱动问题"}”为主线，明确学生要留下的过程证据与最终成果。
+                </p>
               </div>
               <div className="mt-5 grid gap-5">
                 <div>
@@ -2442,7 +2666,7 @@ export default function VerifyCoursePage() {
                   <select
                     className="mt-2 h-10 w-full rounded-[6px] border border-stone-300 bg-white px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                     value={course.pblConfig?.difficultyLevel ?? "standard"}
-                    onChange={(e) => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ difficultyLevel: e.target.value as "introductory" | "standard" | "advanced", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
+                    onChange={(e) => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: e.target.value as "introductory" | "standard" | "advanced", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
                   >
                     <option value="introductory">入门：需要更多示范与引导</option>
                     <option value="standard">标准：知识与实践均衡</option>
@@ -2462,7 +2686,7 @@ export default function VerifyCoursePage() {
                           type="button"
                           aria-pressed={selected}
                           className={`flex items-start gap-2 rounded-[6px] border px-2.5 py-2 text-left transition ${selected ? "border-[var(--pbl-ai)] bg-white shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-[var(--pbl-ai)]/50"}`}
-                          onClick={() => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: selected ? currentEvidence.filter((e) => e.kind !== item.kind) : [...currentEvidence, { ...item, required: true }], outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
+                          onClick={() => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: selected ? currentEvidence.filter((e) => e.kind !== item.kind) : [...currentEvidence, { ...item, required: true }], outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
                         >
                           <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-[var(--pbl-ai)] bg-[var(--pbl-ai)] text-white" : "border-stone-300 text-transparent"}`}>
                             <Check size={11} />
@@ -2493,7 +2717,7 @@ export default function VerifyCoursePage() {
                             if (locked) return;
                             const currentIds = course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id);
                             const newIds = selected ? currentIds.filter((id) => id !== companion.id) : [...currentIds, companion.id];
-                            updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: newIds as PblCompanionId[] }) });
+                            updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: newIds as PblCompanionId[] }) });
                           }}
                         >
                           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm" style={{ backgroundColor: `${companion.color}18` }}>{companion.emoji}</span>
@@ -2526,11 +2750,23 @@ export default function VerifyCoursePage() {
                   </div>
                 </div>
               </div>
-            </Card>
+            </Card> : null}
           </div>
+        ) : flowStepKey === "adaptiveLearning" ? (
+          <AdaptiveLearningPlanEditor
+            courseId={course.id}
+            knowledgePoints={content?.knowledgePoints ?? []}
+            mainScenes={sceneOutlines}
+            onChange={(adaptiveLearningPlan) =>
+              setContent((current) =>
+                current ? { ...current, adaptiveLearningPlan } : current,
+              )
+            }
+            plan={content?.adaptiveLearningPlan}
+          />
         ) : (
           sections
-            .filter(({ key }) => key === FLOW_STEPS[flowStep]?.key)
+            .filter(({ key }) => key === flowStepKey)
             .map(({ key, node }) => (
           <Card className="p-0" key={key}>
             <div
@@ -2662,7 +2898,11 @@ export default function VerifyCoursePage() {
       </div>
 
       <FlowActionBar
-        back={<span className="text-xs font-semibold text-[var(--pbl-text-muted)]">{flowStep + 1}/{FLOW_STEPS.length} · {FLOW_STEPS[flowStep].label}</span>}
+        back={
+          <span className="text-xs font-semibold text-[var(--pbl-text-muted)]">
+            {currentFlowIndex + 1}/{PREPARATION_FLOW_STEPS.length} · {currentFlowStep.label}
+          </span>
+        }
         persistent
       >
           <button
@@ -2673,12 +2913,12 @@ export default function VerifyCoursePage() {
           >
             <Save size={16} /> 保存草稿
           </button>
-          {flowStep < FLOW_STEPS.length - 1 ? (
+          {nextFlowStep ? (
             <PrimaryButton
               type="button"
-              onClick={() => setFlowStep(flowStep + 1)}
+              onClick={() => setFlowStepKey(nextFlowStep.key)}
             >
-              进入下一步核查 →
+              进入{nextFlowStep.label} →
             </PrimaryButton>
           ) : (
             <PrimaryButton
@@ -2696,6 +2936,7 @@ export default function VerifyCoursePage() {
             </PrimaryButton>
           )}
       </FlowActionBar>
+      <AiGenerationOverlay kind={aiOverlayKind} hint={info} />
     </DashboardShell>
   );
 }
@@ -2703,11 +2944,9 @@ export default function VerifyCoursePage() {
 function PblDetailHierarchySummary({
   activities,
   details,
-  knowledgeValidation,
 }: {
   activities: ReadonlyArray<TeachingOutlineSection>;
   details: ReadonlyArray<SceneOutline>;
-  knowledgeValidation: ReturnType<typeof validatePblKnowledgeAlignment>;
 }) {
   const detailsByParent = new globalThis.Map<string, SceneOutline[]>();
   details.forEach((detail) => {

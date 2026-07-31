@@ -43,6 +43,21 @@ import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { useSettingsStore } from '@openmaic/lib/store/settings';
 import { isTTSProviderEnabled } from '@openmaic/lib/audio/provider-enablement';
 import { createLogger } from '@openmaic/lib/logger';
+import { normalizeStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
+
+export function shouldUseBrowserNativeTtsFallback(options: {
+  hasText: boolean;
+  ttsEnabled: boolean;
+  browserNativeEnabled: boolean;
+  speechSynthesisAvailable: boolean;
+}): boolean {
+  return (
+    options.hasText
+    && options.ttsEnabled
+    && options.browserNativeEnabled
+    && options.speechSynthesisAvailable
+  );
+}
 
 const log = createLogger('PlaybackEngine');
 
@@ -88,6 +103,7 @@ export class PlaybackEngine {
   private browserTTSPausedChunks: string[] = []; // remaining chunks saved on pause (for cancel+re-speak)
   private speechTimerRemaining: number = 0; // remaining ms (set on pause)
   private speechTimerIsActivityPause: boolean = false;
+  private speechTimerIsTimelinePause: boolean = false;
   private activeActivity: ActivityGate | null = null;
 
   constructor(
@@ -96,7 +112,14 @@ export class PlaybackEngine {
     audioPlayer: AudioPlayer,
     callbacks: PlaybackEngineCallbacks = {},
   ) {
-    this.scenes = scenes;
+    // Current classrooms may contain the legacy order where platform widget
+    // actions perform the task before the student activity gate. Normalize at
+    // playback time as well as generation time so the fix applies immediately.
+    this.scenes = scenes.map((scene) => (
+      scene.type === 'interactive' && scene.actions
+        ? { ...scene, actions: normalizeStudentActivityPause(scene.actions) }
+        : scene
+    ));
     this.sceneId = scenes[0]?.id;
     this.actionEngine = actionEngine;
     this.audioPlayer = audioPlayer;
@@ -165,6 +188,9 @@ export class PlaybackEngine {
       if (this.triggerDelayTimer) {
         clearTimeout(this.triggerDelayTimer);
         this.triggerDelayTimer = null;
+        // processNext advances the cursor before showing a delayed trigger.
+        // Rewind so resume schedules that trigger again instead of skipping it.
+        this.actionIndex = Math.max(0, this.actionIndex - 1);
       }
       if (this.speechTimer) {
         // Save remaining time so resume() can reschedule
@@ -231,6 +257,11 @@ export class PlaybackEngine {
         this.speechTimer = setTimeout(() => {
           if (this.speechTimerIsActivityPause) {
             this.finishActivity('timeout');
+          } else if (this.speechTimerIsTimelinePause) {
+            this.speechTimer = null;
+            this.speechTimerRemaining = 0;
+            this.speechTimerIsTimelinePause = false;
+            if (this.mode === 'playing') this.processNext();
           } else {
             this.speechTimer = null;
             this.speechTimerRemaining = 0;
@@ -263,6 +294,7 @@ export class PlaybackEngine {
     }
     this.speechTimerRemaining = 0;
     this.speechTimerIsActivityPause = false;
+    this.speechTimerIsTimelinePause = false;
     this.activeActivity = null;
     this.sceneIndex = 0;
     this.actionIndex = 0;
@@ -433,6 +465,7 @@ export class PlaybackEngine {
     }
     this.speechTimerRemaining = 0;
     this.speechTimerIsActivityPause = false;
+    this.speechTimerIsTimelinePause = false;
     this.callbacks.onActivityComplete?.(activity, reason);
     if (this.mode === 'playing') queueMicrotask(() => this.processNext());
     return true;
@@ -487,6 +520,26 @@ export class PlaybackEngine {
     switch (action.type) {
       case 'speech': {
         const speechAction = action as SpeechAction;
+        const timelinePauseSec = Number(
+          (speechAction as SpeechAction & {
+            timelinePauseSec?: number;
+            timelinePausePurpose?: 'page-transition';
+          }).timelinePauseSec,
+        );
+        if (Number.isFinite(timelinePauseSec) && timelinePauseSec > 0) {
+          const pauseMs = timelinePauseSec * 1000;
+          this.speechTimerStart = Date.now();
+          this.speechTimerRemaining = pauseMs;
+          this.speechTimerIsActivityPause = false;
+          this.speechTimerIsTimelinePause = true;
+          this.speechTimer = setTimeout(() => {
+            this.speechTimer = null;
+            this.speechTimerRemaining = 0;
+            this.speechTimerIsTimelinePause = false;
+            if (this.mode === 'playing') this.processNext();
+          }, pauseMs);
+          break;
+        }
         const activityPauseSec = Number(
           (speechAction as SpeechAction & { activityPauseSec?: number }).activityPauseSec,
         );
@@ -506,6 +559,7 @@ export class PlaybackEngine {
           this.speechTimerStart = Date.now();
           this.speechTimerRemaining = pauseMs;
           this.speechTimerIsActivityPause = true;
+          this.speechTimerIsTimelinePause = false;
           this.speechTimer = setTimeout(() => {
             this.finishActivity('timeout');
           }, pauseMs);
@@ -540,6 +594,7 @@ export class PlaybackEngine {
           this.speechTimerStart = Date.now();
           this.speechTimerRemaining = readingMs;
           this.speechTimerIsActivityPause = false;
+          this.speechTimerIsTimelinePause = false;
           this.speechTimer = setTimeout(() => {
             this.speechTimer = null;
             this.speechTimerRemaining = 0;
@@ -554,34 +609,37 @@ export class PlaybackEngine {
         // empty SpeechSynthesisUtterance doesn't reliably fire onend in Chromium,
         // which would hang playback on that slide.
         const hasText = !!speechAction.text.trim();
+        const playSpeechFallback = () => {
+          const settings = useSettingsStore.getState();
+          const browserNativeEnabled = isTTSProviderEnabled(
+            'browser-native-tts',
+            settings.ttsProvidersConfig?.['browser-native-tts'],
+          );
+          if (shouldUseBrowserNativeTtsFallback({
+            hasText,
+            ttsEnabled: settings.ttsEnabled,
+            browserNativeEnabled,
+            speechSynthesisAvailable: typeof window !== 'undefined' && Boolean(window.speechSynthesis),
+          })) {
+            this.playBrowserTTS(speechAction);
+          } else {
+            scheduleReadingTimer();
+          }
+        };
 
         this.audioPlayer
           .play(speechAction.audioId || '', speechAction.audioUrl)
           .then((audioStarted) => {
             if (!audioStarted) {
-              // No pre-generated audio — try browser-native TTS only when it is
-              // the selected provider AND actually enabled (opt-in, #665).
-              const settings = useSettingsStore.getState();
-              if (
-                hasText &&
-                settings.ttsEnabled &&
-                settings.ttsProviderId === 'browser-native-tts' &&
-                isTTSProviderEnabled(
-                  'browser-native-tts',
-                  settings.ttsProvidersConfig?.['browser-native-tts'],
-                ) &&
-                typeof window !== 'undefined' &&
-                window.speechSynthesis
-              ) {
-                this.playBrowserTTS(speechAction);
-              } else {
-                scheduleReadingTimer();
-              }
+              // Server-generated audio can still be pending when a newly
+              // created classroom opens. Fall back to the explicitly enabled
+              // browser voice regardless of which server provider is selected.
+              playSpeechFallback();
             }
           })
           .catch((err) => {
             log.error('TTS error:', err);
-            scheduleReadingTimer();
+            playSpeechFallback();
           });
         break;
       }
@@ -589,7 +647,7 @@ export class PlaybackEngine {
       case 'spotlight':
       case 'laser': {
         // Fire-and-forget visual effects via ActionEngine
-        this.actionEngine.execute(action);
+        void this.executeActionSafely(action);
         this.callbacks.onEffectFire?.({
           kind: action.type,
           targetId: action.elementId,
@@ -655,7 +713,7 @@ export class PlaybackEngine {
       case 'widget_annotation':
       case 'widget_reveal': {
         // Synchronous actions — await completion, then continue
-        await this.actionEngine.execute(action);
+        await this.executeActionSafely(action);
         if (this.mode === 'playing') {
           this.processNext();
         }
@@ -666,6 +724,14 @@ export class PlaybackEngine {
         // Unknown action, skip
         this.processNext();
         break;
+    }
+  }
+
+  private async executeActionSafely(action: Action): Promise<void> {
+    try {
+      await this.actionEngine.execute(action);
+    } catch (error) {
+      log.error(`Playback action failed [${action.type}:${action.id}]:`, error);
     }
   }
 

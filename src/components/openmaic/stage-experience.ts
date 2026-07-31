@@ -10,9 +10,12 @@ export type PlaybackSyncState = {
 
 export function getStageExperienceCapabilities(experience: StageExperience) {
   return {
+    isStudentCourse: experience === "student-course",
     showSidebar: experience === "student-course",
     showHeader: experience === "student-course",
+    showHeaderControls: false,
     showRoundtable: experience === "student-course",
+    showCompanionArea: false,
     showChat: experience === "student-course",
     showCourseComplete: experience === "student-course",
     showMinimalControls: experience === "teacher-resource",

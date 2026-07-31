@@ -7,27 +7,61 @@ import {
   CheckCheck,
   Flag,
   HelpCircle,
+  Lightbulb,
   Sparkles,
   Megaphone,
   Send,
   Target,
   Trash2,
   Users,
+  Plus,
 } from "lucide-react";
 import { Avatar, AvatarStack } from "@/components/dashboard-shell";
 import { Card, Pill, ProgressBar, PrimaryButton, TextArea, TextInput } from "@/components/ui";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import {
+  isProjectLaunchTodo,
+} from "@/lib/project-launch-readiness";
 
 export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const session = useSession();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [newInquiryQuestion, setNewInquiryQuestion] = useState("");
   const totalSeats = course.classConfig?.totalStudents ?? 40;
   const joined = course.students.length;
   const rate = Math.min(100, Math.round((joined / totalSeats) * 100));
   const projectSpaces = course.students.filter((student) => course.groups?.some((project) => project.members.some((member) => member.studentId === student.id))).length;
-  const announcementRead = course.announcements?.length ? Math.round((joined / Math.max(1, totalSeats)) * 100) : 0;
+  const inquiryQuestions = course.pblConfig?.inquiryQuestions?.length
+    ? course.pblConfig.inquiryQuestions
+    : course.drivingQuestion
+      ? [course.drivingQuestion]
+      : [];
+  const studentSelections = course.students.map((student) => ({
+    student,
+    topic: course.groups
+      ?.find((project) => project.members.some((member) => member.studentId === student.id))
+      ?.topic,
+  }));
+  const selectedCount = studentSelections.filter(({ topic }) =>
+    topic ? inquiryQuestions.includes(topic) : false,
+  ).length;
+  const selectionRate = Math.round((selectedCount / Math.max(1, joined)) * 100);
+  const launchTodos = (course.todos ?? []).filter(isProjectLaunchTodo);
+  const completedTodoCount = launchTodos.reduce(
+    (sum, todo) =>
+      sum +
+      todo.completedBy.filter((studentId) =>
+        course.students.some((student) => student.id === studentId),
+      ).length,
+    0,
+  );
+  const totalTodoCount = launchTodos.length * joined;
+  const todoCompletion = totalTodoCount
+    ? Math.round((completedTodoCount / totalTodoCount) * 100)
+    : 100;
 
   function publish() {
     if (!title.trim() || !content.trim()) return;
@@ -36,13 +70,27 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
     setContent("");
   }
 
+  function addInquiryQuestion() {
+    const question = newInquiryQuestion.trim();
+    if (!question || inquiryQuestions.includes(question)) return;
+    const nextQuestions = [...inquiryQuestions, question];
+    session.updateCourse(course.id, {
+      drivingQuestion: course.drivingQuestion || question,
+      pblConfig: normalizePblCourseConfig({
+        ...course.pblConfig,
+        inquiryQuestions: nextQuestions,
+      }),
+    });
+    setNewInquiryQuestion("");
+  }
+
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard title="到课情况" value={`${joined} / ${totalSeats}`} sub={`出勤率 ${rate}%`} icon={<Users className="text-blue-600" size={22} />} progress={rate} />
         <StatCard title="个人项目空间" value={`${projectSpaces}`} sub={`${joined} 名学生独立完成`} icon={<Sparkles className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((projectSpaces / Math.max(1, joined)) * 100))} tone="emerald" />
-        <StatCard title="学生待办" value={`${course.todos?.length ?? 0}`} sub="阅读、理解任务、确认成果" icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={66} tone="amber" />
-        <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={announcementRead} tone="rose" />
+        <StatCard title="学生待办" value={`${todoCompletion}%`} sub={`${completedTodoCount} / ${totalTodoCount} 项已完成`} icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={todoCompletion} tone="amber" />
+        <StatCard title="方向确认" value={`${selectedCount} / ${joined}`} sub="学生已确认个人研究方向" icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={selectionRate} tone="rose" />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
@@ -54,7 +102,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
             <Pill tone="blue">阶段一 · 项目启动</Pill>
           </div>
           <div className="space-y-4">
-            <Field title="驱动问题" text={course.drivingQuestion} />
+            <Field title="主驱动问题" text={course.drivingQuestion} />
             <Field title="项目目标" text={course.summary} />
             <div className="rounded-[8px] border border-blue-100 bg-blue-50/60 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
@@ -80,6 +128,89 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
           </div>
         </Card>
       </div>
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--pbl-teacher)]">项目问题现场管理</p>
+            <h2 className="mt-1 flex items-center gap-2 text-xl font-bold text-stone-900">
+              <Lightbulb className="text-amber-500" size={22} /> 启发问题与学生选题
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">课堂中新增的问题会同步到学生端；已有学生选择不会被覆盖。</p>
+          </div>
+          <Pill tone={selectedCount === joined && joined > 0 ? "green" : "blue"}>
+            已选择 {selectedCount}/{joined}
+          </Pill>
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
+          <div className="space-y-3">
+            {inquiryQuestions.map((question, index) => {
+              const students = studentSelections
+                .filter((selection) => selection.topic === question)
+                .map((selection) => selection.student.name);
+              return (
+                <div className="rounded-[9px] border border-stone-200 bg-white p-4" key={question}>
+                  <div className="flex items-start gap-3">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-50 text-sm font-bold text-amber-700">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold leading-7 text-stone-900">{question}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Pill tone={students.length ? "blue" : "gray"}>{students.length} 人选择</Pill>
+                        {students.map((name) => (
+                          <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600" key={name}>
+                            {name}
+                          </span>
+                        ))}
+                        {!students.length ? <span className="text-xs text-stone-400">暂时无人选择</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {!inquiryQuestions.length ? (
+              <div className="rounded-[9px] border border-dashed border-amber-200 bg-amber-50/50 py-8 text-center text-sm text-amber-800">
+                尚未设置项目启发问题，请立即添加。
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-[9px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/35 p-4">
+            <h3 className="font-bold text-stone-900">课堂中增加问题</h3>
+            <p className="mt-1 text-xs leading-5 text-stone-500">适合根据课堂讨论即时增加新的真实情境或研究切入点。</p>
+            <TextArea
+              className="mt-3 min-h-28 bg-white"
+              onChange={(event) => setNewInquiryQuestion(event.target.value)}
+              placeholder="例如：我们如何利用实地数据，为学校设计一套可验证的节水改进方案？"
+              value={newInquiryQuestion}
+            />
+            <PrimaryButton
+              className="mt-3 w-full justify-center"
+              disabled={!newInquiryQuestion.trim() || inquiryQuestions.includes(newInquiryQuestion.trim())}
+              onClick={addInquiryQuestion}
+            >
+              <Plus size={16} /> 发布到学生选题池
+            </PrimaryButton>
+            <div className="mt-4 border-t border-[var(--pbl-teacher-border)] pt-4">
+              <p className="text-xs font-bold text-stone-600">尚未选择的学生</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {studentSelections
+                  .filter(({ topic }) => !topic || !inquiryQuestions.includes(topic))
+                  .map(({ student }) => (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-stone-600 shadow-sm" key={student.id}>
+                      {student.name}
+                    </span>
+                  ))}
+                {selectedCount === joined && joined > 0 ? <span className="text-xs text-emerald-700">全员已完成选题</span> : null}
+                {joined === 0 ? <span className="text-xs text-stone-400">等待学生加入课堂</span> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
         <Card>

@@ -3,6 +3,9 @@ import type {
   AiSupportRecord,
   ClassConfig,
   ClassroomSubmission,
+  CompanionConfirmation,
+  CompanionProcessRecord,
+  CompanionTask,
   Course,
   CourseAnnouncement,
   CourseContent,
@@ -24,9 +27,19 @@ import type {
   WhiteboardNode,
   WorkPlanItem,
 } from "./types";
+import {
+  isProjectLaunchTodo,
+  projectLaunchProgress,
+} from "@/lib/project-launch-readiness";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
 import { DEFAULT_STAGES } from "./types";
+import { getStageWorkspacePolicy, normalizeStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import {
+  completeClassroomTiming,
+  createClassroomTimingState,
+  transitionClassroomStageTiming,
+} from "@/lib/classroom/timing";
 
 export type SessionState = {
   courses: Course[];
@@ -52,6 +65,10 @@ export type SessionAction =
       payload: { id: string; classConfig: ClassConfig; inviteCode: string };
     }
   | { type: "END_TEACHING"; payload: { id: string } }
+  | {
+      type: "RESTART_TEACHING";
+      payload: { id: string; newInviteCode: string; classConfig?: ClassConfig };
+    }
   | { type: "ADVANCE_STAGE"; payload: { id: string; direction: 1 | -1 } }
   | { type: "SET_STAGE"; payload: { id: string; index: number } }
   | { type: "JOIN_CLASS"; payload: { courseId: string; student: Student } }
@@ -75,6 +92,7 @@ export type SessionAction =
       payload: { courseId: string; announcementId: string; reply: CourseAnnouncement["replies"][number] };
     }
   | { type: "UPSERT_TODO"; payload: { courseId: string; todo: CourseTodo } }
+  | { type: "SET_STUDENT_TODO_COMPLETION"; payload: { courseId: string; todoId: string; studentId: string; completed: boolean } }
   | {
       type: "MARK_RESOURCE_DOWNLOADED";
       payload: { courseId: string; resourceId: string; studentId: string; studentName: string };
@@ -91,24 +109,28 @@ export type SessionAction =
       };
     }
   | { type: "LEAVE_GROUP"; payload: { courseId: string; groupId: string; studentId: string } }
-  | { type: "SET_GROUP_TOPIC"; payload: { courseId: string; groupId: string; patch: Partial<ProjectGroup> } }
+  | { type: "SET_GROUP_TOPIC"; payload: { courseId: string; groupId: string; patch: Partial<ProjectGroup>; studentId?: string } }
   | {
       type: "UPSERT_GROUP_ANNOUNCEMENT";
-      payload: { courseId: string; announcement: GroupAnnouncement };
+      payload: { courseId: string; announcement: GroupAnnouncement; studentId?: string };
     }
-  | { type: "UPSERT_WORK_PLAN_ITEM"; payload: { courseId: string; item: WorkPlanItem } }
-  | { type: "DELETE_WORK_PLAN_ITEM"; payload: { courseId: string; itemId: string } }
+  | { type: "UPSERT_WORK_PLAN_ITEM"; payload: { courseId: string; item: WorkPlanItem; studentId?: string } }
+  | { type: "DELETE_WORK_PLAN_ITEM"; payload: { courseId: string; itemId: string; studentId?: string } }
   | { type: "UPSERT_WHITEBOARD_NODE"; payload: { courseId: string; node: WhiteboardNode } }
   | { type: "DELETE_WHITEBOARD_NODE"; payload: { courseId: string; nodeId: string } }
   | { type: "UPSERT_GROUP_BOARD"; payload: { courseId: string; board: GroupBoard } }
   | { type: "UPSERT_UPLOAD"; payload: { courseId: string; upload: CourseUpload } }
   | { type: "DELETE_UPLOAD"; payload: { courseId: string; uploadId: string } }
-  | { type: "SET_PREVIEW_UPLOAD"; payload: { courseId: string; uploadId?: string } }
+  | { type: "SET_PREVIEW_UPLOAD"; payload: { courseId: string; uploadId?: string; studentId?: string } }
   | { type: "UPSERT_TEAM_CONTRIBUTION"; payload: { courseId: string; contribution: TeamContribution } }
   | { type: "UPSERT_AI_SUPPORT"; payload: { courseId: string; support: AiSupportRecord } }
   | { type: "ADD_OFFLINE_INTERVENTION"; payload: { courseId: string; intervention: OfflineInterventionRecord } }
   | { type: "RESOLVE_INTERVENTION_SIGNALS"; payload: { courseId: string; signalIds: string[] } }
   | { type: "UPSERT_TEACHER_AGENT_DIRECTIVE"; payload: { courseId: string; directive: TeacherAgentDirective } }
+  | { type: "UPSERT_COMPANION_TASK"; payload: { courseId: string; task: CompanionTask } }
+  | { type: "UPSERT_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmation: CompanionConfirmation } }
+  | { type: "RESOLVE_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmationId: string; status: CompanionConfirmation["status"]; resolvedAt: string; studentId?: string } }
+  | { type: "ADD_COMPANION_PROCESS_RECORD"; payload: { courseId: string; record: CompanionProcessRecord } }
   | { type: "SET_UI_STATE"; payload: { courseId: string; patch: Partial<CourseUiState> } };
 
 export function initialSessionState(): SessionState {
@@ -193,6 +215,19 @@ export function applySessionAction(
     case "START_TEACHING": {
       const { id, classConfig, inviteCode } = action.payload;
       const course = state.courses.find((item) => item.id === id);
+      const classroomTiming = course
+        ? createClassroomTimingState({
+            stages: course.stages,
+            totalMinutes:
+              course.content.projectMainline?.totalMinutes
+              ?? course.content.moduleTimingPlan?.totalMinutes
+              ?? course.hours * 60,
+            projectMainline: course.content.projectMainline,
+            moduleTimingPlan: course.content.moduleTimingPlan,
+            activeStageKey: course.stages[0]?.key,
+            now: touchedAt,
+          })
+        : undefined;
       return updateCourse(state, id, {
         status: "teaching",
         classConfig,
@@ -201,6 +236,7 @@ export function applySessionAction(
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
+          ...(classroomTiming ? { classroomTiming } : {}),
         },
         // A new class starts with no project spaces. Each student receives one
         // private personal-project space when joining; no real student grouping occurs.
@@ -213,12 +249,79 @@ export function applySessionAction(
     }
     case "END_TEACHING": {
       const course = state.courses.find((item) => item.id === action.payload.id);
+      const classroomTiming = course?.uiState?.classroomTiming
+        ? completeClassroomTiming(course.uiState.classroomTiming, touchedAt)
+        : undefined;
       return updateCourse(state, action.payload.id, {
         status: "finished",
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
+          ...(classroomTiming ? { classroomTiming } : {}),
         },
+        updatedAt: touchedAt,
+      });
+    }
+    case "RESTART_TEACHING": {
+      const { id, newInviteCode, classConfig } = action.payload;
+      const course = state.courses.find((item) => item.id === id);
+      if (!course) return state;
+      const classroomTiming = createClassroomTimingState({
+        stages: course.stages,
+        totalMinutes:
+          course.content.projectMainline?.totalMinutes
+          ?? course.content.moduleTimingPlan?.totalMinutes
+          ?? course.hours * 60,
+        projectMainline: course.content.projectMainline,
+        moduleTimingPlan: course.content.moduleTimingPlan,
+        activeStageKey: course.stages[0]?.key,
+        now: touchedAt,
+      });
+      return updateCourse(state, id, {
+        status: "teaching",
+        inviteCode: newInviteCode,
+        currentStageIndex: 0,
+        presentingGroupId: undefined,
+        // Clear classroom data. In DB mode, archiveAndClearCourseSession has
+        // already cleared child tables; this reducer keeps the in-memory state
+        // consistent and handles JSON-file (demo) mode where no archiving runs.
+        students: [],
+        submissions: [],
+        feedback: [],
+        rubricScores: [],
+        reflections: [],
+        activityLog: [],
+        groups: [],
+        groupAnnouncements: [],
+        workPlan: [],
+        whiteboard: [],
+        boards: [],
+        uploads: [],
+        teamContributions: [],
+        aiSupports: [],
+        teacherInterventions: [],
+        resolvedInterventionSignalIds: [],
+        stageTransitions: [],
+        evaluations: [],
+        learningEvents: [],
+        companionThreads: [],
+        companionTasks: [],
+        companionConfirmations: [],
+        companionProcessRecords: [],
+        learningSignals: [],
+        classCommonIssues: [],
+        teacherAgentDirectives: [],
+        offlineInterventions: [],
+        dynamicFacilitationScaffolds: [],
+        aiLearningProgress: undefined,
+        uiState: {
+          ...(course.uiState ?? {}),
+          teacherResourceProjection: null,
+          classroomTiming,
+        },
+        // Preserve course resources: content, stages, pblConfig,
+        // stageWorkspacePolicies, coverImageUrl, etc.
+        ...(classConfig ? { classConfig } : {}),
         updatedAt: touchedAt,
       });
     }
@@ -229,13 +332,25 @@ export function applySessionAction(
         courses: state.courses.map((c) => {
           if (c.id !== id) return c;
           const next = Math.max(0, Math.min(c.stages.length - 1, c.currentStageIndex + direction));
+          const classroomTiming =
+            next !== c.currentStageIndex && c.uiState?.classroomTiming
+              ? transitionClassroomStageTiming(
+                  c.uiState.classroomTiming,
+                  c.stages[next]!.key,
+                  touchedAt,
+                )
+              : c.uiState?.classroomTiming;
           return normalizeCourse({
             ...c,
             currentStageIndex: next,
             uiState:
               next === c.currentStageIndex
                 ? c.uiState
-                : { ...(c.uiState ?? {}), teacherResourceProjection: null },
+                : {
+                    ...(c.uiState ?? {}),
+                    teacherResourceProjection: null,
+                    ...(classroomTiming ? { classroomTiming } : {}),
+                  },
             updatedAt: touchedAt,
           });
         }),
@@ -249,13 +364,25 @@ export function applySessionAction(
         courses: state.courses.map((c) => {
           if (c.id !== id) return c;
           const next = Math.max(0, Math.min(c.stages.length - 1, index));
+          const classroomTiming =
+            next !== c.currentStageIndex && c.uiState?.classroomTiming
+              ? transitionClassroomStageTiming(
+                  c.uiState.classroomTiming,
+                  c.stages[next]!.key,
+                  touchedAt,
+                )
+              : c.uiState?.classroomTiming;
           return normalizeCourse({
             ...c,
             currentStageIndex: next,
             uiState:
               next === c.currentStageIndex
                 ? c.uiState
-                : { ...(c.uiState ?? {}), teacherResourceProjection: null },
+                : {
+                    ...(c.uiState ?? {}),
+                    teacherResourceProjection: null,
+                    ...(classroomTiming ? { classroomTiming } : {}),
+                  },
             updatedAt: touchedAt,
           });
         }),
@@ -276,13 +403,18 @@ export function applySessionAction(
           const alreadyInGroup = (c.groups ?? []).some((g) =>
             g.members.some((m) => m.studentId === student.id),
           );
+          const inquiryQuestions = normalizePblCourseConfig(c.pblConfig).inquiryQuestions;
+          const initialTopic =
+            inquiryQuestions.length === 1
+              ? inquiryQuestions[0]
+              : "待确定选题方向";
           const groups = !alreadyInGroup
             ? [
                 ...(c.groups ?? []),
                 {
                   id: `grp-${student.id}`,
                   name: `${student.name}的个人项目`,
-                  topic: "待确定选题方向",
+                  topic: initialTopic,
                   goal: "",
                   keywords: [],
                   selectedForms: [],
@@ -447,6 +579,35 @@ export function applySessionAction(
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         todos: upsertById(c.todos ?? [], action.payload.todo),
       }));
+    case "SET_STUDENT_TODO_COMPLETION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => {
+        const todos = (c.todos ?? []).map((todo) => {
+          if (todo.id !== action.payload.todoId) return todo;
+          const completedBy = new Set(todo.completedBy);
+          if (action.payload.completed) completedBy.add(action.payload.studentId);
+          else completedBy.delete(action.payload.studentId);
+          return { ...todo, completedBy: Array.from(completedBy) };
+        });
+        const launchProgress = projectLaunchProgress(
+          todos.filter(isProjectLaunchTodo),
+          action.payload.studentId,
+        );
+        return {
+          todos,
+          students: c.students.map((student) =>
+            student.id === action.payload.studentId
+              ? {
+                  ...student,
+                  stageProgress: {
+                    ...student.stageProgress,
+                    launch: launchProgress,
+                    "project-launch": launchProgress,
+                  },
+                }
+              : student,
+          ),
+        };
+      });
     case "MARK_RESOURCE_DOWNLOADED": {
       const { courseId, resourceId, studentId, studentName } = action.payload;
       return updateCourseRecord(state, courseId, touchedAt, (c) => ({
@@ -489,10 +650,12 @@ export function applySessionAction(
         ),
       }));
     case "SET_GROUP_TOPIC": {
-      const { courseId, groupId, patch } = action.payload;
+      const { courseId, groupId, patch, studentId } = action.payload;
       return updateCourseRecord(state, courseId, touchedAt, (c) => ({
         groups: (c.groups ?? []).map((g) =>
-          g.id === groupId ? { ...g, ...patch, updatedAt: touchedAt } : g,
+          g.id === groupId && (!studentId || g.members.some((member) => member.studentId === studentId))
+            ? { ...g, ...patch, updatedAt: touchedAt }
+            : g,
         ),
         activityLog: addActivity(c.activityLog, activity("小组", "更新选题方向", patch.topic ?? patch.goal ?? groupId, touchedAt)),
       }));
@@ -591,6 +754,26 @@ export function applySessionAction(
     case "UPSERT_TEACHER_AGENT_DIRECTIVE":
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         teacherAgentDirectives: upsertById(c.teacherAgentDirectives ?? [], action.payload.directive),
+      }));
+    case "UPSERT_COMPANION_TASK":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionTasks: upsertById(c.companionTasks ?? [], action.payload.task),
+      }));
+    case "UPSERT_COMPANION_CONFIRMATION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionConfirmations: upsertById(c.companionConfirmations ?? [], action.payload.confirmation),
+      }));
+    case "RESOLVE_COMPANION_CONFIRMATION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionConfirmations: (c.companionConfirmations ?? []).map((confirmation) =>
+          confirmation.id === action.payload.confirmationId
+            ? { ...confirmation, status: action.payload.status, resolvedAt: action.payload.resolvedAt }
+            : confirmation,
+        ),
+      }));
+    case "ADD_COMPANION_PROCESS_RECORD":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        companionProcessRecords: [action.payload.record, ...(c.companionProcessRecords ?? [])].slice(0, 160),
       }));
     case "SET_UI_STATE":
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
@@ -724,9 +907,18 @@ export function normalizeCourse(course: Course): Course {
     : stageKey === "workspace"
       ? "make"
       : stageKey;
+  const migratedWorkspacePolicies = Object.fromEntries(
+    Object.entries(course.stageWorkspacePolicies ?? {}).map(([stageKey, policy]) => [
+      migrateStageKey(stageKey),
+      normalizeStageWorkspacePolicy(policy),
+    ]),
+  );
   return {
     ...course,
     pblConfig: normalizePblCourseConfig(course.pblConfig),
+    stageWorkspacePolicies: Object.fromEntries(
+      stages.map((stage) => [stage.key, getStageWorkspacePolicy(migratedWorkspacePolicies, stage.key)]),
+    ),
     stages,
     currentStageIndex: migratedStageIndex,
     classConfig: course.classConfig
@@ -760,6 +952,9 @@ export function normalizeCourse(course: Course): Course {
     evaluations: course.evaluations ?? [],
     learningEvents: course.learningEvents ?? [],
     companionThreads: course.companionThreads ?? [],
+    companionTasks: course.companionTasks ?? [],
+    companionConfirmations: course.companionConfirmations ?? [],
+    companionProcessRecords: course.companionProcessRecords ?? [],
     learningSignals: course.learningSignals ?? [],
     classCommonIssues: course.classCommonIssues ?? [],
     teacherAgentDirectives: course.teacherAgentDirectives ?? [],
@@ -768,9 +963,6 @@ export function normalizeCourse(course: Course): Course {
     uiState: {
       ...(course.uiState ?? {}),
       teacherResourceProjection: course.uiState?.teacherResourceProjection ?? null,
-      aiChatStagesEnabled: course.uiState?.aiChatStagesEnabled?.length
-        ? [...new Set(course.uiState.aiChatStagesEnabled.map(migrateStageKey))]
-        : course.uiState?.aiChatStagesEnabled,
     },
     content: {
       ...course.content,

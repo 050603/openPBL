@@ -32,6 +32,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { resolveOutlinePromptPlan } from './outline-prompt-plan';
 import { applyInteractiveModePolicy } from './interactive-mode-policy';
+import { ensureAdaptiveCheckpointQuizzes } from './adaptive-checkpoint-policy';
 const log = createLogger('Generation');
 
 /**
@@ -209,13 +210,24 @@ export async function generateSceneOutlinesFromRequirements(
     }));
 
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-    const result = uniquifyMediaElementIds(
-      normalizeSceneOutlinesForDuration(
-        applyInteractiveModePolicy(
-          enforcePblOutlineContract(enriched, requirements),
-          promptPlan.interactiveMode,
-        ),
+    const withAdaptiveCheckpoints = ensureAdaptiveCheckpointQuizzes(
+      applyInteractiveModePolicy(
+        enforcePblOutlineContract(enriched, requirements),
+        promptPlan.interactiveMode,
       ),
+    );
+    const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({
+      id: activity.activityId,
+      durationMin: activity.durationMin,
+    }));
+    const durationBalanced = parentActivities.length
+      ? rescalePblDetailDurations<SceneOutline>(
+          withAdaptiveCheckpoints,
+          parentActivities,
+        )
+      : withAdaptiveCheckpoints;
+    const result = uniquifyMediaElementIds(
+      normalizeSceneOutlinesForDuration(durationBalanced),
     );
 
     callbacks?.onProgress?.({

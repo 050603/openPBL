@@ -20,6 +20,19 @@ function moduleLabel(kind: PblTimeActivityKind, fallback?: string): string {
     ?? "其他课程模块";
 }
 
+function recommendationSourceLabel(plan: PblModuleTimingPlan): string {
+  if (plan.recommendationSource === "llm") return "大模型分析";
+  if (plan.recommendationSource === "deterministic-fallback") return "确定性降级建议";
+  if (plan.recommendationSource === "teacher") return "教师设定";
+  return "历史建议";
+}
+
+function confidenceLabel(plan: PblModuleTimingPlan): string {
+  if (plan.confidence === "high") return "高置信度";
+  if (plan.confidence === "low") return "低置信度";
+  return "中等置信度";
+}
+
 // 协调色板：色相均匀分布，饱和度/明度相近，搭配美观
 const MODULE_COLORS = [
   "bg-indigo-500",
@@ -231,7 +244,9 @@ export function PblModuleTimingPanel({
               : "border-amber-200 bg-amber-50 text-amber-700",
           )}>
             {planConfirmed ? <LockKeyhole size={13} /> : <WandSparkles size={13} />}
-            {planConfirmed ? "教师已确认" : "AI 建议待确认"}
+            {planConfirmed
+              ? `教师已确认 · ${recommendationSourceLabel(displayPlan)}`
+              : `${recommendationSourceLabel(displayPlan)} · ${confidenceLabel(displayPlan)}`}
           </div>
         </div>
         <div className={cn("mt-4 grid gap-2", compact ? "grid-cols-2" : "sm:grid-cols-3")}>
@@ -257,6 +272,33 @@ export function PblModuleTimingPanel({
             </p>
           </div>
         </div>
+        {(displayPlan.evidence?.length ||
+          displayPlan.assumptions?.length ||
+          displayPlan.rationaleByStage) ? (
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+            <div className="rounded-[6px] border border-white/80 bg-white/70 px-3 py-2">
+              <p className="font-bold text-stone-700">本次建议实际使用的依据</p>
+              <p className="mt-1 leading-5 text-stone-500">
+                {displayPlan.evidence?.length
+                  ? displayPlan.evidence.join("；")
+                  : "模型未返回可核验依据，请教师重点复核。"}
+              </p>
+            </div>
+            <div className={cn(
+              "rounded-[6px] border px-3 py-2",
+              displayPlan.recommendationSource === "deterministic-fallback"
+                ? "border-amber-200 bg-amber-50"
+                : "border-white/80 bg-white/70",
+            )}>
+              <p className="font-bold text-stone-700">假设与边界</p>
+              <p className="mt-1 leading-5 text-stone-500">
+                {displayPlan.assumptions?.length
+                  ? displayPlan.assumptions.join("；")
+                  : "未声明额外假设。"}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="p-4">
@@ -321,6 +363,9 @@ export function PblModuleTimingPanel({
             const kind = classifyPblActivityKind(activity);
             const recommended = recommendations.get(activity.id) ?? activity.durationMin;
             const definition = PBL_MODULE_DEFINITIONS.find((item) => item.kind === kind);
+            const stageRationale = definition
+              ? displayPlan.rationaleByStage?.[definition.stageKey]
+              : undefined;
             return (
               <div className="rounded-[6px] border border-stone-100 bg-stone-50/70 px-3 py-2.5" key={activity.id}>
                 <div className={cn("flex justify-between gap-2", compact ? "items-start" : "items-center")}>
@@ -364,6 +409,11 @@ export function PblModuleTimingPanel({
                     </label>
                   )}
                 </div>
+                {stageRationale ? (
+                  <p className="mt-2 border-t border-stone-100 pt-2 text-[11px] leading-5 text-stone-500">
+                    {stageRationale}
+                  </p>
+                ) : null}
               </div>
             );
           })}

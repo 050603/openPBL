@@ -185,9 +185,7 @@ function AgentVoicePill({
       }
     },
     [
-      agent.name,
-      agent.persona,
-      agent.role,
+      agent,
       locale,
       previewingId,
       stopPreview,

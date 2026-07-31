@@ -6,6 +6,7 @@
  */
 import { promises as dns } from 'node:dns';
 import { isIP } from 'node:net';
+import { Agent } from 'undici';
 
 function normalizeAddress(value: string): string {
   let normalized = value.trim().toLowerCase();
@@ -118,6 +119,13 @@ export function isPrivateIP(ip: string): boolean {
       (first === 169 && second === 254) ||
       (first === 172 && second >= 16 && second <= 31) ||
       (first === 192 && second === 168) ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 192 && second === 0 && third === 0) ||
+      (first === 192 && second === 0 && third === 2) ||
+      (first === 198 && (second === 18 || second === 19)) ||
+      (first === 198 && second === 51 && third === 100) ||
+      (first === 203 && second === 0 && third === 113) ||
+      first >= 224 ||
       (first === 0 && second === 0 && third === 0 && fourth === 0)
     );
   }
@@ -134,7 +142,9 @@ export function isPrivateIP(ip: string): boolean {
   if (
     (ipv6FirstHextet & 0xfe00) === 0xfc00 || // fc00::/7 unique local
     (ipv6FirstHextet & 0xffc0) === 0xfe80 || // fe80::/10 link-local
-    (ipv6FirstHextet & 0xffc0) === 0xfec0 // fec0::/10 site-local (deprecated)
+    (ipv6FirstHextet & 0xffc0) === 0xfec0 || // fec0::/10 site-local (deprecated)
+    (ipv6FirstHextet & 0xff00) === 0xff00 || // ff00::/8 multicast
+    normalized.startsWith('2001:db8:') // documentation range
   ) {
     return true;
   }
@@ -191,6 +201,9 @@ export async function validateUrlForSSRF(url: string): Promise<string | null> {
   if (
     hostname === 'localhost' ||
     hostname.endsWith('.local') ||
+    hostname === 'metadata.google.internal' ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.localhost') ||
     hostname === '0.0.0.0' ||
     hostname === '::1' ||
     isPrivateIP(hostname)
@@ -218,4 +231,40 @@ export async function validateUrlForSSRF(url: string): Promise<string | null> {
   }
 
   return null;
+}
+
+/**
+ * Resolve once, validate every result, then pin the outbound connection to a
+ * validated address. This closes the DNS-rebinding gap between validation and
+ * the actual socket connection.
+ */
+export async function createSsrfSafeDispatcher(
+  rawUrl: string,
+): Promise<{ dispatcher: Agent; close: () => Promise<void> }> {
+  const error = await validateUrlForSSRF(rawUrl);
+  if (error) throw new Error(error);
+
+  const parsed = new URL(rawUrl);
+  const hostname = normalizeAddress(parsed.hostname);
+  const directFamily = isIP(hostname);
+  const resolved = directFamily
+    ? [{ address: hostname, family: directFamily }]
+    : await dns.lookup(hostname, { all: true, verbatim: true });
+  if (resolved.length === 0 || resolved.some(({ address }) => isPrivateIP(address))) {
+    throw new Error(LOCAL_NETWORK_BLOCK_MESSAGE);
+  }
+  const selected = resolved[0];
+  const dispatcher = new Agent({
+    connect: {
+      lookup: (_host, _options, callback) => {
+        callback(null, selected.address, selected.family);
+      },
+    },
+  });
+  return {
+    dispatcher,
+    close: async () => {
+      await dispatcher.close();
+    },
+  };
 }

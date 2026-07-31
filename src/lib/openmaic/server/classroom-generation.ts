@@ -34,9 +34,10 @@ import {
   assessTtsDurationError,
   buildTtsTimingPlan,
   estimateSpeechDurationSec,
+  isActivityTimingCorrectionCloser,
 } from '@openmaic/lib/audio/tts-timing';
 import {
-  estimatePblActivityTime,
+  planPblPageTiming,
   type PblActivityContentType,
   type PblActivityTimingInput,
   type PblInteractionType,
@@ -52,6 +53,7 @@ import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-pl
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
 import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { addStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
 import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
 import type { Action } from '@openmaic/lib/types/action';
@@ -281,41 +283,21 @@ export function attachTtsTimingPlans(
     const contentType = inferOutlineContentType(outline);
     const interaction = inferOutlineInteraction(outline);
     const quiz = inferOutlineQuiz(outline);
-    const activityEstimate = estimatePblActivityTime({
-      id: outline.id,
-      title: outline.title,
-      stageKey: outline.stageKey,
-      activityKind: outline.activityId ? 'knowledge' : undefined,
+    const pageTiming = planPblPageTiming({
+      activityTargetSec,
+      pageKind: outline.type === 'quiz'
+        ? 'quiz'
+        : outline.type === 'interactive'
+          ? 'interactive'
+          : 'slide',
       contentType,
-      targetDurationSec: activityTargetSec,
       interaction,
       quiz,
     });
-    const isQuiz = contentType === 'quiz' || Boolean(quiz);
-    const isInteractive = Boolean(interaction);
-    const transitionSec = isQuiz || isInteractive
-      ? Math.min(15, Math.max(5, Math.round(activityTargetSec * 0.05)))
-      : 0;
-    const desiredStudentActivitySec = isQuiz
-      ? Math.max(activityEstimate.quizSec, Math.round(activityTargetSec * 0.45))
-      : isInteractive
-        ? Math.max(activityEstimate.interactionSec, Math.round(activityTargetSec * 0.4))
-        : 0;
-    const maxStudentActivitySec = Math.max(0, activityTargetSec - transitionSec - 15);
-    const studentActivitySec = Math.min(desiredStudentActivitySec, maxStudentActivitySec);
-    const speechTargetSec = Math.max(
-      1,
-      activityTargetSec - transitionSec - studentActivitySec,
-    );
-    const feedbackSec = isQuiz
-      ? Math.min(speechTargetSec, Math.max(10, Math.round(speechTargetSec * 0.55)))
-      : isInteractive
-        ? Math.min(speechTargetSec, Math.max(8, Math.round(speechTargetSec * 0.3)))
-        : 0;
     return {
       ...outline,
       timingPlan: buildTtsTimingPlan({
-        targetDurationSec: speechTargetSec,
+        targetDurationSec: pageTiming.narrationSec,
         activityTargetDurationSec: activityTargetSec,
         providerId: selection.providerId,
         modelId: selection.modelId,
@@ -323,11 +305,19 @@ export function attachTtsTimingPlans(
         // Course audio is generated at the provider's natural rate. Duration
         // is controlled by content and activity budgets, never rate fitting.
         speed: 1,
+        naturalSpeedLocked: true,
         language: selection.language,
         contentType,
-        studentActivitySec,
-        feedbackSec,
-        transitionSec,
+        pageKind: pageTiming.pageKind,
+        readingThinkingSec: pageTiming.readingThinkingSec,
+        operationSec: pageTiming.operationSec,
+        studentActivitySec: pageTiming.studentActivitySec,
+        feedbackSec: pageTiming.feedbackSec,
+        transitionSec: pageTiming.transitionSec,
+        taskComplexity: pageTiming.taskComplexity,
+        recommendedStudentActivitySec: pageTiming.recommendedStudentActivitySec,
+        taskFitsBudget: pageTiming.taskFitsBudget,
+        timingRationale: pageTiming.rationale,
       }),
     };
   });
@@ -867,7 +857,12 @@ export async function generateClassroom(
       // A single bounded correction pass keeps the generated script close to
       // the model-specific narration budget without creating an unbounded loop.
       const timingPlan = safeOutline.timingPlan;
-      const firstSpeechText = getSpeechActionText(actions);
+      // Include the deterministic fallback feedback that assembly will add
+      // when the model omitted a closing speech line. Otherwise correction
+      // would underestimate the audio that is actually generated and played.
+      const firstSpeechText = getSpeechActionText(
+        addStudentActivityPause(safeOutline, actions),
+      );
       if (timingPlan && firstSpeechText) {
         const firstEstimatedSec = estimateSpeechDurationSec(firstSpeechText, {
           providerId: timingPlan.providerId,
@@ -889,7 +884,9 @@ export async function generateClassroom(
             teachingConstraints: requirements.teachingConstraints,
             timingCorrection: firstAssessment.suggestions.join('；'),
           });
-          const correctedText = getSpeechActionText(correctedActions);
+          const correctedText = getSpeechActionText(
+            addStudentActivityPause(safeOutline, correctedActions),
+          );
           const correctedEstimatedSec = correctedText
             ? estimateSpeechDurationSec(correctedText, {
                 providerId: timingPlan.providerId,
@@ -898,9 +895,14 @@ export async function generateClassroom(
                 speed: timingPlan.speed,
               })
             : 0;
-          const correctedError = Math.abs(correctedEstimatedSec - timingPlan.targetDurationSec);
-          const firstError = Math.abs(firstEstimatedSec - timingPlan.targetDurationSec);
-          if (correctedText && correctedError < firstError) {
+          const activityTargetSec =
+            timingPlan.activityTargetDurationSec ?? timingPlan.targetDurationSec;
+          if (correctedText && isActivityTimingCorrectionCloser({
+            activityTargetSec,
+            reservedActivitySec,
+            firstNarrationSec: firstEstimatedSec,
+            correctedNarrationSec: correctedEstimatedSec,
+          })) {
             actions = correctedActions;
           }
           log.warn(

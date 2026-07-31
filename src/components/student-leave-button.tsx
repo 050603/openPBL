@@ -15,20 +15,16 @@ export function StudentLeaveButton({
   className?: string;
 }) {
   const router = useRouter();
-  const { leaveClass, joinedCourseId, studentId } = useSession();
+  const { leaveClass } = useSession();
 
-  function handleClick() {
-    // Fire-and-forget: mark the student offline on the server before
-    // navigating away. sendBeacon works even during unload.
-    if (joinedCourseId && studentId) {
-      const url = `/api/session/presence?courseId=${encodeURIComponent(joinedCourseId)}&studentId=${encodeURIComponent(studentId)}`;
-      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-        navigator.sendBeacon(url, "");
-      } else {
-        fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
-      }
-    }
-    leaveClass();
+  async function handleClick() {
+    const left = await leaveClass();
+    if (!left) return;
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "X-OpenPBL-Role": "student" },
+    });
+    if (!response.ok) return;
     router.replace(redirectTo);
   }
 
@@ -39,12 +35,11 @@ export function StudentLeaveButton({
         "inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50 " +
         (className ?? "")
       }
-      onClick={handleClick}
       type="button"
     >
       <LogOut size={15} /> {label}
       </button></AlertDialogTrigger>
-      <AlertDialogContent><AlertDialogTitle>离开当前课堂？</AlertDialogTitle><AlertDialogDescription>离开后当前身份会退出课堂，再次进入需要重新输入邀请码。</AlertDialogDescription><AlertDialogFooter><AlertDialogCancel>继续学习</AlertDialogCancel><AlertDialogAction onClick={handleClick}>确认离开</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      <AlertDialogContent><AlertDialogTitle>离开当前课堂？</AlertDialogTitle><AlertDialogDescription>离开后当前身份会退出课堂，再次进入需要重新输入邀请码。</AlertDialogDescription><AlertDialogFooter><AlertDialogCancel>继续学习</AlertDialogCancel><AlertDialogAction onClick={() => void handleClick()}>确认离开</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
     </AlertDialog>
   );
 }

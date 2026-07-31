@@ -190,6 +190,69 @@ ${stageList}
   return { system: SYSTEM_PREAMBLE, user };
 }
 
+export function buildModuleTimingPlanPrompt(
+  input: GenerateInput,
+  context?: { knowledgeGraph?: unknown; knowledgePoints?: unknown },
+): {
+  system: string;
+  user: string;
+} {
+  const totalMinutes = Math.max(0, Math.round(input.hours * 60));
+  const courseEvidence = {
+    course: {
+      name: input.name,
+      subject: input.subject,
+      grade: input.grade,
+      totalMinutes,
+      summary: input.summary,
+      drivingQuestion: input.drivingQuestion,
+      learningObjectives: input.learningObjectives ?? [],
+      difficulty: input.pblConfig?.difficultyLevel ?? "standard",
+    },
+    learnerProfile: {
+      priorKnowledge: input.learnerProfile?.priorKnowledge ?? "",
+      learningNeeds: input.learnerProfile?.learningNeeds ?? "",
+      familiarContexts: input.learnerProfile?.familiarContexts ?? "",
+    },
+    knowledgePoints: context?.knowledgePoints ?? [],
+    knowledgeGraph: context?.knowledgeGraph ?? null,
+  };
+  const user = `请为一节个人项目式学习课程分析时间安排。你负责教学判断和解释，系统会负责总时长守恒与边界校验。
+
+课程与学情证据：
+${JSON.stringify(courseEvidence, null, 2)}
+
+必须针对性分析以下因素：
+1. 年级和已有基础决定导入、讲解、操作与反思所需支架。
+2. knowledgePoints 的层级、数量以及 knowledgeGraph 的先修依赖决定知识建构时间。
+3. 学习目标、难度和成果复杂度决定方案比较、制作迭代、展示评价所需时间。
+4. learningNeeds 为空时必须在 assumptions 中声明保守假设，不得假装已知学情。
+5. 六个阶段必须且只能是 launch、ai-learning、proposal、make、showcase、reflection。
+6. 六个阶段的 durationMin 应合计 ${totalMinutes} 分钟；每阶段至少 1 分钟；make 通常是最长阶段，如需例外必须在 rationale 中说明。
+7. 每个 rationale 必须引用本课程的具体内容、知识结构或学情，不得只写通用比例。
+
+仅返回 JSON：
+{
+  "moduleTimingRecommendation": {
+    "allocations": [
+      { "stageKey": "launch", "durationMin": 8, "rationale": "string" },
+      { "stageKey": "ai-learning", "durationMin": 18, "rationale": "string" },
+      { "stageKey": "proposal", "durationMin": 8, "rationale": "string" },
+      { "stageKey": "make", "durationMin": 38, "rationale": "string" },
+      { "stageKey": "showcase", "durationMin": 12, "rationale": "string" },
+      { "stageKey": "reflection", "durationMin": 6, "rationale": "string" }
+    ],
+    "evidence": ["实际使用的课程或学情依据"],
+    "assumptions": ["信息缺失时采用的假设"],
+    "confidence": "low|medium|high"
+  }
+}`;
+  return {
+    system: "你是一名课程时间设计专家。只返回严格 JSON，不输出 Markdown 或额外说明。",
+    user,
+  };
+}
+
 export function buildTeachingOutlinePrompt(
   input: GenerateInput,
   context?: {

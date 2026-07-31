@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "*.config.ts",
+    "*.config.mts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "OpenMAIC-main",
+    "packages/**/src",
+    "packages/docs",
+    "e2e",
+    ".next/dev"
+  ]
+}

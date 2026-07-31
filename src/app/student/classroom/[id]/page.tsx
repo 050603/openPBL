@@ -2,24 +2,57 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Clock3, Hourglass, LogIn, MonitorUp, X } from "lucide-react";
+import {
+  Clock3,
+  Hourglass,
+  ListTodo,
+  LogIn,
+  MonitorUp,
+  UsersRound,
+  X,
+} from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { StudentStageView } from "@/components/views/student/stage-dispatcher";
 import { StudentLeaveButton } from "@/components/student-leave-button";
 import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { isStudentOnline } from "@/lib/session/actions";
 import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/teacher-stage-resources";
-import { StageProgress } from "@/components/classroom/classroom-chrome";
+import { StudentStageView } from "@/components/views/student/stage-dispatcher";
+import { CompanionRuntimeProvider } from "@/components/views/student/companion-runtime";
+import { CompanionStudioWorkspace } from "@/components/views/student/companion-studio-workspace";
+import { useStudentWorkspaceMode } from "@/components/views/student/workspace-mode";
+import {
+  getStageWorkspacePolicy,
+  resolveStageWorkspaceMode,
+} from "@/lib/classroom/stage-workspace-policy";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const course = useCourse(params?.id);
+  useRealtimeSync(params?.id);
   const hydrated = useHydrated();
   const { user, studentName, studentId, joinedCourseId } = useSession();
   const presenceRef = useRef<{ courseId?: string; studentId?: string }>({});
   const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
+  const activeStageKey = course?.stages[course.currentStageIndex]?.key;
+  const workspacePolicy = getStageWorkspacePolicy(
+    course?.stageWorkspacePolicies,
+    activeStageKey,
+  );
+  const [workspacePreference, setWorkspacePreference] =
+    useStudentWorkspaceMode(
+      params?.id ?? "classroom",
+      studentId,
+      activeStageKey,
+      workspacePolicy.defaultMode,
+    );
+  const workspaceMode = resolveStageWorkspaceMode(
+    workspacePolicy,
+    workspacePreference,
+  );
+  const canSwitchWorkspace = workspacePolicy.access === "student-choice";
 
   useEffect(() => {
     if (!hydrated) return;
@@ -33,10 +66,12 @@ export default function StudentClassroomPage() {
     presenceRef.current = { courseId: course.id, studentId };
 
     const sendHeartbeat = () => {
-      fetch("/api/session/presence", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courseId: course.id, studentId }),
+      fetch(`/api/courses/${encodeURIComponent(course.id)}/presence`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenPBL-Role": "student",
+        },
         keepalive: true,
       }).catch(() => {
         // The server sweep handles missed heartbeats.
@@ -44,16 +79,27 @@ export default function StudentClassroomPage() {
     };
 
     sendHeartbeat();
-    const intervalId = window.setInterval(sendHeartbeat, 10_000);
+    const intervalId = window.setInterval(sendHeartbeat, 20_000);
 
     const sendOffline = () => {
       const { courseId, studentId } = presenceRef.current;
       if (!courseId || !studentId) return;
-      const url = `/api/session/presence?courseId=${encodeURIComponent(courseId)}&studentId=${encodeURIComponent(studentId)}`;
-      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-        navigator.sendBeacon(url, "");
-      } else {
-        fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+      const url = `/api/courses/${encodeURIComponent(courseId)}/presence`;
+      // visibilitychange hidden / beforeunload 时浏览器会中止大部分 inflight
+      // 请求，sendBeacon 是专门为这种场景设计的 API。如果它返回 false
+      // （被中止或配额超限），不再降级到 fetch —— fetch keepalive 同样会被
+      // 浏览器中止，只会再产生一条 net::ERR_ABORTED 网络错误。直接依赖
+      // 服务器心跳超时机制（HEARTBEAT_TIMEOUT_MS）兜底标记离线即可。
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        try {
+          void fetch(url, {
+            method: "DELETE",
+            headers: { "X-OpenPBL-Role": "student" },
+            keepalive: true,
+          });
+        } catch {
+          // sendBeacon 不可用或被中止 —— 静默失败，依赖心跳超时。
+        }
       }
     };
 
@@ -69,7 +115,9 @@ export default function StudentClassroomPage() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityHidden);
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      sendOffline();
+      // 组件卸载时不主动调用 sendOffline —— 这通常是 React StrictMode
+      // 双 mount 或路由切换产生的清理，主动上报会触发 net::ERR_ABORTED。
+      // 依赖服务器心跳超时机制兜底。
     };
   }, [hydrated, course, studentId, joinedCourseId]);
 
@@ -119,6 +167,8 @@ export default function StudentClassroomPage() {
       role="student"
       userName={displayName}
       variant="bare"
+      wide={currentStage?.key === "ai-learning"}
+      immersive={isTeaching && workspaceMode === "companions"}
       hideCourseSwitcher
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total, label: currentStage.label } : undefined}
@@ -147,31 +197,13 @@ export default function StudentClassroomPage() {
         )
       }
     >
-      {isTeaching ? <div className="mb-4"><StageProgress course={course} readonly /></div> : null}
-      {/* 小屏幕精简课程信息条 */}
-      {isTeaching && currentStage ? (
-        <div className="mb-3 flex items-center gap-2 md:hidden">
-          <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[var(--pbl-student-soft)] px-2.5 text-[12px] font-bold text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
-            阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-12 overflow-hidden rounded-full bg-stone-200">
-              <div className="h-full rounded-full bg-[var(--pbl-student)] transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <span className="text-[12px] font-bold text-[var(--pbl-student)]">{progress}%</span>
-          </div>
-          <StudentLeaveButton className="ml-auto inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-orange-200 bg-white px-2.5 text-[12px] font-semibold text-[var(--pbl-danger)]" />
-        </div>
-      ) : null}
-
       {course.status === "finished" ? (
         <FinishedState course={course} />
       ) : !isTeaching ? (
         <WaitingState status={course.status} />
-      ) : forcedProjection ? (
-        <StudentProjectedTeacherResource projection={forcedProjection} />
       ) : currentStage ? (
         <>
+          {forcedProjection ? <StudentProjectedTeacherResource projection={forcedProjection} /> : null}
           {optionalProjection ? (
             <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -181,21 +213,60 @@ export default function StudentClassroomPage() {
               {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
             </div>
           ) : null}
-          {!optionalProjectionOpen ? <section
-            className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
-            key={currentStage.key}
-          >
-            <StudentStageView course={course} view={currentStage.view} />
-          </section> : null}
+          {workspaceMode === "task" ? (
+            <div className="space-y-3">
+              {canSwitchWorkspace ? (
+                <div className="flex justify-end">
+                  <button
+                    className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]"
+                    onClick={() => setWorkspacePreference("companions")}
+                    type="button"
+                  >
+                    <UsersRound size={15} />
+                    进入 AI 伴学场景
+                  </button>
+                </div>
+              ) : null}
+              <section
+                className={
+                  currentStage.key === "ai-learning"
+                    ? "overflow-hidden rounded-[var(--radius-lg)]"
+                    : "pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 md:p-5"
+                }
+              >
+                <StudentStageView
+                  course={course}
+                  view={currentStage.view}
+                />
+              </section>
+            </div>
+          ) : (
+            <CompanionRuntimeProvider
+              contextLabel={currentStage.label}
+              course={course}
+              stageKey={currentStage.key}
+            >
+              {canSwitchWorkspace ? (
+                <div className="mb-3 flex justify-end">
+                  <button
+                    className="inline-flex min-h-9 items-center gap-2 rounded-full border border-stone-200 bg-white/90 px-3.5 text-xs font-bold text-stone-700 shadow-sm transition hover:border-[var(--pbl-student-border)] hover:text-[var(--pbl-student)]"
+                    onClick={() => setWorkspacePreference("task")}
+                    type="button"
+                  >
+                    <ListTodo size={15} />
+                    切换到传统学习页面
+                  </button>
+                </div>
+              ) : null}
+              <CompanionStudioWorkspace
+                contextLabel={currentStage.label}
+                course={course}
+                stageKey={currentStage.key}
+              />
+            </CompanionRuntimeProvider>
+          )}
         </>
       ) : null}
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </DashboardShell>
   );
 }
