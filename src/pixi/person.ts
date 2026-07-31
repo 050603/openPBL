@@ -29,11 +29,49 @@ export function getActionAuthoredFacing(
     return 'left'
   }
 
-  // The horizontal walking strip was drawn facing right. The interaction
-  // strips and the canonical character were drawn facing left. Tracking this
-  // per action prevents a correct walk fix from mirroring shelf interactions
-  // back toward the room.
-  return actionName === 'fc_walking_h' ? 'right' : 'left'
+  return getAgentActionDefinition(actionName).authoredFacing ?? 'left'
+}
+
+export function getActionAnimationSpeed(actionName: AgentActionName): number {
+  const definition = getAgentActionDefinition(actionName)
+  if (definition.authoredFps) {
+    return definition.authoredFps / 60
+  }
+
+  return definition.playback?.animationSpeed ?? 0.12
+}
+
+export function getActionRegistrationAnchor(
+  actionName: AgentActionName,
+): VisualAnchorName {
+  return getAgentActionDefinition(actionName).registrationAnchor ?? 'bottomCenter'
+}
+
+export function getActionTransitionMs(actionName: AgentActionName): number {
+  return getAgentActionDefinition(actionName).transitionMs ?? 140
+}
+
+export function getActionVisualScale(actionName: AgentActionName): number {
+  return getAgentActionDefinition(actionName).visualScale ?? 1
+}
+
+export function getActionVisualWidthScale(actionName: AgentActionName): number {
+  return getAgentActionDefinition(actionName).visualWidthScale ?? 1
+}
+
+export function getActionSwitchAlignment(
+  previousAnchor: { x: number; y: number },
+  nextAnchor: { x: number; y: number },
+): {
+  container: { x: number; y: number }
+  retiringSprite: { x: number; y: number }
+} {
+  const x = previousAnchor.x - nextAnchor.x
+  const y = previousAnchor.y - nextAnchor.y
+  return {
+    container: { x, y },
+    retiringSprite: { x: -x, y: -y },
+  }
 }
 
 export function getActionFrameBodyOffset(
@@ -80,6 +118,8 @@ export type PersonController = {
   setFacing: (facing: PersonFacing) => void
   setPosture: (posture: PersonPosture) => void
   setAnimationSpeed: (value: number) => void
+  startBodyAnimation: () => void
+  stopBodyAnimation: () => void
   destroy: () => void
 }
 
@@ -88,10 +128,18 @@ type PersonFactoryOptions = {
 }
 
 type VisualAnchorOffset = { x: number; y: number }
+type RetiringBody = {
+  sprite: AnimatedSprite
+  actionName: AgentActionName
+}
 
-type PersonPlaybackOptions = AgentActionPlaybackOptions & {
+export type PersonPlaybackOptions = AgentActionPlaybackOptions & {
+  autoplay?: boolean
+  onMounted?: () => void
   preserveVisualAnchor?: VisualAnchorName
   visualAnchorOffset?: VisualAnchorOffset
+  restart?: boolean
+  transitionMs?: number
 }
 
 export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
@@ -104,6 +152,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     const spritesByLayer = new Map<'body', AnimatedSprite>()
     const visualAnchorOffsets = new Map<'body', VisualAnchorOffset>()
     const frameBodyCorrections = new Map<AnimatedSprite, VisualAnchorOffset>()
+    const retiringBodies = new Map<AnimatedSprite, RetiringBody>()
     // The 1x atlas metadata keeps the same logical frame size as @2x, while
     // using one quarter of the GPU memory.
     const baseScale = process.env.NEXT_PUBLIC_AGENT_ART === 'legacy' ? 0.45 : 0.78
@@ -111,17 +160,21 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     // Pixi animationSpeed is frames per 60 Hz tick. 0.12 produces roughly
     // 7.2 authored frames per second, keeping gestures legible and calm on a
     // classroom display while still retaining continuous motion.
-    let animationSpeed = 0.12
+    let fallbackAnimationSpeed = 0.12
     let currentAction: AgentActionName = actions.default
     let currentTextureAction: AgentActionName | null = null
+    let currentPlaybackSignature = ''
+    let currentTargetAlpha = 1
     let facing: PersonFacing = 'left'
     let playbackRequest = 0
+    let transitionRequest = 0
     let movementRequest = 0
     let disposed = false
     let settleCurrentPlayback: (() => void) | null = null
     let applyCurrentFrameCorrection: (() => void) | null = null
     const movementFrameIds = new Set<number>()
     const movementCancels = new Set<() => void>()
+    const transitionFrameIds = new Set<number>()
     const lastVisualAnchorPositions = new Map<VisualAnchorName, { x: number; y: number }>()
 
     container.x = roleProfile.position.x
@@ -164,6 +217,10 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
             y: sprite.y - frameCorrection.y + bodyCore.y * sprite.scale.y + offset.y,
           }
         }
+        return {
+          x: bounds.centerX - frameCorrection.x + offset.x,
+          y: bounds.top + (bounds.bottom - bounds.top) * 0.54 - frameCorrection.y + offset.y,
+        }
       }
 
       return anchor === 'bottomCenter'
@@ -177,9 +234,92 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
           }
     }
 
+    function destroyRetiringBody(body: RetiringBody): void {
+      retiringBodies.delete(body.sprite)
+      frameBodyCorrections.delete(body.sprite)
+      if (body.sprite.parent === spriteLayer) {
+        spriteLayer.removeChild(body.sprite)
+      }
+      body.sprite.destroy()
+      textureLoader.releaseActionTextures(body.actionName, textureOptions)
+    }
+
+    function clearBodyTransitions(): void {
+      transitionRequest += 1
+      transitionFrameIds.forEach((frameId) => window.cancelAnimationFrame(frameId))
+      transitionFrameIds.clear()
+      retiringBodies.forEach(destroyRetiringBody)
+      retiringBodies.clear()
+      const active = spritesByLayer.get('body')
+      if (active) {
+        active.alpha = currentTargetAlpha
+      }
+    }
+
+    function startBodyTransition(
+      previous: AnimatedSprite,
+      previousAction: AgentActionName,
+      nextSprite: AnimatedSprite,
+      targetAlpha: number,
+      duration: number,
+    ): void {
+      if (duration <= 0) {
+        destroyRetiringBody({ sprite: previous, actionName: previousAction })
+        nextSprite.alpha = targetAlpha
+        return
+      }
+
+      const request = ++transitionRequest
+      const previousAlpha = previous.alpha
+      const startedAt = performance.now()
+      const retiring = { sprite: previous, actionName: previousAction }
+      retiringBodies.set(previous, retiring)
+      nextSprite.alpha = 0
+
+      let frameId = 0
+      const finish = () => {
+        if (frameId) {
+          transitionFrameIds.delete(frameId)
+          frameId = 0
+        }
+        if (retiringBodies.has(previous)) {
+          destroyRetiringBody(retiring)
+        }
+        if (spritesByLayer.get('body') === nextSprite) {
+          nextSprite.alpha = targetAlpha
+        }
+      }
+      const tick = (time: number) => {
+        if (frameId) {
+          transitionFrameIds.delete(frameId)
+          frameId = 0
+        }
+        if (disposed || request !== transitionRequest) {
+          finish()
+          return
+        }
+
+        const progress = Math.min(1, Math.max(0, (time - startedAt) / duration))
+        const eased = progress * progress * (3 - 2 * progress)
+        previous.alpha = previousAlpha * (1 - eased)
+        nextSprite.alpha = targetAlpha * eased
+        if (progress >= 1) {
+          finish()
+          return
+        }
+
+        frameId = window.requestAnimationFrame(tick)
+        transitionFrameIds.add(frameId)
+      }
+
+      frameId = window.requestAnimationFrame(tick)
+      transitionFrameIds.add(frameId)
+    }
+
     function removeBody(): void {
       settleCurrentPlayback?.()
       settleCurrentPlayback = null
+      clearBodyTransitions()
       const previous = spritesByLayer.get('body')
       if (!previous) {
         return
@@ -194,6 +334,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
         textureLoader.releaseActionTextures(currentTextureAction, textureOptions)
         currentTextureAction = null
       }
+      currentPlaybackSignature = ''
     }
 
     function applyFacing(sprite: AnimatedSprite, actionName: AgentActionName): void {
@@ -205,6 +346,28 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       sprite.scale.x = Math.abs(sprite.scale.x) * direction
     }
 
+    function playbackSignature(
+      actionName: AgentActionName,
+      playback: PersonPlaybackOptions,
+      offset: VisualAnchorOffset,
+    ): string {
+      return JSON.stringify({
+        actionName,
+        x: playback.x ?? 0,
+        y: playback.y ?? 0,
+        alpha: playback.alpha ?? 1,
+        rotation: playback.rotation ?? 0,
+        angle: playback.angle,
+        visible: playback.visible ?? true,
+        animationSpeed: playback.animationSpeed,
+        loop: playback.loop ?? true,
+        reverse: playback.reverse ?? false,
+        autoplay: playback.autoplay ?? true,
+        scale: playback.scale,
+        offset,
+      })
+    }
+
     async function play(actionName: AgentActionName, options: PersonPlaybackOptions = {}): Promise<void> {
       const definition = getAgentActionDefinition(actionName)
 
@@ -212,15 +375,38 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
         throw new Error(`Only body actions can be played by a person: ${actionName}`)
       }
 
+      const playback = { ...definition.playback, ...options }
+      const resolvedAnimationSpeed = options.animationSpeed
+        ?? definition.playback?.animationSpeed
+        ?? (definition.authoredFps ? getActionAnimationSpeed(actionName) : fallbackAnimationSpeed)
+      playback.animationSpeed = resolvedAnimationSpeed
+      const nextOffset = options.visualAnchorOffset ?? { x: 0, y: 0 }
+      const signature = playbackSignature(actionName, playback, nextOffset)
+      const active = spritesByLayer.get('body')
+      if (
+        active
+        && active.loop
+        && (playback.loop ?? true)
+        && !options.restart
+        && signature === currentPlaybackSignature
+      ) {
+        active.animationSpeed = resolvedAnimationSpeed
+        return
+      }
+
       const request = ++playbackRequest
+      clearBodyTransitions()
       settleCurrentPlayback?.()
       settleCurrentPlayback = null
       const previous = spritesByLayer.get('body')
+      const previousAction = currentAction
+      const previousTextureAction = currentTextureAction
       const previousOffset = visualAnchorOffsets.get('body')
-      const preserveAnchor = options.preserveVisualAnchor && previous
-        ? getVisualAnchor(previous, options.preserveVisualAnchor, previousOffset)
+      const preserveAnchorName = options.preserveVisualAnchor
+        ?? getActionRegistrationAnchor(actionName)
+      const preserveAnchor = previous
+        ? getVisualAnchor(previous, preserveAnchorName, previousOffset, previousAction)
         : undefined
-      const nextOffset = options.visualAnchorOffset ?? { x: 0, y: 0 }
       let textures: Texture[]
       try {
         textures = await textureLoader.loadActionTextures(actionName, textureOptions)
@@ -237,16 +423,16 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       const orderedTextures = getActionFrameOrder(actionName, textures.length)
         .map((index) => textures[index])
       const nextSprite = new AnimatedSprite(
-        options.reverse ? [...orderedTextures].reverse() : orderedTextures,
+        playback.reverse ? [...orderedTextures].reverse() : orderedTextures,
       )
-      const playback = { ...definition.playback, ...options }
       nextSprite.x = playback.x ?? 0
       nextSprite.y = playback.y ?? 0
-      nextSprite.alpha = playback.alpha ?? 1
+      const targetAlpha = playback.alpha ?? 1
+      nextSprite.alpha = targetAlpha
       nextSprite.rotation = playback.rotation ?? 0
       nextSprite.angle = playback.angle ?? nextSprite.angle
       nextSprite.visible = playback.visible ?? true
-      nextSprite.animationSpeed = playback.animationSpeed ?? animationSpeed
+      nextSprite.animationSpeed = resolvedAnimationSpeed
       nextSprite.loop = playback.loop ?? true
 
       const completed = nextSprite.loop
@@ -263,10 +449,20 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
             nextSprite.onComplete = settle
           })
 
+      const visualScale = getActionVisualScale(actionName)
+      const visualWidthScale = getActionVisualWidthScale(actionName)
       if (typeof playback.scale === 'number') {
-        nextSprite.scale.set(playback.scale)
+        nextSprite.scale.set(
+          playback.scale * visualScale * visualWidthScale,
+          playback.scale * visualScale,
+        )
       } else if (playback.scale) {
-        nextSprite.scale.set(playback.scale.x, playback.scale.y)
+        nextSprite.scale.set(
+          playback.scale.x * visualScale * visualWidthScale,
+          playback.scale.y * visualScale,
+        )
+      } else {
+        nextSprite.scale.set(visualScale * visualWidthScale, visualScale)
       }
       applyFacing(nextSprite, actionName)
 
@@ -275,7 +471,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
         const offset = getActionFrameBodyOffset(
           actionName,
           nextSprite.currentFrame,
-          Boolean(options.reverse),
+          Boolean(playback.reverse),
         )
         // Sprite scale carries the facing mirror. Multiplying the authored
         // correction by the signed scale keeps the same feet fixed when the
@@ -290,35 +486,74 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       nextSprite.onFrameChange = applyNextFrameCorrection
       applyNextFrameCorrection()
 
-      nextSprite.play()
+      if (playback.autoplay ?? true) {
+        nextSprite.play()
+      }
       spriteLayer.addChild(nextSprite)
       spritesByLayer.set('body', nextSprite)
       applyCurrentFrameCorrection = applyNextFrameCorrection
       visualAnchorOffsets.set('body', nextOffset)
-
-      if (previous) {
-        spriteLayer.removeChild(previous)
-        frameBodyCorrections.delete(previous)
-        previous.destroy()
-      }
-      if (currentTextureAction) {
-        textureLoader.releaseActionTextures(currentTextureAction, textureOptions)
-      }
       currentTextureAction = actionName
+      currentTargetAlpha = targetAlpha
 
-      if (preserveAnchor && options.preserveVisualAnchor) {
+      if (preserveAnchor) {
         const nextAnchor = getVisualAnchor(
           nextSprite,
-          options.preserveVisualAnchor,
+          preserveAnchorName,
           nextOffset,
           actionName,
         )
-        container.x += (preserveAnchor.x - nextAnchor.x) * container.scale.x
-        container.y += (preserveAnchor.y - nextAnchor.y) * container.scale.y
+        const alignment = getActionSwitchAlignment(preserveAnchor, nextAnchor)
+        container.x += alignment.container.x * container.scale.x
+        container.y += alignment.container.y * container.scale.y
+
+        if (previous) {
+          // The container shift aligns the incoming action, but it would also
+          // drag the fading outgoing action to the new registration point.
+          // Freeze and counter-shift the outgoing pose so both sprites remain
+          // at the same world position for the entire cross-fade.
+          previous.stop()
+          previous.x += alignment.retiringSprite.x
+          previous.y += alignment.retiringSprite.y
+          const previousCorrection = frameBodyCorrections.get(previous) ?? { x: 0, y: 0 }
+          frameBodyCorrections.set(previous, {
+            x: previousCorrection.x + alignment.retiringSprite.x,
+            y: previousCorrection.y + alignment.retiringSprite.y,
+          })
+        }
       }
 
       currentAction = actionName
+      currentPlaybackSignature = signature
+      if (previous && previousTextureAction) {
+        startBodyTransition(
+          previous,
+          previousTextureAction,
+          nextSprite,
+          targetAlpha,
+          options.transitionMs ?? getActionTransitionMs(actionName),
+        )
+      } else {
+        if (previous) {
+          spriteLayer.removeChild(previous)
+          frameBodyCorrections.delete(previous)
+          previous.destroy()
+        }
+        if (previousTextureAction) {
+          textureLoader.releaseActionTextures(previousTextureAction, textureOptions)
+        }
+        nextSprite.alpha = targetAlpha
+      }
+      options.onMounted?.()
       if (completed) await completed
+    }
+
+    function startBodyAnimation(): void {
+      spritesByLayer.get('body')?.play()
+    }
+
+    function stopBodyAnimation(): void {
+      spritesByLayer.get('body')?.stop()
     }
 
     function setFacing(nextFacing: PersonFacing): void {
@@ -336,6 +571,9 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       }
 
       applyFacing(sprite, currentAction)
+      retiringBodies.forEach((body) => {
+        applyFacing(body.sprite, body.actionName)
+      })
       applyCurrentFrameCorrection?.()
       const nextAnchor = getVisualAnchorPosition('bottomCenter')
       container.x += previousAnchor.x - nextAnchor.x
@@ -343,7 +581,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
     }
 
     function setAnimationSpeed(value: number): void {
-      animationSpeed = value
+      fallbackAnimationSpeed = value
       spritesByLayer.forEach((sprite) => {
         sprite.animationSpeed = value
       })
@@ -487,6 +725,8 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       setFacing,
       setPosture,
       setAnimationSpeed,
+      startBodyAnimation,
+      stopBodyAnimation,
       destroy: () => {
         disposed = true
         playbackRequest += 1

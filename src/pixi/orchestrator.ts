@@ -1,4 +1,3 @@
-import { getRoleActionName, type AgentActionName } from '@/assets/agent'
 import type { AgentId, PartnerState } from '@/domain/studio'
 import {
   studyZoneForAgent,
@@ -9,14 +8,27 @@ import type { WorkstationController } from './workstation'
 import {
   classroomAisleRoute,
   compactNavigationRoute,
-  walkingDuration,
+  createNavigationTrafficController,
+  deskDepartureWaypoint,
+  walkingActionForVector,
+  walkingDurationForAction,
+  type NavigationTrafficLease,
   type NavigationPoint,
 } from './navigation'
+import {
+  deskAmbientBehaviors,
+  deskAmbientDuration,
+  eligibleDeskAmbientBehaviors,
+  pickWeightedDeskAmbientBehavior,
+  type DeskAmbientActionName,
+  type DeskAmbientBehavior,
+} from './ambient-behavior'
 
 const classroomMainAisleX = 690
 
 type OfficeOrchestratorOptions = {
   random?: () => number
+  now?: () => number
   idleStartDelays?: Partial<Record<AgentId, number>>
 }
 
@@ -55,48 +67,71 @@ export function createOfficeOrchestrator(
   const idleRoamWaiters = new Map<AgentId, { timerId: number; resolve: (active: boolean) => void }>()
   const idleRoamRequests = new Map<AgentId, number>()
   const previousIdleActivities = new Map<AgentId, string>()
+  const idleActivityBags = new Map<AgentId, Set<string>>()
+  const idleSinceByAgent = new Map<AgentId, number>()
+  const previousDeskActions = new Map<AgentId, DeskAmbientActionName>()
+  const deskAmbientBags = new Map<AgentId, Set<DeskAmbientActionName>>()
   const activeIdleActivities = new Set<AgentId>()
+  const noticeableRestAgents = new Set<AgentId>()
+  const nappingAgents = new Set<AgentId>()
   const zoneInteractionTimers = new Map<AgentId, number>()
   const zoneInteractionRequests = new Map<AgentId, number>()
+  const zoneActionPlayedForVisit = new Map<AgentId, StudyZoneId>()
+  const navigationTraffic = createNavigationTrafficController()
+  const speechLockedAgents = new Set<AgentId>()
+  const speechFinishingAgents = new Set<AgentId>()
+  const speechFinishRequests = new Map<AgentId, number>()
+  const pendingPostSpeechStates = new Map<AgentId, PartnerState>()
+  const pendingPostSpeechMovements = new Map<
+    AgentId,
+    { kind: 'zone'; zoneId?: StudyZoneId } | { kind: 'return' }
+  >()
   let ambientMotionEnabled = true
   let destroyed = false
 
   type IdleActivity =
     | { kind: 'zone'; zoneId: StudyZoneId }
     | { kind: 'chat'; targetAgentId: AgentId }
+    | { kind: 'desk' }
 
   const idleActivityMenus: Record<AgentId, readonly IdleActivity[]> = {
     zhizhi: [
+      { kind: 'desk' },
       { kind: 'zone', zoneId: 'library' },
       { kind: 'zone', zoneId: 'planning' },
       { kind: 'zone', zoneId: 'archive' },
       { kind: 'chat', targetAgentId: 'wenwen' },
     ],
     wenwen: [
+      { kind: 'desk' },
       { kind: 'chat', targetAgentId: 'zhizhi' },
       { kind: 'zone', zoneId: 'library' },
       { kind: 'zone', zoneId: 'planning' },
       { kind: 'zone', zoneId: 'archive' },
     ],
     lingling: [
+      { kind: 'desk' },
       { kind: 'chat', targetAgentId: 'cece' },
       { kind: 'zone', zoneId: 'library' },
       { kind: 'zone', zoneId: 'planning' },
       { kind: 'zone', zoneId: 'archive' },
     ],
     cece: [
+      { kind: 'desk' },
       { kind: 'chat', targetAgentId: 'lingling' },
       { kind: 'zone', zoneId: 'library' },
       { kind: 'zone', zoneId: 'planning' },
       { kind: 'zone', zoneId: 'archive' },
     ],
     pingping: [
+      { kind: 'desk' },
       { kind: 'chat', targetAgentId: 'wenwen' },
       { kind: 'zone', zoneId: 'library' },
       { kind: 'zone', zoneId: 'planning' },
       { kind: 'zone', zoneId: 'archive' },
     ],
     jiji: [
+      { kind: 'desk' },
       { kind: 'chat', targetAgentId: 'cece' },
       { kind: 'zone', zoneId: 'library' },
       { kind: 'zone', zoneId: 'planning' },
@@ -130,8 +165,16 @@ export function createOfficeOrchestrator(
     return options.random?.() ?? Math.random()
   }
 
+  function currentTime(): number {
+    return options.now?.() ?? Date.now()
+  }
+
+  function isAmbientActivityState(state: PartnerState | undefined): boolean {
+    return state === 'idle' || state === 'waiting_user' || state === 'completed'
+  }
+
   function isCurrentIdleRequest(agentId: AgentId, request: number): boolean {
-    return stateByAgent.get(agentId) === 'idle'
+    return isAmbientActivityState(stateByAgent.get(agentId))
       && idleRoamRequests.get(agentId) === request
   }
 
@@ -166,30 +209,68 @@ export function createOfficeOrchestrator(
   }
 
   function pickIdleActivity(agentId: AgentId): IdleActivity | null {
-    const available = idleActivityMenus[agentId].filter((activity) => (
+    const menu = idleActivityMenus[agentId]
+    const available = menu.filter((activity) => (
       activity.kind === 'zone'
         ? studyZones.getOccupant(activity.zoneId) === null
-        : engagedAgents.size === 0
+        : activity.kind === 'chat'
+          ? engagedAgents.size === 0
+          : eligibleDeskAmbientBehaviors({
+              idleMs: currentTime() - (idleSinceByAgent.get(agentId) ?? currentTime()),
+              noticeableRestActive: noticeableRestAgents.size > 0,
+              previousAction: previousDeskActions.get(agentId) ?? null,
+            }).length > 0
     ))
     if (available.length === 0) return null
-    const menu = available
+    const offDeskMenu = menu.filter((activity) => activity.kind !== 'desk')
+    let activeBag: Set<string>
+    const existingBag = idleActivityBags.get(agentId)
+    if (existingBag) {
+      activeBag = existingBag
+    } else {
+      activeBag = new Set(offDeskMenu.map(idleActivityKey))
+      idleActivityBags.set(agentId, activeBag)
+    }
+    let unplayedOffDesk = available.filter(
+      (activity) => activity.kind !== 'desk' && activeBag.has(idleActivityKey(activity)),
+    )
+    const availableOffDesk = available.filter((activity) => activity.kind !== 'desk')
+    if (unplayedOffDesk.length === 0 && availableOffDesk.length > 0) {
+      const refreshedBag = new Set(offDeskMenu.map(idleActivityKey))
+      idleActivityBags.set(agentId, refreshedBag)
+      activeBag = refreshedBag
+      unplayedOffDesk = availableOffDesk.filter(
+        (activity) => refreshedBag.has(idleActivityKey(activity)),
+      )
+    }
     const previousKey = previousIdleActivities.get(agentId)
-    const alternatives = menu.filter((activity) => idleActivityKey(activity) !== previousKey)
-    const candidates = alternatives.length > 0 ? alternatives : menu
+    const availableDesk = available.filter((activity) => activity.kind === 'desk')
+    const candidates = previousKey && previousKey !== 'desk' && availableDesk.length > 0
+      ? availableDesk
+      : unplayedOffDesk.length > 0
+        ? unplayedOffDesk
+        : availableDesk
+    if (candidates.length === 0) return null
     const activity = candidates[Math.floor(nextIdleRandom(agentId) * candidates.length)]
-    previousIdleActivities.set(agentId, idleActivityKey(activity))
+    const activityKey = idleActivityKey(activity)
+    if (activity.kind !== 'desk') {
+      activeBag.delete(activityKey)
+    }
+    previousIdleActivities.set(agentId, activityKey)
     return activity
   }
 
   function idleActivityKey(activity: IdleActivity): string {
-    return activity.kind === 'zone' ? `zone:${activity.zoneId}` : `chat:${activity.targetAgentId}`
+    if (activity.kind === 'zone') return `zone:${activity.zoneId}`
+    if (activity.kind === 'chat') return `chat:${activity.targetAgentId}`
+    return 'desk'
   }
 
   function scheduleIdleRoaming(agentId: AgentId, delay = idleStartDelays[agentId]): void {
     if (
       !ambientMotionEnabled
       ||
-      stateByAgent.get(agentId) !== 'idle'
+      !isAmbientActivityState(stateByAgent.get(agentId))
       || movingAgents.has(agentId)
       || awayAgents.has(agentId)
       || engagedAgents.has(agentId)
@@ -219,13 +300,6 @@ export function createOfficeOrchestrator(
     idleRoamTimers.set(agentId, timerId)
   }
 
-  async function playBody(agentId: AgentId, action: AgentActionName, loop = true): Promise<void> {
-    await workstations[agentId].person.play(action, {
-      loop,
-      preserveVisualAnchor: 'bottomCenter',
-    })
-  }
-
   async function walkVisualAnchorTo(agentId: AgentId, x: number, y: number): Promise<void> {
     const person = workstations[agentId].person
     const current = person.getVisualAnchorPosition('bottomCenter')
@@ -234,21 +308,22 @@ export function createOfficeOrchestrator(
     if (Math.abs(x - current.x) > 8) {
       person.setFacing(x > current.x ? 'right' : 'left')
     }
-    const walkAction: AgentActionName = deltaY < -8 && Math.abs(deltaY) > Math.abs(deltaX) * 0.72
-      ? 'fc_walking_up'
-      : getRoleActionName(agentId, 'walk')
+    const walkAction = walkingActionForVector(deltaX, deltaY)
     await person.play(walkAction, {
       loop: true,
-      animationSpeed: walkAction === 'fc_walking_up' ? 0.11 : 0.13,
       preserveVisualAnchor: 'bottomCenter',
     })
     await person.moveVisualAnchorTo(x, y, {
-      duration: walkingDuration(current, { x, y }),
+      duration: walkingDurationForAction(current, { x, y }, walkAction),
       anchor: 'bottomCenter',
     })
   }
 
-  async function riseFromDesk(agentId: AgentId, request: number): Promise<boolean> {
+  async function riseFromDesk(
+    agentId: AgentId,
+    request: number,
+    destination: NavigationPoint,
+  ): Promise<boolean> {
     const workstation = workstations[agentId]
     const exitFacing = workstation.seatExitAnchor.x > workstation.seatAnchor.x ? 'right' : 'left'
     workstation.person.setFacing(exitFacing)
@@ -267,9 +342,25 @@ export function createOfficeOrchestrator(
     if (!isCurrentMotion(agentId, request)) return false
     awayAgents.add(agentId)
     workstation.setAway(true)
-    await walkVisualAnchorTo(agentId, workstation.homeAnchor.x, workstation.homeAnchor.y)
-    if (!isCurrentMotion(agentId, request)) return false
+    const departureWaypoint = deskDepartureWaypoint(
+      workstation.seatExitAnchor,
+      workstation.homeAnchor,
+      destination,
+    )
+    if (departureWaypoint) {
+      await walkVisualAnchorTo(agentId, departureWaypoint.x, departureWaypoint.y)
+      if (!isCurrentMotion(agentId, request)) return false
+    }
     return true
+  }
+
+  async function acquireNavigationTraffic(
+    agentId: AgentId,
+    request: number,
+  ): Promise<NavigationTrafficLease | null> {
+    return navigationTraffic.acquire(
+      () => !destroyed && isCurrentMotion(agentId, request),
+    )
   }
 
   async function sitAtDesk(agentId: AgentId, request: number): Promise<boolean> {
@@ -341,6 +432,10 @@ export function createOfficeOrchestrator(
       await walkVisualAnchorTo(agentId, point.x, point.y)
       if (!isCurrentMotion(agentId, request)) return false
     }
+    await person.play('turn_arrive', {
+      loop: false,
+      preserveVisualAnchor: 'bottomCenter',
+    })
     return true
   }
 
@@ -363,56 +458,40 @@ export function createOfficeOrchestrator(
   }
 
   async function startZoneInteraction(agentId: AgentId, zoneId: StudyZoneId): Promise<void> {
+    if (zoneActionPlayedForVisit.get(agentId) === zoneId) {
+      return
+    }
     stopZoneInteraction(agentId)
+    zoneActionPlayedForVisit.set(agentId, zoneId)
     const request = zoneInteractionRequests.get(agentId) ?? 0
     const definition = studyZones.getDefinition(zoneId)
     const actions = definition.interactionActions
-    let actionIndex = 0
+    const actionIndex = Math.min(
+      actions.length - 1,
+      Math.floor(nextIdleRandom(agentId) * actions.length),
+    )
+    const action = actions[actionIndex]
+    const person = workstations[agentId].person
+    const actionAnchor = definition.actionAnchor ?? 'bottomCenter'
+    const actionAnchorPoint = definition.actionAnchorPoint ?? definition.interactionPoint
 
-    const playNext = async (): Promise<void> => {
-      if (!isCurrentZoneInteraction(agentId, zoneId, request)) {
-        return
-      }
-
-      const person = workstations[agentId].person
-      person.setFacing(definition.facing)
-      await person.play(actions[actionIndex % actions.length], {
-        loop: true,
-        reverse: actions.length > 1 && actionIndex % 2 === 1,
-        preserveVisualAnchor: 'bottomCenter',
-      })
-      const actionAnchor = definition.actionAnchor ?? 'bottomCenter'
-      const actionAnchorPoint = definition.actionAnchorPoint ?? definition.interactionPoint
-      // Archive props and hands are not stable registration points. Pin the
-      // authored torso/scarf junction to the scene while other zones continue
-      // using their grounded foot anchor.
-      person.placeVisualAnchorAt(
-        actionAnchorPoint.x,
-        actionAnchorPoint.y,
-        actionAnchor,
-      )
-      actionIndex += 1
-      if (!isCurrentZoneInteraction(agentId, zoneId, request)) {
-        return
-      }
-
-      // A single action is already looping in Pixi. Re-mounting it on a timer
-      // caused the archive-reading pose to visibly reset and jump every cycle.
-      if (actions.length === 1) {
-        return
-      }
-
-      const timerId = window.setTimeout(() => {
-        zoneInteractionTimers.delete(agentId)
-        void playNext().catch((error: unknown) => {
-          console.error(`Zone interaction failed for ${agentId}`, error)
-          stopZoneInteraction(agentId)
-        })
-      }, 1700 + Math.round(nextIdleRandom(agentId) * 650))
-      zoneInteractionTimers.set(agentId, timerId)
-    }
-
-    await playNext()
+    person.setFacing(definition.facing)
+    await person.play(action, {
+      loop: false,
+      restart: true,
+      preserveVisualAnchor: 'bottomCenter',
+      onMounted: () => {
+        if (!isCurrentZoneInteraction(agentId, zoneId, request)) return
+        // Props and hands are not stable registration points. Mount the chosen
+        // one-shot action once, then pin its authored body anchor for the full
+        // cycle so a workbench visit cannot jump or drift.
+        person.placeVisualAnchorAt(
+          actionAnchorPoint.x,
+          actionAnchorPoint.y,
+          actionAnchor,
+        )
+      },
+    })
   }
 
   function findChatTarget(agentId: AgentId, preferredTarget?: AgentId): AgentId | null {
@@ -422,7 +501,7 @@ export function createOfficeOrchestrator(
     const candidates = Object.keys(workstations).filter((candidateId) => {
       const targetId = candidateId as AgentId
       return targetId !== agentId
-        && stateByAgent.get(targetId) === 'idle'
+        && isAmbientActivityState(stateByAgent.get(targetId))
         && !movingAgents.has(targetId)
         && !awayAgents.has(targetId)
         && !engagedAgents.has(targetId)
@@ -451,8 +530,6 @@ export function createOfficeOrchestrator(
     chatPartnerByAgent.set(agentId, targetAgentId)
     chatPartnerByAgent.set(targetAgentId, agentId)
     stopIdleRoaming(targetAgentId)
-    workstations[agentId].setConversationActive(true)
-    workstations[targetAgentId].setConversationActive(true)
     return true
   }
 
@@ -469,13 +546,19 @@ export function createOfficeOrchestrator(
     chatPartnerByAgent.delete(targetAgentId)
     engagedAgents.delete(agentId)
     engagedAgents.delete(targetAgentId)
+    const workstation = workstations[agentId]
     const target = workstations[targetAgentId]
-    workstations[agentId].setOccludedBy(null)
+    // Stop both talk cycles in the same synchronous turn. Their next poses may
+    // load at different speeds, but neither participant can keep talking after
+    // the shared conversation has ended.
+    workstation.person.stopBodyAnimation()
+    target.person.stopBodyAnimation()
+    workstation.setOccludedBy(null)
     target.setOccludedBy(null)
-    workstations[agentId].setConversationActive(false)
+    workstation.setConversationActive(false)
     target.person.setFacing('left')
     target.setConversationActive(false)
-    if (stateByAgent.get(targetAgentId) === 'idle') {
+    if (isAmbientActivityState(stateByAgent.get(targetAgentId))) {
       scheduleIdleRoaming(targetAgentId, 14_000 + Math.round(nextIdleRandom(targetAgentId) * 8_000))
     }
   }
@@ -494,12 +577,15 @@ export function createOfficeOrchestrator(
     const targetExitDirection = target.homeAnchor.x > target.seatAnchor.x ? 1 : -1
     const chatPoint = { ...target.conversationAnchor }
     const request = nextMotionRequest(agentId)
+    let trafficLease: NavigationTrafficLease | null = null
 
     movingAgents.add(agentId)
     workstation.person.setPosture('normal')
 
     try {
-      if (!await riseFromDesk(agentId, request)) return
+      trafficLease = await acquireNavigationTraffic(agentId, request)
+      if (!trafficLease) return
+      if (!await riseFromDesk(agentId, request, chatPoint)) return
       const route = classroomAisleRoute(
         workstation.person.getVisualAnchorPosition('bottomCenter'),
         chatPoint,
@@ -514,17 +600,106 @@ export function createOfficeOrchestrator(
       workstation.setOccludedBy(target)
       workstation.person.setFacing(targetExitDirection > 0 ? 'left' : 'right')
       target.person.setFacing(targetExitDirection > 0 ? 'right' : 'left')
+      workstation.setConversationActive(true)
+      target.setConversationActive(true)
       await Promise.all([
         target.person.play('talking_on_seat', {
+          autoplay: false,
           loop: true,
           preserveVisualAnchor: 'bottomCenter',
+          restart: true,
         }),
-        playBody(agentId, 'talking_on_stand-0'),
+        workstation.person.play('talking_on_stand-0', {
+          autoplay: false,
+          loop: true,
+          preserveVisualAnchor: 'bottomCenter',
+          restart: true,
+        }),
       ])
+      if (
+        chatPartnerByAgent.get(agentId) !== targetAgentId
+        || !isCurrentIdleRequest(agentId, idleRequest)
+      ) return
+      // Both sprites are mounted and paused on frame zero before either starts.
+      target.person.startBodyAnimation()
+      workstation.person.startBodyAnimation()
     } finally {
+      trafficLease?.release()
       if (isCurrentMotion(agentId, request)) {
         movingAgents.delete(agentId)
       }
+    }
+  }
+
+  function pickDeskAmbientBehavior(agentId: AgentId): DeskAmbientBehavior | null {
+    const idleSince = idleSinceByAgent.get(agentId) ?? currentTime()
+    const eligible = eligibleDeskAmbientBehaviors({
+      idleMs: currentTime() - idleSince,
+      noticeableRestActive: noticeableRestAgents.size > 0,
+      previousAction: previousDeskActions.get(agentId) ?? null,
+    })
+    if (eligible.length === 0) {
+      return null
+    }
+    let bag = deskAmbientBags.get(agentId)
+    if (!bag) {
+      bag = new Set(deskAmbientBehaviors.map((behavior) => behavior.action))
+      deskAmbientBags.set(agentId, bag)
+    }
+    const currentBag = bag
+    let unplayed = eligible.filter((behavior) => currentBag.has(behavior.action))
+    if (unplayed.length === 0) {
+      const refreshedBag = new Set(deskAmbientBehaviors.map((behavior) => behavior.action))
+      deskAmbientBags.set(agentId, refreshedBag)
+      bag = refreshedBag
+      unplayed = eligible.filter((behavior) => refreshedBag.has(behavior.action))
+    }
+    const behavior = pickWeightedDeskAmbientBehavior(
+      nextIdleRandom(agentId),
+      unplayed,
+    )
+    if (behavior) {
+      bag.delete(behavior.action)
+    }
+    return behavior
+  }
+
+  async function runDeskAmbientActivity(
+    agentId: AgentId,
+    idleRequest: number,
+  ): Promise<void> {
+    const behavior = pickDeskAmbientBehavior(agentId)
+    if (!behavior || !isCurrentIdleRoam(agentId, idleRequest)) return
+
+    previousDeskActions.set(agentId, behavior.action)
+    if (behavior.noticeableRest) {
+      noticeableRestAgents.add(agentId)
+    }
+    if (behavior.action === 'napping') {
+      nappingAgents.add(agentId)
+    }
+
+    try {
+      const person = workstations[agentId].person
+      person.setFacing('left')
+      await person.play(behavior.action, {
+        loop: true,
+        preserveVisualAnchor: 'bodyCore',
+      })
+      const canContinue = await waitForIdleRoam(
+        agentId,
+        idleRequest,
+        deskAmbientDuration(behavior, nextIdleRandom(agentId)),
+      )
+      if (canContinue) {
+        await person.play('working', {
+          loop: true,
+          preserveVisualAnchor: 'bodyCore',
+        })
+      }
+    } finally {
+      noticeableRestAgents.delete(agentId)
+      nappingAgents.delete(agentId)
     }
   }
 
@@ -539,10 +714,16 @@ export function createOfficeOrchestrator(
       if (!activity) {
         return
       }
-      if (activity.kind === 'zone') {
+      if (activity.kind === 'desk') {
+        await runDeskAmbientActivity(agentId, idleRequest)
+      } else if (activity.kind === 'zone') {
         await goToStudyZone(agentId, activity.zoneId)
         if (isCurrentIdleRoam(agentId, idleRequest) && currentZoneByAgent.get(agentId) === activity.zoneId) {
-          const canContinue = await waitForIdleRoam(agentId, idleRequest, 8_000 + Math.round(nextIdleRandom(agentId) * 4_000))
+          const canContinue = await waitForIdleRoam(
+            agentId,
+            idleRequest,
+            450 + Math.round(nextIdleRandom(agentId) * 350),
+          )
           if (canContinue) {
             await returnAgentToDesk(agentId)
           }
@@ -565,7 +746,7 @@ export function createOfficeOrchestrator(
       activeIdleActivities.delete(agentId)
       if (
         !destroyed
-        && stateByAgent.get(agentId) === 'idle'
+        && isAmbientActivityState(stateByAgent.get(agentId))
         && !movingAgents.has(agentId)
         && !awayAgents.has(agentId)
         && !currentZoneByAgent.has(agentId)
@@ -576,6 +757,14 @@ export function createOfficeOrchestrator(
   }
 
   async function goToStudyZone(agentId: AgentId, requestedZone?: StudyZoneId): Promise<void> {
+    if (speechLockedAgents.has(agentId)) {
+      pendingPostSpeechMovements.set(agentId, {
+        kind: 'zone',
+        zoneId: requestedZone,
+      })
+      return
+    }
+
     const workstation = workstations[agentId]
     const zoneId = requestedZone ?? studyZoneForAgent[agentId]
     const definition = studyZones.getDefinition(zoneId)
@@ -585,6 +774,9 @@ export function createOfficeOrchestrator(
 
     if (previousZone !== zoneId && !studyZones.tryOccupy(zoneId, agentId)) {
       return
+    }
+    if (previousZone !== zoneId) {
+      zoneActionPlayedForVisit.delete(agentId)
     }
 
     if (previousZone === zoneId) {
@@ -604,9 +796,17 @@ export function createOfficeOrchestrator(
 
     movingAgents.add(agentId)
     workstation.person.setPosture('normal')
+    let trafficLease: NavigationTrafficLease | null = null
 
     try {
-      if (!awayAgents.has(agentId) && !await riseFromDesk(agentId, request)) return
+      trafficLease = await acquireNavigationTraffic(agentId, request)
+      if (!trafficLease) return
+      if (
+        !awayAgents.has(agentId)
+        && !await riseFromDesk(agentId, request, definition.approachPoint)
+      ) {
+        return
+      }
       const current = workstation.person.getVisualAnchorPosition('bottomCenter')
       const route = [
         ...classroomAisleRoute(current, definition.approachPoint, classroomMainAisleX),
@@ -620,6 +820,7 @@ export function createOfficeOrchestrator(
       workstation.person.setFacing(definition.facing)
       await startZoneInteraction(agentId, zoneId)
     } finally {
+      trafficLease?.release()
       if (isCurrentMotion(agentId, request)) {
         movingAgents.delete(agentId)
       }
@@ -636,10 +837,20 @@ export function createOfficeOrchestrator(
     if (currentZoneByAgent.get(agentId) !== zoneId) {
       return
     }
-
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 550)
+    })
+    if (currentZoneByAgent.get(agentId) === zoneId) {
+      await returnAgentToDesk(agentId)
+    }
   }
 
   async function returnAgentToDesk(agentId: AgentId): Promise<void> {
+    if (speechLockedAgents.has(agentId)) {
+      pendingPostSpeechMovements.set(agentId, { kind: 'return' })
+      return
+    }
+
     const workstation = workstations[agentId]
     const request = nextMotionRequest(agentId)
     const previousZone = currentZoneByAgent.get(agentId)
@@ -648,6 +859,7 @@ export function createOfficeOrchestrator(
       : null
     const wasAway = awayAgents.has(agentId) || Boolean(previousZone) || movingAgents.has(agentId)
     stopZoneInteraction(agentId)
+    zoneActionPlayedForVisit.delete(agentId)
 
     if (previousZone) {
       studyZones.setAgentActive(previousZone, agentId, false)
@@ -659,14 +871,17 @@ export function createOfficeOrchestrator(
       workstation.person.setFacing('left')
       awayAgents.delete(agentId)
       workstation.setAway(false)
-      if (stateByAgent.get(agentId) === 'idle') {
+      if (isAmbientActivityState(stateByAgent.get(agentId))) {
         scheduleIdleRoaming(agentId)
       }
       return
     }
 
     movingAgents.add(agentId)
+    let trafficLease: NavigationTrafficLease | null = null
     try {
+      trafficLease = await acquireNavigationTraffic(agentId, request)
+      if (!trafficLease) return
       workstation.person.setPosture('normal')
       const route = previousZoneDefinition
         ? [
@@ -685,26 +900,40 @@ export function createOfficeOrchestrator(
       awayAgents.delete(agentId)
       workstation.setAway(false)
     } finally {
+      trafficLease?.release()
       if (isCurrentMotion(agentId, request)) {
         movingAgents.delete(agentId)
-        if (stateByAgent.get(agentId) === 'idle') {
+        if (isAmbientActivityState(stateByAgent.get(agentId))) {
           scheduleIdleRoaming(agentId)
         }
       }
     }
   }
 
-  function setAgentState(agentId: AgentId, state: PartnerState): void {
+  function applyAgentState(agentId: AgentId, state: PartnerState): void {
     const previousState = stateByAgent.get(agentId)
+    const wasAmbientActivityState = isAmbientActivityState(previousState)
+    const ambientActivityState = isAmbientActivityState(state)
+    const wasNapping = nappingAgents.has(agentId)
     const wasAwayFromDesk = awayAgents.has(agentId)
       || currentZoneByAgent.has(agentId)
       || movingAgents.has(agentId)
     stateByAgent.set(agentId, state)
-    if (state !== 'idle') {
+    if (ambientActivityState) {
+      if (!wasAmbientActivityState) {
+        idleSinceByAgent.set(agentId, currentTime())
+      }
+    } else {
+      idleSinceByAgent.delete(agentId)
+    }
+    if (!ambientActivityState) {
       stopIdleRoaming(agentId)
       if (engagedAgents.has(agentId)) {
         endConversation(agentId)
       }
+    }
+    if (state === 'speaking') {
+      stopZoneInteraction(agentId)
     }
 
     // 行走中被发言打断：立即取消行走 tween，原地停下。
@@ -718,7 +947,30 @@ export function createOfficeOrchestrator(
       movingAgents.delete(agentId)
     }
 
-    workstations[agentId].setState(state)
+    const shouldPlayWakeUp = wasNapping && state !== 'idle'
+    if (shouldPlayWakeUp) {
+      workstations[agentId].setState(state, { deferBodyActivity: true })
+    } else {
+      workstations[agentId].setState(state)
+    }
+    if (shouldPlayWakeUp) {
+      nappingAgents.delete(agentId)
+      noticeableRestAgents.delete(agentId)
+      void workstations[agentId].person.play('waking_up', {
+        loop: false,
+        restart: true,
+        preserveVisualAnchor: 'bodyCore',
+      }).then(() => {
+        if (stateByAgent.get(agentId) === state) {
+          workstations[agentId].refreshStateActivity()
+        }
+      }).catch((error: unknown) => {
+        console.error(`Wake-up transition failed for ${agentId}`, error)
+        if (stateByAgent.get(agentId) === state) {
+          workstations[agentId].refreshStateActivity()
+        }
+      })
+    }
 
     if (previousState === state) {
       return
@@ -726,8 +978,9 @@ export function createOfficeOrchestrator(
 
     // speaking 时不触发返回座位 —— 让 agent 原地站着发言。
     // 发言结束（state 变 idle/completed/error）时下方分支会处理回座。
-    if (previousState === 'idle' && wasAwayFromDesk && state !== 'speaking') {
+    if (wasAmbientActivityState && !ambientActivityState && wasAwayFromDesk && state !== 'speaking') {
       void returnAgentToDesk(agentId)
+      return
     }
 
     if (state === 'working') {
@@ -738,24 +991,118 @@ export function createOfficeOrchestrator(
       return
     }
 
-    const currentZone = currentZoneByAgent.get(agentId)
-    if ((state === 'speaking' || state === 'waiting_user') && currentZone) {
-      void startZoneInteraction(agentId, currentZone)
+    if (ambientActivityState && !wasAmbientActivityState && wasAwayFromDesk) {
+      void returnAgentToDesk(agentId)
       return
     }
 
-    if (state === 'idle' || state === 'completed' || state === 'error') {
+    if (state === 'error') {
       void returnAgentToDesk(agentId)
+      return
     }
 
     if (
-      state === 'idle'
+      ambientActivityState
       && !awayAgents.has(agentId)
       && !currentZoneByAgent.has(agentId)
       && !movingAgents.has(agentId)
     ) {
       scheduleIdleRoaming(agentId)
     }
+  }
+
+  function applyPendingPostSpeechMovement(
+    agentId: AgentId,
+    nextState: PartnerState,
+  ): void {
+    const movement = pendingPostSpeechMovements.get(agentId)
+    pendingPostSpeechMovements.delete(agentId)
+    if (!movement) {
+      return
+    }
+
+    // These states already request the same return inside applyAgentState.
+    if (
+      movement.kind === 'return'
+      && (nextState === 'idle' || nextState === 'completed' || nextState === 'error')
+    ) {
+      return
+    }
+    if (movement.kind === 'zone') {
+      void goToStudyZone(agentId, movement.zoneId)
+    } else {
+      void returnAgentToDesk(agentId)
+    }
+  }
+
+  function settleSpeechFinish(
+    agentId: AgentId,
+    request: number,
+  ): void {
+    if (
+      destroyed
+      || speechFinishRequests.get(agentId) !== request
+      || !speechFinishingAgents.has(agentId)
+    ) {
+      return
+    }
+
+    speechFinishingAgents.delete(agentId)
+    speechLockedAgents.delete(agentId)
+    const nextState = pendingPostSpeechStates.get(agentId) ?? 'celebrating'
+    pendingPostSpeechStates.delete(agentId)
+    applyAgentState(agentId, nextState)
+    if (nextState === 'celebrating') {
+      // setState received celebrating before the finish action, so refresh
+      // explicitly when celebrating remains the final requested state.
+      workstations[agentId].refreshStateActivity()
+    }
+    applyPendingPostSpeechMovement(agentId, nextState)
+  }
+
+  function finishSpeech(agentId: AgentId): void {
+    if (speechFinishingAgents.has(agentId)) {
+      return
+    }
+
+    speechFinishingAgents.add(agentId)
+    const request = (speechFinishRequests.get(agentId) ?? 0) + 1
+    speechFinishRequests.set(agentId, request)
+    const workstation = workstations[agentId]
+
+    // Update the label immediately, but mount one explicit non-looping finish
+    // action. Until it completes, navigation and all later body states remain
+    // queued behind speechLockedAgents.
+    workstation.setState('celebrating', { deferBodyActivity: true })
+    void workstation.person.play('completed', {
+      loop: false,
+      restart: true,
+      preserveVisualAnchor: 'bottomCenter',
+    }).then(() => {
+      settleSpeechFinish(agentId, request)
+    }).catch((error: unknown) => {
+      console.error(`Speech finish transition failed for ${agentId}`, error)
+      settleSpeechFinish(agentId, request)
+    })
+  }
+
+  function setAgentState(agentId: AgentId, state: PartnerState): void {
+    if (state === 'speaking') {
+      speechFinishRequests.set(agentId, (speechFinishRequests.get(agentId) ?? 0) + 1)
+      speechFinishingAgents.delete(agentId)
+      pendingPostSpeechStates.delete(agentId)
+      speechLockedAgents.add(agentId)
+      applyAgentState(agentId, state)
+      return
+    }
+
+    if (speechLockedAgents.has(agentId)) {
+      pendingPostSpeechStates.set(agentId, state)
+      finishSpeech(agentId)
+      return
+    }
+
+    applyAgentState(agentId, state)
   }
 
   function resetAgent(agentId: AgentId): void {
@@ -791,11 +1138,23 @@ export function createOfficeOrchestrator(
       idleRoamWaiters.clear()
       zoneInteractionTimers.clear()
       zoneInteractionRequests.clear()
+      zoneActionPlayedForVisit.clear()
       activeIdleActivities.clear()
       awayAgents.clear()
       engagedAgents.clear()
       chatPartnerByAgent.clear()
       previousIdleActivities.clear()
+      idleActivityBags.clear()
+      previousDeskActions.clear()
+      deskAmbientBags.clear()
+      idleSinceByAgent.clear()
+      noticeableRestAgents.clear()
+      nappingAgents.clear()
+      speechLockedAgents.clear()
+      speechFinishingAgents.clear()
+      speechFinishRequests.clear()
+      pendingPostSpeechStates.clear()
+      pendingPostSpeechMovements.clear()
     },
     setAgentState,
     selectAgent: (agentId) => {

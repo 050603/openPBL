@@ -7,6 +7,7 @@ import {
   buildFullCoursePrompt,
   buildKnowledgeGraphPrompt,
   buildLessonOutlinePrompt,
+  buildModuleTimingPlanPrompt,
   buildPblOutlinePrompt,
   buildTeachingOutlinePrompt,
 } from "./prompts";
@@ -33,12 +34,15 @@ import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
 import {
   applyConfirmedPblTimingPlan,
   assessPblTeachingOutlineStructure,
+  createPblTimingSkeleton,
   normalizePblTeachingOutline,
 } from "@/lib/pbl-outline-normalization";
 import {
+  buildPblModelTimingPlan,
   isPblModuleTimingPlanConfirmed,
   normalizePblStageKey,
   rescalePblDetailDurations,
+  type PblModelTimingRecommendation,
 } from "@/lib/pbl-time-model";
 
 function env(name: string): string | undefined {
@@ -631,6 +635,143 @@ function stringListFromUnknown(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function textListFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n|[；;]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => textFromUnknown(item))
+    .filter((item): item is string => Boolean(item));
+}
+
+export function normalizePblTimingRecommendationResponse(
+  raw: unknown,
+  input: GenerateInput,
+  context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph">>,
+  now?: string,
+): {
+  teachingOutline: TeachingOutlineSection[];
+  moduleTimingPlan: ReturnType<typeof buildPblModelTimingPlan>;
+} {
+  const parsed = typeof raw === "string" ? extractJson(raw) : raw;
+  const root = asJsonRecord(parsed);
+  const recommendationRecord = asJsonRecord(
+    root?.moduleTimingRecommendation ??
+    root?.timingRecommendation ??
+    root?.moduleTimingPlan ??
+    parsed,
+  );
+  if (!recommendationRecord) {
+    throw new LlmOutputIncompleteError(
+      ["moduleTimingRecommendation"],
+      "课程时间建议",
+    );
+  }
+  const allocationPayload = firstValue(recommendationRecord, [
+    "allocations",
+    "stages",
+    "modules",
+  ]);
+  if (!Array.isArray(allocationPayload) || allocationPayload.length === 0) {
+    throw new LlmOutputIncompleteError(
+      ["moduleTimingRecommendation.allocations"],
+      "课程时间建议",
+    );
+  }
+  const allocations = allocationPayload.flatMap((item) => {
+    const allocation = asJsonRecord(item);
+    if (!allocation) return [];
+    const stageKey = firstText(allocation, [
+      "stageKey",
+      "stage",
+      "phase",
+      "key",
+      "阶段",
+    ]);
+    const durationMin = toFiniteNumber(
+      firstValue(allocation, [
+        "durationMin",
+        "durationMinutes",
+        "minutes",
+        "duration",
+        "时长",
+      ]),
+      Number.NaN,
+    );
+    if (!stageKey || !Number.isFinite(durationMin) || durationMin <= 0) {
+      return [];
+    }
+    const rationale = firstText(allocation, [
+      "rationale",
+      "reason",
+      "reasoning",
+      "依据",
+      "理由",
+    ]);
+    return [{
+      stageKey,
+      durationMin,
+      ...(rationale ? { rationale } : {}),
+    }];
+  });
+  if (allocations.length === 0) {
+    throw new LlmOutputIncompleteError(
+      ["moduleTimingRecommendation.allocations.stageKey", "moduleTimingRecommendation.allocations.durationMin"],
+      "课程时间建议",
+    );
+  }
+  const confidenceValue = firstText(recommendationRecord, ["confidence", "置信度"])?.toLowerCase();
+  const recommendation: PblModelTimingRecommendation = {
+    allocations,
+    evidence: textListFromUnknown(firstValue(recommendationRecord, ["evidence", "basis", "依据"])),
+    assumptions: textListFromUnknown(firstValue(recommendationRecord, ["assumptions", "假设"])),
+    confidence:
+      confidenceValue === "low" || confidenceValue === "high"
+        ? confidenceValue
+        : "medium",
+  };
+  const totalMinutes = Math.max(0, Math.round(input.hours * 60));
+  const timingContext = {
+    topic: input.name,
+    subject: input.subject,
+    summary: input.summary,
+    grade: input.grade,
+    difficulty: input.pblConfig?.difficultyLevel,
+    learningObjectives: input.learningObjectives,
+    learnerProfile: input.learnerProfile,
+    knowledgePoints: context?.knowledgePoints,
+    knowledgeGraph: context?.knowledgeGraph,
+  };
+  const skeleton = createPblTimingSkeleton({
+    totalMinutes,
+    ...timingContext,
+  });
+  const moduleTimingPlan = buildPblModelTimingPlan(
+    totalMinutes,
+    skeleton,
+    recommendation,
+    timingContext,
+    { now },
+  );
+  const allocationById = new Map(
+    moduleTimingPlan.allocations.map((allocation) => [
+      allocation.id,
+      allocation.durationMin,
+    ]),
+  );
+  return {
+    teachingOutline: skeleton.map((activity) => ({
+      ...activity,
+      durationMin: allocationById.get(activity.id) ?? activity.durationMin,
+    })),
+    moduleTimingPlan,
+  };
+}
+
 function unwrapTeachingOutlinePayload(raw: unknown, depth = 0): unknown {
   if (depth > 4) return undefined;
   if (Array.isArray(raw)) return raw;
@@ -1066,6 +1207,12 @@ export async function generateCourseContent(
       user = prompt.user;
       break;
     }
+    case "moduleTimingPlan": {
+      const prompt = buildModuleTimingPlanPrompt(input, request.context);
+      system = prompt.system;
+      user = prompt.user;
+      break;
+    }
     case "evaluationPlan": {
       const prompt = buildEvaluationPlanPrompt(input, request.context);
       system = prompt.system;
@@ -1136,6 +1283,21 @@ export async function generateCourseContent(
         ...emptyCourseContent(),
         knowledgePoints,
         knowledgeGraph,
+      },
+      source: "llm",
+    };
+  }
+  if (action === "moduleTimingPlan") {
+    const result = normalizePblTimingRecommendationResponse(
+      json,
+      input,
+      request.context,
+    );
+    return {
+      content: {
+        ...emptyCourseContent(),
+        teachingOutline: result.teachingOutline,
+        moduleTimingPlan: result.moduleTimingPlan,
       },
       source: "llm",
     };

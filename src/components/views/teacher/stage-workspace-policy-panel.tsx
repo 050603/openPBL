@@ -9,10 +9,13 @@ import {
 } from "@/lib/classroom/stage-workspace-policy";
 import { cn } from "@/lib/utils";
 
-const ACCESS_OPTIONS: Array<{ value: StageWorkspacePolicy["access"]; label: string }> = [
-  { value: "companions-only", label: "仅伴学模式" },
-  { value: "task-only", label: "仅普通模式" },
-  { value: "student-choice", label: "学生自主切换" },
+const ACCESS_OPTIONS: Array<{
+  value: StageWorkspacePolicy["access"];
+  label: string;
+}> = [
+  { value: "companions-only", label: "仅 AI 伴学场景" },
+  { value: "task-only", label: "仅传统学习页面" },
+  { value: "student-choice", label: "允许学生切换" },
 ];
 
 export function StageWorkspacePolicyPanel({
@@ -35,15 +38,22 @@ export function StageWorkspacePolicyPanel({
     : stages;
 
   return (
-    <section className={cn("rounded-[var(--radius-md)] border border-[var(--pbl-teacher-border)] bg-white p-3.5", className)}>
+    <section
+      className={cn(
+        "rounded-[var(--radius-md)] border border-[var(--pbl-teacher-border)] bg-white p-3.5",
+        className,
+      )}
+    >
       <header className="mb-3 flex items-start gap-2.5">
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
           <RefreshCw size={16} />
         </span>
         <div>
-          <h2 className="text-sm font-bold text-stone-900">学生课堂模式</h2>
+          <h2 className="text-sm font-bold text-stone-900">学生课堂界面</h2>
           <p className="mt-0.5 text-xs leading-5 text-stone-500">
-            {compact ? "修改后将通过课堂同步实时作用于学生。" : "分别设置六个阶段开放的界面；两种界面共享项目数据和智能体上下文。"}
+            {compact
+              ? "调整后会实时同步到学生端。"
+              : "第 1、2 阶段固定为传统学习页面；第 3–6 阶段由教师决定是否启用 AI 伴学场景。"}
           </p>
         </div>
       </header>
@@ -53,54 +63,90 @@ export function StageWorkspacePolicyPanel({
           const policy = getStageWorkspacePolicy(policies, stage.key);
           const companionSupported = stageSupportsCompanionWorkspace(stage.key);
           return (
-            <fieldset className="rounded-[var(--radius-xs)] border border-stone-200 bg-stone-50/70 p-3" key={stage.key}>
+            <fieldset
+              className="rounded-[var(--radius-xs)] border border-stone-200 bg-stone-50/70 p-3"
+              key={stage.key}
+            >
               <legend className="px-1 text-xs font-bold text-stone-700">
                 {compact ? stage.label : `${index + 1}. ${stage.label}`}
               </legend>
-              <label className="mt-1 block text-[11px] font-semibold text-stone-500" htmlFor={`workspace-access-${stage.key}`}>
-                可用模式
+              <label
+                className="mt-1 block text-[11px] font-semibold text-stone-500"
+                htmlFor={`workspace-access-${stage.key}`}
+              >
+                学生端显示
               </label>
               {companionSupported ? (
                 <select
-                  aria-label={`${stage.label}可用模式`}
+                  aria-label={`${stage.label}学生端显示`}
                   className="mt-1 h-9 w-full rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2.5 text-xs font-semibold text-stone-700 outline-none focus:border-[var(--pbl-teacher)]"
                   id={`workspace-access-${stage.key}`}
-                  onChange={(event) => onChange(updateStageWorkspacePolicy(policies, stage.key, {
-                    access: event.target.value as StageWorkspacePolicy["access"],
-                  }))}
+                  onChange={(event) =>
+                    onChange(
+                      updateStageWorkspacePolicy(policies, stage.key, {
+                        access: event.target
+                          .value as StageWorkspacePolicy["access"],
+                      }),
+                    )
+                  }
                   value={policy.access}
                 >
-                  {ACCESS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  {ACCESS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               ) : (
-                <div aria-label={`${stage.label}可用模式`} className="mt-1 flex h-9 items-center rounded-[var(--radius-xs)] border border-stone-200 bg-stone-100 px-2.5 text-xs font-semibold text-stone-600">
-                  仅普通模式（本阶段固定）
+                <div
+                  aria-label={`${stage.label}学生端显示`}
+                  className="mt-1 flex h-9 items-center rounded-[var(--radius-xs)] border border-stone-200 bg-stone-100 px-2.5 text-xs font-semibold text-stone-600"
+                >
+                  仅传统学习页面（本阶段固定）
                 </div>
               )}
 
               {companionSupported && policy.access === "student-choice" ? (
                 <div className="mt-2">
-                  <div className="mb-1 text-[11px] font-semibold text-stone-500">首次进入默认显示</div>
+                  <div className="mb-1 text-[11px] font-semibold text-stone-500">
+                    学生首次进入默认显示
+                  </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <ModeButton
                       active={policy.defaultMode === "companions"}
                       icon={<UsersRound size={13} />}
-                      label="伴学模式"
-                      onClick={() => onChange(updateStageWorkspacePolicy(policies, stage.key, { defaultMode: "companions" }))}
+                      label="AI 伴学"
+                      onClick={() =>
+                        onChange(
+                          updateStageWorkspacePolicy(policies, stage.key, {
+                            defaultMode: "companions",
+                          }),
+                        )
+                      }
                       stageLabel={stage.label}
                     />
                     <ModeButton
                       active={policy.defaultMode === "task"}
                       icon={<ListTodo size={13} />}
-                      label="普通模式"
-                      onClick={() => onChange(updateStageWorkspacePolicy(policies, stage.key, { defaultMode: "task" }))}
+                      label="传统页面"
+                      onClick={() =>
+                        onChange(
+                          updateStageWorkspacePolicy(policies, stage.key, {
+                            defaultMode: "task",
+                          }),
+                        )
+                      }
                       stageLabel={stage.label}
                     />
                   </div>
                 </div>
               ) : (
                 <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--pbl-teacher)]">
-                  <Bot size={12} /> 学生将直接进入{policy.access === "task-only" ? "普通模式" : "伴学模式"}
+                  <Bot size={12} />
+                  学生将直接进入
+                  {policy.access === "task-only"
+                    ? "传统学习页面"
+                    : "AI 伴学场景"}
                 </p>
               )}
             </fieldset>
@@ -111,7 +157,13 @@ export function StageWorkspacePolicyPanel({
   );
 }
 
-function ModeButton({ active, icon, label, stageLabel, onClick }: {
+function ModeButton({
+  active,
+  icon,
+  label,
+  stageLabel,
+  onClick,
+}: {
   active: boolean;
   icon: React.ReactNode;
   label: string;
@@ -131,7 +183,8 @@ function ModeButton({ active, icon, label, stageLabel, onClick }: {
       onClick={onClick}
       type="button"
     >
-      {icon}{label}
+      {icon}
+      {label}
     </button>
   );
 }

@@ -9,7 +9,7 @@ const agentIds: AgentId[] = ['zhizhi', 'wenwen', 'lingling', 'cece', 'pingping',
 
 type TimelineEvent = {
   agentId: AgentId
-  kind: 'conversation' | 'move' | 'place' | 'play'
+  kind: 'animation-start' | 'animation-stop' | 'conversation' | 'move' | 'place' | 'play'
   value: boolean | string | { x: number; y: number }
   at: number
 }
@@ -25,8 +25,9 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
     let anchor = { ...seatAnchor }
 
     const person = {
-      play: vi.fn(async (action: string) => {
+      play: vi.fn(async (action: string, options?: { onMounted?: () => void }) => {
         timeline.push({ agentId, kind: 'play', value: action, at: Date.now() })
+        options?.onMounted?.()
       }),
       moveVisualAnchorTo: vi.fn(async (x: number, y: number) => {
         anchor = { x, y }
@@ -41,6 +42,12 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
       setFacing: vi.fn(),
       setPosture: vi.fn(),
       setAnimationSpeed: vi.fn(),
+      startBodyAnimation: vi.fn(() => {
+        timeline.push({ agentId, kind: 'animation-start', value: true, at: Date.now() })
+      }),
+      stopBodyAnimation: vi.fn(() => {
+        timeline.push({ agentId, kind: 'animation-stop', value: true, at: Date.now() })
+      }),
       moveTo: vi.fn(async () => undefined),
       destroy: vi.fn(),
       container: {},
@@ -59,6 +66,7 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
         timeline.push({ agentId, kind: 'conversation', value: active, at: Date.now() })
       }),
       setState: vi.fn(),
+      refreshStateActivity: vi.fn(),
       setSelected: vi.fn(),
       setInfoVisible: vi.fn(),
       setAway: vi.fn(),
@@ -138,14 +146,38 @@ describe('office orchestrator partner conversations', () => {
       ['zhizhi', 'talking_on_stand-0'],
     ])
     expect(new Set(talkingStarts.map((event) => event.at)).size).toBe(1)
+    const animationStarts = timeline.filter((event) => event.kind === 'animation-start')
+    expect(animationStarts.map((event) => event.agentId)).toEqual(['wenwen', 'zhizhi'])
+    expect(new Set(animationStarts.map((event) => event.at)).size).toBe(1)
     const conversationMove = timeline.find(
       (event) => event.agentId === 'zhizhi'
         && event.kind === 'move'
         && JSON.stringify(event.value) === JSON.stringify(workstations.wenwen.conversationAnchor),
     )
     expect(conversationMove).toBeTruthy()
+    const arrivalIndex = timeline.findIndex(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'play'
+        && event.value === 'turn_arrive',
+    )
+    const standingTalkIndex = timeline.findIndex(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'play'
+        && event.value === 'talking_on_stand-0',
+    )
+    expect(arrivalIndex).toBeGreaterThan(-1)
+    expect(standingTalkIndex).toBeGreaterThan(arrivalIndex)
     expect(workstations.wenwen.conversationAnchor.y - workstations.wenwen.seatAnchor.y).toBe(14)
     expect(workstations.zhizhi.setOccludedBy).toHaveBeenCalledWith(workstations.wenwen)
+    const outboundMoves = timeline.slice(0, standingTalkIndex).filter(
+      (event) => event.agentId === 'zhizhi' && event.kind === 'move',
+    )
+    expect(outboundMoves.some(
+      (event) => JSON.stringify(event.value) === JSON.stringify(workstations.zhizhi.homeAnchor),
+    )).toBe(false)
+    expect(outboundMoves.some(
+      (event) => typeof event.value === 'object' && event.value.x === 690,
+    )).toBe(false)
 
     await vi.advanceTimersByTimeAsync(10_000)
 
@@ -154,6 +186,9 @@ describe('office orchestrator partner conversations', () => {
     )
     expect(conversationEnds.map((event) => event.agentId)).toEqual(['zhizhi', 'wenwen'])
     expect(new Set(conversationEnds.map((event) => event.at)).size).toBe(1)
+    const animationStops = timeline.filter((event) => event.kind === 'animation-stop')
+    expect(animationStops.map((event) => event.agentId)).toEqual(['zhizhi', 'wenwen'])
+    expect(new Set(animationStops.map((event) => event.at)).size).toBe(1)
     expect(workstations.zhizhi.setOccludedBy).toHaveBeenLastCalledWith(null)
 
     const finalPlacement = timeline.filter(
@@ -194,6 +229,10 @@ describe('office orchestrator partner conversations', () => {
         && event.value === 'organizing_files',
     )
     expect(archiveActions).toHaveLength(1)
+    expect(workstations.jiji.person.play).toHaveBeenCalledWith(
+      'organizing_files',
+      expect.objectContaining({ loop: false, restart: true }),
+    )
     expect(workstations.jiji.person.placeVisualAnchorAt).toHaveBeenCalledWith(
       studyZoneDefinitions.archive.actionAnchorPoint.x,
       studyZoneDefinitions.archive.actionAnchorPoint.y,
@@ -201,6 +240,33 @@ describe('office orchestrator partner conversations', () => {
     )
     expect(workstations.jiji.person.getVisualAnchorPosition('bodyCore'))
       .toEqual(studyZoneDefinitions.archive.actionAnchorPoint)
+
+    office.destroy()
+  })
+
+  it('plays one workbench action for one visit, then sends the companion back', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.75,
+    })
+
+    const interaction = office.interactWithStudyZone('lingling', 'planning')
+    await vi.advanceTimersByTimeAsync(3_000)
+    await interaction
+
+    const planningActions = timeline.filter(
+      (event) => event.agentId === 'lingling'
+        && event.kind === 'play'
+        && ['planning_board', 'board_listening', 'screen_pointing'].includes(String(event.value)),
+    )
+    expect(planningActions).toHaveLength(1)
+    expect(workstations.lingling.person.play).toHaveBeenCalledWith(
+      'screen_pointing',
+      expect.objectContaining({ loop: false, restart: true }),
+    )
+    expect(workstations.lingling.person.getVisualAnchorPosition('bottomCenter'))
+      .toEqual(workstations.lingling.seatAnchor)
 
     office.destroy()
   })
@@ -222,7 +288,7 @@ describe('office orchestrator partner conversations', () => {
     })
 
     agentIds.forEach((agentId) => office.setAgentState(agentId, 'idle'))
-    await vi.advanceTimersByTimeAsync(2_000)
+    await vi.advanceTimersByTimeAsync(1_500)
 
     expect(studyZones.getOccupant('archive')).toBe('zhizhi')
     expect(studyZones.getOccupant('library')).toBe('wenwen')
@@ -278,5 +344,142 @@ describe('office orchestrator partner conversations', () => {
     await vi.advanceTimersByTimeAsync(20_000)
 
     expect(timeline).toHaveLength(eventsAtDestroy)
+  })
+
+  it('keeps a speaker still until the finish action completes, then applies the latest state and route', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    let resolveSpeechFinish = () => {}
+    const speechFinish = new Promise<void>((resolve) => {
+      resolveSpeechFinish = resolve
+    })
+    vi.mocked(workstations.zhizhi.person.play).mockImplementation(async (action) => {
+      timeline.push({ agentId: 'zhizhi', kind: 'play', value: action, at: Date.now() })
+      if (action === 'completed') {
+        await speechFinish
+      }
+    })
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+
+    office.setAgentState('zhizhi', 'speaking')
+    await office.goToStudyZone('zhizhi', 'library')
+    office.setAgentState('zhizhi', 'celebrating')
+    office.setAgentState('zhizhi', 'working')
+    office.setAgentState('zhizhi', 'idle')
+    await Promise.resolve()
+
+    expect(workstations.zhizhi.person.play).toHaveBeenCalledWith(
+      'completed',
+      expect.objectContaining({ loop: false, restart: true }),
+    )
+    expect(timeline.filter((event) => event.kind === 'move')).toHaveLength(0)
+    expect(workstations.zhizhi.setState).toHaveBeenNthCalledWith(1, 'speaking')
+    expect(workstations.zhizhi.setState).toHaveBeenNthCalledWith(
+      2,
+      'celebrating',
+      { deferBodyActivity: true },
+    )
+    expect(workstations.zhizhi.setState).not.toHaveBeenCalledWith('working')
+    expect(workstations.zhizhi.setState).not.toHaveBeenCalledWith('idle')
+
+    resolveSpeechFinish()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(workstations.zhizhi.setState).toHaveBeenCalledWith('idle')
+    expect(timeline.some((event) => event.kind === 'move')).toBe(true)
+    expect(workstations.zhizhi.person.play).toHaveBeenCalledWith(
+      'reading_book',
+      expect.anything(),
+    )
+
+    office.destroy()
+  })
+
+  it('stops study-zone action rotation for the full speaking turn', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+
+    await office.goToStudyZone('lingling', 'planning')
+    const actionsBeforeSpeech = timeline.filter(
+      (event) => event.agentId === 'lingling'
+        && event.kind === 'play'
+        && ['planning_board', 'board_listening', 'screen_pointing'].includes(String(event.value)),
+    )
+    expect(actionsBeforeSpeech).toHaveLength(1)
+
+    office.setAgentState('lingling', 'speaking')
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    const actionsDuringSpeech = timeline.filter(
+      (event) => event.agentId === 'lingling'
+        && event.kind === 'play'
+        && ['planning_board', 'board_listening', 'screen_pointing'].includes(String(event.value)),
+    )
+    expect(actionsDuringSpeech).toHaveLength(1)
+
+    office.destroy()
+  })
+
+  it('gives every idle companion both off-desk movement and a new ambient action', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+      idleStartDelays: Object.fromEntries(agentIds.map((agentId) => [agentId, 0])),
+    })
+
+    agentIds.forEach((agentId) => office.setAgentState(agentId, 'idle'))
+    await vi.advanceTimersByTimeAsync(120_000)
+
+    const newAmbientActions = new Set([
+      'looking_around',
+      'slacking',
+      'stretching',
+      'napping',
+    ])
+    agentIds.forEach((agentId) => {
+      expect(timeline.some(
+        (event) => event.agentId === agentId && event.kind === 'move',
+      ), `${agentId} should leave the desk`).toBe(true)
+      expect(timeline.some(
+        (event) => event.agentId === agentId
+          && event.kind === 'play'
+          && newAmbientActions.has(String(event.value)),
+      ), `${agentId} should use a new ambient action`).toBe(true)
+    })
+
+    office.destroy()
+  })
+
+  it('lets a ready knowledge companion leave its desk while waiting for the student', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0,
+      idleStartDelays: {
+        zhizhi: 0,
+        wenwen: 60_000,
+        lingling: 60_000,
+        cece: 60_000,
+        pingping: 60_000,
+        jiji: 60_000,
+      },
+    })
+
+    agentIds.filter((agentId) => agentId !== 'zhizhi')
+      .forEach((agentId) => office.setAgentState(agentId, 'working'))
+    office.setAgentState('zhizhi', 'waiting_user')
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    expect(timeline.some(
+      (event) => event.agentId === 'zhizhi' && event.kind === 'move',
+    )).toBe(true)
+
+    office.destroy()
   })
 })

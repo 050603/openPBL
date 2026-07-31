@@ -8,7 +8,11 @@ export type StudentWorkspaceMode = StageWorkspaceMode;
 const DEFAULT_WORKSPACE_MODE: StudentWorkspaceMode = "companions";
 const WORKSPACE_MODE_EVENT = "openpbl:workspace-mode-change";
 
-export function workspaceModeStorageKey(courseId: string, studentId?: string, stageKey?: string): string {
+export function workspaceModeStorageKey(
+  courseId: string,
+  studentId?: string,
+  stageKey?: string,
+): string {
   return `openpbl:student-workspace:${courseId}:${studentId || "anonymous"}:${stageKey || "course"}`;
 }
 
@@ -21,10 +25,17 @@ export function useStudentWorkspaceMode(
   const storageKey = workspaceModeStorageKey(courseId, studentId, stageKey);
   const subscribe = useCallback((onStoreChange: () => void) => {
     const onWorkspaceModeChange = (event: Event) => {
-      if (!(event instanceof CustomEvent) || event.detail === storageKey) onStoreChange();
+      if (!(event instanceof CustomEvent) || event.detail === storageKey) {
+        onStoreChange();
+      }
     };
     const onStorage = (event: StorageEvent) => {
-      if (event.storageArea === window.sessionStorage && event.key === storageKey) onStoreChange();
+      if (
+        event.storageArea === window.sessionStorage
+        && event.key === storageKey
+      ) {
+        onStoreChange();
+      }
     };
     window.addEventListener(WORKSPACE_MODE_EVENT, onWorkspaceModeChange);
     window.addEventListener("storage", onStorage);
@@ -36,7 +47,9 @@ export function useStudentWorkspaceMode(
   const getSnapshot = useCallback((): StudentWorkspaceMode => {
     try {
       const stored = window.sessionStorage.getItem(storageKey);
-      return stored === "task" || stored === "companions" ? stored : defaultMode;
+      return stored === "task" || stored === "companions"
+        ? stored
+        : defaultMode;
     } catch {
       return defaultMode;
     }
@@ -46,9 +59,11 @@ export function useStudentWorkspaceMode(
   const setMode = useCallback((nextMode: StudentWorkspaceMode) => {
     try {
       window.sessionStorage.setItem(storageKey, nextMode);
-      window.dispatchEvent(new CustomEvent(WORKSPACE_MODE_EVENT, { detail: storageKey }));
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_MODE_EVENT, { detail: storageKey }),
+      );
     } catch {
-      // Embedded browsers that deny storage keep the safe immersive default.
+      // Browsers that deny session storage keep the teacher-defined default.
     }
   }, [storageKey]);
 

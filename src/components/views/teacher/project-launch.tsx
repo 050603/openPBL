@@ -34,7 +34,6 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const joined = course.students.length;
   const rate = Math.min(100, Math.round((joined / totalSeats) * 100));
   const projectSpaces = course.students.filter((student) => course.groups?.some((project) => project.members.some((member) => member.studentId === student.id))).length;
-  const announcementRead = course.announcements?.length ? Math.round((joined / Math.max(1, totalSeats)) * 100) : 0;
   const inquiryQuestions = course.pblConfig?.inquiryQuestions?.length
     ? course.pblConfig.inquiryQuestions
     : course.drivingQuestion
@@ -49,6 +48,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const selectedCount = studentSelections.filter(({ topic }) =>
     topic ? inquiryQuestions.includes(topic) : false,
   ).length;
+  const selectionRate = Math.round((selectedCount / Math.max(1, joined)) * 100);
   const launchTodos = (course.todos ?? []).filter(isProjectLaunchTodo);
   const completedTodoCount = launchTodos.reduce(
     (sum, todo) =>
@@ -90,7 +90,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
         <StatCard title="到课情况" value={`${joined} / ${totalSeats}`} sub={`出勤率 ${rate}%`} icon={<Users className="text-blue-600" size={22} />} progress={rate} />
         <StatCard title="个人项目空间" value={`${projectSpaces}`} sub={`${joined} 名学生独立完成`} icon={<Sparkles className="text-emerald-600" size={22} />} progress={Math.min(100, Math.round((projectSpaces / Math.max(1, joined)) * 100))} tone="emerald" />
         <StatCard title="学生待办" value={`${todoCompletion}%`} sub={`${completedTodoCount} / ${totalTodoCount} 项已完成`} icon={<HelpCircle className="text-[var(--pbl-warning)]" size={22} />} progress={todoCompletion} tone="amber" />
-        <StatCard title="公告触达" value={`${announcementRead}%`} sub={`${course.announcements?.length ?? 0} 条公告`} icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={announcementRead} tone="rose" />
+        <StatCard title="方向确认" value={`${selectedCount} / ${joined}`} sub="学生已确认个人研究方向" icon={<Bell className="text-[var(--pbl-danger)]" size={22} />} progress={selectionRate} tone="rose" />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">

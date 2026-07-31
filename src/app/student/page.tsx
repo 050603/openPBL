@@ -103,13 +103,7 @@ export default function StudentEntryPage() {
           </p>
         </header>
 
-        {!hydrated ? (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
-            <div className="pbl-skeleton h-[460px] rounded-[var(--radius-xl)]" />
-            <div className="pbl-skeleton h-[460px] rounded-[var(--radius-xl)]" />
-          </div>
-        ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-8">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-8">
             {/* 左：邀请码加入卡片 */}
             <section className="space-y-4">
               {joinedCourse?.status === "teaching" ? (
@@ -217,7 +211,7 @@ export default function StudentEntryPage() {
                   <InstructionStep
                     step={4}
                     title="跟随 AI 老师完成项目"
-                    desc="AI 老师会带你完成项目启动、知识学习、方案构思、实践、汇报与反思六个阶段。"
+                    desc="教师主导六阶段课堂，AI 伴学伙伴会提供解释、提问、质疑与反馈，但项目决定和成果由你完成。"
                   />
                 </ol>
 
@@ -229,8 +223,7 @@ export default function StudentEntryPage() {
                 </div>
               </div>
             </aside>
-          </div>
-        )}
+        </div>
       </div>
     </DashboardShell>
   );

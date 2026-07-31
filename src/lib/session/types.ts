@@ -9,6 +9,7 @@ import type {
 import type { PblModuleTimingPlan, PblProjectMainline } from "@/lib/pbl-time-model";
 import type { PblActivityTimingInput } from "@/lib/pbl-time-estimation";
 import type { TtsTimingPlan } from "@/lib/openmaic/audio/tts-timing";
+import type { ClassroomTimingState } from "@/lib/classroom/timing";
 
 export type CourseStatus =
   | "draft"
@@ -353,6 +354,8 @@ export type CourseUiState = {
   aiPanelCollapsed?: boolean;
   presentationTimerSeconds?: number;
   timerRunning?: boolean;
+  /** Persisted stage-aware classroom clock; live elapsed time is derived from absolute timestamps. */
+  classroomTiming?: ClassroomTimingState;
   /**
    * 学生端有更新时，系统置位此标志提醒教师。
    * 教师下次进入监控页时主动触发 LLM 重新分析后清除此标志。
@@ -796,7 +799,7 @@ export type AdaptiveTriggerEvaluation = {
 
 export type AdaptiveMicroLesson = {
   id: string;
-  stageKey: "proposal" | "make";
+  stageKey: "proposal" | "make" | "showcase" | "reflection";
   topic: string;
   decision: "brief-answer" | "systematic-lesson";
   rationale: string;
@@ -1231,6 +1234,8 @@ export type RubricScore = {
   teacherTotal?: number;
   aiDimensionScores?: Record<string, number>;
   aiTotal?: number | null;
+  aiProcessSummary?: string;
+  aiProcessEvidence?: string[];
   finalTotal?: number;
   scoringMode?: "teacher" | "hybrid" | "ai-import";
   comment: string;

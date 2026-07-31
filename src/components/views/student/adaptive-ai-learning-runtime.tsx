@@ -21,6 +21,7 @@ import type {
   StudentAdaptiveLearningState,
 } from "@/lib/session/types";
 import { readSubmittedState } from "@openmaic/lib/quiz/persistence";
+import { deriveClassroomTimingSnapshot } from "@/lib/classroom/timing";
 
 type QueuedResource = {
   branch: AdaptiveBranchOutline;
@@ -126,6 +127,23 @@ export function AdaptiveAiLearningRuntime({
     queueMicrotask(() => setAdaptiveState(remoteAdaptiveState));
   }, [remoteAdaptiveState]);
 
+  function remainingAdaptiveBudgetSec(state: StudentAdaptiveLearningState): number {
+    if (!plan) return 0;
+    const timing = course.uiState?.classroomTiming;
+    const runtimeStageRemainingSec =
+      timing?.activeStageKey === "ai-learning"
+        ? deriveClassroomTimingSnapshot(
+            timing,
+            new Date().toISOString(),
+          ).activeStage?.remainingSec
+        : undefined;
+    return calculateAdaptiveRemainingBudgetSec(
+      plan,
+      state,
+      runtimeStageRemainingSec,
+    );
+  }
+
   async function persistState(body: Record<string, unknown>) {
     const response = await fetch("/api/adaptive-learning/state", {
       method: "POST",
@@ -181,7 +199,7 @@ export function AdaptiveAiLearningRuntime({
   async function preparePreCourseResources(state: StudentAdaptiveLearningState) {
     if (!plan) return;
     let simulatedState = state;
-    let budget = calculateAdaptiveRemainingBudgetSec(plan, simulatedState);
+    let budget = remainingAdaptiveBudgetSec(simulatedState);
     const queue: QueuedResource[] = [];
     for (const branch of plan.branches.filter((item) => item.trigger?.placement === "before-main-course")) {
       const result = evaluateAdaptiveBranchDecision({
@@ -210,7 +228,7 @@ export function AdaptiveAiLearningRuntime({
         ...simulatedState,
         branchRuns: [...simulatedState.branchRuns, resource.run],
       };
-      budget = calculateAdaptiveRemainingBudgetSec(plan, simulatedState);
+      budget = remainingAdaptiveBudgetSec(simulatedState);
     }
     if (!queue.length) return;
     for (const resource of queue) {
@@ -266,7 +284,7 @@ export function AdaptiveAiLearningRuntime({
       questionResults,
       isAutomaticCheckpoint: checkpointSceneIds.has(sceneIdentity.stableSceneId),
       phase: "after-module",
-      remainingBudgetSec: calculateAdaptiveRemainingBudgetSec(plan, evidenceState),
+      remainingBudgetSec: remainingAdaptiveBudgetSec(evidenceState),
     });
     if (evaluation.evaluations.length) {
       await persistState({

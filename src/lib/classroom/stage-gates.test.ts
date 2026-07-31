@@ -15,10 +15,29 @@ function course(overrides: Partial<Course> = {}): Course {
 
 describe("evaluateStageGate", () => {
   it("blocks launch without a participant", () => expect(evaluateStageGate(course({ students: [] }), 0).blockers.map((item) => item.code)).toContain("participants"));
+  it("requires every student to confirm a personal project direction during launch", () => expect(evaluateStageGate(course(), 0).blockers.map((item) => item.code)).toContain("project-topic"));
   it("blocks AI learning without generated content", () => expect(evaluateStageGate(course(), 1).blockers.map((item) => item.code)).toContain("ai-content"));
   it("blocks incomplete personal proposals", () => expect(evaluateStageGate(course({ groups: [{ id: "g1", name: "小林的个人项目", topic: "", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }), 2).blockers.map((item) => item.code)).toContain("proposal-fields"));
   it("requires teacher approval in the merged proposal stage", () => expect(evaluateStageGate(course({ groups: [{ id: "g1", name: "小林的个人项目", topic: "节水", goal: "方案", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], proposal: { projectQuestion: "如何节水", outcomeFormat: "海报", implementationPlan: "调研并设计", requiredKnowledge: ["数据"], aiUsePlan: "请 AI 质疑方案", risks: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] }), 2).blockers.map((item) => item.code)).toContain("teacher-approval"));
   it("blocks making while high-risk intervention is open", () => expect(evaluateStageGate(course({ classConfig: { groupMode: "free", totalStudents: 1 }, groups: [{ id: "g1", name: "一组", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }], uploads: [{ id: "u1", courseId: "course-1", groupId: "g1", stageKey: "make", category: "artifact", title: "初稿", fileName: "a.pdf", fileType: "PDF", size: "1MB", url: "/a", createdAt: new Date().toISOString() }], teacherInterventions: [{ id: "i1", stageKey: "make", scope: "group", targetIds: ["g1"], reason: "伦理风险", evidence: ["作品内容"], action: "guidance", instruction: "重新判断", severity: "high", status: "open", teacherName: "教师", createdAt: new Date().toISOString() }] }), 3).blockers.map((item) => item.code)).toContain("high-risk"));
+  it("does not count material from another stage as making evidence", () => expect(evaluateStageGate(course({
+    groups: [{ id: "g1", name: "小林的个人项目", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+    uploads: [{ id: "u1", courseId: "course-1", groupId: "g1", stageKey: "showcase", category: "artifact", title: "最终成果", fileName: "a.pdf", fileType: "PDF", size: "1MB", url: "/a", createdAt: new Date().toISOString() }],
+  }), 3).blockers.map((item) => item.code)).toContain("artifact"));
+  it("accepts any real showcase file format but still requires a teacher evaluation", () => {
+    const now = new Date().toISOString();
+    const project = { id: "g1", name: "小林的个人项目", topic: "节水", keywords: [], selectedForms: [], members: [{ studentId: "s1", name: "小林" }], createdAt: now, updatedAt: now };
+    const upload = { id: "u1", courseId: "course-1", groupId: "g1", stageKey: "showcase", category: "artifact" as const, title: "实物照片", fileName: "artifact.jpg", fileType: "JPG", size: "1MB", url: "/a", createdAt: now };
+    const withoutEvaluation = evaluateStageGate(course({ groups: [project], uploads: [upload] }), 4);
+    expect(withoutEvaluation.blockers.map((item) => item.code)).not.toContain("showcase-material");
+    expect(withoutEvaluation.blockers.map((item) => item.code)).toContain("showcase-evaluation");
+    const withEvaluation = evaluateStageGate(course({
+      groups: [project],
+      uploads: [upload],
+      rubricScores: [{ id: "score-1", courseId: "course-1", groupId: "g1", stageKey: "showcase", dimensionScores: {}, comment: "已完成现场评价", total: 82, status: "submitted", createdAt: now, updatedAt: now }],
+    }), 4);
+    expect(withEvaluation.canAdvance).toBe(true);
+  });
   it("treats reflection as terminal with warnings, not a forward blocker", () => expect(evaluateStageGate(course(), 5).canAdvance).toBe(true));
 });
 

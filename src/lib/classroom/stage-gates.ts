@@ -1,5 +1,10 @@
 import type { Course, ProjectGroup, Stage } from "@/lib/session/types";
 import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
+import {
+  hasSelectedProjectTopic,
+  isProjectLaunchTodo,
+  projectLaunchProgress,
+} from "@/lib/project-launch-readiness";
 
 export type StageGateItem = {
   code: string;
@@ -57,6 +62,20 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
     else completed.push("项目说明与驱动问题已完整");
     if (!course.students.length) blockers.push({ code: "participants", message: "至少需要一名学生进入课堂", targetIds: [] });
     else completed.push(`${course.students.length} 名学生已进入课堂`);
+    const launchTodos = (course.todos ?? []).filter(isProjectLaunchTodo);
+    const incompleteLaunchTodos = launchTodos.length
+      ? course.students
+          .filter((student) => projectLaunchProgress(launchTodos, student.id) < 100)
+          .map((student) => student.id)
+      : [];
+    if (incompleteLaunchTodos.length) blockers.push({ code: "launch-todos", message: `${incompleteLaunchTodos.length} 名学生尚未完成项目启动任务`, targetIds: incompleteLaunchTodos });
+    else if (launchTodos.length && course.students.length) completed.push("所有学生已完成项目启动任务");
+    const inquiryQuestions = course.pblConfig?.inquiryQuestions;
+    const missingTopics = course.students
+      .filter((student) => !hasSelectedProjectTopic(projectForStudent(course, student.id), inquiryQuestions?.length ? inquiryQuestions : undefined))
+      .map((student) => student.id);
+    if (missingTopics.length) blockers.push({ code: "project-topic", message: `${missingTopics.length} 名学生尚未确认个人项目方向`, targetIds: missingTopics });
+    else if (course.students.length) completed.push("所有学生已确认个人项目方向");
   }
 
   if (stage.key === "ai-learning") {
@@ -92,8 +111,8 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
   if (stage.key === "make") {
     const noArtifact = course.students.filter((student) => {
       const projectId = projectForStudent(course, student.id)?.id;
-      return !(course.uploads ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && item.category === "artifact")
-        && !(course.submissions ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && ["document", "evidence"].includes(item.type));
+      return !(course.uploads ?? []).some((item) => item.stageKey === "make" && (item.studentId === student.id || item.groupId === projectId) && item.category === "artifact")
+        && !(course.submissions ?? []).some((item) => item.stageKey === "make" && (item.studentId === student.id || item.groupId === projectId) && ["document", "evidence"].includes(item.type));
     }).map((student) => student.id);
     if (noArtifact.length) blockers.push({ code: "artifact", message: `${noArtifact.length} 个项目还没有作品版本或过程证据`, targetIds: noArtifact });
     const highRisk = (course.teacherInterventions ?? []).filter((item) => item.stageKey === "make" && item.severity === "high" && item.status === "open");
@@ -102,13 +121,24 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
   }
 
   if (stage.key === "showcase") {
-    const unfinished = course.students.filter((student) => {
+    const missingMaterials = course.students.filter((student) => {
       const projectId = projectForStudent(course, student.id)?.id;
-      return !(course.uploads ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && item.category === "presentation")
-        && !(course.submissions ?? []).some((item) => (item.studentId === student.id || item.groupId === projectId) && item.type === "showcase");
+      return !(course.uploads ?? []).some((item) => item.stageKey === "showcase" && (item.studentId === student.id || item.groupId === projectId))
+        && !(course.submissions ?? []).some((item) => item.stageKey === "showcase" && (item.studentId === student.id || item.groupId === projectId) && item.type === "showcase");
     }).map((student) => student.id);
-    if (unfinished.length) blockers.push({ code: "presentation", message: `${unfinished.length} 个项目尚未完成最终汇报`, targetIds: unfinished });
-    else completed.push("所有有效项目已完成汇报");
+    if (missingMaterials.length) blockers.push({ code: "showcase-material", message: `${missingMaterials.length} 个项目尚未提交展示材料`, targetIds: missingMaterials });
+    const missingEvaluations = course.students.filter((student) => {
+      const projectId = projectForStudent(course, student.id)?.id;
+      return !projectId || !(course.rubricScores ?? []).some((score) => score.groupId === projectId && score.stageKey === "showcase" && score.status !== "draft");
+    }).map((student) => student.id);
+    if (missingEvaluations.length) blockers.push({ code: "showcase-evaluation", message: `${missingEvaluations.length} 个项目尚未完成教师展示评价`, targetIds: missingEvaluations });
+    const missingAiProcessEvaluation = course.students.filter((student) => {
+      const projectId = projectForStudent(course, student.id)?.id;
+      const score = (course.rubricScores ?? []).find((item) => item.groupId === projectId && item.stageKey === "showcase");
+      return typeof score?.aiTotal !== "number" || !score.aiProcessSummary?.trim();
+    }).map((student) => student.id);
+    if (missingAiProcessEvaluation.length) warnings.push({ code: "ai-process-evaluation", message: `${missingAiProcessEvaluation.length} 个项目尚无可追溯的 AI 过程评价`, targetIds: missingAiProcessEvaluation });
+    if (!missingMaterials.length && !missingEvaluations.length && course.students.length) completed.push("所有项目均有展示材料和教师评价");
   }
 
   if (stage.key === "reflection") {

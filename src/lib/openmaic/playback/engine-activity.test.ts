@@ -44,6 +44,27 @@ function discussionScene(): Scene {
   } as unknown as Scene;
 }
 
+function transitionScene(durationSec = 5): Scene {
+  return {
+    id: 'slide-scene',
+    stageId: 'stage-1',
+    order: 0,
+    title: 'Slide',
+    type: 'slide',
+    content: { type: 'slide', elements: [] },
+    actions: [
+      {
+        id: 'page-transition',
+        type: 'speech',
+        text: '',
+        timelinePauseSec: durationSec,
+        timelinePausePurpose: 'page-transition',
+      },
+      { id: 'after-transition', type: 'laser', elementId: 'next' },
+    ] as Action[],
+  } as unknown as Scene;
+}
+
 function legacyInteractiveScene(): Scene {
   return {
     id: 'interactive-scene',
@@ -124,6 +145,72 @@ describe('PlaybackEngine activity gates', () => {
 
     engine.resume();
     await vi.advanceTimersByTimeAsync(599);
+    expect(actionEngine.execute).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(actionEngine.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('executes a fixed transition pause without exposing a learner activity gate', async () => {
+    const onActivityStart = vi.fn();
+    const actionEngine = {
+      clearEffects: vi.fn(),
+      execute: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ActionEngine;
+    const audioPlayer = {
+      play: vi.fn().mockResolvedValue(false),
+      onEnded: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      isPlaying: vi.fn().mockReturnValue(false),
+      hasActiveAudio: vi.fn().mockReturnValue(false),
+    } as unknown as AudioPlayer;
+    const engine = new PlaybackEngine(
+      [transitionScene()],
+      actionEngine,
+      audioPlayer,
+      { onActivityStart },
+    );
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(actionEngine.execute).not.toHaveBeenCalled();
+    expect(onActivityStart).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(actionEngine.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'after-transition' }),
+    );
+  });
+
+  it('preserves the remaining fixed transition across pause and resume', async () => {
+    const actionEngine = {
+      clearEffects: vi.fn(),
+      execute: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ActionEngine;
+    const audioPlayer = {
+      play: vi.fn().mockResolvedValue(false),
+      onEnded: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      isPlaying: vi.fn().mockReturnValue(false),
+      hasActiveAudio: vi.fn().mockReturnValue(false),
+    } as unknown as AudioPlayer;
+    const engine = new PlaybackEngine(
+      [transitionScene()],
+      actionEngine,
+      audioPlayer,
+    );
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    engine.pause();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(actionEngine.execute).not.toHaveBeenCalled();
+
+    engine.resume();
+    await vi.advanceTimersByTimeAsync(2_999);
     expect(actionEngine.execute).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(actionEngine.execute).toHaveBeenCalledTimes(1);

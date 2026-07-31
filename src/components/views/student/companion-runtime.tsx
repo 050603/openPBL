@@ -13,6 +13,10 @@ import { getCompanionStagePolicy, stageArtifactFollowUp } from "@/lib/companion/
 import { sanitizeCompanionResponse } from "@/lib/companion/response";
 import { isCompanionStageEnabled } from "@/lib/companion/stage-access";
 import type { CompanionWorkspacePatch } from "@/lib/companion/workspace-operation";
+import {
+  companionMicroLessonStageContext,
+  isCompanionMicroLessonStage,
+} from "@/lib/adaptive-learning";
 import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
 
 export type CompanionChatMessage = {
@@ -323,7 +327,9 @@ type CompanionRuntimeContextValue = {
     lesson: AdaptiveMicroLesson;
     progress: number;
     message: string;
+    taskId?: string;
   } | null;
+  completeMicroLesson: (lessonId: string) => void;
   dismissMicroLessonTask: () => void;
 };
 
@@ -364,6 +370,7 @@ export function CompanionRuntimeProvider({
     lesson: AdaptiveMicroLesson;
     progress: number;
     message: string;
+    taskId?: string;
   } | null>(null);
   const [phase, setPhase] = useState<CompanionRuntimePhase>("idle");
   const [currentSpeaker, setCurrentSpeaker] = useState<AiCompanionId | null>(null);
@@ -451,11 +458,13 @@ export function CompanionRuntimeProvider({
   const tryLaunchMicroLesson = useCallback(async (
     message: string,
     signal: AbortSignal,
+    taskId?: string,
   ): Promise<boolean> => {
     if (
       !session.studentId ||
-      (stageKey !== "proposal" && stageKey !== "make")
+      !isCompanionMicroLessonStage(stageKey)
     ) return false;
+    const lessonStageKey = stageKey;
     const decisionResponse = await fetch("/api/adaptive-learning/micro-lesson", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
@@ -483,7 +492,7 @@ export function CompanionRuntimeProvider({
 
     const lesson: AdaptiveMicroLesson = {
       id: `micro-lesson-${Date.now().toString(36)}`,
-      stageKey,
+      stageKey: lessonStageKey,
       topic: decision.topic,
       decision: "systematic-lesson",
       rationale: decision.rationale,
@@ -494,6 +503,7 @@ export function CompanionRuntimeProvider({
       lesson,
       progress: 5,
       message: "知知正在梳理课程结构",
+      taskId,
     });
     const backgroundController = new AbortController();
     microLessonAbortRef.current?.abort();
@@ -517,13 +527,14 @@ export function CompanionRuntimeProvider({
     const perScene = Math.round(150 / sceneCount);
     const sceneInputs = Array.from({ length: sceneCount }, (_, index) => {
       const slice = keyPoints.filter((_, pointIndex) => pointIndex % sceneCount === index);
+      const stageContext = companionMicroLessonStageContext(lessonStageKey);
       return {
         title: sceneCount === 1
           ? decision.topic
           : `${decision.topic} · ${index === 0 ? "核心理解" : "项目应用"}`,
         description: index === 0
           ? `系统解释${decision.topic}的核心概念、原理和易错点。`
-          : `把${decision.topic}应用到当前${stageKey === "proposal" ? "方案构思" : "项目制作"}任务。`,
+          : `把${decision.topic}应用到当前${stageContext}任务。`,
         keyPoints: slice.length ? slice : keyPoints,
         type: "slide" as const,
         targetDurationSec: perScene,
@@ -544,13 +555,13 @@ export function CompanionRuntimeProvider({
         const generated = await generateAdaptiveClassroom({
           title: `${courseRef.current.name} · ${decision.topic}微课`,
           requirement: [
-            `学生在${stageKey === "proposal" ? "方案构思" : "项目制作"}阶段主动提出：“${message}”。`,
+            `学生在${companionMicroLessonStageContext(lessonStageKey)}阶段主动提出：“${message}”。`,
             `请生成 1–2 页、总时长 2–3 分钟的即时微课，主题为“${decision.topic}”。`,
             `讲解要点：${keyPoints.join("；")}`,
             `必须联系课程驱动问题：${courseRef.current.drivingQuestion}`,
             "用与主课程一致的教学语言、PPT、TTS 和互动节奏；不要扩展成完整章节。",
           ].join("\n"),
-          stageKey,
+          stageKey: lessonStageKey,
           scenes: sceneInputs,
           signal: backgroundController.signal,
           onProgress: ({ progress, message: progressMessage }) =>
@@ -570,6 +581,7 @@ export function CompanionRuntimeProvider({
           lesson: readyLesson,
           progress: 100,
           message: "微课已经准备好，随时可以开始",
+          taskId,
         });
         const readyText = `“${decision.topic}”微课已经准备好了。点击右下角任务卡就能进入学习，学完会带你回到这里。`;
         setMessages((current) => appendMessage(current, {
@@ -629,7 +641,7 @@ export function CompanionRuntimeProvider({
     abortRef.current = controller;
     if (!isTrigger) {
       try {
-        const launched = await tryLaunchMicroLesson(message, controller.signal);
+        const launched = await tryLaunchMicroLesson(message, controller.signal, options?.taskId);
         if (launched) {
           abortRef.current = null;
           phaseRef.current = "idle";
@@ -972,6 +984,21 @@ export function CompanionRuntimeProvider({
     tts,
     lastCompletedRound,
     microLessonTask,
+    completeMicroLesson: (lessonId) =>
+      setMicroLessonTask((current) =>
+        current?.lesson.id === lessonId
+          ? {
+              ...current,
+              lesson: {
+                ...current.lesson,
+                status: "completed",
+                completedAt: new Date().toISOString(),
+              },
+              progress: 100,
+              message: "微课学习已完成",
+            }
+          : current,
+      ),
     dismissMicroLessonTask: () => setMicroLessonTask(null),
   };
 

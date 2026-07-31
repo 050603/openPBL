@@ -1150,6 +1150,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           teacherTotal: input.teacherTotal,
           aiDimensionScores: input.aiDimensionScores,
           aiTotal: input.aiTotal,
+          aiProcessSummary: input.aiProcessSummary,
+          aiProcessEvidence: input.aiProcessEvidence,
           finalTotal: input.finalTotal,
           scoringMode: input.scoringMode,
           comment: input.comment,

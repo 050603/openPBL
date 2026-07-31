@@ -30,6 +30,7 @@ import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
 import { aggregateCommonIssues, calculateToleratedDurationSec, isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
 import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
 import { cn } from "@/lib/utils";
+import { deriveClassroomTimingSnapshot } from "@/lib/classroom/timing";
 
 export function computeAiLearningProgress(entry?: StudentAiProgress): number {
   if (!entry || !isReliableAiProgress(entry)) return 0;
@@ -315,10 +316,22 @@ function AdaptiveTriggerAuditDialog({
   const evaluations = adaptive?.triggerEvaluations ?? [];
   const eligibleBranches =
     plan ? eligibleAdaptiveBranches(plan, adaptive) : [];
+  const classroomTiming = course.uiState?.classroomTiming;
+  const runtimeStageRemainingSec =
+    classroomTiming?.activeStageKey === "ai-learning"
+      ? deriveClassroomTimingSnapshot(
+          classroomTiming,
+          new Date().toISOString(),
+        ).activeStage?.remainingSec
+      : undefined;
   const remainingBudgetSec =
-    plan && adaptive
-      ? calculateAdaptiveRemainingBudgetSec(plan, adaptive)
-      : (plan?.timeBudgetMin ?? 0) * 60;
+    plan
+      ? calculateAdaptiveRemainingBudgetSec(
+          plan,
+          adaptive ?? { branchRuns: [] },
+          runtimeStageRemainingSec,
+        )
+      : 0;
   const auditState =
     adaptive && plan
       ? {
@@ -412,7 +425,11 @@ function AdaptiveTriggerAuditDialog({
             <AuditMetric
               label="自适应预算剩余"
               value={`${Math.floor(remainingBudgetSec / 60)}分 ${remainingBudgetSec % 60}秒`}
-              helper={`课程为额外资源预留 ${plan?.timeBudgetMin ?? 0} 分钟`}
+              helper={
+                runtimeStageRemainingSec !== undefined
+                  ? `取额外资源预算与 AI 授知阶段实时剩余中的较小值`
+                  : `课程为额外资源预留 ${plan?.timeBudgetMin ?? 0} 分钟`
+              }
             />
           </section>
 

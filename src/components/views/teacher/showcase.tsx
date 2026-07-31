@@ -46,7 +46,28 @@ export function ShowcaseTeacherView({
     course.content.evaluationPlan.dimensions,
   );
   const activeUploads = (course.uploads ?? []).filter(
-    (item) => item.groupId === active?.id,
+    (item) => item.groupId === active?.id && item.stageKey === "showcase",
+  );
+  const activeStudentIds = new Set(
+    active?.members.map((member) => member.studentId) ?? [],
+  );
+  const hasActiveProcessEvidence = Boolean(
+    activeUploads.length
+    || (course.submissions ?? []).some(
+      (item) =>
+        item.groupId === active?.id
+        || (item.studentId ? activeStudentIds.has(item.studentId) : false),
+    )
+    || (course.companionThreads ?? []).some(
+      (thread) =>
+        activeStudentIds.has(thread.studentId) && thread.messages.length > 0,
+    )
+    || (course.learningEvents ?? []).some((event) =>
+      activeStudentIds.has(event.studentId),
+    )
+    || (course.companionProcessRecords ?? []).some((record) =>
+      activeStudentIds.has(record.studentId),
+    ),
   );
 
   // ===== 取该组已评过的分数（用于编辑模式预填） =====
@@ -121,7 +142,7 @@ export function ShowcaseTeacherView({
 
   // AI 仅评价过程与方案专业性，不读取教师现场评分，也不提供教师参考分。
   async function runLiveEval() {
-    if (!active) return;
+    if (!active || !hasActiveProcessEvidence) return;
     setEvalLoading(true);
     setEvalError(undefined);
     try {
@@ -129,6 +150,12 @@ export function ShowcaseTeacherView({
       const total = result.dimensions.length
         ? Math.round(result.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / result.dimensions.length)
         : null;
+      const aiDimensionScores = Object.fromEntries(
+        result.dimensions.map((dimension) => [dimension.name, dimension.score]),
+      );
+      const aiProcessEvidence = Array.from(
+        new Set(result.dimensions.flatMap((dimension) => dimension.evidence)),
+      );
       setProcessEvaluation(result);
       setAiProcessScore(total);
       const teacherTotal = weightedTotal(scores, dimensions);
@@ -145,7 +172,10 @@ export function ShowcaseTeacherView({
         stageKey: "showcase",
         dimensionScores: scores,
         teacherTotal,
+        aiDimensionScores,
         aiTotal: total,
+        aiProcessSummary: result.summary,
+        aiProcessEvidence,
         finalTotal: finalTotal ?? undefined,
         scoringMode: "hybrid",
         comment: comment.trim(),
@@ -206,10 +236,29 @@ export function ShowcaseTeacherView({
         stageKey: "showcase",
         dimensionScores: normalizedScores,
         teacherTotal: total,
+        aiDimensionScores: processEvaluation
+          ? Object.fromEntries(
+              processEvaluation.dimensions.map((dimension) => [
+                dimension.name,
+                dimension.score,
+              ]),
+            )
+          : existingScore?.aiDimensionScores,
         aiTotal: aiProcessScore,
+        aiProcessSummary:
+          processEvaluation?.summary ?? existingScore?.aiProcessSummary,
+        aiProcessEvidence: processEvaluation
+          ? Array.from(
+              new Set(
+                processEvaluation.dimensions.flatMap(
+                  (dimension) => dimension.evidence,
+                ),
+              ),
+            )
+          : existingScore?.aiProcessEvidence,
         finalTotal: finalTotal ?? undefined,
         scoringMode: "hybrid",
-        comment: comment.trim() || "展示结构清晰，后续可继续加强数据论证与落地说明。",
+        comment: comment.trim(),
         total: finalTotal ?? total,
         status,
       });
@@ -255,7 +304,7 @@ export function ShowcaseTeacherView({
           value={`${(course.rubricScores ?? []).filter((s) => s.stageKey === "showcase").length} / ${groups.length}`}
           tone="green"
         />
-        <Metric label="上传材料" value={`${course.uploads?.length ?? 0}`} tone="orange" />
+        <Metric label="展示材料" value={`${(course.uploads ?? []).filter((upload) => upload.stageKey === "showcase").length}`} tone="orange" />
       </div>
 
       {message ? (
@@ -309,7 +358,7 @@ export function ShowcaseTeacherView({
                     )}
                   </div>
                   <div className="mt-1 text-xs text-stone-500">
-                    {group.topic} · {group.members.length} 人
+                    {group.topic || "待确认主题"} · 个人项目
                   </div>
                   <div className="mt-2 flex items-center gap-1.5">
                     {group.members.slice(0, 4).map((m) => (
@@ -348,7 +397,7 @@ export function ShowcaseTeacherView({
                     className="h-9 px-3 text-sm"
                     onClick={() => onSelectGroup?.(active.id)}
                   >
-                    <Eye size={15} /> 查看作品
+                    <Eye size={15} /> 查看过程与作品
                   </PrimaryButton>
                   <PrimaryButton
                     className="h-9 px-3 text-sm"
@@ -364,7 +413,7 @@ export function ShowcaseTeacherView({
             <div className="grid gap-5 xl:grid-cols-2">
               <Card>
                 <h3 className="mb-3 flex items-center gap-2 font-bold">
-                  <FileText className="text-blue-700" size={18} /> 方案材料
+                  <FileText className="text-blue-700" size={18} /> 展示材料
                 </h3>
                 {activeUploads.length ? (
                   <ul className="space-y-2">
@@ -418,12 +467,17 @@ export function ShowcaseTeacherView({
                 <PrimaryButton
                   className="h-9 px-3 text-sm"
                   onClick={() => void runLiveEval()}
-                  disabled={evalLoading || !active}
+                  disabled={evalLoading || !active || !hasActiveProcessEvidence}
                   type="button"
                 >
                   {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
                   {evalLoading ? "正在生成..." : "生成 AI 过程评价"}
                 </PrimaryButton>
+                {!hasActiveProcessEvidence ? (
+                  <p className="mt-3 rounded-[6px] border border-dashed border-stone-300 px-3 py-4 text-sm text-stone-500">
+                    尚无该项目的真实过程或成果证据，暂不生成推测性评价。
+                  </p>
+                ) : null}
                 {evalError ? (
                   <div className="mt-3 rounded-[6px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-3 py-2 text-sm font-semibold text-[var(--pbl-danger)]">
                     {evalError}

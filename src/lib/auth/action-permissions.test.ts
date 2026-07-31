@@ -78,6 +78,27 @@ describe("isStudentActionForSelf", () => {
     expect(isStudentActionForSelf(action, "student-1", "course-1")).toBe(true);
   });
 
+  it("allows students to persist only their own companion tasks", () => {
+    const ownTaskAction = {
+      type: "UPSERT_COMPANION_TASK",
+      payload: {
+        courseId: "course-1",
+        task: { studentId: "student-1" },
+      },
+    } as SessionAction;
+    const anotherStudentTaskAction = {
+      type: "UPSERT_COMPANION_TASK",
+      payload: {
+        courseId: "course-1",
+        task: { studentId: "student-2" },
+      },
+    } as SessionAction;
+
+    expect(isActionAllowed("student", ownTaskAction.type)).toBe(true);
+    expect(isStudentActionForSelf(ownTaskAction, "student-1", "course-1")).toBe(true);
+    expect(isStudentActionForSelf(anotherStudentTaskAction, "student-1", "course-1")).toBe(false);
+  });
+
   it("rejects companion process records for another student", () => {
     const action = {
       type: "ADD_COMPANION_PROCESS_RECORD",

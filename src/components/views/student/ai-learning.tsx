@@ -11,7 +11,7 @@ export function AiLearningView({ course }: { course?: Course }) {
   const classroomId = course?.aiLearningClassroomId;
   const hasClassroom = Boolean(classroomId);
   const { studentId, studentName, user } = useSession();
-  const [graphCollapsed, setGraphCollapsed] = useState(false);
+  const [graphCollapsed, setGraphCollapsed] = useState(true);
 
   const knowledgePoints = useMemo(
     () => course?.content?.knowledgePoints ?? [],
@@ -108,9 +108,11 @@ export function AiLearningView({ course }: { course?: Course }) {
             知识地图
             <ChevronDown className={graphCollapsed ? "rotate-180 transition" : "transition"} size={14} />
           </button>
-          <span className="text-xs font-medium text-stone-500">
-            拓展内容会在当前课程中自动插播
-          </span>
+          <div className="flex min-w-[180px] flex-1 items-center justify-end gap-2 sm:flex-none">
+            <span className="shrink-0 text-xs font-semibold text-stone-500">学习进度</span>
+            <ProgressBar value={progress} className="max-w-32 flex-1 sm:w-28" />
+            <span className="shrink-0 text-xs font-bold text-[var(--pbl-student)]">{progress}%</span>
+          </div>
         </div>
 
         {/* 播放器 */}
@@ -160,13 +162,6 @@ export function AiLearningView({ course }: { course?: Course }) {
           </div>
         ) : null}
       </section>
-
-      {/* 简洁进度条 */}
-      <div className="flex items-center gap-3 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-4 py-2.5">
-        <span className="shrink-0 text-[13px] font-semibold text-stone-600">学习进度</span>
-        <ProgressBar value={progress} className="flex-1" />
-        <span className="shrink-0 text-[13px] font-bold text-[var(--pbl-student)]">{progress}%</span>
-      </div>
     </div>
   );
 }

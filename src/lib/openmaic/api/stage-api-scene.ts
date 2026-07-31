@@ -98,6 +98,14 @@ export function createSceneAPI(store: StageStore) {
               targetDurationSec: params.targetDurationSec,
             }),
             ...(params.ttsPolicy !== undefined && { ttsPolicy: params.ttsPolicy }),
+            ...(params.timingPlan !== undefined && {
+              timingPlan: {
+                ...params.timingPlan,
+                ...(params.timingPlan.timingRationale
+                  ? { timingRationale: [...params.timingPlan.timingRationale] }
+                  : {}),
+              },
+            }),
             ...(params.resourceTypes !== undefined && {
               resourceTypes: [...params.resourceTypes],
             }),

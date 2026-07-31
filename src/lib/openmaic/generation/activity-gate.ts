@@ -5,15 +5,30 @@ import { nanoid } from 'nanoid';
 type ActivityPauseSpeechAction = Extract<Action, { type: 'speech' }> & {
   activityPauseSec: number;
   activityPausePurpose: 'interaction' | 'quiz';
+  activityPauseSource?: 'page-timing';
+};
+
+type TimelinePauseSpeechAction = Extract<Action, { type: 'speech' }> & {
+  timelinePauseSec: number;
+  timelinePausePurpose: 'page-transition';
 };
 
 export const MIN_STUDENT_ACTIVITY_SEC = 30;
-export const MAX_STUDENT_ACTIVITY_SEC = 180;
+export const MAX_STUDENT_ACTIVITY_SEC = 1800;
 
 function isActivityPause(action: Action): action is ActivityPauseSpeechAction {
   return action.type === 'speech' && Number.isFinite(
     Number((action as Action & { activityPauseSec?: number }).activityPauseSec),
   ) && Number((action as Action & { activityPauseSec?: number }).activityPauseSec) > 0;
+}
+
+function isTimelinePause(action: Action): action is TimelinePauseSpeechAction {
+  return action.type === 'speech'
+    && (action as Action & { timelinePausePurpose?: unknown }).timelinePausePurpose === 'page-transition'
+    && Number.isFinite(
+      Number((action as Action & { timelinePauseSec?: number }).timelinePauseSec),
+    )
+    && Number((action as Action & { timelinePauseSec?: number }).timelinePauseSec) > 0;
 }
 
 function getStudentActivityInsertionIndex(actions: Action[]): number {
@@ -36,6 +51,10 @@ function clampStudentActivitySec(seconds: number): number {
   );
 }
 
+function normalizePlannedStudentActivitySec(seconds: number): number {
+  return Math.max(1, Math.round(seconds));
+}
+
 /**
  * Normalize older generated classrooms whose gate was placed after automatic
  * widget changes. The only platform action allowed before the gate is a
@@ -53,7 +72,9 @@ export function normalizeStudentActivityPause(actions: Action[] | undefined): Ac
   if (!isActivityPause(originalGate)) return actions;
   const gate = {
     ...originalGate,
-    activityPauseSec: clampStudentActivitySec(originalGate.activityPauseSec),
+    activityPauseSec: originalGate.activityPauseSource === 'page-timing'
+      ? normalizePlannedStudentActivitySec(originalGate.activityPauseSec)
+      : clampStudentActivitySec(originalGate.activityPauseSec),
   };
   const withoutGate = actions.filter((_, index) => index !== gateIndex);
   const insertionIndex = getStudentActivityInsertionIndex(withoutGate);
@@ -78,7 +99,7 @@ export function normalizeStudentActivityPause(actions: Action[] | undefined): Ac
 export function addStudentActivityPause(outline: SceneOutline, actions: Action[]): Action[] {
   const configuredActivitySec = Math.round(outline.timingPlan?.studentActivitySec ?? 0);
   if (configuredActivitySec <= 0) return actions;
-  const activityPauseSec = clampStudentActivitySec(configuredActivitySec);
+  const activityPauseSec = normalizePlannedStudentActivitySec(configuredActivitySec);
 
   const normalizedActions = actions.filter((action) => action.type === 'speech').length >= 2
     ? actions
@@ -101,6 +122,7 @@ export function addStudentActivityPause(outline: SceneOutline, actions: Action[]
     text: '',
     activityPauseSec,
     activityPausePurpose: outline.type === 'quiz' ? 'quiz' : 'interaction',
+    activityPauseSource: 'page-timing',
   };
 
   const insertionIndex = getStudentActivityInsertionIndex(normalizedActions);
@@ -109,4 +131,30 @@ export function addStudentActivityPause(outline: SceneOutline, actions: Action[]
     pauseAction,
     ...normalizedActions.slice(insertionIndex),
   ]);
+}
+
+/**
+ * Add the fixed page-change interval after all narration and learner work.
+ * Unlike an activity gate, this pause is not learner-completable and never
+ * appears as a task in the classroom UI.
+ */
+export function addPageTransitionPause(outline: SceneOutline, actions: Action[]): Action[] {
+  const transitionSec = Math.max(0, Math.round(outline.timingPlan?.transitionSec ?? 0));
+  if (transitionSec <= 0) return actions;
+
+  const transitionAction: TimelinePauseSpeechAction = {
+    id: `page_transition_${nanoid(8)}`,
+    type: 'speech',
+    title: '页面切换',
+    text: '',
+    timelinePauseSec: transitionSec,
+    timelinePausePurpose: 'page-transition',
+  };
+  const withoutExistingTransition = actions.filter((action) => !isTimelinePause(action));
+  return [...withoutExistingTransition, transitionAction];
+}
+
+/** Apply both learner-completable work time and the fixed page transition. */
+export function addPageTimingPauses(outline: SceneOutline, actions: Action[]): Action[] {
+  return addPageTransitionPause(outline, addStudentActivityPause(outline, actions));
 }

@@ -94,7 +94,7 @@ async function loadTextures(
 
   const sheetData = (await sheetResponse.json()) as SpritesheetData
   const baseTexture = options.replaceDefaultRedWith
-    ? await createRedReplacedTexture(imageUrl, options.replaceDefaultRedWith)
+    ? await createRoleScarfTexture(imageUrl, options.replaceDefaultRedWith, sheetData)
     : await Assets.load<Texture>(imageUrl)
   const spritesheet = new Spritesheet(baseTexture, sheetData)
 
@@ -147,7 +147,198 @@ export function getRoleScarfShade(
   return null
 }
 
-async function createRedReplacedTexture(imageUrl: string, color: string): Promise<Texture> {
+export type AtlasFrameRect = { x: number; y: number; w: number; h: number }
+
+function isLegacyRedScarf(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha < 24) return false
+  const maxChannel = Math.max(red, green, blue)
+  const minChannel = Math.min(red, green, blue)
+  const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel
+  return red > 90
+    && red > green * 1.45
+    && red > blue * 1.45
+    && green < 110
+    && blue < 110
+    && saturation >= 0.45
+}
+
+function isOpenPblScarfSeed(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha < 24 || blue < 105) return false
+  const saturation = blue === 0 ? 0 : (blue - Math.min(red, green)) / blue
+  return blue - red >= 52
+    && blue - green >= 26
+    && red / blue <= 0.43
+    && green / blue >= 0.32
+    && green / blue <= 0.74
+    && saturation >= 0.48
+}
+
+function isOpenPblScarfCandidate(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha < 24 || blue < 58) return false
+  const saturation = blue === 0 ? 0 : (blue - Math.min(red, green)) / blue
+  return blue - red >= 34
+    && blue - green >= 16
+    && red / blue <= 0.43
+    && green / blue >= 0.3
+    && green / blue <= 0.76
+    && saturation >= 0.46
+}
+
+function isOpenPblScarfEdgeCandidate(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha < 8 || blue < 35) return false
+  const saturation = blue === 0 ? 0 : (blue - Math.min(red, green)) / blue
+  return blue - red >= 18
+    && blue - green >= 7
+    && green - red >= 10
+    && red / blue <= 0.47
+    && green / blue >= 0.26
+    && green / blue <= 0.88
+    && saturation >= 0.42
+}
+
+/**
+ * Returns 0 for protected pixels, 1 for legacy-red scarf pixels, and 2 for
+ * OpenPBL-blue scarf pixels. Blue pixels are accepted only when they belong to
+ * a scarf-colored connected component containing a strong master-color seed.
+ * This prevents nearby blue-gray body material from being recolored.
+ */
+export function buildRoleScarfMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  frameRects: readonly AtlasFrameRect[],
+): Uint8Array {
+  const mask = new Uint8Array(width * height)
+  const visited = new Uint8Array(width * height)
+  const rects = frameRects.length > 0
+    ? frameRects
+    : [{ x: 0, y: 0, w: width, h: height }]
+
+  const rgbaAt = (pixelIndex: number) => {
+    const dataIndex = pixelIndex * 4
+    return [
+      data[dataIndex],
+      data[dataIndex + 1],
+      data[dataIndex + 2],
+      data[dataIndex + 3],
+    ] as const
+  }
+
+  for (const sourceRect of rects) {
+    const left = Math.max(0, Math.floor(sourceRect.x))
+    const top = Math.max(0, Math.floor(sourceRect.y))
+    const right = Math.min(width, Math.ceil(sourceRect.x + sourceRect.w))
+    const bottom = Math.min(height, Math.ceil(sourceRect.y + sourceRect.h))
+    const seeds: number[] = []
+
+    for (let y = top; y < bottom; y += 1) {
+      for (let x = left; x < right; x += 1) {
+        const pixelIndex = y * width + x
+        const [red, green, blue, alpha] = rgbaAt(pixelIndex)
+        if (isLegacyRedScarf(red, green, blue, alpha)) {
+          mask[pixelIndex] = 1
+          continue
+        }
+        if (isOpenPblScarfSeed(red, green, blue, alpha)) {
+          seeds.push(pixelIndex)
+        }
+      }
+    }
+
+    const queue = [...seeds]
+    let cursor = 0
+    while (cursor < queue.length) {
+      const pixelIndex = queue[cursor]
+      cursor += 1
+      if (visited[pixelIndex]) continue
+      visited[pixelIndex] = 1
+      const x = pixelIndex % width
+      const y = Math.floor(pixelIndex / width)
+      if (x < left || x >= right || y < top || y >= bottom) continue
+      const [red, green, blue, alpha] = rgbaAt(pixelIndex)
+      if (!isOpenPblScarfCandidate(red, green, blue, alpha)) continue
+
+      mask[pixelIndex] = 2
+      if (x > left) queue.push(pixelIndex - 1)
+      if (x + 1 < right) queue.push(pixelIndex + 1)
+      if (y > top) queue.push(pixelIndex - width)
+      if (y + 1 < bottom) queue.push(pixelIndex + width)
+    }
+
+    // WebP compression leaves a dark, partially transparent fringe around
+    // both the front fold and rear edge of the scarf. It can be diagonal and
+    // up to two pixels wide, so a single four-neighbour pass leaves blue
+    // pinstripes behind. Expand only two layers, within the current frame,
+    // while retaining the strict red/blue ratio that protects the blue-gray
+    // body material.
+    for (let edgePass = 0; edgePass < 2; edgePass += 1) {
+      const edgeAdditions: number[] = []
+      const queuedEdges = new Uint8Array(width * height)
+      for (let y = top; y < bottom; y += 1) {
+        for (let x = left; x < right; x += 1) {
+          const pixelIndex = y * width + x
+          if (mask[pixelIndex] !== 2) continue
+          for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+            for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+              if (xOffset === 0 && yOffset === 0) continue
+              const neighbourX = x + xOffset
+              const neighbourY = y + yOffset
+              if (
+                neighbourX < left
+                || neighbourX >= right
+                || neighbourY < top
+                || neighbourY >= bottom
+              ) {
+                continue
+              }
+              const neighbour = neighbourY * width + neighbourX
+              if (mask[neighbour] !== 0 || queuedEdges[neighbour]) {
+                continue
+              }
+              const [red, green, blue, alpha] = rgbaAt(neighbour)
+              if (!isOpenPblScarfEdgeCandidate(red, green, blue, alpha)) {
+                continue
+              }
+              queuedEdges[neighbour] = 1
+              edgeAdditions.push(neighbour)
+            }
+          }
+        }
+      }
+      edgeAdditions.forEach((pixelIndex) => {
+        mask[pixelIndex] = 2
+      })
+    }
+  }
+
+  return mask
+}
+
+async function createRoleScarfTexture(
+  imageUrl: string,
+  color: string,
+  sheetData: SpritesheetData,
+): Promise<Texture> {
   const image = await loadImage(imageUrl)
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
@@ -163,17 +354,22 @@ async function createRedReplacedTexture(imageUrl: string, color: string): Promis
   const [targetRed, targetGreen, targetBlue] = toRgb(color)
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
   const { data } = imageData
+  const frameRects = Object.values(sheetData.frames).map(({ frame }) => ({
+    x: frame.x,
+    y: frame.y,
+    w: frame.w,
+    h: frame.h,
+  }))
+  const scarfMask = buildRoleScarfMask(data, canvas.width, canvas.height, frameRects)
 
   for (let index = 0; index < data.length; index += 4) {
-    const red = data[index]
-    const green = data[index + 1]
-    const blue = data[index + 2]
-    const alpha = data[index + 3]
-
-    const sourceShade = getRoleScarfShade(red, green, blue, alpha)
-    if (sourceShade === null) {
+    const maskKind = scarfMask[index / 4]
+    if (maskKind === 0) {
       continue
     }
+    const red = data[index]
+    const blue = data[index + 2]
+    const sourceShade = maskKind === 1 ? red / 229 : blue / 203
 
     const shade = Math.min(1.25, Math.max(0.25, sourceShade))
     data[index] = Math.min(255, Math.round(targetRed * shade))

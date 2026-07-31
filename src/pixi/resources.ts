@@ -27,6 +27,7 @@ const openPblActionAliases: Partial<Record<AgentActionName, string>> = {
   error: 'error',
   fc_high_press: 'error',
   fc_walking_h: 'walking_horizontal',
+  fc_walking_down: 'walking_down',
   fc_walking_up: 'walking_up',
   leaving: 'leaving',
   listening: 'listening',
@@ -51,6 +52,19 @@ const openPblActionAliases: Partial<Record<AgentActionName, string>> = {
   waiting_user: 'waiting_user',
   working: 'working',
   writing_notes: 'writing_notes',
+  turn_arrive: 'turn_arrive',
+  computer_typing_left: 'computer_typing_left',
+  computer_browsing_left: 'computer_browsing_left',
+  computer_thinking_left: 'computer_thinking_left',
+  screen_pointing: 'screen_pointing',
+  raising_hand: 'raising_hand',
+  board_listening: 'board_listening',
+  comparing_materials: 'comparing_materials',
+  looking_around: 'looking_around',
+  slacking: 'slacking',
+  stretching: 'stretching',
+  napping: 'napping',
+  waking_up: 'waking_up',
 }
 
 const legacyActionAliases: Partial<Record<AgentActionName, string>> = {
@@ -69,6 +83,20 @@ const legacyActionAliases: Partial<Record<AgentActionName, string>> = {
   thinking: 'standby',
   waiting_user: 'peek',
   writing_notes: 'working',
+  fc_walking_down: 'fc_walking_h',
+  turn_arrive: 'standby',
+  computer_typing_left: 'working',
+  computer_browsing_left: 'working',
+  computer_thinking_left: 'working',
+  screen_pointing: 'talking_on_stand-0',
+  raising_hand: 'salute',
+  board_listening: 'standby',
+  comparing_materials: 'working',
+  looking_around: 'peek',
+  slacking: 'standby',
+  stretching: 'standby',
+  napping: 'sleeping',
+  waking_up: 'standby',
 }
 
 export function getActionResourceUrls(actionName: AgentActionName): {

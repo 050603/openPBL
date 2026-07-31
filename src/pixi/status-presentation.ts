@@ -29,17 +29,36 @@ const roleScreenActions: Record<AgentId, ScreenActionName> = {
   jiji: 'fc_screen_working_search_or_browser_use',
 }
 
+const ownComputerFacingActions = new Set<AgentActionName>([
+  'computer_typing_left',
+  'computer_browsing_left',
+  'computer_thinking_left',
+  'screen_pointing',
+  'comparing_materials',
+])
+
+export function isOwnComputerFacingAction(action: AgentActionName): boolean {
+  return ownComputerFacingActions.has(action)
+}
+
+export function getComputerFacingForAgent(agentId: AgentId): 'left' | 'right' {
+  void agentId
+  // Every classroom workstation places its task computer on the character's
+  // right-hand side, regardless of which scene column the desk occupies.
+  return 'right'
+}
+
 export function getRoleScreenAction(agentId: AgentId): ScreenActionName {
   return roleScreenActions[agentId]
 }
 
 export const statePresentationByState: Record<PartnerState, Omit<StatePresentation, 'screen'>> = {
   idle: { body: 'working', bodySequence: ['working'], label: '在座位上学习', tone: 0x718087, ring: 0x718087 },
-  selected: { body: 'selected', bodySequence: ['selected', 'agreeing'], label: '已选择', tone: 0x2c9b91, ring: 0x2c9b91 },
-  working: { body: 'working', bodySequence: ['working', 'thinking'], label: '正在处理', tone: 0x2c9b91, ring: 0x2c9b91 },
+  selected: { body: 'selected', bodySequence: ['selected', 'raising_hand', 'agreeing'], label: '已选择', tone: 0x2c9b91, ring: 0x2c9b91 },
+  working: { body: 'computer_typing_left', bodySequence: ['computer_typing_left', 'computer_thinking_left'], label: '正在处理', tone: 0x2c9b91, ring: 0x2c9b91 },
   speaking: { body: 'talking_on_seat', bodySequence: ['talking_on_seat'], label: '正在发言', tone: 0xe6a53b, ring: 0xe6a53b },
   celebrating: { body: 'completed', bodySequence: ['completed', 'agreeing'], label: '发言完成', tone: 0x48a56a, ring: 0x48a56a },
-  waiting_user: { body: 'waiting_user', bodySequence: ['waiting_user', 'listening'], label: '等待你确认', tone: 0x6f7fd3, ring: 0x6f7fd3 },
+  waiting_user: { body: 'waiting_user', bodySequence: ['waiting_user', 'raising_hand', 'listening'], label: '等待你确认', tone: 0x6f7fd3, ring: 0x6f7fd3 },
   completed: { body: 'completed', bodySequence: ['completed', 'agreeing'], label: '已完成', tone: 0x48a56a, ring: 0x48a56a },
   error: { body: 'error', bodySequence: ['error', 'questioning'], label: '任务失败', tone: 0xd55d56, ring: 0xd55d56 },
 }
@@ -58,15 +77,20 @@ export function getStatePresentation(agentId: AgentId, state: PartnerState): Sta
     zhizhi: 'searching_info',
     wenwen: 'questioning',
     lingling: 'brainstorming',
-    cece: 'planning_board',
+    cece: 'screen_pointing',
     pingping: 'reviewing_work',
-    jiji: 'writing_notes',
+    jiji: 'comparing_materials',
   }
 
   return {
     ...presentation,
     bodySequence: state === 'working'
-      ? ['working', roleWorkActions[agentId], 'thinking']
+      ? [
+          'computer_typing_left',
+          roleWorkActions[agentId],
+          'computer_browsing_left',
+          'computer_thinking_left',
+        ]
       : presentation.bodySequence,
     label: state === 'working' ? workingLabelByAgent[agentId] : presentation.label,
     screen: state === 'working' ? roleScreenActions[agentId] : undefined,

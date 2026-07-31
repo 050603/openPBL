@@ -35,6 +35,11 @@ import { DEFAULT_EVALUATION_FLOWS } from "./types";
 import { DEFAULT_STAGES } from "./types";
 import { getStageWorkspacePolicy, normalizeStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import {
+  completeClassroomTiming,
+  createClassroomTimingState,
+  transitionClassroomStageTiming,
+} from "@/lib/classroom/timing";
 
 export type SessionState = {
   courses: Course[];
@@ -210,6 +215,19 @@ export function applySessionAction(
     case "START_TEACHING": {
       const { id, classConfig, inviteCode } = action.payload;
       const course = state.courses.find((item) => item.id === id);
+      const classroomTiming = course
+        ? createClassroomTimingState({
+            stages: course.stages,
+            totalMinutes:
+              course.content.projectMainline?.totalMinutes
+              ?? course.content.moduleTimingPlan?.totalMinutes
+              ?? course.hours * 60,
+            projectMainline: course.content.projectMainline,
+            moduleTimingPlan: course.content.moduleTimingPlan,
+            activeStageKey: course.stages[0]?.key,
+            now: touchedAt,
+          })
+        : undefined;
       return updateCourse(state, id, {
         status: "teaching",
         classConfig,
@@ -218,6 +236,7 @@ export function applySessionAction(
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
+          ...(classroomTiming ? { classroomTiming } : {}),
         },
         // A new class starts with no project spaces. Each student receives one
         // private personal-project space when joining; no real student grouping occurs.
@@ -230,11 +249,15 @@ export function applySessionAction(
     }
     case "END_TEACHING": {
       const course = state.courses.find((item) => item.id === action.payload.id);
+      const classroomTiming = course?.uiState?.classroomTiming
+        ? completeClassroomTiming(course.uiState.classroomTiming, touchedAt)
+        : undefined;
       return updateCourse(state, action.payload.id, {
         status: "finished",
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
+          ...(classroomTiming ? { classroomTiming } : {}),
         },
         updatedAt: touchedAt,
       });
@@ -243,6 +266,17 @@ export function applySessionAction(
       const { id, newInviteCode, classConfig } = action.payload;
       const course = state.courses.find((item) => item.id === id);
       if (!course) return state;
+      const classroomTiming = createClassroomTimingState({
+        stages: course.stages,
+        totalMinutes:
+          course.content.projectMainline?.totalMinutes
+          ?? course.content.moduleTimingPlan?.totalMinutes
+          ?? course.hours * 60,
+        projectMainline: course.content.projectMainline,
+        moduleTimingPlan: course.content.moduleTimingPlan,
+        activeStageKey: course.stages[0]?.key,
+        now: touchedAt,
+      });
       return updateCourse(state, id, {
         status: "teaching",
         inviteCode: newInviteCode,
@@ -283,6 +317,7 @@ export function applySessionAction(
         uiState: {
           ...(course.uiState ?? {}),
           teacherResourceProjection: null,
+          classroomTiming,
         },
         // Preserve course resources: content, stages, pblConfig,
         // stageWorkspacePolicies, coverImageUrl, etc.
@@ -297,13 +332,25 @@ export function applySessionAction(
         courses: state.courses.map((c) => {
           if (c.id !== id) return c;
           const next = Math.max(0, Math.min(c.stages.length - 1, c.currentStageIndex + direction));
+          const classroomTiming =
+            next !== c.currentStageIndex && c.uiState?.classroomTiming
+              ? transitionClassroomStageTiming(
+                  c.uiState.classroomTiming,
+                  c.stages[next]!.key,
+                  touchedAt,
+                )
+              : c.uiState?.classroomTiming;
           return normalizeCourse({
             ...c,
             currentStageIndex: next,
             uiState:
               next === c.currentStageIndex
                 ? c.uiState
-                : { ...(c.uiState ?? {}), teacherResourceProjection: null },
+                : {
+                    ...(c.uiState ?? {}),
+                    teacherResourceProjection: null,
+                    ...(classroomTiming ? { classroomTiming } : {}),
+                  },
             updatedAt: touchedAt,
           });
         }),
@@ -317,13 +364,25 @@ export function applySessionAction(
         courses: state.courses.map((c) => {
           if (c.id !== id) return c;
           const next = Math.max(0, Math.min(c.stages.length - 1, index));
+          const classroomTiming =
+            next !== c.currentStageIndex && c.uiState?.classroomTiming
+              ? transitionClassroomStageTiming(
+                  c.uiState.classroomTiming,
+                  c.stages[next]!.key,
+                  touchedAt,
+                )
+              : c.uiState?.classroomTiming;
           return normalizeCourse({
             ...c,
             currentStageIndex: next,
             uiState:
               next === c.currentStageIndex
                 ? c.uiState
-                : { ...(c.uiState ?? {}), teacherResourceProjection: null },
+                : {
+                    ...(c.uiState ?? {}),
+                    teacherResourceProjection: null,
+                    ...(classroomTiming ? { classroomTiming } : {}),
+                  },
             updatedAt: touchedAt,
           });
         }),

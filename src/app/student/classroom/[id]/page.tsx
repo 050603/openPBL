@@ -2,19 +2,29 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Clock3, Hourglass, LogIn, MonitorUp, UsersRound, X } from "lucide-react";
+import {
+  Clock3,
+  Hourglass,
+  ListTodo,
+  LogIn,
+  MonitorUp,
+  UsersRound,
+  X,
+} from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { StudentStageView } from "@/components/views/student/stage-dispatcher";
 import { StudentLeaveButton } from "@/components/student-leave-button";
 import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { isStudentOnline } from "@/lib/session/actions";
 import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/teacher-stage-resources";
-import { StageProgress } from "@/components/classroom/classroom-chrome";
+import { StudentStageView } from "@/components/views/student/stage-dispatcher";
 import { CompanionRuntimeProvider } from "@/components/views/student/companion-runtime";
 import { CompanionStudioWorkspace } from "@/components/views/student/companion-studio-workspace";
 import { useStudentWorkspaceMode } from "@/components/views/student/workspace-mode";
-import { getStageWorkspacePolicy, resolveStageWorkspaceMode } from "@/lib/classroom/stage-workspace-policy";
+import {
+  getStageWorkspacePolicy,
+  resolveStageWorkspaceMode,
+} from "@/lib/classroom/stage-workspace-policy";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 
 export default function StudentClassroomPage() {
@@ -31,13 +41,17 @@ export default function StudentClassroomPage() {
     course?.stageWorkspacePolicies,
     activeStageKey,
   );
-  const [workspacePreference, setWorkspacePreference] = useStudentWorkspaceMode(
-    params?.id ?? "classroom",
-    studentId,
-    activeStageKey,
-    workspacePolicy.defaultMode,
+  const [workspacePreference, setWorkspacePreference] =
+    useStudentWorkspaceMode(
+      params?.id ?? "classroom",
+      studentId,
+      activeStageKey,
+      workspacePolicy.defaultMode,
+    );
+  const workspaceMode = resolveStageWorkspaceMode(
+    workspacePolicy,
+    workspacePreference,
   );
-  const workspaceMode = resolveStageWorkspaceMode(workspacePolicy, workspacePreference);
   const canSwitchWorkspace = workspacePolicy.access === "student-choice";
 
   useEffect(() => {
@@ -147,7 +161,6 @@ export default function StudentClassroomPage() {
       : null;
   const forcedProjection = projectedResource && projectedResource.mode !== "optional" ? projectedResource : null;
   const optionalProjection = projectedResource?.mode === "optional" ? projectedResource : null;
-  const workspaceSuppressed = Boolean(forcedProjection || optionalProjectionOpen);
 
   return (
     <DashboardShell
@@ -155,7 +168,7 @@ export default function StudentClassroomPage() {
       userName={displayName}
       variant="bare"
       wide={currentStage?.key === "ai-learning"}
-      immersive={isTeaching && workspaceMode === "companions" && !forcedProjection && !optionalProjectionOpen}
+      immersive={isTeaching && workspaceMode === "companions"}
       hideCourseSwitcher
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total, label: currentStage.label } : undefined}
@@ -184,29 +197,12 @@ export default function StudentClassroomPage() {
         )
       }
     >
-      {isTeaching && workspaceMode === "task" ? <div className="mb-4"><StageProgress course={course} readonly /></div> : null}
-      {/* 小屏幕精简课程信息条 */}
-      {isTeaching && currentStage && workspaceMode === "task" ? (
-        <div className="mb-3 flex items-center gap-2 md:hidden">
-          <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[var(--pbl-student-soft)] px-2.5 text-[12px] font-bold text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
-            阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-12 overflow-hidden rounded-full bg-stone-200">
-              <div className="h-full rounded-full bg-[var(--pbl-student)] transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <span className="text-[12px] font-bold text-[var(--pbl-student)]">{progress}%</span>
-          </div>
-          <StudentLeaveButton className="ml-auto inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-orange-200 bg-white px-2.5 text-[12px] font-semibold text-[var(--pbl-danger)]" />
-        </div>
-      ) : null}
-
       {course.status === "finished" ? (
         <FinishedState course={course} />
       ) : !isTeaching ? (
         <WaitingState status={course.status} />
       ) : currentStage ? (
-        <CompanionRuntimeProvider course={course} stageKey={currentStage.key} contextLabel={currentStage.label}>
+        <>
           {forcedProjection ? <StudentProjectedTeacherResource projection={forcedProjection} /> : null}
           {optionalProjection ? (
             <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
@@ -217,47 +213,60 @@ export default function StudentClassroomPage() {
               {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
             </div>
           ) : null}
-          <div aria-hidden={workspaceSuppressed} hidden={workspaceSuppressed}>
-              <div className={workspaceMode === "task" ? "space-y-3" : ""}>
-                {workspaceMode === "task" && canSwitchWorkspace ? (
-                  <div className="flex justify-end">
-                    <button className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]" onClick={() => setWorkspacePreference("companions")} type="button">
-                      <UsersRound size={15} /> 返回伴学教室
-                    </button>
-                  </div>
-                ) : null}
-                <div aria-hidden={workspaceMode !== "task"} hidden={workspaceMode !== "task"} role="tabpanel" aria-label="任务视图">
-                  <section
-                    className={
-                      currentStage.key === "ai-learning"
-                        ? "overflow-hidden rounded-[var(--radius-lg)] animate-[fadeIn_0.28s_ease-out]"
-                        : "pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 animate-[fadeIn_0.28s_ease-out] md:p-5"
-                    }
-                    key={currentStage.key}
+          {workspaceMode === "task" ? (
+            <div className="space-y-3">
+              {canSwitchWorkspace ? (
+                <div className="flex justify-end">
+                  <button
+                    className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]"
+                    onClick={() => setWorkspacePreference("companions")}
+                    type="button"
                   >
-                    <StudentStageView course={course} view={currentStage.view} />
-                  </section>
+                    <UsersRound size={15} />
+                    进入 AI 伴学场景
+                  </button>
                 </div>
-                <div aria-hidden={workspaceMode !== "companions"} hidden={workspaceMode !== "companions"} role="tabpanel" aria-label="伴学教室">
-                  <CompanionStudioWorkspace
-                    course={course}
-                    stageKey={currentStage.key}
-                    contextLabel={currentStage.label}
-                    canSwitchMode={canSwitchWorkspace}
-                    onSwitchToTask={() => setWorkspacePreference("task")}
-                  />
+              ) : null}
+              <section
+                className={
+                  currentStage.key === "ai-learning"
+                    ? "overflow-hidden rounded-[var(--radius-lg)]"
+                    : "pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 md:p-5"
+                }
+              >
+                <StudentStageView
+                  course={course}
+                  view={currentStage.view}
+                />
+              </section>
+            </div>
+          ) : (
+            <CompanionRuntimeProvider
+              contextLabel={currentStage.label}
+              course={course}
+              stageKey={currentStage.key}
+            >
+              {canSwitchWorkspace ? (
+                <div className="mb-3 flex justify-end">
+                  <button
+                    className="inline-flex min-h-9 items-center gap-2 rounded-full border border-stone-200 bg-white/90 px-3.5 text-xs font-bold text-stone-700 shadow-sm transition hover:border-[var(--pbl-student-border)] hover:text-[var(--pbl-student)]"
+                    onClick={() => setWorkspacePreference("task")}
+                    type="button"
+                  >
+                    <ListTodo size={15} />
+                    切换到传统学习页面
+                  </button>
                 </div>
-              </div>
-          </div>
-        </CompanionRuntimeProvider>
+              ) : null}
+              <CompanionStudioWorkspace
+                contextLabel={currentStage.label}
+                course={course}
+                stageKey={currentStage.key}
+              />
+            </CompanionRuntimeProvider>
+          )}
+        </>
       ) : null}
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </DashboardShell>
   );
 }

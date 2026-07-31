@@ -321,22 +321,42 @@ function rowToRubricScore(
   row: Prisma.RubricScoreGetPayload<Record<string, never>>,
 ): RubricScore {
   // Domain type fields: id, courseId, groupId, stageKey, dimensionScores,
-  // teacherTotal?, aiDimensionScores?, aiTotal?, finalTotal?, scoringMode?,
+  // teacherTotal?, aiDimensionScores?, aiTotal?, aiProcessSummary?,
+  // aiProcessEvidence?, finalTotal?, scoringMode?,
   // comment, total, status, createdAt, updatedAt.
+  const criteria =
+    row.criteria && typeof row.criteria === "object" && !Array.isArray(row.criteria)
+      ? row.criteria as Record<string, unknown>
+      : {};
+  const dimensionScoreSource =
+    criteria.dimensionScores
+    && typeof criteria.dimensionScores === "object"
+    && !Array.isArray(criteria.dimensionScores)
+      ? criteria.dimensionScores as Record<string, unknown>
+      : criteria;
+  const dimensionScores = Object.fromEntries(
+    Object.entries(dimensionScoreSource).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number",
+    ),
+  );
   return {
     id: row.id,
     courseId: row.courseId,
     groupId: row.groupId ?? "",
     stageKey: asString(row.stageKey),
-    dimensionScores: (row.criteria as RubricScore["dimensionScores"]) ?? {},
-    teacherTotal: (row.criteria as { teacherTotal?: number } | null)?.teacherTotal,
-    aiDimensionScores: (row.criteria as { aiDimensionScores?: RubricScore["aiDimensionScores"] } | null)?.aiDimensionScores,
-    aiTotal: (row.criteria as { aiTotal?: number | null } | null)?.aiTotal ?? undefined,
-    finalTotal: (row.criteria as { finalTotal?: number } | null)?.finalTotal,
-    scoringMode: (row.criteria as { scoringMode?: RubricScore["scoringMode"] } | null)?.scoringMode,
-    comment: asString((row.criteria as { comment?: unknown } | null)?.comment),
+    dimensionScores,
+    teacherTotal: typeof criteria.teacherTotal === "number" ? criteria.teacherTotal : undefined,
+    aiDimensionScores: criteria.aiDimensionScores as RubricScore["aiDimensionScores"] | undefined,
+    aiTotal: typeof criteria.aiTotal === "number" || criteria.aiTotal === null ? criteria.aiTotal : undefined,
+    aiProcessSummary: typeof criteria.aiProcessSummary === "string" ? criteria.aiProcessSummary : undefined,
+    aiProcessEvidence: Array.isArray(criteria.aiProcessEvidence)
+      ? criteria.aiProcessEvidence.filter((item): item is string => typeof item === "string")
+      : undefined,
+    finalTotal: typeof criteria.finalTotal === "number" ? criteria.finalTotal : undefined,
+    scoringMode: criteria.scoringMode as RubricScore["scoringMode"] | undefined,
+    comment: asString(criteria.comment),
     total: row.total,
-    status: (row.criteria as { status?: RubricScore["status"] } | null)?.status ?? "draft",
+    status: (criteria.status as RubricScore["status"] | undefined) ?? "draft",
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   } as RubricScore;
@@ -1134,6 +1154,8 @@ export async function saveCourse(course: Course): Promise<Course> {
             teacherTotal: r.teacherTotal,
             aiDimensionScores: r.aiDimensionScores,
             aiTotal: r.aiTotal,
+            aiProcessSummary: r.aiProcessSummary,
+            aiProcessEvidence: r.aiProcessEvidence,
             finalTotal: r.finalTotal,
             scoringMode: r.scoringMode,
             comment: r.comment,

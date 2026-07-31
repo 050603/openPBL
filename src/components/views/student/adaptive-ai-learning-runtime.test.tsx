@@ -146,7 +146,10 @@ const course = {
 } as unknown as Course;
 
 describe("AdaptiveAiLearningRuntime seamless sequencing", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("keeps one main player mounted and inserts prepared scenes into its queue", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({
@@ -205,5 +208,47 @@ describe("AdaptiveAiLearningRuntime seamless sequencing", () => {
     expect(screen.getAllByTestId("stage-host")).toHaveLength(1);
     expect(screen.getByTestId("stage-host").getAttribute("data-insertions")).toBe("1");
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does not insert a resource that exceeds the live AI-stage remainder", async () => {
+    const timedCourse = structuredClone(course) as Course;
+    timedCourse.uiState = {
+      classroomTiming: {
+        schemaVersion: 1,
+        status: "paused",
+        sessionStartedAt: "2026-07-28T01:00:00.000Z",
+        activeStageKey: "ai-learning",
+        pausedAt: "2026-07-28T01:01:00.000Z",
+        updatedAt: "2026-07-28T01:01:00.000Z",
+        stages: [{
+          stageKey: "ai-learning",
+          label: "AI 授知",
+          basePlannedSec: 120,
+          adjustmentSec: 0,
+          elapsedSec: 60,
+          status: "active",
+          startedAt: "2026-07-28T01:00:00.000Z",
+        }],
+      },
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ state: adaptiveState }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AdaptiveAiLearningRuntime
+        backHref="/student/course-1"
+        classroomId="main-classroom"
+        course={timedCourse}
+        studentId="student-1"
+        studentName="张三"
+      />,
+    );
+    fireEvent.click(screen.getByText("main-classroom"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByTestId("stage-host").getAttribute("data-insertions")).toBe("0");
   });
 });

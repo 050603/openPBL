@@ -19,12 +19,6 @@ vi.mock("@/lib/session/store", () => ({
   }),
 }));
 
-// Mock visuals to keep the test lightweight.
-vi.mock("@/components/visuals", () => ({
-  EvidenceStrip: () => <div data-testid="evidence-strip" />,
-  SlidePreview: () => <div data-testid="slide-preview" />,
-}));
-
 // Mock dashboard-shell Avatar to keep things simple.
 vi.mock("@/components/dashboard-shell", () => ({
   Avatar: ({ name }: { name: string }) => <span>{name}</span>,
@@ -92,7 +86,7 @@ describe("ShowcaseView — 演示计时器", () => {
     render(<ShowcaseView course={makeCourse()} />);
 
     act(() => {
-      fireEvent.click(screen.getByText("开始"));
+      fireEvent.click(screen.getByText("开始彩排"));
     });
 
     // Advance 3 seconds → timer should show 00:03
@@ -108,7 +102,7 @@ describe("ShowcaseView — 演示计时器", () => {
 
     // Start
     act(() => {
-      fireEvent.click(screen.getByText("开始"));
+      fireEvent.click(screen.getByText("开始彩排"));
     });
     act(() => {
       vi.advanceTimersByTime(2000);
@@ -132,7 +126,7 @@ describe("ShowcaseView — 演示计时器", () => {
 
     // Start and advance
     act(() => {
-      fireEvent.click(screen.getByText("开始"));
+      fireEvent.click(screen.getByText("开始彩排"));
     });
     act(() => {
       vi.advanceTimersByTime(5000);
@@ -154,9 +148,11 @@ describe("ShowcaseView — 演示计时器", () => {
 });
 
 describe("ShowcaseView — 成果上传列表显示", () => {
-  it("shows 尚未上传 when no upload exists for a slot", () => {
+  it("shows a truthful empty state without fixed file slots", () => {
     render(<ShowcaseView course={makeCourse()} />);
-    expect(screen.getAllByText("尚未上传").length).toBeGreaterThan(0);
+    expect(screen.getByText("尚未上传真实成果材料")).toBeTruthy();
+    expect(screen.queryByText("研究报告（PDF）")).toBeNull();
+    expect(screen.queryByText("汇报演示（PPTX）")).toBeNull();
   });
 
   it("shows uploaded file name and size when an upload exists", () => {

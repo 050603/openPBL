@@ -438,7 +438,7 @@ ${submissions.map((s) => `- [${s.stageKey}] ${s.title}：${plainText(s.content).
 ${teacherFeedback.map((f) => `- [${f.stageKey}/${f.kind}] ${plainText(f.content).slice(0, 700)}${f.evidence?.length ? `；证据：${f.evidence.join("；")}` : ""}`).join("\n") || "（无）"}
 
 评分记录（必须区分教师评分、AI评分和最终评分）：
-${rubricScores.map((s) => `- 教师总分=${s.teacherTotal ?? "无"}；AI总分=${s.aiTotal ?? "无"}；最终分=${s.finalTotal ?? "无"}；记录总分=${s.total}；教师维度=${JSON.stringify(s.dimensionScores)}；AI维度=${JSON.stringify(s.aiDimensionScores ?? {})}；评语=${plainText(s.comment)}`).join("\n") || "（无）"}
+${rubricScores.map((s) => `- 教师总分=${s.teacherTotal ?? "无"}；AI总分=${s.aiTotal ?? "无"}；最终分=${s.finalTotal ?? "无"}；记录总分=${s.total}；教师维度=${JSON.stringify(s.dimensionScores)}；AI维度=${JSON.stringify(s.aiDimensionScores ?? {})}；AI过程总结=${plainText(s.aiProcessSummary ?? "无")}；AI过程证据=${(s.aiProcessEvidence ?? []).join("、") || "无"}；教师评语=${plainText(s.comment)}`).join("\n") || "（无）"}
 
 AI/教师评价记录：
 ${evaluations.map((e) => `- [${e.sourceRole}/${e.stageKey}] 分数=${e.score ?? "无"}；${plainText(e.comment)}；证据=${e.evidence.join("；")}`).join("\n") || "（无）"}

@@ -1,4 +1,8 @@
-import { extractLearningRequestTopic } from "@/lib/adaptive-learning";
+import {
+  companionMicroLessonStageContext,
+  extractLearningRequestTopic,
+  isCompanionMicroLessonStage,
+} from "@/lib/adaptive-learning";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import { callLLM, parseLLMJson } from "@/lib/llm/client";
 import { getCourse } from "@/lib/session/server-store";
@@ -24,7 +28,7 @@ export async function POST(request: Request) {
     !body?.courseId ||
     !body.studentId ||
     !body.message?.trim() ||
-    !["proposal", "make"].includes(body.stageKey ?? "")
+    !isCompanionMicroLessonStage(body.stageKey ?? "")
   ) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
   }
@@ -41,33 +45,29 @@ export async function POST(request: Request) {
   const course = await getCourse(body.courseId);
   if (!course) return Response.json({ error: "COURSE_NOT_FOUND" }, { status: 404 });
   const explicitTopic = extractLearningRequestTopic(body.message);
-  if (!explicitTopic) {
-    return Response.json({
-      decision: {
-        decision: "brief-answer",
-        topic: "",
-        rationale: "学生没有发起明确的知识学习请求",
-        keyPoints: [],
-      } satisfies Decision,
-    });
-  }
 
   const fallback: Decision = {
     decision:
-      explicitTopic.length >= 4 || /原理|方法|怎么|如何|系统|详细/.test(body.message)
+      explicitTopic && (
+        explicitTopic.length >= 4
+        || /原理|方法|怎么|如何|系统|详细/.test(body.message)
+      )
         ? "systematic-lesson"
         : "brief-answer",
-    topic: explicitTopic,
-    rationale: "根据请求的知识范围和当前项目阶段判断",
-    keyPoints: [explicitTopic],
+    topic: explicitTopic ?? "",
+    rationale: explicitTopic
+      ? "根据请求的知识范围和当前项目阶段判断"
+      : "当前请求不是明确的知识学习或教学解释需求",
+    keyPoints: explicitTopic ? [explicitTopic] : [],
   };
   try {
     const raw = await callLLM([
       {
         role: "system",
         content: `你是项目课堂的伴学导演。判断学生的知识请求应该“仅告知”还是“系统讲解”。
-仅告知：一个定义、一个事实、一个快捷操作、可在 45 秒内回答。
-系统讲解：涉及原理、多个步骤、概念关系、易错点，或会影响方案/制作质量；应生成 1-2 页、2-3 分钟微课。
+仅告知：普通讨论、任务分工、创意发散、简单事实或快捷操作，可在 45 秒内回答。
+系统讲解：学生在检索知识、理解概念、辨析证据、追问原理/步骤/关系/易错点，且内容适合形成 1-2 页、2-3 分钟微课。
+不要因为消息较长就生成微课；只有教学化呈现明显优于直接对话时才选择 systematic-lesson。
 只返回 JSON：{"decision":"brief-answer|systematic-lesson","topic":"精炼主题","rationale":"一句话","keyPoints":["2-4个讲解要点"]}`,
       },
       {
@@ -75,6 +75,7 @@ export async function POST(request: Request) {
         content: JSON.stringify({
           course: course.name,
           stageKey: body.stageKey,
+          stageContext: companionMicroLessonStageContext(body.stageKey ?? ""),
           projectQuestion: course.drivingQuestion,
           request: body.message,
           recentWork: (course.submissions ?? [])

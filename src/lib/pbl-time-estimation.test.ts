@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPblTimingInputFromScene,
   estimatePblActivityTime,
+  planPblPageTiming,
 } from './pbl-time-estimation';
 
 describe('PBL activity time estimation', () => {
@@ -98,5 +99,115 @@ describe('PBL activity time estimation', () => {
     expect(input.interaction?.stepCount).toBe(3);
     expect(estimate.interactionSec).toBeGreaterThan(0);
     expect(estimate.ttsSec).toBeGreaterThan(0);
+  });
+
+  it('reserves only a few seconds for changing a slide page', () => {
+    const plan = planPblPageTiming({
+      activityTargetSec: 180,
+      pageKind: 'slide',
+      contentType: 'theory',
+    });
+
+    expect(plan.transitionSec).toBeGreaterThanOrEqual(3);
+    expect(plan.transitionSec).toBeLessThanOrEqual(6);
+    expect(plan.readingThinkingSec).toBe(0);
+    expect(plan.operationSec).toBe(0);
+    expect(plan.studentActivitySec).toBe(0);
+    expect(plan.narrationSec + plan.transitionSec).toBe(180);
+  });
+
+  it('separates comprehension and hands-on time for an interactive task', () => {
+    const plan = planPblPageTiming({
+      activityTargetSec: 300,
+      pageKind: 'interactive',
+      contentType: 'interaction',
+      interaction: {
+        type: 'simulation',
+        stepCount: 3,
+        difficulty: 'advanced',
+      },
+    });
+
+    expect(plan.readingThinkingSec).toBeGreaterThan(0);
+    expect(plan.operationSec).toBeGreaterThan(0);
+    expect(plan.studentActivitySec).toBe(plan.readingThinkingSec + plan.operationSec);
+    expect(
+      plan.narrationSec + plan.studentActivitySec + plan.transitionSec,
+    ).toBe(300);
+  });
+
+  it('uses widget steps, interaction type, and difficulty to model task demand', () => {
+    const simple = planPblPageTiming({
+      activityTargetSec: 600,
+      pageKind: 'interactive',
+      interaction: {
+        type: 'diagram',
+        stepCount: 1,
+        difficulty: 'introductory',
+      },
+    });
+    const complex = planPblPageTiming({
+      activityTargetSec: 600,
+      pageKind: 'interactive',
+      interaction: {
+        type: 'code',
+        stepCount: 3,
+        difficulty: 'advanced',
+      },
+    });
+
+    expect(complex.recommendedOperationSec).toBeGreaterThan(simple.recommendedOperationSec);
+    expect(complex.recommendedStudentActivitySec).toBeGreaterThan(
+      simple.recommendedStudentActivitySec,
+    );
+    expect(complex.taskComplexity).toBe('high');
+  });
+
+  it('uses question count, type, and difficulty to budget quiz work', () => {
+    const quickCheck = planPblPageTiming({
+      activityTargetSec: 600,
+      pageKind: 'quiz',
+      quiz: {
+        questionCount: 1,
+        questionTypes: ['true_false'],
+        difficulty: 'introductory',
+      },
+    });
+    const writtenReasoning = planPblPageTiming({
+      activityTargetSec: 600,
+      pageKind: 'quiz',
+      quiz: {
+        questionCount: 3,
+        questionTypes: ['short_answer', 'scenario_task'],
+        difficulty: 'advanced',
+      },
+    });
+
+    expect(writtenReasoning.recommendedOperationSec).toBeGreaterThan(
+      quickCheck.recommendedOperationSec,
+    );
+    expect(writtenReasoning.recommendedStudentActivitySec).toBeGreaterThan(
+      quickCheck.recommendedStudentActivitySec,
+    );
+    expect(writtenReasoning.feedbackSec).toBeGreaterThan(0);
+  });
+
+  it('marks a task for simplification when its modeled work cannot fit the page', () => {
+    const plan = planPblPageTiming({
+      activityTargetSec: 90,
+      pageKind: 'interactive',
+      interaction: {
+        type: 'code',
+        stepCount: 5,
+        difficulty: 'advanced',
+      },
+    });
+
+    expect(plan.taskFitsBudget).toBe(false);
+    expect(plan.recommendedStudentActivitySec).toBeGreaterThan(plan.studentActivitySec);
+    expect(plan.rationale.join(' ')).toMatch(/simplif|fit/i);
+    expect(
+      plan.narrationSec + plan.studentActivitySec + plan.transitionSec,
+    ).toBe(90);
   });
 });

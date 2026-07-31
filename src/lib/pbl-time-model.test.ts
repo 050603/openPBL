@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assessPblTimeAllocation,
+  buildPblModelTimingPlan,
   buildPblModuleTimingPlan,
   buildPblProjectMainline,
   derivePblTimeRatios,
@@ -160,6 +161,67 @@ describe('PBL time model', () => {
     expect(plan.allocations.find((item) => item.activityKind === 'practice' || item.stageKey === 'make')?.durationMin)
       .toBeGreaterThan(plan.allocations.find((item) => item.stageKey === 'ai-learning')?.durationMin ?? 0);
     expect(plan.generatedAt).toBe('2026-07-13T00:00:00.000Z');
+  });
+
+  it('normalizes a model recommendation to the canonical six stages and fixed total', () => {
+    const activities = [
+      { id: 'launch', stageKey: 'launch', durationMin: 1 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 1 },
+      { id: 'proposal', stageKey: 'proposal', durationMin: 1 },
+      { id: 'practice', stageKey: 'make', durationMin: 1 },
+      { id: 'showcase', stageKey: 'showcase', durationMin: 1 },
+      { id: 'reflection', stageKey: 'reflection', durationMin: 1 },
+    ];
+    const plan = buildPblModelTimingPlan(90, activities, {
+      allocations: [
+        { stageKey: 'project-launch', durationMin: 10, rationale: '需要建立真实问题情境。' },
+        { stageKey: 'knowledge', durationMin: 25, rationale: '知识图谱包含两个先修依赖。' },
+        { stageKey: 'proposal-review', durationMin: 10, rationale: '学生需要比较方案。' },
+        { stageKey: 'project-making', durationMin: 35, rationale: '主要时间用于制作和迭代。' },
+        { stageKey: 'showcase', durationMin: 15, rationale: '需要公开表达和反馈。' },
+        { stageKey: 'reflection-transfer', durationMin: 5, rationale: '完成迁移反思。' },
+      ],
+      evidence: ['八年级', '2 个核心知识点', '学情需要分步案例'],
+      assumptions: ['按 30 人班级估算'],
+      confidence: 'high',
+    }, undefined, { now: '2026-07-28T00:00:00.000Z' });
+
+    expect(plan.allocations.reduce((sum, item) => sum + item.durationMin, 0)).toBe(90);
+    expect(plan.allocations.map((item) => item.stageKey)).toEqual([
+      'launch',
+      'ai-learning',
+      'proposal',
+      'make',
+      'showcase',
+      'reflection',
+    ]);
+    expect(plan.recommendationSource).toBe('llm');
+    expect(plan.confidence).toBe('high');
+    expect(plan.rationaleByStage?.['ai-learning']).toContain('先修依赖');
+    expect(plan.evidence).toContain('学情需要分步案例');
+  });
+
+  it('fills invalid or missing model stages with deterministic context recommendations', () => {
+    const activities = [
+      { id: 'launch', stageKey: 'launch', durationMin: 1 },
+      { id: 'knowledge', stageKey: 'ai-learning', durationMin: 1 },
+      { id: 'proposal', stageKey: 'proposal', durationMin: 1 },
+      { id: 'practice', stageKey: 'make', durationMin: 1 },
+      { id: 'showcase', stageKey: 'showcase', durationMin: 1 },
+      { id: 'reflection', stageKey: 'reflection', durationMin: 1 },
+    ];
+    const plan = buildPblModelTimingPlan(60, activities, {
+      allocations: [
+        { stageKey: 'ai-learning', durationMin: 20, rationale: '复杂知识需要讲解。' },
+        { stageKey: 'unknown-stage', durationMin: 999, rationale: '无效阶段。' },
+      ],
+      confidence: 'medium',
+    }, { difficulty: 'advanced' }, { now: '2026-07-28T00:00:00.000Z' });
+
+    expect(plan.allocations).toHaveLength(6);
+    expect(plan.allocations.reduce((sum, item) => sum + item.durationMin, 0)).toBe(60);
+    expect(plan.allocations.every((item) => item.durationMin >= 1)).toBe(true);
+    expect(plan.assumptions?.some((item) => item.includes('缺失阶段'))).toBe(true);
   });
 
   it('keeps teacher-edited allocations as the confirmed source of truth', () => {

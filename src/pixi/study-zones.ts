@@ -50,7 +50,7 @@ export const studyZoneDefinitions = {
     approachPoint: { x: 444, y: 510 },
     interactionPoint: { x: 294, y: 526 },
     action: 'planning_board',
-    interactionActions: ['planning_board'],
+    interactionActions: ['planning_board', 'board_listening', 'screen_pointing'],
     posture: 'normal',
     facing: 'left',
     labelPosition: { x: 48, y: 520 },

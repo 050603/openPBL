@@ -103,6 +103,7 @@ export class PlaybackEngine {
   private browserTTSPausedChunks: string[] = []; // remaining chunks saved on pause (for cancel+re-speak)
   private speechTimerRemaining: number = 0; // remaining ms (set on pause)
   private speechTimerIsActivityPause: boolean = false;
+  private speechTimerIsTimelinePause: boolean = false;
   private activeActivity: ActivityGate | null = null;
 
   constructor(
@@ -256,6 +257,11 @@ export class PlaybackEngine {
         this.speechTimer = setTimeout(() => {
           if (this.speechTimerIsActivityPause) {
             this.finishActivity('timeout');
+          } else if (this.speechTimerIsTimelinePause) {
+            this.speechTimer = null;
+            this.speechTimerRemaining = 0;
+            this.speechTimerIsTimelinePause = false;
+            if (this.mode === 'playing') this.processNext();
           } else {
             this.speechTimer = null;
             this.speechTimerRemaining = 0;
@@ -288,6 +294,7 @@ export class PlaybackEngine {
     }
     this.speechTimerRemaining = 0;
     this.speechTimerIsActivityPause = false;
+    this.speechTimerIsTimelinePause = false;
     this.activeActivity = null;
     this.sceneIndex = 0;
     this.actionIndex = 0;
@@ -458,6 +465,7 @@ export class PlaybackEngine {
     }
     this.speechTimerRemaining = 0;
     this.speechTimerIsActivityPause = false;
+    this.speechTimerIsTimelinePause = false;
     this.callbacks.onActivityComplete?.(activity, reason);
     if (this.mode === 'playing') queueMicrotask(() => this.processNext());
     return true;
@@ -512,6 +520,26 @@ export class PlaybackEngine {
     switch (action.type) {
       case 'speech': {
         const speechAction = action as SpeechAction;
+        const timelinePauseSec = Number(
+          (speechAction as SpeechAction & {
+            timelinePauseSec?: number;
+            timelinePausePurpose?: 'page-transition';
+          }).timelinePauseSec,
+        );
+        if (Number.isFinite(timelinePauseSec) && timelinePauseSec > 0) {
+          const pauseMs = timelinePauseSec * 1000;
+          this.speechTimerStart = Date.now();
+          this.speechTimerRemaining = pauseMs;
+          this.speechTimerIsActivityPause = false;
+          this.speechTimerIsTimelinePause = true;
+          this.speechTimer = setTimeout(() => {
+            this.speechTimer = null;
+            this.speechTimerRemaining = 0;
+            this.speechTimerIsTimelinePause = false;
+            if (this.mode === 'playing') this.processNext();
+          }, pauseMs);
+          break;
+        }
         const activityPauseSec = Number(
           (speechAction as SpeechAction & { activityPauseSec?: number }).activityPauseSec,
         );
@@ -531,6 +559,7 @@ export class PlaybackEngine {
           this.speechTimerStart = Date.now();
           this.speechTimerRemaining = pauseMs;
           this.speechTimerIsActivityPause = true;
+          this.speechTimerIsTimelinePause = false;
           this.speechTimer = setTimeout(() => {
             this.finishActivity('timeout');
           }, pauseMs);
@@ -565,6 +594,7 @@ export class PlaybackEngine {
           this.speechTimerStart = Date.now();
           this.speechTimerRemaining = readingMs;
           this.speechTimerIsActivityPause = false;
+          this.speechTimerIsTimelinePause = false;
           this.speechTimer = setTimeout(() => {
             this.speechTimer = null;
             this.speechTimerRemaining = 0;

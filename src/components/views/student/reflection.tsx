@@ -1,268 +1,154 @@
+"use client";
+
 import { useMemo, useState } from "react";
-import { ClipboardPlus, PenLine, Save, Star, Wand2 } from "lucide-react";
-import { Avatar } from "@/components/dashboard-shell";
 import {
-  EvaluationRadar,
-  type EvaluationRadarDatum,
-} from "@/components/charts";
-import { Card, PrimaryButton, toast } from "@/components/ui";
-import type {
-  Course,
-  EvaluationDimension,
-  ReflectionRecord,
-  RubricScore,
-  Stage,
-  TeacherFeedback,
-} from "@/lib/session/types";
+  Bot,
+  ClipboardList,
+  MessageSquareText,
+  Save,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
+import { Card, Pill, PrimaryButton, TextArea, toast } from "@/components/ui";
+import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { buildReflectionEvidencePrompts } from "@/lib/teaching-ai/client-api";
-import { CompanionRoundtable } from "./companion-roundtable";
 import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
-const FIVE_STAR_TOTAL = 5;
+type ReflectionFields = {
+  coreWork: string;
+  aiSupport: string;
+  decisions: string;
+  limitsAndTransfer: string;
+};
 
-function formatDate(value: string | undefined): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+const SECTION_LABELS: Array<[keyof ReflectionFields, string]> = [
+  ["coreWork", "我完成的核心工作"],
+  ["aiSupport", "AI 提供的支持"],
+  ["decisions", "我的采纳与拒绝"],
+  ["limitsAndTransfer", "局限、改进与迁移"],
+];
+
+function parseReflection(content: string | undefined): ReflectionFields {
+  const result: ReflectionFields = { coreWork: "", aiSupport: "", decisions: "", limitsAndTransfer: "" };
+  if (!content?.trim()) return result;
+  let matched = false;
+  SECTION_LABELS.forEach(([key, label], index) => {
+    const nextLabel = SECTION_LABELS[index + 1]?.[1];
+    const pattern = new RegExp(`【${label}】\\s*([\\s\\S]*?)${nextLabel ? `(?=\\n+【${nextLabel}】)` : "$"}`);
+    const value = content.match(pattern)?.[1]?.trim();
+    if (value) {
+      result[key] = value;
+      matched = true;
+    }
+  });
+  if (!matched) result.coreWork = content;
+  return result;
 }
 
-function pickLatest<T extends { createdAt: string }>(
-  list: T[] | undefined,
-  predicate: (item: T) => boolean = () => true,
-): T | undefined {
-  if (!list || list.length === 0) return undefined;
-  return list
-    .filter(predicate)
-    .reduce<T | undefined>((latest, item) => {
-      if (!latest) return item;
-      return new Date(item.createdAt) > new Date(latest.createdAt) ? item : latest;
-    }, undefined);
-}
-
-function scoreToStars(score: number): number {
-  if (score >= 80) return 5;
-  if (score >= 60) return 4;
-  if (score >= 40) return 3;
-  if (score >= 20) return 2;
-  return 1;
+function serializeReflection(fields: ReflectionFields): string {
+  return SECTION_LABELS
+    .map(([key, label]) => `【${label}】\n${fields[key].trim()}`)
+    .join("\n\n");
 }
 
 export function ReflectionView({ course, embedded = false }: { course?: Course; embedded?: boolean }) {
+  void embedded;
   const session = useSession();
-  const { upsertReflection, updateStudentProgress } = session;
-  const title = course?.name ?? "—";
-  const studentId = session.studentId ?? "guest";
-  const studentName = session.studentName ?? "访客学生";
-  const confirmation = useStudentActionConfirmation({ course, stageKey: "reflection" });
-
-  // ===== 真实数据：从 store 读取 =====
-  const dimensions: EvaluationDimension[] = useMemo(
-    () => course?.content.evaluationPlan.dimensions ?? [],
-    [course?.content.evaluationPlan.dimensions],
-  );
-  const allRubricScores: RubricScore[] = useMemo(
-    () => course?.rubricScores ?? [],
-    [course?.rubricScores],
-  );
-  const allFeedback: TeacherFeedback[] = useMemo(
-    () => course?.feedback ?? [],
-    [course?.feedback],
-  );
-  const allReflections: ReflectionRecord[] = useMemo(
-    () => course?.reflections ?? [],
-    [course?.reflections],
-  );
-  const stages: Stage[] = useMemo(
-    () => course?.stages ?? [],
-    [course?.stages],
-  );
-
-  // 当前学生的个人项目空间（沿用旧项目容器字段以兼容历史数据）
-  const myGroup = useMemo(
-    () =>
-      course?.groups?.find((g) =>
-        g.members.some((m) => m.studentId === studentId),
-      ),
+  const studentId = session.studentId ?? "";
+  const studentName = session.studentName ?? session.user.name;
+  const project = useMemo(
+    () => course?.groups?.find((item) => item.members.some((member) => member.studentId === studentId)),
     [course?.groups, studentId],
   );
-
-  // 找到与当前学生个人项目相关的 rubric 评分
-  const studentRubricScores = useMemo(
-    () =>
-      allRubricScores.filter((s) => s.groupId === myGroup?.id),
-    [allRubricScores, myGroup?.id],
-  );
-
-  // 取最后一条包含 dimensionScores 的评分（按 updatedAt）
-  const latestRubric = useMemo(
-    () =>
-      [...studentRubricScores]
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0],
-    [studentRubricScores],
-  );
-
-  // ===== 计算 AI 过程评价雷达图数据 =====
-  const radarData: EvaluationRadarDatum[] = useMemo(() => {
-    if (dimensions.length === 0) {
-      // 没有真实维度时使用 stages 名称兜底（让学生至少看到阶段而非占位）
-      return stages.map((s, i) => ({
-        subject: s.label,
-        // fallback: 用各阶段 stageProgress 计算 (0-100 -> 0-5)
-        value: Number(((course?.stages[i]?.key ? (course?.students?.find((st) => st.id === studentId)?.stageProgress?.[s.key] ?? 0) / 20 : 0).toFixed(1))),
-      }));
-    }
-    if (latestRubric) {
-      return dimensions.map((d) => ({
-        subject: d.name,
-        value: Number(((latestRubric.dimensionScores[d.id] ?? 0) / 20).toFixed(1)),
-      }));
-    }
-    // 没有 rubric 评分时根据学生各 stage 进度粗略推断（仅作展示兜底，标识为"待评"）
-    return dimensions.map((d) => ({
-      subject: d.name,
-      value: 0,
-    }));
-  }, [dimensions, latestRubric, stages, course?.stages, course?.students, studentId]);
-
-  // ===== 综合得分 =====
-  const overallScore = useMemo(() => {
-    if (latestRubric && typeof latestRubric.total === "number") {
-      return latestRubric.total;
-    }
-    // 无 rubric 时按 stages 进度均值（0-100）兜底
-    if (stages.length === 0) return 0;
-    const sp = course?.students?.find((s) => s.id === studentId)?.stageProgress ?? {};
-    const sum = stages.reduce((acc, s) => acc + (sp[s.key] ?? 0), 0);
-    return Math.round(sum / stages.length);
-  }, [latestRubric, stages, course?.students, studentId]);
-
-  // ===== 超越班级百分比 =====
-  const classRankPercent = useMemo(() => {
-    const totals = course?.students
-      ?.map((s) => {
-        const sp = s.stageProgress ?? {};
-        const sum = stages.reduce((acc, st) => acc + (sp[st.key] ?? 0), 0);
-        return { id: s.id, score: stages.length === 0 ? 0 : sum / stages.length };
-      }) ?? [];
-    if (totals.length <= 1) return null;
-    const me = totals.find((t) => t.id === studentId);
-    if (!me) return null;
-    const beaten = totals.filter((t) => t.score < me.score).length;
-    return Math.round((beaten / (totals.length - 1)) * 100);
-  }, [course?.students, stages, studentId]);
-
-  // ===== 真实教师评价（targetType=student/group，最近一条） =====
-  const teacherFeedback = useMemo(
-    () =>
-      allFeedback
-        .filter(
-          (f) =>
-            f.targetType === "student" ||
-            f.targetType === "group",
-        )
-        .filter((f) => f.targetId === studentId || f.targetId === myGroup?.id)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0],
-    [allFeedback, studentId, myGroup?.id],
-  );
-
-  // ===== 真实成长建议：从 evaluationPlan.overallRubric 句子拆分；空时用维度描述拼接 =====
-  const improvementSuggestions = useMemo(() => {
-    const overall = course?.content.evaluationPlan.overallRubric?.trim();
-    if (overall) {
-      // 拆句：按句号/分号/换行
-      const sentences = overall
-        .split(/[。；;.\n]+/g)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (sentences.length > 0) return sentences.slice(0, 5);
-    }
-    // 兜底：使用维度描述
-    return dimensions.slice(0, 5).map((d) => d.description);
-  }, [course?.content.evaluationPlan.overallRubric, dimensions]);
-
-  // ===== 真实成长里程碑：从 course.stages + student.stageProgress =====
-  const milestones = useMemo(() => {
-    if (stages.length === 0) return [];
-    const sp = course?.students?.find((s) => s.id === studentId)?.stageProgress ?? {};
-    return stages.map((s) => ({
-      key: s.key,
-      label: s.label,
-      done: (sp[s.key] ?? 0) >= 100,
-      progress: sp[s.key] ?? 0,
-    }));
-  }, [stages, course?.students, studentId]);
-
-  const milestonesCompleted = milestones.filter((m) => m.done).length;
-
-  // ===== 顶部"评价时间"：取最近一次相关记录的 createdAt =====
-  const latestRecord = useMemo(
-    () =>
-      pickLatest<ReflectionRecord | TeacherFeedback | RubricScore>(
-        [
-          ...allReflections.filter((r) => r.studentId === studentId),
-          ...allFeedback.filter(
-            (f) => f.targetId === studentId || f.targetId === myGroup?.id,
-          ),
-          ...studentRubricScores,
-        ],
-      ),
-    [allReflections, allFeedback, studentRubricScores, studentId, myGroup?.id],
-  );
-  const evaluationDate = formatDate(
-    latestRecord?.createdAt ?? course?.updatedAt,
-  );
-
-  // ===== 自我反思：优先读 store 中已有记录 =====
   const existingReflection = useMemo(
-    () =>
-      allReflections
-        .filter((r) => r.studentId === studentId)
-        .sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        )[0],
-    [allReflections, studentId],
+    () => (course?.reflections ?? [])
+      .filter((item) => item.studentId === studentId)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0],
+    [course?.reflections, studentId],
   );
-  const [content, setContent] = useState<string>(existingReflection?.content ?? "");
-  const [improvementPlanText, setImprovementPlanText] = useState<string>(existingReflection?.improvementPlan ?? "");
+  const [fields, setFields] = useState<ReflectionFields>(() => parseReflection(existingReflection?.content));
+  const [nextAction, setNextAction] = useState(existingReflection?.improvementPlan ?? "");
   const [saved, setSaved] = useState(false);
-  const [planError, setPlanError] = useState<string | null>(null);
-  const isViewingExisting = Boolean(existingReflection);
-  const latestReflectionSupport = useMemo(
-    () =>
-      (course?.aiSupports ?? [])
-        .filter(
-          (item) =>
-            item.kind === "reflection-evidence" &&
-            (item.studentId === studentId || item.groupId === myGroup?.id),
-        )
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0],
-    [course?.aiSupports, studentId, myGroup?.id],
-  );
+  const confirmation = useStudentActionConfirmation({ course, stageKey: "reflection" });
 
-  function performSaveReflection(improvementPlan?: string) {
+  const teacherEvaluation = useMemo(
+    () => (course?.evaluations ?? [])
+      .filter((item) =>
+        item.sourceRole === "teacher"
+        && (item.targetId === studentId || item.targetId === project?.id)
+        && item.status !== "draft",
+      )
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0],
+    [course?.evaluations, project?.id, studentId],
+  );
+  const aiEvaluation = useMemo(
+    () => (course?.evaluations ?? [])
+      .filter((item) =>
+        item.sourceRole === "ai"
+        && (item.targetId === studentId || item.targetId === project?.id)
+        && item.status !== "draft",
+      )
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0],
+    [course?.evaluations, project?.id, studentId],
+  );
+  const latestRubric = useMemo(
+    () => (course?.rubricScores ?? [])
+      .filter((item) => item.groupId === project?.id && item.stageKey === "showcase")
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0],
+    [course?.rubricScores, project?.id],
+  );
+  const teacherFeedback = useMemo(
+    () => (course?.feedback ?? [])
+      .filter((item) => item.targetId === studentId || item.targetId === project?.id)
+      .filter((item) => item.sourceRole !== "ai")
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0],
+    [course?.feedback, project?.id, studentId],
+  );
+  const processRecords = useMemo(
+    () => (course?.companionProcessRecords ?? [])
+      .filter((item) => item.studentId === studentId)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    [course?.companionProcessRecords, studentId],
+  );
+  const studentDecisions = processRecords.filter((item) => item.source === "student");
+  const latestReflectionSupport = useMemo(
+    () => (course?.aiSupports ?? [])
+      .filter((item) =>
+        item.kind === "reflection-evidence"
+        && (item.studentId === studentId || item.groupId === project?.id),
+      )
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0],
+    [course?.aiSupports, project?.id, studentId],
+  );
+  const complete = SECTION_LABELS.every(([key]) => fields[key].trim()) && nextAction.trim();
+
+  function updateField(key: keyof ReflectionFields, value: string) {
+    setFields((current) => ({ ...current, [key]: value }));
+    setSaved(false);
+  }
+
+  function performSave() {
     if (!course) return;
-    upsertReflection({
+    session.upsertReflection({
       id: existingReflection?.id,
-      content,
-      improvementPlan,
+      content: serializeReflection(fields),
+      improvementPlan: nextAction.trim(),
       studentName,
     });
-    updateStudentProgress("reflection", improvementPlan ? 100 : 80);
+    session.updateStudentProgress("reflection", 100);
+    session.addActivity(course.id, "提交个人反思", nextAction.trim(), studentName);
     setSaved(true);
   }
 
   function saveReflection() {
+    if (!course || !complete) return;
     confirmation.request({
-      action: existingReflection ? "overwrite" : "save",
-      title: existingReflection ? "覆盖个人反思记录" : "保存个人反思记录",
-      summary: "这会把你当前写下的反思保存到课堂记录，供你和伴学伙伴在后续回看。",
-      payload: { reflectionId: existingReflection?.id },
-      onConfirm: () => performSaveReflection(),
+      action: existingReflection ? "overwrite" : "submit",
+      title: existingReflection ? "更新并重新提交个人反思" : "提交完整个人反思",
+      summary: "这会一次保存你的核心工作、AI 支持、采纳或拒绝理由、局限与迁移计划，并把反思阶段标记为完成。",
+      payload: { reflectionId: existingReflection?.id, stageKey: "reflection" },
+      onConfirm: performSave,
     });
   }
 
@@ -271,7 +157,7 @@ export function ReflectionView({ course, embedded = false }: { course?: Course; 
     try {
       const draft = await buildReflectionEvidencePrompts({
         course,
-        group: myGroup,
+        group: project,
         studentId,
       });
       session.upsertAiSupport({
@@ -279,271 +165,103 @@ export function ReflectionView({ course, embedded = false }: { course?: Course; 
         courseId: course.id,
         studentName,
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "AI 反思提示生成失败";
-      toast.error("AI 反思建议生成失败", { description: message });
+    } catch (error) {
+      toast.error("AI 反思提示生成失败", {
+        description: error instanceof Error ? error.message : "请稍后重试",
+      });
     }
   }
 
-  function saveImprovementPlan() {
-    if (!course) return;
-    const plan = improvementPlanText.trim();
-    if (!plan) {
-      setPlanError("请先填写改进计划内容");
-      return;
-    }
-    setPlanError(null);
-    confirmation.request({
-      action: "mark-complete",
-      title: "保存改进计划并完成反思阶段",
-      summary: "这会保存当前改进计划，并将个人反思阶段标记为 100%。请确认这条行动计划是你愿意真正执行的下一步。",
-      payload: { reflectionId: existingReflection?.id, stageKey: "reflection" },
-      onConfirm: () => performSaveReflection(plan),
-    });
+  if (!course) {
+    return <Card className="text-center"><p className="text-sm text-stone-500">课程数据尚未加载。</p></Card>;
   }
 
-  const overallStars = scoreToStars(overallScore);
+  const teacherScore =
+    teacherEvaluation?.score
+    ?? latestRubric?.teacherTotal
+    ?? (latestRubric?.scoringMode === "teacher" ? latestRubric.total : undefined);
+  const aiProcessScore = aiEvaluation?.score ?? latestRubric?.aiTotal ?? undefined;
+  const aiProcessSummary = aiEvaluation?.comment ?? latestRubric?.aiProcessSummary;
+  const aiProcessEvidence = aiEvaluation?.evidence ?? latestRubric?.aiProcessEvidence ?? [];
+  const finalScore = latestRubric?.finalTotal;
 
   return (
     <div className="space-y-5">
-      <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-3xl font-bold leading-tight md:text-4xl">个人评价与反思</h1>
-          <p className="mt-3 text-base text-stone-500">
-            回顾项目全过程，查看评价与建议，反思成长与不足，持续提升综合素养。
-          </p>
+      <header className="flex flex-col gap-3 border-b border-stone-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[var(--pbl-student)]">阶段六 · 反思与迁移</p>
+          <h1 className="font-editorial mt-1 text-2xl font-semibold">说清楚“我做了什么、AI 帮了什么、我为什么这样决定”</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">反思不参与排名。请基于真实过程证据形成下一次项目也能使用的方法。</p>
         </div>
-        <div className="text-sm font-semibold text-stone-600 sm:text-base">
-          项目：{title}　评价时间：{evaluationDate}
+        <Pill tone={saved || existingReflection ? "green" : complete ? "blue" : "gray"}>
+          {saved ? "已提交" : existingReflection ? "已有反思，可继续更新" : complete ? "可以提交" : "待完成"}
+        </Pill>
+      </header>
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,.72fr)]">
+        <Card>
+          <h2 className="flex items-center gap-2 text-lg font-bold"><MessageSquareText size={19} />真实评价记录</h2>
+          {teacherScore !== undefined || finalScore !== undefined || teacherEvaluation || teacherFeedback ? (
+            <div className="mt-4 space-y-3">
+              {teacherScore !== undefined ? <div className="flex items-center justify-between rounded-[10px] border border-stone-200 bg-stone-50 px-4 py-3"><span className="text-sm font-semibold text-stone-600">教师成果与汇报评价</span><strong className="text-2xl text-[var(--pbl-student)]">{Math.round(teacherScore)}</strong></div> : null}
+              {finalScore !== undefined ? <div className="flex items-center justify-between rounded-[10px] border border-amber-100 bg-amber-50/50 px-4 py-3"><span className="text-sm font-semibold text-stone-600">AI 过程与教师评价综合分</span><strong className="text-2xl text-amber-800">{Math.round(finalScore)}</strong></div> : null}
+              {teacherEvaluation?.comment ? <p className="rounded-[10px] border border-blue-100 bg-blue-50/50 p-3 text-sm leading-6 text-stone-700">{teacherEvaluation.comment}</p> : null}
+              {teacherFeedback ? <p className="text-sm leading-6 text-stone-700"><strong>教师反馈：</strong>{teacherFeedback.content}</p> : null}
+            </div>
+          ) : <p className="mt-4 rounded-[10px] border border-dashed border-stone-200 py-8 text-center text-sm text-stone-500">教师尚未提交成果评价；系统不会用阶段进度冒充评价。</p>}
+
+          <div className="mt-5 border-t border-stone-100 pt-4">
+            <h3 className="flex items-center gap-2 text-sm font-bold"><Bot size={16} className="text-[var(--pbl-ai)]" />AI 过程评价</h3>
+            {aiProcessSummary || aiProcessScore !== undefined ? (
+              <div className="mt-3 rounded-[10px] border border-violet-100 bg-violet-50/50 p-3">
+                {aiProcessScore !== undefined ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-stone-600">过程评分</span>
+                    <strong className="text-xl text-violet-800">{Math.round(aiProcessScore)}</strong>
+                  </div>
+                ) : null}
+                {aiProcessSummary ? <p className="mt-2 text-sm leading-6 text-stone-700">{aiProcessSummary}</p> : null}
+                {aiProcessEvidence.length ? <p className="mt-2 text-xs leading-5 text-stone-500">依据：{aiProcessEvidence.join("；")}</p> : null}
+              </div>
+            ) : <p className="mt-3 text-sm text-stone-500">尚无已提交的 AI 过程评价。</p>}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="flex items-center gap-2 text-lg font-bold"><ClipboardList size={19} />过程证据摘要</h2>
+          <dl className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-[10px] bg-stone-50 p-3"><dt className="text-xs text-stone-500">过程记录</dt><dd className="mt-1 text-2xl font-bold">{processRecords.length}</dd></div>
+            <div className="rounded-[10px] bg-stone-50 p-3"><dt className="text-xs text-stone-500">学生决定</dt><dd className="mt-1 text-2xl font-bold">{studentDecisions.length}</dd></div>
+            <div className="rounded-[10px] bg-stone-50 p-3"><dt className="text-xs text-stone-500">项目材料</dt><dd className="mt-1 text-2xl font-bold">{(course.uploads ?? []).filter((item) => item.studentId === studentId || item.groupId === project?.id).length}</dd></div>
+            <div className="rounded-[10px] bg-stone-50 p-3"><dt className="text-xs text-stone-500">伙伴任务</dt><dd className="mt-1 text-2xl font-bold">{(course.companionTasks ?? []).filter((item) => item.studentId === studentId).length}</dd></div>
+          </dl>
+          {studentDecisions.length ? <div className="mt-4 space-y-2">{studentDecisions.slice(0, 3).map((record) => <p className="border-l-2 border-emerald-300 pl-3 text-xs leading-5 text-stone-600" key={record.id}>{record.title}：{record.summary}</p>)}</div> : null}
+        </Card>
+      </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="flex items-center gap-2 text-lg font-bold"><Sparkles className="text-[var(--pbl-ai)]" size={19} />基于证据的反思提示</h2><p className="mt-1 text-xs text-stone-500">只有点击生成并获得真实结果后才会显示，不使用通用占位建议。</p></div>
+          <PrimaryButton onClick={() => void generateReflectionPrompts()} variant="outline">生成反思追问</PrimaryButton>
         </div>
-      </div>
+        {latestReflectionSupport ? <div className="mt-4 grid gap-3 md:grid-cols-2">{latestReflectionSupport.suggestions.map((suggestion) => <p className="rounded-[10px] border border-violet-100 bg-violet-50/50 p-3 text-sm leading-6 text-stone-700" key={suggestion}>{suggestion}</p>)}</div> : <p className="mt-4 rounded-[10px] border border-dashed border-stone-200 py-6 text-center text-sm text-stone-500">尚未生成个人反思追问</p>}
+      </Card>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold">
-              AI过程评价 <span className="text-stone-400">ⓘ</span>
-            </h2>
-            {latestRubric ? (
-              <span className="rounded-[6px] bg-[var(--pbl-success-soft)] px-3 py-1 text-xs font-bold text-[var(--pbl-success)]">
-                已收到评分
-              </span>
-            ) : myGroup ? (
-              <span className="rounded-[6px] bg-[var(--pbl-warning-soft)] px-3 py-1 text-xs font-bold text-[var(--pbl-warning)]">
-                待教师评分
-              </span>
-            ) : (
-              <span className="rounded-[6px] bg-stone-100 px-3 py-1 text-xs font-bold text-stone-600">
-                数据同步中
-              </span>
-            )}
-          </div>
-          {!latestRubric ? (
-            <div className="mb-3 rounded-[8px] border border-dashed border-stone-200 px-4 py-3 text-sm text-stone-500">
-              {myGroup
-                ? `你的个人项目「${myGroup.name}」尚未收到教师评分。教师在「成果汇报与评价」阶段提交评分后将自动同步至此。`
-                : "个人项目数据正在同步中，请稍候刷新。"}
-            </div>
-          ) : null}
-          <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[1fr_190px]">
-            <EvaluationRadar data={radarData} />
-            <div className="border-l border-stone-200 pl-7">
-              <div className="text-base text-stone-600">综合得分</div>
-              <div className="mt-4 text-5xl font-bold text-blue-600">
-                {overallScore}
-                <span className="text-lg text-stone-500"> /100</span>
-              </div>
-              <div className="mt-3 flex text-blue-600">
-                {Array.from({ length: FIVE_STAR_TOTAL }).map((_, index) => (
-                  <Star
-                    className={index < overallStars ? "" : "text-stone-300"}
-                    fill="currentColor"
-                    key={index}
-                    size={23}
-                  />
-                ))}
-              </div>
-              <div className="mt-4 text-sm text-stone-500">
-                {classRankPercent === null ? (
-                  "暂无同级对比数据"
-                ) : (
-                  <>
-                    超越班级 <span className="font-bold text-blue-600">{classRankPercent}%</span> 的同学
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </Card>
+      <Card>
+        <div className="flex items-center gap-2"><ShieldCheck className="text-emerald-700" size={20} /><div><h2 className="text-lg font-bold">我的完整反思</h2><p className="text-xs text-stone-500">五项内容一次提交，全部来自你的真实经历与判断。</p></div></div>
+        <div className="mt-5 grid gap-5">
+          <label><span className="mb-1.5 block text-sm font-bold">1. 我完成的核心工作 *</span><TextArea className="min-h-28" onChange={(event) => updateField("coreWork", event.target.value)} placeholder="哪些问题、制作和关键判断是我亲自完成的？" value={fields.coreWork} /></label>
+          <label><span className="mb-1.5 block text-sm font-bold">2. AI 提供的支持 *</span><TextArea className="min-h-24" onChange={(event) => updateField("aiSupport", event.target.value)} placeholder="AI 在哪些环节提供了解释、提问、备选方案或反馈？它没有替我做什么？" value={fields.aiSupport} /></label>
+          <label><span className="mb-1.5 block text-sm font-bold">3. 我的采纳与拒绝 *</span><TextArea className="min-h-24" onChange={(event) => updateField("decisions", event.target.value)} placeholder="我采纳或拒绝了哪些建议？依据是什么？" value={fields.decisions} /></label>
+          <label><span className="mb-1.5 block text-sm font-bold">4. 局限、改进与迁移 *</span><TextArea className="min-h-24" onChange={(event) => updateField("limitsAndTransfer", event.target.value)} placeholder="当前成果还有什么局限？这次形成的方法可以怎样用到下一个项目？" value={fields.limitsAndTransfer} /></label>
+          <label><span className="mb-1.5 block text-sm font-bold">5. 下一次的具体行动 *</span><TextArea className="min-h-20" onChange={(event) => { setNextAction(event.target.value); setSaved(false); }} placeholder="写下一条可以实际执行、可以检查是否完成的行动。" value={nextAction} /></label>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-4">
+          <span className="text-xs text-stone-500">{complete ? "五项内容已完整，可以提交" : "请完成全部五项内容后提交"}</span>
+          <PrimaryButton disabled={!complete} onClick={saveReflection}><Save size={17} />{existingReflection ? "更新并提交反思" : "保存并提交反思"}</PrimaryButton>
+        </div>
+      </Card>
 
-        <Card>
-          <h2 className="mb-5 text-xl font-bold">教师评价</h2>
-          {teacherFeedback ? (
-            <>
-              <div className="mb-5 flex flex-wrap items-center gap-3">
-                <Avatar name={session.user?.name ?? "教师"} />
-                <div className="min-w-0">
-                  <div className="truncate font-bold">{session.user?.name ?? "教师"}</div>
-                  <div className="text-sm text-stone-500">{formatDate(teacherFeedback.createdAt)}</div>
-                </div>
-                <span className="ml-auto shrink-0 rounded-[6px] bg-[var(--pbl-success-soft)] px-3 py-2 font-bold text-[var(--pbl-success)]">
-                  {teacherFeedback.kind === "praise"
-                    ? "优秀"
-                    : teacherFeedback.kind === "revision"
-                      ? "需修改"
-                      : teacherFeedback.kind === "ai-support"
-                        ? "AI 助教"
-                        : teacherFeedback.kind === "question"
-                          ? "待回复"
-                          : "已评价"}
-                </span>
-              </div>
-              <p className="break-words text-[15px] leading-8 text-stone-700">
-                {teacherFeedback.content}
-              </p>
-            </>
-          ) : (
-            <div className="rounded-[8px] border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
-              暂未收到教师评价。
-              <div className="mt-1 text-xs text-stone-400">
-                完成个人项目汇报后，教师将在此留言。
-              </div>
-            </div>
-          )}
-        </Card>
-
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.75fr_0.92fr]">
-        <Card>
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold">自我反思</h2>
-            <button className="inline-flex h-9 items-center gap-1 rounded-[6px] border border-[var(--pbl-teacher-border)] px-3 text-sm font-semibold text-[var(--pbl-student)] hover:bg-[var(--pbl-student-soft)]" onClick={generateReflectionPrompts} type="button">
-              <Wand2 size={15} /> 提取过程证据
-            </button>
-          </div>
-          {latestReflectionSupport ? (
-            <div className="mb-4 rounded-[8px] border border-blue-100 bg-[var(--pbl-student-soft)]/70 p-3">
-              <div className="font-bold text-blue-800">{latestReflectionSupport.diagnosis}</div>
-              <div className="mt-2 space-y-2">
-                {latestReflectionSupport.suggestions.map((item) => (
-                  <div className="text-sm leading-6 text-stone-700" key={item}>· {item}</div>
-                ))}
-              </div>
-              <div className="mt-2 text-xs leading-5 text-stone-500">可引用证据：{latestReflectionSupport.evidence.join("；")}</div>
-            </div>
-          ) : null}
-          <textarea
-            className="min-h-[140px] w-full resize-none rounded-[8px] border border-stone-300 p-4 text-[15px] leading-8 outline-none focus:border-blue-500"
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="回顾本项目全过程：你最大的收获是什么？遇到了哪些困难？下一步如何改进？"
-            value={content}
-          />
-          <div className="mt-2 flex items-center justify-between text-sm text-stone-500">
-            <span>
-              {isViewingExisting ? "已加载历史反思，编辑后将覆盖原内容" : "首次撰写"}
-            </span>
-            <span>
-              {content.length}/1000 {saved ? "· 已保存" : ""}
-            </span>
-          </div>
-          <h3 className="mb-2 mt-5 text-base font-bold">下一轮改进计划</h3>
-          <textarea
-            className="min-h-[90px] w-full resize-none rounded-[8px] border border-stone-300 p-3 text-[14px] leading-7 outline-none focus:border-blue-500"
-            onChange={(e) => {
-              setImprovementPlanText(e.target.value);
-              if (planError) setPlanError(null);
-            }}
-            placeholder="针对本轮项目中的不足，写下你在下一轮要落实的具体行动（如：提前规划调研样本、用数据表跟踪任务等）。"
-            value={improvementPlanText}
-          />
-          {planError ? (
-            <div className="mt-1 text-xs text-[var(--pbl-danger)]">{planError}</div>
-          ) : null}
-          <div className="mt-1 text-right text-xs text-stone-400">
-            {improvementPlanText.length} 字
-          </div>
-        </Card>
-
-        <Card>
-          <h2 className="mb-5 text-xl font-bold">成长建议</h2>
-          {improvementSuggestions.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
-              暂未配置评价量规，无法生成具体建议。
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {improvementSuggestions.map((item, index) => (
-                <div className="flex gap-3" key={`${index}-${item}`}>
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)]0 font-bold text-white">
-                    {index + 1}
-                  </span>
-                  <p className="text-[15px] leading-7 text-stone-700">{item}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <h2 className="mb-5 text-xl font-bold">
-            成长里程碑{" "}
-            <span className="text-base font-medium text-stone-500">
-              （已完成 {milestonesCompleted} / {milestones.length}）
-            </span>
-          </h2>
-          {milestones.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
-              课程尚未配置阶段。
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_150px]">
-              <div className="space-y-4">
-                {milestones.map((m) => {
-                  const stage = stages.find((s) => s.key === m.key);
-                  const label = stage?.label ?? m.label;
-                  return (
-                    <div className="flex items-center gap-3 text-[15px]" key={m.key}>
-                      <span
-                        className={`grid h-5 w-5 place-items-center rounded-full text-xs font-bold text-white ${
-                          m.done ? "bg-[var(--pbl-success)]" : "bg-stone-300"
-                        }`}
-                      >
-                        {m.done ? "✓" : ""}
-                      </span>
-                      <span>
-                        {label}（{Math.round(m.progress)}%）
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mx-auto grid h-32 w-32 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-5xl text-blue-200">
-                ★
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      <div className="flex min-h-[88px] flex-wrap items-center justify-center gap-4 rounded-[10px] border border-stone-200/80 bg-white px-6 py-5 sm:gap-6">
-        <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" onClick={() => saveReflection()}>
-          <Save size={21} /> {isViewingExisting ? "更新反思" : "保存反思"}
-        </PrimaryButton>
-        <PrimaryButton className="min-w-[16rem] flex-1 sm:flex-none" variant="outline">
-          <ClipboardPlus size={21} /> 查看成长报告
-        </PrimaryButton>
-        <PrimaryButton
-          className="min-w-[16rem] flex-1 sm:flex-none"
-          onClick={() => saveImprovementPlan()}
-          variant="outline"
-        >
-          <PenLine size={21} /> 保存改进计划
-        </PrimaryButton>
-      </div>
-      {course && !embedded ? (
-        <CompanionRoundtable course={course} stageKey="reflection" contextLabel="评价反思" />
-      ) : null}
       <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>
   );

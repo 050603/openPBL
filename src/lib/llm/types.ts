@@ -24,9 +24,10 @@ export { LlmNotConfiguredError } from "./errors";
 
 export type LlmCallRequest = {
   action:
-    | "pblOutline"
-    | "knowledgeGraph"
-    | "teachingOutline"
+      | "pblOutline"
+      | "knowledgeGraph"
+      | "moduleTimingPlan"
+      | "teachingOutline"
     | "lessonOutline"
     | "evaluationPlan"
     | "fullCourse";

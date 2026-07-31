@@ -6,6 +6,9 @@ import StudentEntryPage from "./page";
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
 }));
+const sessionState = vi.hoisted(() => ({
+  hydrated: true,
+}));
 const activeCourse = {
   id: "course-1",
   name: "正在进行的项目课堂",
@@ -17,7 +20,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/session/store", () => ({
-  useHydrated: () => true,
+  useHydrated: () => sessionState.hydrated,
   useSession: () => ({
     joinClass: vi.fn(),
     rejoinClass: vi.fn(),
@@ -37,8 +40,18 @@ vi.mock("@/components/dashboard-shell", () => ({
 describe("student classroom entry", () => {
   beforeEach(() => {
     activeCourse.status = "teaching";
+    sessionState.hydrated = true;
     navigation.replace.mockClear();
     vi.restoreAllMocks();
+  });
+
+  it("keeps the invite-code form usable while optional session restore is pending", () => {
+    sessionState.hydrated = false;
+
+    const { container } = render(<StudentEntryPage />);
+
+    expect(container.querySelector(".pbl-skeleton")).toBeNull();
+    expect(screen.getAllByRole("textbox")).toHaveLength(2);
   });
 
   it("shows the original invite-code form together with an available classroom card", () => {

@@ -6,7 +6,7 @@ export type SaveState = "idle" | "unsaved" | "saving" | "saved" | "error";
 
 export function SaveStatus({ lastSavedAt, onRetry, state = "idle" }: { lastSavedAt?: string | Date; onRetry?: () => void; state?: SaveState }) {
   const content = {
-    idle: { icon: CircleDashed, label: "等待修改" },
+    idle: { icon: CircleDashed, label: "已就绪" },
     unsaved: { icon: CircleDashed, label: "未保存" },
     saving: { icon: LoaderCircle, label: "保存中" },
     saved: { icon: Check, label: lastSavedAt ? `已保存 ${new Date(lastSavedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : "已保存" },

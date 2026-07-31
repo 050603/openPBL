@@ -8,7 +8,7 @@ export type AdaptiveGenerationProgress = {
 export async function generateAdaptiveClassroom(input: {
   title: string;
   requirement: string;
-  stageKey: "ai-learning" | "proposal" | "make";
+  stageKey: "ai-learning" | "proposal" | "make" | "showcase" | "reflection";
   scenes: Array<{
     title: string;
     description: string;
@@ -32,7 +32,16 @@ export async function generateAdaptiveClassroom(input: {
     targetDurationSec: scene.targetDurationSec,
     order: index,
     stageKey: input.stageKey,
-    stageLabel: input.stageKey === "ai-learning" ? "AI 授知" : input.stageKey === "proposal" ? "方案构思" : "项目实践",
+    stageLabel:
+      input.stageKey === "ai-learning"
+        ? "AI 授知"
+        : input.stageKey === "proposal"
+          ? "方案构思"
+          : input.stageKey === "make"
+            ? "项目实践"
+            : input.stageKey === "showcase"
+              ? "成果汇报"
+              : "学习反思",
     audience: "student",
     generationPurpose: "knowledge-teaching",
     detailKind: "knowledge-explanation",

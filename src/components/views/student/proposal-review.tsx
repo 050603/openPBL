@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, Save, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Save, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
 import { FeedbackLanes } from "@/components/classroom/classroom-chrome";
 import { Card, Pill, PrimaryButton, TextArea, TextInput, toast } from "@/components/ui";
 import type { Course, ProjectProposal } from "@/lib/session/types";
@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session/store";
 import { CompanionRoundtable } from "./companion-roundtable";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
 import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
+import { useCompanionRuntime } from "./companion-runtime";
 
 const EMPTY_PROPOSAL: ProjectProposal = { projectQuestion: "", outcomeFormat: "", implementationPlan: "", requiredKnowledge: [], aiUsePlan: "", risks: [] };
 
@@ -61,6 +62,7 @@ function extractProposalFromText(raw: string): ProjectProposal {
 
 export function ProposalReviewView({ course, embedded = false }: { course: Course; embedded?: boolean }) {
   const session = useSession();
+  const companionRuntime = useCompanionRuntime();
   const project = useMemo(() => course.groups?.find((item) => item.members.some((member) => member.studentId === session.studentId)), [course.groups, session.studentId]);
   const [draft, setDraft] = useState<ProjectProposal>(() => project?.proposal ?? EMPTY_PROPOSAL);
   const [knowledgeText, setKnowledgeText] = useState(() => (project?.proposal?.requiredKnowledge ?? []).join("、"));
@@ -101,13 +103,23 @@ export function ProposalReviewView({ course, embedded = false }: { course: Cours
     toast.success("已从描述中提取要点", { description: "请在下方检查并修改各字段，确保准确表达你的想法。" });
   }
 
-  function askAiForHelp() {
+  async function askAiForHelp() {
     if (!description.trim()) {
       toast.error("请先写下你的项目想法", { description: "AI 伴学小组需要看到你的初步想法才能帮忙完善。" });
       return;
     }
+    const prompt = `这是我目前的项目想法。请只通过提问、质疑和提供多个可选方向帮助我完善，不要替我决定或直接提交：\n${description}`;
+    if (companionRuntime) {
+      const sent = await companionRuntime.send(prompt);
+      if (sent) {
+        toast.info("已交给 AI 伴学小组", { description: "回到角色场景即可查看多角色反馈；最终方向仍由你决定。" });
+      } else {
+        toast.error("当前暂时无法发送", { description: "请等待正在进行的伙伴回应结束后重试。" });
+      }
+      return;
+    }
     // 用唯一后缀确保 CompanionRoundtable 检测到新消息
-    setAiPrompt(`这是我目前的项目想法，请帮我完善方案：\n${description}\n--${Date.now()}`);
+    setAiPrompt(`${prompt}\n--${Date.now()}`);
     toast.info("已发送给 AI 伴学小组", { description: "请在下方对话面板中查看多角色反馈。" });
   }
 
@@ -157,7 +169,7 @@ export function ProposalReviewView({ course, embedded = false }: { course: Cours
         />
       </label>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <PrimaryButton type="button" variant="outline" onClick={askAiForHelp}>
+        <PrimaryButton type="button" variant="outline" onClick={() => void askAiForHelp()}>
           <Sparkles size={16} /> 让 AI 伴学小组帮我完善
         </PrimaryButton>
         <PrimaryButton type="button" variant="outline" onClick={extractFromDescription}>
@@ -214,21 +226,14 @@ export function ProposalReviewView({ course, embedded = false }: { course: Cours
       ) : null}
     </Card>
 
-    {/* 项目所有权 + 完整度 */}
-    <div className="grid gap-4 md:grid-cols-2">
-      <Card>
-        <div className="flex items-center gap-2 font-bold text-emerald-800"><ShieldCheck size={19} />项目所有权检查</div>
-        <ul className="mt-3 space-y-2 text-sm leading-6 text-stone-600">
-          <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-[var(--pbl-success)]" size={16} />由我提出问题并选择最终方向</li>
-          <li className="flex gap-2"><CheckCircle2 className="mt-1 shrink-0 text-[var(--pbl-success)]" size={16} />由我完成核心制作与判断</li>
-          <li className="flex gap-2"><Sparkles className="mt-1 shrink-0 text-[var(--pbl-ai)]" size={16} />AI 只提供解释、启发、质疑与反馈</li>
-        </ul>
-      </Card>
-      <Card>
-        <p className="text-sm font-semibold">方案完整度</p>
-        <div className="mt-2 text-3xl font-bold text-[var(--pbl-student)]">{complete ? "已完整" : "待补充"}</div>
-        <p className="mt-2 text-sm leading-6 text-stone-500">教师会重点检查你能否说明“为什么这样做”。</p>
-      </Card>
+    <div className="flex flex-col gap-3 rounded-[12px] border border-emerald-100 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center">
+      <ShieldCheck className="shrink-0 text-emerald-700" size={20} />
+      <p className="flex-1 text-sm leading-6 text-stone-700">
+        你负责提出问题、选择方向和完成核心判断；AI 只提供解释、提问、质疑和备选方案。教师校准时会重点追问你“为什么这样做”。
+      </p>
+      <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${complete ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+        {complete ? "方案已完整" : "仍需补充必填项"}
+      </span>
     </div>
 
     <div className="flex justify-end">

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   adaptiveResourceAddsNovelContent,
   calculateAdaptiveRemainingBudgetSec,
+  companionMicroLessonStageContext,
   confirmAdaptiveLearningPlan,
   createDefaultAdaptiveLearningPlan,
   deriveAdaptiveCheckpointSceneIds,
   derivePretestKnowledgeEvidence,
   ensureAdaptiveResourceCoverage,
   evaluateAdaptiveBranchDecision,
+  extractLearningRequestTopic,
+  isCompanionMicroLessonStage,
   normalizeAdaptiveLearningPlan,
   resolveAdaptiveSceneIdentity,
   scoreAdaptiveAssessment,
@@ -303,6 +306,24 @@ describe("adaptive learning evidence model", () => {
     }))).toBe(360);
   });
 
+  it("clamps adaptive resources to the live AI-stage budget", () => {
+    const currentPlan = plan();
+    const currentState = state({
+      branchRuns: [{
+        id: "run-1",
+        branchOutlineId: "resource-1",
+        kind: "application",
+        status: "completed",
+        reason: "mastery",
+        createdAt: "2026-07-26T00:00:00.000Z",
+      }],
+    });
+
+    expect(calculateAdaptiveRemainingBudgetSec(currentPlan, currentState, 90)).toBe(90);
+    expect(calculateAdaptiveRemainingBudgetSec(currentPlan, currentState, -10)).toBe(0);
+    expect(calculateAdaptiveRemainingBudgetSec(currentPlan, currentState)).toBe(360);
+  });
+
   it("uses stable outline ids and derives module quiz checkpoints", () => {
     expect(resolveAdaptiveSceneIdentity({ id: "runtime", outlineId: "outline" })).toEqual({
       stableSceneId: "outline",
@@ -312,5 +333,34 @@ describe("adaptive learning evidence model", () => {
       { id: "slide", type: "slide", stageKey: "ai-learning", knowledgePointIds: ["kp"] },
       { id: "quiz", type: "quiz", stageKey: "ai-learning", knowledgePointIds: ["kp"] },
     ])).toEqual(["quiz"]);
+  });
+});
+
+describe("extractLearningRequestTopic", () => {
+  it("recognizes the knowledge-corner request wrapper", () => {
+    expect(
+      extractLearningRequestTopic(
+        "请围绕这个问题解释概念、补充背景，并给出可继续查证的资料线索：什么是光合作用",
+      ),
+    ).toBe("什么是光合作用");
+  });
+
+  it.each([
+    "为什么桥梁要设计成拱形？",
+    "请解释浮力的原理",
+    "我想了解怎样判断一条资料是否可信",
+  ])("recognizes a natural knowledge-learning request: %s", (message) => {
+    expect(extractLearningRequestTopic(message)).toBeTruthy();
+  });
+
+  it("does not classify an ordinary project action as a knowledge topic", () => {
+    expect(extractLearningRequestTopic("帮我把小组任务分成三步")).toBeNull();
+  });
+
+  it("enables on-demand micro lessons only in the four companion stages", () => {
+    expect(["proposal", "make", "showcase", "reflection"].every(isCompanionMicroLessonStage)).toBe(true);
+    expect(isCompanionMicroLessonStage("launch")).toBe(false);
+    expect(isCompanionMicroLessonStage("ai-learning")).toBe(false);
+    expect(companionMicroLessonStageContext("showcase")).toBe("成果汇报");
   });
 });

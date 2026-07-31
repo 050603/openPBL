@@ -624,6 +624,7 @@ export function decideAdaptiveBranch(
 export function calculateAdaptiveRemainingBudgetSec(
   plan: AdaptiveLearningPlan,
   state: Pick<StudentAdaptiveLearningState, "branchRuns">,
+  runtimeStageRemainingSec?: number,
 ): number {
   const usedBudgetSec = state.branchRuns
     .filter((run) => ["generating", "ready", "completed"].includes(run.status))
@@ -631,7 +632,17 @@ export function calculateAdaptiveRemainingBudgetSec(
       const branch = plan.branches.find((item) => item.id === run.branchOutlineId);
       return sum + (branch?.targetDurationSec ?? 0);
     }, 0);
-  return Math.max(0, plan.timeBudgetMin * 60 - usedBudgetSec);
+  const planRemainingSec = Math.max(0, plan.timeBudgetMin * 60 - usedBudgetSec);
+  if (
+    runtimeStageRemainingSec === undefined
+    || !Number.isFinite(runtimeStageRemainingSec)
+  ) {
+    return planRemainingSec;
+  }
+  return Math.min(
+    planRemainingSec,
+    Math.max(0, Math.round(runtimeStageRemainingSec)),
+  );
 }
 
 export function eligibleAdaptiveBranches(
@@ -646,10 +657,53 @@ export function eligibleAdaptiveBranches(
   );
 }
 
+export type CompanionMicroLessonStageKey =
+  | "proposal"
+  | "make"
+  | "showcase"
+  | "reflection";
+
+const COMPANION_MICRO_LESSON_STAGE_CONTEXT: Readonly<Record<CompanionMicroLessonStageKey, string>> = {
+  proposal: "方案构思",
+  make: "项目制作",
+  showcase: "成果汇报",
+  reflection: "学习反思",
+};
+
+export function isCompanionMicroLessonStage(
+  stageKey: string,
+): stageKey is CompanionMicroLessonStageKey {
+  return Object.hasOwn(COMPANION_MICRO_LESSON_STAGE_CONTEXT, stageKey);
+}
+
+export function companionMicroLessonStageContext(stageKey: string): string {
+  return isCompanionMicroLessonStage(stageKey)
+    ? COMPANION_MICRO_LESSON_STAGE_CONTEXT[stageKey]
+    : "项目学习";
+}
+
 export function extractLearningRequestTopic(message: string): string | null {
   const normalized = message.trim();
-  const match = normalized.match(
+  const knowledgeCornerMatch = normalized.match(
+    /(?:资料线索|知识线索|查证线索)\s*[：:]\s*(.+)/,
+  );
+  if (knowledgeCornerMatch?.[1]) {
+    return knowledgeCornerMatch[1].replace(/[。！？!?]+$/, "").trim() || null;
+  }
+
+  const explicitLearningMatch = normalized.match(
     /(?:我想学|我想了解|系统讲(?:一讲|解)|详细讲(?:一讲|解)|给我讲讲)\s*[：:，,]?\s*(.+)/,
   );
-  return match?.[1]?.replace(/[。！？!?]+$/, "").trim() || null;
+  if (explicitLearningMatch?.[1]) {
+    return explicitLearningMatch[1].replace(/[。！？!?]+$/, "").trim() || null;
+  }
+
+  if (
+    /^(?:请|能否|可以|能不能)?\s*(?:帮我)?\s*(?:解释|讲解|说明|梳理)/.test(normalized)
+    || /^(?:什么是|为什么|为何|怎样理解|如何理解)/.test(normalized)
+  ) {
+    return normalized.replace(/[。！？!?]+$/, "").trim() || null;
+  }
+
+  return null;
 }

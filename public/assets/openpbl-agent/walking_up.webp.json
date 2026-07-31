@@ -119,6 +119,46 @@
         "w": 192,
         "h": 208
       }
+    },
+    "walking_up-06": {
+      "frame": {
+        "x": 1152,
+        "y": 0,
+        "w": 192,
+        "h": 208
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 192,
+        "h": 208
+      },
+      "sourceSize": {
+        "w": 192,
+        "h": 208
+      }
+    },
+    "walking_up-07": {
+      "frame": {
+        "x": 1344,
+        "y": 0,
+        "w": 192,
+        "h": 208
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 192,
+        "h": 208
+      },
+      "sourceSize": {
+        "w": 192,
+        "h": 208
+      }
     }
   },
   "meta": {
@@ -127,7 +167,7 @@
     "image": "walking_up.webp",
     "format": "RGBA8888",
     "size": {
-      "w": 1152,
+      "w": 1536,
       "h": 208
     },
     "scale": "1"

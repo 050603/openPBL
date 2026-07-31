@@ -29,6 +29,15 @@ describe('OpenPBL companion action resources', () => {
     expect(getActionResourceUrls('reviewing_work').imageUrl).toBe(
       '/assets/openpbl-agent/reviewing_work.webp',
     )
+    expect(getActionResourceUrls('fc_walking_down').imageUrl).toBe(
+      '/assets/openpbl-agent/walking_down.webp',
+    )
+    expect(getActionResourceUrls('computer_typing_left').imageUrl).toBe(
+      '/assets/openpbl-agent/computer_typing_left.webp',
+    )
+    expect(getActionResourceUrls('napping').imageUrl).toBe(
+      '/assets/openpbl-agent/napping.webp',
+    )
   })
 
   it('keeps non-body workstation layers on their existing assets', () => {
@@ -42,6 +51,15 @@ describe('OpenPBL companion action resources', () => {
     expect(getActionResourceUrls('standby').imageUrl).toBe('/assets/agent/standby.webp')
     expect(getActionResourceUrls('planning_board').imageUrl).toBe(
       '/assets/agent/talking_on_stand-0.webp',
+    )
+    expect(getActionResourceUrls('fc_walking_down').imageUrl).toBe(
+      '/assets/agent/fc_walking_h.webp',
+    )
+    expect(getActionResourceUrls('computer_typing_left').imageUrl).toBe(
+      '/assets/agent/working.webp',
+    )
+    expect(getActionResourceUrls('napping').imageUrl).toBe(
+      '/assets/agent/sleeping.webp',
     )
   })
 })

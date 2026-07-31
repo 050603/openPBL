@@ -66,10 +66,20 @@ function getStudentProgress(course: Course, stageKey: string, studentId: string)
   return Math.round(members.reduce((sum, member) => sum + (course.students.find((student) => student.id === member.studentId)?.stageProgress?.[stageKey] ?? 0), 0) / members.length);
 }
 
-export function CompanionMonitor({ course, stageKey }: { course: Course; stageKey: string }) {
+export function CompanionMonitor({
+  course,
+  stageKey,
+  initialStudentId,
+  className,
+}: {
+  course: Course;
+  stageKey: string;
+  initialStudentId?: string;
+  className?: string;
+}) {
   const session = useSession();
   const students = course.students;
-  const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id);
+  const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId ?? students[0]?.id);
   const [handling, setHandling] = useState(false);
   const [handlingNote, setHandlingNote] = useState("");
 
@@ -115,7 +125,7 @@ export function CompanionMonitor({ course, stageKey }: { course: Course; stageKe
   }
 
   return (
-    <Card className="mt-5">
+    <Card className={cn("mt-5", className)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="flex items-center gap-2 text-lg font-black"><MessageSquareText className="text-indigo-700" size={20} />学生—AI 伴学观察</h3>

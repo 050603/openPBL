@@ -10,12 +10,10 @@ import {
   Flag,
   HelpCircle,
   MessageCircle,
-  Send,
   Target,
   UserRoundCheck,
 } from "lucide-react";
-import type { ReactNode } from "react";
-import { Card, FileBadge, Pill, PrimaryButton, TextArea } from "@/components/ui";
+import { Card, FileBadge, Pill, PrimaryButton } from "@/components/ui";
 import { ProjectCoverImage } from "@/components/visuals";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
@@ -28,7 +26,6 @@ import {
 
 export function ProjectLaunchView({ course }: { course: Course }) {
   const session = useSession();
-  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [expandedAnnouncement, setExpandedAnnouncement] = useState<string | null>(course?.announcements?.[0]?.id ?? null);
   const studentId = session.studentId;
   const title = course?.name || "未命名项目";
@@ -108,13 +105,6 @@ export function ProjectLaunchView({ course }: { course: Course }) {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  function reply(announcementId: string) {
-    const content = replyDrafts[announcementId]?.trim();
-    if (!content) return;
-    session.replyAnnouncement(course.id, announcementId, content);
-    setReplyDrafts((drafts) => ({ ...drafts, [announcementId]: "" }));
-  }
-
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
       <div className="min-w-0 space-y-5">
@@ -124,26 +114,18 @@ export function ProjectLaunchView({ course }: { course: Course }) {
         </div>
         <ProjectCoverImage course={course} className="h-56 w-full sm:h-60 md:h-64" />
 
-        <InfoBlock icon={<HelpCircle size={26} />} title="驱动问题" text={drivingQ} />
-        <InfoBlock
-          icon={<Target size={26} />}
-          title="项目目标"
-          text={course.summary || "请教师完善项目目标说明。"}
-        />
         <Card>
-          <div className="flex gap-4">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600">
-              <FileText size={26} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-stone-900">成果要求</h2>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] leading-7 text-stone-700">
-                <li>按教师设定的课程阶段推进项目，完成各阶段任务。</li>
-                <li>在「方案阶段」提交完整项目方案文档。</li>
-                <li>在「成果汇报与评价」阶段完成个人汇报与材料提交。</li>
-              </ul>
-              <p className="mt-2 text-xs text-stone-500">具体要求以教师发布的项目公告与待办为准。</p>
-            </div>
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600"><HelpCircle size={23} /></div>
+            <div><p className="text-xs font-bold uppercase tracking-wider text-[var(--pbl-student)]">项目任务书</p><h2 className="text-xl font-bold text-stone-900">先理解问题，再确认自己的项目方向</h2></div>
+          </div>
+          <dl className="mt-5 grid gap-4">
+            <div className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-4"><dt className="flex items-center gap-2 text-sm font-bold text-stone-900"><HelpCircle size={17} className="text-[var(--pbl-student)]" />驱动问题</dt><dd className="mt-2 text-[15px] leading-7 text-stone-700">{drivingQ}</dd></div>
+            <div className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-4"><dt className="flex items-center gap-2 text-sm font-bold text-stone-900"><Target size={17} className="text-[var(--pbl-student)]" />学习目标</dt><dd className="mt-2 text-sm leading-6 text-stone-600">{course.summary || "教师尚未补充项目目标说明。"}</dd></div>
+            <div className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-4"><dt className="flex items-center gap-2 text-sm font-bold text-stone-900"><FileText size={17} className="text-[var(--pbl-student)]" />最终成果</dt><dd className="mt-2 text-sm leading-6 text-stone-600">{course.expectedOutcome?.trim() || "按教师发布的成果要求，完成一个可展示、可说明依据的个人项目成果。"}</dd></div>
+          </dl>
+          <div className="mt-4 rounded-[10px] border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm leading-6 text-stone-700">
+            你独立负责完整项目；AI 伙伴只提供解释、提问、质疑和反馈，不能替你选择方向或提交成果。
           </div>
         </Card>
 
@@ -316,7 +298,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
 
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold">项目公告 / 讨论</h2>
+            <h2 className="text-xl font-bold">教师通知</h2>
             <Pill tone="gray">{course.announcements?.length ?? 0} 条</Pill>
           </div>
           <div className="space-y-3">
@@ -331,30 +313,12 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                     <span className="block truncate font-bold text-stone-900">{announcement.title}</span>
                     <span className="mt-1 block text-xs text-stone-500">{new Date(announcement.createdAt).toLocaleString("zh-CN")}</span>
                   </span>
-                  <Pill tone={announcement.pinned ? "blue" : "gray"}>{announcement.replies.length} 回复</Pill>
+                  <Pill tone={announcement.pinned ? "blue" : "gray"}>{announcement.pinned ? "置顶" : "通知"}</Pill>
                 </button>
                 {expandedAnnouncement === announcement.id ? (
                   <div className="mt-3 border-t border-stone-100 pt-3">
                     <p className="text-sm leading-6 text-stone-700">{announcement.content}</p>
-                    <div className="mt-3 space-y-2">
-                      {announcement.replies.slice(0, 3).map((item) => (
-                        <div className="rounded-[6px] bg-stone-50 p-2 text-sm" key={item.id}>
-                          <span className="font-bold text-stone-800">{item.studentName}：</span>
-                          <span className="text-stone-600">{item.content}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <TextArea
-                        className="min-h-10 flex-1 py-2"
-                        placeholder="回复公告..."
-                        value={replyDrafts[announcement.id] ?? ""}
-                        onChange={(event) => setReplyDrafts((drafts) => ({ ...drafts, [announcement.id]: event.target.value }))}
-                      />
-                      <button className="grid h-10 w-10 place-items-center rounded-[6px] bg-[var(--pbl-student)] text-white hover:bg-[var(--pbl-student-hover)]" onClick={() => reply(announcement.id)} type="button">
-                        <Send size={16} />
-                      </button>
-                    </div>
+                    <p className="mt-2 text-xs leading-5 text-stone-500">如有疑问，请在课堂中直接向教师提出，或请伴学伙伴先帮你整理问题。</p>
                   </div>
                 ) : null}
               </div>
@@ -371,21 +335,5 @@ export function ProjectLaunchView({ course }: { course: Course }) {
         <div className="flex min-h-14 items-center gap-3 rounded-[8px] border border-[var(--pbl-student-border)] bg-[var(--pbl-success-soft)] px-4 text-[var(--pbl-success)]"><UserRoundCheck size={24} /><span><span className="block font-bold">个人项目空间已准备</span><span className="text-sm">{project?.name ?? "进入方案阶段后即可开始独立构思"}</span></span></div>
       </aside>
     </div>
-  );
-}
-
-function InfoBlock({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
-  return (
-    <Card>
-      <div className="flex gap-4">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600">
-          {icon}
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-stone-900">{title}</h2>
-          <p className="mt-2 text-[15px] leading-7 text-stone-700">{text}</p>
-        </div>
-      </div>
-    </Card>
   );
 }

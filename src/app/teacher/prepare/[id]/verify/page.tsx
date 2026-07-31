@@ -505,6 +505,15 @@ export default function VerifyCoursePage() {
         ? buildPblModuleTimingPlan(totalMinutes, nextTeachingOutline, pblTimeContext, {
             status: "suggested",
             preserveCurrentDurations: true,
+            recommendationMetadata: content?.moduleTimingPlan
+              ? {
+                  recommendationSource: content.moduleTimingPlan.recommendationSource,
+                  confidence: content.moduleTimingPlan.confidence,
+                  rationaleByStage: content.moduleTimingPlan.rationaleByStage,
+                  evidence: content.moduleTimingPlan.evidence,
+                  assumptions: content.moduleTimingPlan.assumptions,
+                }
+              : undefined,
           })
         : undefined;
       const validActivityIds = new Set(nextTeachingOutline.map((activity) => activity.id));
@@ -535,7 +544,7 @@ export default function VerifyCoursePage() {
           : current,
       );
     },
-    [course?.hours, pblTimeContext, sceneOutlines, stageKeys],
+    [content, course?.hours, pblTimeContext, sceneOutlines, stageKeys],
   );
 
   const applyPblStageDurationChange = useCallback(
@@ -562,7 +571,19 @@ export default function VerifyCoursePage() {
       totalMinutes,
       activities,
       pblTimeContext,
-      { status: "confirmed", preserveCurrentDurations: true },
+      {
+        status: "confirmed",
+        preserveCurrentDurations: true,
+        recommendationMetadata: currentContent.moduleTimingPlan
+          ? {
+              recommendationSource: currentContent.moduleTimingPlan.recommendationSource,
+              confidence: currentContent.moduleTimingPlan.confidence,
+              rationaleByStage: currentContent.moduleTimingPlan.rationaleByStage,
+              evidence: currentContent.moduleTimingPlan.evidence,
+              assumptions: currentContent.moduleTimingPlan.assumptions,
+            }
+          : { recommendationSource: "teacher" },
+      },
     );
     if (!isPblModuleTimingPlanConfirmed(moduleTimingPlan)) {
       const message = "请先完成六个模块的时间分配，并确保模块合计等于课程总时长。";
@@ -740,16 +761,73 @@ export default function VerifyCoursePage() {
           && course.pblConfig?.generationTemplate === "pbl-six-stage"
         ) {
           const totalMinutes = Math.max(0, Math.round(course.hours * 60));
-          const timingSkeleton = createPblTimingSkeleton({
+          const currentContent = content ?? course.content;
+          let timingSkeleton = createPblTimingSkeleton({
             totalMinutes,
             ...pblTimeContext,
           });
-          const moduleTimingPlan = buildPblModuleTimingPlan(
+          let moduleTimingPlan = buildPblModuleTimingPlan(
             totalMinutes,
             timingSkeleton,
             pblTimeContext,
-            { status: "suggested", preserveCurrentDurations: true },
+            {
+              status: "suggested",
+              preserveCurrentDurations: true,
+              recommendationMetadata: {
+                recommendationSource: "deterministic-fallback",
+                confidence: "medium",
+                evidence: [
+                  `课程总时长 ${totalMinutes} 分钟`,
+                  `年级：${course.grade}`,
+                  `课程难度：${course.pblConfig?.difficultyLevel ?? "standard"}`,
+                  `知识点数量：${currentContent.knowledgePoints.length}`,
+                ],
+                assumptions: [
+                  "当前建议由确定性课程时间模型生成；大模型不可用时用于保证六阶段完整和总时长守恒。",
+                ],
+              },
+            },
           );
+          let fallbackReason = "";
+          try {
+            const timingResponse = await fetch("/api/llm", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "moduleTimingPlan",
+                input: buildCourseGenerationInput(course),
+                context: {
+                  knowledgePoints: currentContent.knowledgePoints,
+                  knowledgeGraph: currentContent.knowledgeGraph,
+                },
+              }),
+            });
+            if (!timingResponse.ok) {
+              let detail = `HTTP ${timingResponse.status}`;
+              try {
+                const body = await timingResponse.json() as { detail?: string; error?: string };
+                detail = body.detail || body.error || detail;
+              } catch {
+                // Keep the status-only reason when the upstream body is not JSON.
+              }
+              throw new Error(detail);
+            }
+            const timingData = await timingResponse.json() as {
+              content: CourseContent;
+              source: "llm";
+            };
+            const generatedPlan = timingData.content.moduleTimingPlan;
+            const generatedSkeleton = timingData.content.teachingOutline ?? [];
+            if (!generatedPlan || generatedSkeleton.length !== PBL_MODULE_DEFINITIONS.length) {
+              throw new Error("模型未返回完整的六阶段时间建议");
+            }
+            moduleTimingPlan = generatedPlan;
+            timingSkeleton = generatedSkeleton;
+          } catch (timingError) {
+            fallbackReason = timingError instanceof Error
+              ? timingError.message
+              : "模型时间建议不可用";
+          }
           setContent((current) => ({
             ...(current ?? course.content),
             pblOutline: "",
@@ -760,7 +838,11 @@ export default function VerifyCoursePage() {
             _openmaicSceneOutlines: undefined,
           }));
           setSceneOutlines([]);
-          setInfo("已根据课程信息生成六阶段时间建议。请调整并确认时间后，再生成 PBL 项目主线和课程模块。");
+          setInfo(
+            fallbackReason
+              ? `大模型时间分析暂不可用（${fallbackReason}），已明确降级为确定性建议。请调整并确认后继续生成课程。`
+              : "已由大模型结合课程内容、难度、知识图谱与学情生成六阶段时间建议；系统已完成总时长和阶段边界校验。",
+          );
           return;
         }
         const action =

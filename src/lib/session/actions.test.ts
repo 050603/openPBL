@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applySessionAction,
   initialSessionState,
@@ -41,6 +41,71 @@ function makeStudent(id: string, name: string): Student {
 function stateWithCourses(...courses: Course[]): SessionState {
   return { ...initialSessionState(), courses, hydrated: true };
 }
+
+describe("applySessionAction — classroom timing", () => {
+  it("persists an absolute stage clock across start, stage changes, and finish", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-28T01:00:00.000Z"));
+      const course = makeCourse({ status: "ready", hours: 1 });
+      const started = applySessionAction(stateWithCourses(course), {
+        type: "START_TEACHING",
+        payload: {
+          id: course.id,
+          classConfig: { groupMode: "solo", totalStudents: 30 },
+          inviteCode: "123456",
+        },
+      });
+      const startedTiming = started.courses[0]!.uiState?.classroomTiming;
+      expect(startedTiming).toMatchObject({
+        status: "running",
+        activeStageKey: "launch",
+        sessionStartedAt: "2026-07-28T01:00:00.000Z",
+      });
+      expect(
+        startedTiming?.stages.reduce(
+          (sum, stage) => sum + stage.basePlannedSec + stage.adjustmentSec,
+          0,
+        ),
+      ).toBe(3_600);
+
+      vi.setSystemTime(new Date("2026-07-28T01:02:00.000Z"));
+      const advanced = applySessionAction(started, {
+        type: "SET_STAGE",
+        payload: { id: course.id, index: 1 },
+      });
+      const advancedTiming = advanced.courses[0]!.uiState?.classroomTiming;
+      expect(advancedTiming?.activeStageKey).toBe("ai-learning");
+      expect(advancedTiming?.stages[0]).toMatchObject({
+        stageKey: "launch",
+        status: "completed",
+        elapsedSec: 120,
+      });
+      expect(advancedTiming?.stages[1]).toMatchObject({
+        stageKey: "ai-learning",
+        status: "active",
+      });
+
+      vi.setSystemTime(new Date("2026-07-28T01:05:00.000Z"));
+      const finished = applySessionAction(advanced, {
+        type: "END_TEACHING",
+        payload: { id: course.id },
+      });
+      const finishedTiming = finished.courses[0]!.uiState?.classroomTiming;
+      expect(finishedTiming).toMatchObject({
+        status: "completed",
+        sessionEndedAt: "2026-07-28T01:05:00.000Z",
+      });
+      expect(finishedTiming?.stages[0]).toMatchObject({ elapsedSec: 120 });
+      expect(finishedTiming?.stages[1]).toMatchObject({
+        elapsedSec: 180,
+        status: "completed",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
   it("changes only the requesting student's completion entry", () => {

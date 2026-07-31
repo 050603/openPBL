@@ -4,7 +4,12 @@ import type { AgentActionName } from '@/assets/agent'
 import { getAgentActionDefinition } from '@/assets/agent'
 import type { AgentRoleProfile } from '@/assets/agent/roles'
 import type { PartnerState } from '@/domain/studio'
-import { getStatePresentation, type ScreenActionName } from './status-presentation'
+import {
+  getComputerFacingForAgent,
+  getStatePresentation,
+  isOwnComputerFacingAction,
+  type ScreenActionName,
+} from './status-presentation'
 import type { ActionTextureLoader } from './action-textures'
 import { createPersonFactory, type PersonController } from './person'
 import type { SpriteFactory } from './sprite-factory'
@@ -21,7 +26,8 @@ export type WorkstationController = {
   seatExitAnchor: { x: number; y: number }
   homeAnchor: { x: number; y: number }
   conversationAnchor: { x: number; y: number }
-  setState: (state: PartnerState) => void
+  setState: (state: PartnerState, options?: { deferBodyActivity?: boolean }) => void
+  refreshStateActivity: () => void
   setSelected: (selected: boolean) => void
   setInfoVisible: (visible: boolean) => void
   setConversationActive: (active: boolean) => void
@@ -479,6 +485,9 @@ export function createWorkstationFactory({
           || conversationActive
         ) return
         const action = sequence[actionIndex % sequence.length]
+        if (isOwnComputerFacingAction(action)) {
+          person.setFacing(getComputerFacingForAgent(roleProfile.id))
+        }
         await person.play(action, {
           loop: true,
           preserveVisualAnchor: 'bottomCenter',
@@ -534,7 +543,10 @@ export function createWorkstationFactory({
         .fill({ color: 0xfffdf9, alpha: 0.97 })
     }
 
-    function applyStateVisuals(state: PartnerState): void {
+    function applyStateVisuals(
+      state: PartnerState,
+      options: { deferBodyActivity?: boolean } = {},
+    ): void {
       const presentation = getStatePresentation(roleProfile.id, state)
       stateLabel.text = `${roleProfile.title} · ${presentation.label}`
       stateLabel.style.fill = `#${presentation.tone.toString(16).padStart(6, '0')}`
@@ -545,7 +557,7 @@ export function createWorkstationFactory({
         // 行走中被发言打断：原地切换到站立发言动作，而不是直接跳过
         // body 动作切换。talking_on_seat 需要坐在座位上，离开座位时
         // 用 talking_on_stand-0 代替。其他状态保持原行为（不切换 body）。
-        if (state === 'speaking') {
+        if (state === 'speaking' && !options.deferBodyActivity) {
           void person.play('talking_on_stand-0', {
             loop: true,
             preserveVisualAnchor: 'bottomCenter',
@@ -554,7 +566,9 @@ export function createWorkstationFactory({
         return
       }
 
-      startStateActivity(state)
+      if (!options.deferBodyActivity) {
+        startStateActivity(state)
+      }
 
       if (presentation.screen) {
         void screen.play(presentation.screen)
@@ -569,15 +583,24 @@ export function createWorkstationFactory({
       }
     }
 
-    function setState(state: PartnerState): void {
+    function setState(
+      state: PartnerState,
+      options: { deferBodyActivity?: boolean } = {},
+    ): void {
       if (state === currentState) {
         return
       }
 
       currentState = state
       stopIdleActivity()
-      applyStateVisuals(state)
+      applyStateVisuals(state, options)
       feedback.visible = state === 'speaking' || state === 'celebrating' || (selected && infoVisible)
+    }
+
+    function refreshStateActivity(): void {
+      if (currentState) {
+        applyStateVisuals(currentState)
+      }
     }
 
     function setSelected(isSelected: boolean): void {
@@ -664,8 +687,8 @@ export function createWorkstationFactory({
         return
       }
 
-      if (currentState === 'idle' && !awayFromDesk) {
-        startStateActivity('idle')
+      if (currentState && !awayFromDesk) {
+        startStateActivity(currentState)
       }
     }
 
@@ -725,6 +748,7 @@ export function createWorkstationFactory({
       homeAnchor,
       conversationAnchor,
       setState,
+      refreshStateActivity,
       setSelected,
       setInfoVisible,
       setConversationActive,
