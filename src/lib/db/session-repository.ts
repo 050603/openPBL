@@ -83,6 +83,35 @@ export class CourseVersionConflictError extends Error {
   }
 }
 
+const COURSE_UPDATE_MAX_ATTEMPTS = 5;
+
+/**
+ * Re-run a course read-modify-write operation against the latest aggregate
+ * after an optimistic version conflict. Companion chat and session actions
+ * can legitimately overlap, so a conflict is transient rather than a broken
+ * model/provider configuration.
+ */
+export async function retryCourseVersionConflict<T>(
+  operation: () => Promise<T>,
+  maxAttempts = COURSE_UPDATE_MAX_ATTEMPTS,
+  retryDelayMs = 12,
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!(error instanceof CourseVersionConflictError) || attempt >= maxAttempts) {
+        throw error;
+      }
+      if (retryDelayMs > 0) {
+        const backoffMs = retryDelayMs * 2 ** (attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+  throw new Error("COURSE_VERSION_RETRY_EXHAUSTED");
+}
+
 // ============================================================================
 // Type coercion helpers (Prisma Json → domain types)
 // ============================================================================
@@ -134,6 +163,11 @@ function courseToCreateInput(course: Course): CourseRowCreate {
     classConfig: asNullableJson(course.classConfig ?? null),
     pblConfig: asNullableJson(course.pblConfig ?? null),
     stageWorkspacePolicies: asNullableJson(course.stageWorkspacePolicies ?? null),
+    learningEvidence: asNullableJson(course.learningEvidence ?? null),
+    artifactSnapshots: asNullableJson(course.artifactSnapshots ?? null),
+    aiContributions: asNullableJson(course.aiContributions ?? null),
+    studentAiDecisions: asNullableJson(course.studentAiDecisions ?? null),
+    aiAssessmentSuggestions: asNullableJson(course.aiAssessmentSuggestions ?? null),
     content: asNullableJson(course.content ?? null),
     stages: asNullableJson(course.stages ?? null),
     uiState: asNullableJson(course.uiState ?? null),
@@ -207,6 +241,16 @@ function rowToCourse(row: CourseWithRelations): Course {
     pblConfig: (row.pblConfig as Course["pblConfig"]) ?? undefined,
     stageWorkspacePolicies:
       (row.stageWorkspacePolicies as Course["stageWorkspacePolicies"]) ?? undefined,
+    learningEvidence:
+      (row.learningEvidence as Course["learningEvidence"]) ?? undefined,
+    artifactSnapshots:
+      (row.artifactSnapshots as Course["artifactSnapshots"]) ?? undefined,
+    aiContributions:
+      (row.aiContributions as Course["aiContributions"]) ?? undefined,
+    studentAiDecisions:
+      (row.studentAiDecisions as Course["studentAiDecisions"]) ?? undefined,
+    aiAssessmentSuggestions:
+      (row.aiAssessmentSuggestions as Course["aiAssessmentSuggestions"]) ?? undefined,
     classConfig: (row.classConfig as Course["classConfig"]) ?? undefined,
     inviteCode: row.inviteCode ?? undefined,
     coverImageUrl: row.coverImageUrl ?? undefined,
@@ -1746,6 +1790,11 @@ function courseToUpdateInput(course: Course): CourseRowUpdate {
     classConfig: asNullableJson(course.classConfig ?? null),
     pblConfig: asNullableJson(course.pblConfig ?? null),
     stageWorkspacePolicies: asNullableJson(course.stageWorkspacePolicies ?? null),
+    learningEvidence: asNullableJson(course.learningEvidence ?? null),
+    artifactSnapshots: asNullableJson(course.artifactSnapshots ?? null),
+    aiContributions: asNullableJson(course.aiContributions ?? null),
+    studentAiDecisions: asNullableJson(course.studentAiDecisions ?? null),
+    aiAssessmentSuggestions: asNullableJson(course.aiAssessmentSuggestions ?? null),
     content: asNullableJson(course.content ?? null),
     stages: asNullableJson(course.stages ?? null),
     uiState: asNullableJson(course.uiState ?? null),
@@ -1999,7 +2048,9 @@ export async function updateCourse(
   courseId: string,
   updater: (course: Course) => Course,
 ): Promise<SessionState> {
-  return updateCourseUnlocked(courseId, updater);
+  return retryCourseVersionConflict(
+    () => updateCourseUnlocked(courseId, updater),
+  );
 }
 
 /**
@@ -2046,6 +2097,11 @@ export async function archiveAndClearCourseSession(
     currentStageIndex: course.currentStageIndex,
     aiLearningProgress: course.aiLearningProgress ?? {},
     learningEvents: course.learningEvents ?? [],
+    learningEvidence: course.learningEvidence ?? [],
+    artifactSnapshots: course.artifactSnapshots ?? [],
+    aiContributions: course.aiContributions ?? [],
+    studentAiDecisions: course.studentAiDecisions ?? [],
+    aiAssessmentSuggestions: course.aiAssessmentSuggestions ?? [],
     companionThreads: course.companionThreads ?? [],
     companionTasks: course.companionTasks ?? [],
     companionConfirmations: course.companionConfirmations ?? [],
@@ -2113,6 +2169,11 @@ export async function archiveAndClearCourseSession(
         presentingGroupId: null,
         uiState: { teacherResourceProjection: null } as Prisma.InputJsonValue,
         aiLearningProgress: Prisma.JsonNull,
+        learningEvidence: Prisma.JsonNull,
+        artifactSnapshots: Prisma.JsonNull,
+        aiContributions: Prisma.JsonNull,
+        studentAiDecisions: Prisma.JsonNull,
+        aiAssessmentSuggestions: Prisma.JsonNull,
         resolvedInterventionSignalIds: Prisma.JsonNull,
         version: { increment: 1 },
       },

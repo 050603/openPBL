@@ -469,7 +469,7 @@ export function ReflectionTeacherView({
               AI 过程性评价草案
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">
-              只基于已有对话、过程事件、提交和上传记录生成，供教师核验，不会自动写入学生成绩或个人评语。
+              根据当前课程记录生成，完成后请教师核对。
             </p>
           </div>
           <PrimaryButton
@@ -545,15 +545,25 @@ export function ReflectionTeacherView({
                       {dimension.name}
                     </span>
                     <span className="text-sm font-bold text-blue-700">
-                      {dimension.score} 分
+                      {typeof dimension.score === "number"
+                        ? `${dimension.score} 分`
+                        : "0 分（证据不足）"}
                     </span>
                   </div>
+                  <p className="mt-2 text-xs leading-5 text-stone-600">
+                    {dimension.rationale}
+                  </p>
                   <p className="mt-2 text-xs leading-5 text-stone-500">
                     证据：
-                    {dimension.evidence.length
-                      ? dimension.evidence.join("；")
+                    {dimension.evidenceIds.length
+                      ? dimension.evidenceIds.join("；")
                       : "模型未返回证据，请勿采用该分数"}
                   </p>
+                  {dimension.evidenceGaps.length ? (
+                    <p className="mt-1 text-xs leading-5 text-amber-700">
+                      缺口：{dimension.evidenceGaps.join("；")}
+                    </p>
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -682,7 +692,7 @@ export function ReflectionTeacherView({
               个别学生反思与教师评语
             </h2>
             <p className="mt-1 text-sm text-stone-500">
-              只发送教师实际填写的内容；不会自动补写统一评语。
+              将已填写的教师评语发送给学生。
             </p>
           </div>
           <PrimaryButton

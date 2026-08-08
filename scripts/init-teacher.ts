@@ -5,7 +5,7 @@ import { hashPassword } from "../src/lib/auth/password";
 const ArgsSchema = z.object({
   username: z.string().trim().min(3).max(64).regex(/^[a-z0-9._-]+$/i),
   displayName: z.string().trim().min(1).max(80),
-  password: z.string().min(12).max(256),
+  password: z.string().min(10).max(256),
 });
 
 async function main() {
@@ -22,7 +22,7 @@ async function main() {
   });
   if (!parsed.success) {
     throw new Error(
-      "Usage: set OPENPBL_INITIAL_TEACHER_PASSWORD (12+ chars), then run " +
+      "Usage: set OPENPBL_INITIAL_TEACHER_PASSWORD (10+ chars), then run " +
         "pnpm admin:init-teacher --username <name> --display-name <name>",
     );
   }

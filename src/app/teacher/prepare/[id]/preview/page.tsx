@@ -20,7 +20,6 @@ import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { hasBothScoredRoles, resolveDimensionRole } from "@/lib/evaluation/responsibility";
 import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
-import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 import { AdaptiveCourseFlowPreview } from "@/components/teacher/adaptive-learning-plan-editor";
 import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
 import type { AdaptiveBranchOutline } from "@/lib/session/types";
@@ -35,7 +34,7 @@ export default function PreviewCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const session = useSession();
-  const { user, publishCourse, updateCourse } = session;
+  const { user, publishCourse } = session;
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
   const [publishing, setPublishing] = useState(false);
@@ -298,12 +297,6 @@ export default function PreviewCoursePage() {
             )}
           </Card>
 
-          <StageWorkspacePolicyPanel
-            onChange={(stageWorkspacePolicies) => updateCourse(course.id, { stageWorkspacePolicies })}
-            policies={course.stageWorkspacePolicies}
-            stages={course.stages}
-          />
-
           <Card>
             <h2 className="mb-4 text-xl font-bold">阶段安排</h2>
             <ol className="space-y-3">
@@ -465,11 +458,11 @@ export default function PreviewCoursePage() {
               <h2 className="text-lg font-bold">课程封面图</h2>
             </div>
             <p className="mb-3 text-xs leading-5 text-stone-500">
-              AI 根据课程名称、学科与驱动问题生成封面图。发布后将显示在&quot;我的课程&quot;和学生项目启动页。
+              以课程名称为主要画面主题，并结合学科与驱动问题生成统一风格的 16:9 封面。
             </p>
             <ProjectCoverImage
               course={course}
-              className="h-40 w-full"
+              className="aspect-video w-full"
               allowGenerate
             />
           </Card>

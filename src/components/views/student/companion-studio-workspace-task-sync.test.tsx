@@ -1,21 +1,31 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 
 const mocks = vi.hoisted(() => ({
   runtime: { current: null as unknown },
+  pixiProps: { current: null as unknown },
   upsertCompanionTask: vi.fn(),
+  setAutoInterventionsPaused: vi.fn(),
 }));
 
 vi.mock("@/components/openmaic-bridge/student-stage-host", () => ({
   StudentStageHost: () => <div>微课播放器</div>,
 }));
 vi.mock("./companion-studio-pixi-stage", () => ({
-  default: () => <div>伴学场景</div>,
+  default: (props: unknown) => {
+    mocks.pixiProps.current = props;
+    return <div>伴学场景</div>;
+  },
 }));
 vi.mock("./studio-project-workbench", () => ({
-  StudioProjectWorkbench: () => <div>项目工作台</div>,
+  StudioProjectWorkbench: () => (
+    <div>
+      项目工作台
+      <input aria-label="同步草稿" defaultValue="" />
+    </div>
+  ),
 }));
 vi.mock("./companion-runtime", () => ({
   useCompanionRuntime: () => mocks.runtime.current,
@@ -120,12 +130,14 @@ function runtime(progress?: number) {
         },
     completeMicroLesson: vi.fn(),
     dismissMicroLessonTask: vi.fn(),
+    setAutoInterventionsPaused: mocks.setAutoInterventionsPaused,
   };
 }
 
 describe("CompanionStudioWorkspace micro-lesson task sync", () => {
   beforeEach(() => {
     mocks.upsertCompanionTask.mockReset();
+    mocks.setAutoInterventionsPaused.mockReset();
     mocks.upsertCompanionTask.mockImplementation((input) => ({
       ...input,
       id: "task-1",
@@ -133,6 +145,26 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
       updatedAt: "2026-07-28T00:00:00.000Z",
     }));
     mocks.runtime.current = runtime();
+    mocks.pixiProps.current = null;
+  });
+
+  it("does not keep Zhizhi physically working because of a stale persisted task", () => {
+    const staleTaskCourse: Course = {
+      ...course,
+      companionTasks: course.companionTasks?.map((task) => ({
+        ...task,
+        companionId: "knowledge",
+        status: "responding",
+      })),
+    };
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={staleTaskCourse} stageKey="proposal" />,
+    );
+
+    const props = mocks.pixiProps.current as {
+      agentStates: { zhizhi: { state: string } };
+    };
+    expect(props.agentStates.zhizhi.state).toBe("idle");
   });
 
   it("does not dispatch the same generating transition again when progress rerenders with a stale task snapshot", async () => {
@@ -158,5 +190,89 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     );
 
     await waitFor(() => expect(mocks.upsertCompanionTask).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps the main composer draft and shows the runtime error when sending fails", async () => {
+    const rejectedRuntime = {
+      ...runtime(),
+      send: vi.fn().mockResolvedValue(false),
+      error: "伴学服务暂时出错，请稍后重试；你的输入仍会保留。",
+    };
+    mocks.runtime.current = rejectedRuntime;
+
+    const view = render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+    const input = view.container.querySelector<HTMLInputElement>(".studio-composer input");
+    const form = view.container.querySelector<HTMLFormElement>(".studio-composer");
+    expect(input).not.toBeNull();
+    expect(form).not.toBeNull();
+
+    fireEvent.change(input!, { target: { value: "请检查我的方案" } });
+    fireEvent.submit(form!);
+
+    await waitFor(() => expect(rejectedRuntime.send).toHaveBeenCalledTimes(1));
+    expect(input!.value).toBe("请检查我的方案");
+    expect(screen.getByRole("alert").textContent).toContain("你的输入仍会保留");
+  });
+
+  it("switches one mounted whiteboard between docked and fullscreen modes", () => {
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    expect(screen.getByText("伴学场景")).toBeTruthy();
+    expect(screen.queryByText("项目工作台")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "前往当前阶段任务" }));
+
+    expect(screen.getByRole("complementary", { name: "项目白板" })).toBeTruthy();
+    expect(screen.getByText("项目工作台")).toBeTruthy();
+    expect(screen.getByText("伴学场景")).toBeTruthy();
+    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
+    fireEvent.change(screen.getByRole("textbox", { name: "同步草稿" }), {
+      target: { value: "保留这份未保存草稿" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "全屏显示项目白板" }));
+    expect(screen.getByRole("dialog", { name: "项目白板" })).toBeTruthy();
+    expect(mocks.pixiProps.current).toMatchObject({ paused: true });
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "同步草稿" }).value)
+      .toBe("保留这份未保存草稿");
+    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "缩小到侧边栏" }));
+    expect(screen.getByRole("complementary", { name: "项目白板" })).toBeTruthy();
+    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "同步草稿" }).value)
+      .toBe("保留这份未保存草稿");
+    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭项目白板" }));
+    expect(screen.queryByText("项目工作台")).toBeNull();
+    expect(screen.getByText("伴学场景")).toBeTruthy();
+    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
+  });
+
+  it("pauses only scene-covering workbenches, not the fullscreen companion scene", () => {
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
+    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(false);
+
+    const pixiProps = mocks.pixiProps.current as {
+      onSelectStudyZone: (zoneId: "library") => void;
+    };
+    act(() => pixiProps.onSelectStudyZone("library"));
+
+    expect(screen.getByRole("dialog", { name: "资料角" })).toBeTruthy();
+    expect(mocks.pixiProps.current).toMatchObject({ paused: true });
+    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
+    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(false);
   });
 });

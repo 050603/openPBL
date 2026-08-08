@@ -19,10 +19,13 @@ import {
 import type { SessionAction, SessionState } from "./actions";
 import type {
   ActivityRecord,
+  AiAssessmentSuggestion,
+  AiContribution,
   AiSupportRecord,
   AnnouncementReply,
   ClassConfig,
   ClassroomSubmission,
+  ArtifactSnapshot,
   CompanionConfirmation,
   CompanionProcessRecord,
   CompanionTask,
@@ -35,12 +38,15 @@ import type {
   GroupAnnouncement,
   GroupBoard,
   GroupBoardMode,
+  LearningEvidence,
+  LearningSignal,
   OfflineInterventionRecord,
   ProjectGroup,
   ReflectionRecord,
   RubricScore,
   Stage,
   Student,
+  StudentAiDecision,
   TeacherFeedback,
   TeamContribution,
   TeacherAgentDirective,
@@ -50,6 +56,10 @@ import type {
 import type { ActionAck } from "@/lib/courses/contracts";
 import { DEFAULT_EVALUATION_FLOWS, DEFAULT_STAGES } from "./types";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import {
+  DEFAULT_NEW_COURSE_HOURS,
+  DEFAULT_NEW_COURSE_SUBJECT,
+} from "@/lib/teacher/course-basics-draft";
 import { loadJSON, saveJSON } from "./storage";
 import { generateInviteCode, normalizeInviteCode } from "./invite-code";
 import { toast } from "sonner";
@@ -143,6 +153,13 @@ type SessionApi = SessionState & {
   upsertCompanionConfirmation: (input: Omit<CompanionConfirmation, "id" | "createdAt" | "status"> & { id?: string; status?: CompanionConfirmation["status"] }) => CompanionConfirmation;
   resolveCompanionConfirmation: (courseId: string, confirmationId: string, status: CompanionConfirmation["status"]) => void;
   addCompanionProcessRecord: (input: Omit<CompanionProcessRecord, "id" | "createdAt"> & { id?: string }) => CompanionProcessRecord;
+  requestTeacherHelp: (courseId: string, stageKey: string) => LearningSignal | undefined;
+  upsertLearningEvidence: (evidence: LearningEvidence) => LearningEvidence;
+  reviewLearningEvidence: (courseId: string, evidenceId: string, status: "teacher-confirmed" | "needs-revision", feedback?: string) => void;
+  upsertArtifactSnapshot: (snapshot: ArtifactSnapshot) => ArtifactSnapshot;
+  upsertAiContribution: (contribution: AiContribution) => AiContribution;
+  recordStudentAiDecision: (decision: StudentAiDecision) => StudentAiDecision;
+  upsertAiAssessmentSuggestion: (suggestion: AiAssessmentSuggestion) => AiAssessmentSuggestion;
   setUiState: (courseId: string, patch: Partial<CourseUiState>) => void;
   addActivity: (courseId: string, action: string, detail?: string, actor?: string) => void;
   setPresentingGroup: (courseId: string, groupId: string) => void;
@@ -832,9 +849,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           ...input,
           id,
           name: input.name ?? "未命名课程",
-          subject: input.subject ?? "",
+          subject: input.subject ?? DEFAULT_NEW_COURSE_SUBJECT,
           grade: input.grade ?? "",
-          hours: input.hours ?? 8,
+          hours: input.hours ?? DEFAULT_NEW_COURSE_HOURS,
           summary: input.summary ?? "",
           drivingQuestion: input.drivingQuestion ?? "",
           pblConfig: normalizePblCourseConfig(input.pblConfig),
@@ -877,6 +894,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           companionTasks: [],
           companionConfirmations: [],
           companionProcessRecords: [],
+          learningEvidence: [],
+          artifactSnapshots: [],
+          aiContributions: [],
+          studentAiDecisions: [],
+          aiAssessmentSuggestions: [],
           teacherInterventions: [],
           stageTransitions: [],
           evaluations: [],
@@ -1505,6 +1527,83 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         };
         commit({ type: "ADD_COMPANION_PROCESS_RECORD", payload: { courseId: input.courseId, record } });
         return record;
+      },
+      requestTeacherHelp(courseId, stageKey) {
+        if (!state.studentId) return undefined;
+        const course = state.courses.find((item) => item.id === courseId);
+        const existing = course?.learningSignals?.find((item) =>
+          item.studentId === state.studentId
+          && item.stageKey === stageKey
+          && item.kind === "student-help-request"
+          && item.status === "open");
+        if (existing) return existing;
+
+        const now = new Date().toISOString();
+        const signal: LearningSignal = {
+          id: makeRecordId("student-help"),
+          courseId,
+          studentId: state.studentId,
+          stageKey,
+          kind: "student-help-request",
+          severity: "warning",
+          status: "open",
+          title: "学生主动请求帮助",
+          summary: "学生希望教师查看当前任务或证据缺口；该请求不计入学习评价。",
+          normalizedIssueKey: `student-help-request:${state.studentId}:${stageKey}`,
+          evidenceEventIds: [],
+          aiInterventionAttempts: 0,
+          firstDetectedAt: now,
+          lastDetectedAt: now,
+        };
+        commit({ type: "REQUEST_TEACHER_HELP", payload: { courseId, signal } });
+        return signal;
+      },
+      upsertLearningEvidence(evidence) {
+        commit({
+          type: "UPSERT_LEARNING_EVIDENCE",
+          payload: { courseId: evidence.courseId, evidence },
+        });
+        return evidence;
+      },
+      reviewLearningEvidence(courseId, evidenceId, status, feedback) {
+        commit({
+          type: "REVIEW_LEARNING_EVIDENCE",
+          payload: {
+            courseId,
+            evidenceId,
+            status,
+            feedback,
+            reviewedAt: new Date().toISOString(),
+          },
+        });
+      },
+      upsertArtifactSnapshot(snapshot) {
+        commit({
+          type: "UPSERT_ARTIFACT_SNAPSHOT",
+          payload: { courseId: snapshot.courseId, snapshot },
+        });
+        return snapshot;
+      },
+      upsertAiContribution(contribution) {
+        commit({
+          type: "UPSERT_AI_CONTRIBUTION",
+          payload: { courseId: contribution.courseId, contribution },
+        });
+        return contribution;
+      },
+      recordStudentAiDecision(decision) {
+        commit({
+          type: "RECORD_STUDENT_AI_DECISION",
+          payload: { courseId: decision.courseId, decision },
+        });
+        return decision;
+      },
+      upsertAiAssessmentSuggestion(suggestion) {
+        commit({
+          type: "UPSERT_AI_ASSESSMENT_SUGGESTION",
+          payload: { courseId: suggestion.courseId, suggestion },
+        });
+        return suggestion;
       },
       setUiState(courseId, patch) {
         commit({ type: "SET_UI_STATE", payload: { courseId, patch } });

@@ -1,11 +1,10 @@
 import type { Course, StageViewKey } from "@/lib/session/types";
-import { ProjectLaunchView } from "./project-launch";
 import { AiLearningView } from "./ai-learning";
-import { WorkspaceView } from "./workspace";
-import { ShowcaseView } from "./showcase";
-import { ReflectionView } from "./reflection";
-import { ProposalReviewView } from "./proposal-review";
+import { ProjectLaunchView } from "./project-launch";
 import { ProjectMakingView } from "./project-making";
+import { ProposalReviewView } from "./proposal-review";
+import { ReflectionView } from "./reflection";
+import { ShowcaseView } from "./showcase";
 
 export function StudentStageView({
   view,
@@ -24,7 +23,7 @@ export function StudentStageView({
     case "group":
       return <ProposalReviewView course={course} embedded={embedded} />;
     case "workspace":
-      return <WorkspaceView course={course} embedded={embedded} />;
+      return <ProjectMakingView course={course} />;
     case "proposal-review":
       return <ProposalReviewView course={course} embedded={embedded} />;
     case "project-making":

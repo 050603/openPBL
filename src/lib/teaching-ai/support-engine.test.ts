@@ -15,6 +15,7 @@ import {
   buildTeacherInterventionSignals,
   diagnoseGroupIdea,
   diagnoseProjectArtifact,
+  generateProcessEvaluation,
   generateProjectSkeleton,
   isStrongPblDrivingQuestion,
 } from "./support-engine";
@@ -248,6 +249,74 @@ describe("teaching AI support engine", () => {
     expect(draft.kind).toBe("artifact-diagnosis");
     expect(draft.source).toBe("llm");
     expect(draft.evidence).toContain("当前文档只描述宣传方案");
+  });
+
+  it("applies teacher guidance and converts unsupported process dimensions to zero", async () => {
+    llmMock.callLLM.mockResolvedValueOnce(JSON.stringify({
+      summary: "学生已完成项目意图，尚缺少实践与迭代证据。",
+      dimensions: [
+        {
+          dimensionId: "progress",
+          name: "过程推进",
+          score: 60,
+          rationale: "已完成项目意图。",
+          evidenceIds: ["evidence-1"],
+          evidenceGaps: ["缺少实践记录"],
+        },
+        {
+          dimensionId: "iteration",
+          name: "证据与迭代质量",
+          rationale: "尚无迭代证据。",
+          evidenceIds: [],
+          evidenceGaps: ["缺少迭代记录"],
+        },
+      ],
+      evidenceIds: ["evidence-1"],
+      evidenceGaps: ["缺少实践记录", "缺少迭代记录"],
+      confidence: "low",
+      highlights: ["已明确项目意图"],
+      improvements: ["补充测试与修订记录"],
+    }));
+
+    const result = await generateProcessEvaluation({
+      course: {
+        ...course,
+        learningEvidence: [{
+          id: "evidence-1",
+          schemaVersion: 1,
+          courseId: course.id,
+          studentId: "s1",
+          stageKey: "make",
+          kind: "project-intent",
+          title: "项目意图",
+          summary: "研究校园节能并形成可验证方案。",
+          payload: {
+            concern: "校园能耗偏高",
+            affectedPeople: "全校师生",
+            importance: "减少浪费",
+            successIndicator: "形成可验证的节能方案",
+            personalQuestion: "如何减少教室无效能耗？",
+          },
+          status: "submitted",
+          source: "student",
+          countsTowardReadiness: true,
+          evidenceRefs: [],
+          artifactSnapshotIds: [],
+          createdAt: "2026-08-06T00:00:00.000Z",
+          updatedAt: "2026-08-06T00:00:00.000Z",
+        }],
+      },
+      groupId: "g1",
+      teacherGuidance: "重点检查测试方法是否可靠，不要因为选题新颖加分。",
+    });
+
+    expect(result.dimensions.map((dimension) => dimension.score)).toEqual([60, 0, 0, 0, 0]);
+    const messages = llmMock.callLLM.mock.calls[0]?.[0] as Array<{ content: string }>;
+    expect(messages[1]?.content).toContain("重点检查测试方法是否可靠");
+    expect(messages[1]?.content).toContain("阶段=项目实践");
+    expect(messages[1]?.content).toContain("类型=项目立意");
+    expect(messages[1]?.content).toContain("状态=已提交");
+    expect(messages[1]?.content).not.toContain("阶段=make");
   });
 
   it("builds teacher intervention signals only from LLM output", async () => {

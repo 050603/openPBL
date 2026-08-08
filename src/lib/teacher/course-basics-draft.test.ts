@@ -3,6 +3,9 @@ import type { Course } from "@/lib/session/types";
 import {
   buildCourseBasicsPatch,
   createCourseBasicsDraft,
+  DEFAULT_NEW_COURSE_HOURS,
+  DEFAULT_NEW_COURSE_SUBJECT,
+  getEmptyCourseBasicsSuggestionParts,
   parseLearningObjectives,
 } from "./course-basics-draft";
 
@@ -32,6 +35,26 @@ function courseFixture(): Course {
 }
 
 describe("course basics draft", () => {
+  it("uses the AI-literacy subject and two lessons for a newly created course", () => {
+    expect(DEFAULT_NEW_COURSE_SUBJECT).toBe("人工智能通识课程");
+    expect(DEFAULT_NEW_COURSE_HOURS).toBe(2);
+  });
+
+  it("only requests AI candidates for fields that are still empty", () => {
+    const draft = createCourseBasicsDraft(courseFixture());
+    draft.learningObjectivesText = "教师已经填写的目标";
+    draft.summary = "";
+    draft.priorKnowledge = "";
+    draft.learningNeeds = "";
+    draft.familiarContexts = "";
+    draft.drivingQuestions = ["  "];
+
+    expect(getEmptyCourseBasicsSuggestionParts(draft)).toEqual([
+      "summary",
+      "drivingQuestions",
+    ]);
+  });
+
   it("keeps typing local until a save patch is explicitly built", () => {
     const course = courseFixture();
     const draft = createCourseBasicsDraft(course);

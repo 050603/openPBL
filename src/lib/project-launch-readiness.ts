@@ -55,7 +55,7 @@ export function hasSelectedProjectTopic(
   inquiryQuestions?: string[],
 ): boolean {
   const topic = project?.topic.trim();
-  if (!topic || topic === "待确定选题方向" || topic === "待确定研究主题") return false;
+  if (!topic || /^待(确定|选择).*(选题|方向|主题)$/.test(topic)) return false;
   return inquiryQuestions ? inquiryQuestions.includes(topic) : true;
 }
 

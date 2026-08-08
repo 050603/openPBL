@@ -17,7 +17,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { InviteCodeCard } from "@/components/invite-code-card";
 import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
-import { isStudentOnline } from "@/lib/session/actions";
+import { useCoursePresence } from "@/hooks/use-course-presence";
 
 export default function TeachSetupPage() {
   const params = useParams<{ id: string }>();
@@ -25,23 +25,15 @@ export default function TeachSetupPage() {
   const { user, startTeaching, generateNewInviteCode, restartTeaching } = useSession();
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
+  const presence = useCoursePresence({
+    courseId: course?.id,
+    role: "teacher",
+    enabled: course?.status === "teaching",
+  });
 
   const existing = course?.classConfig;
   const [totalStudents, setTotalStudents] = useState<number>(existing?.totalStudents ?? 32);
   const [restarting, setRestarting] = useState(false);
-
-  // ===== Online status: recompute every 5s =====
-  // isStudentOnline compares lastSeenAt against current time; re-render
-  // periodically so the UI reflects students going offline.
-  const [nowTick, setNowTick] = useState(0);
-  const courseId = course?.id;
-  const courseStatus = course?.status;
-  useEffect(() => {
-    if (!courseId || courseStatus !== "teaching") return;
-    const id = window.setInterval(() => setNowTick((t) => t + 1), 5_000);
-    return () => window.clearInterval(id);
-  }, [courseId, courseStatus]);
-  void nowTick;
 
   // Sync local state if course changes
   useEffect(() => {
@@ -130,10 +122,10 @@ export default function TeachSetupPage() {
         <div className="space-y-5">
           <Card>
             <h2 className="text-xl font-bold">课堂协作方式</h2>
-            <p className="mt-1 text-sm text-stone-500">新课堂模式固定采用“个人项目 + AI 伴学小组”</p>
+            <p className="mt-1 text-sm text-stone-500">新课堂模式固定采用个人项目制，学生独立完成完整项目</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-[8px] border border-blue-300 bg-blue-50 p-4"><div className="flex items-center gap-2 font-bold text-blue-800"><Users size={19} />每名学生独立完成项目</div><p className="mt-2 text-sm leading-6 text-stone-600">学生承担构思、决策、制作、汇报与反思，不再进行真实学生分组。</p></div>
-              <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />角色化 AI 伴学小组</div><p className="mt-2 text-sm leading-6 text-stone-600">知识、启发、质疑、方案、评审和记录伙伴提供全过程认知支架。</p></div>
+              <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />方案与实践支持</div><p className="mt-2 text-sm leading-6 text-stone-600">方案构思和项目实践阶段会自动提供适合当前任务的伴学支持，无需教师额外配置。</p></div>
             </div>
           </Card>
 
@@ -161,7 +153,7 @@ export default function TeachSetupPage() {
                 </div>
               </div>
             </div>
-            <p className="mt-4 text-sm leading-6 text-stone-500">每位加入课堂的学生都会自动获得一个私有项目空间和一组 AI 伴学伙伴。</p>
+            <p className="mt-4 text-sm leading-6 text-stone-500">每位加入课堂的学生都会自动获得一个私有项目空间。</p>
           </Card>
 
           <Card>
@@ -214,13 +206,13 @@ export default function TeachSetupPage() {
             <div className="mt-3 flex items-center gap-2 text-sm text-stone-500">
               <Users className="text-stone-400" size={16} />
               {isTeaching
-                ? `当前 ${course.students.filter((s) => isStudentOnline(s)).length} 人在线（共 ${course.students.length} 人加入）`
+                ? `当前 ${course.students.filter((student) => presence.onlineStudentIds.has(student.id)).length} 人在线（共 ${course.students.length} 人加入）`
                 : "课堂尚未开始"}
             </div>
             {isTeaching && course.students.length > 0 ? (
               <ul className="mt-3 max-h-56 space-y-2 overflow-auto">
                 {course.students.map((s) => {
-                  const online = isStudentOnline(s);
+                  const online = presence.onlineStudentIds.has(s.id);
                   return (
                     <li
                       className="flex items-center gap-2 rounded-[6px] border border-stone-200 bg-white px-3 py-2"

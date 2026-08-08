@@ -24,6 +24,7 @@ import {
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
+  useReactFlow,
   type Edge,
   type EdgeProps,
   type Node,
@@ -55,6 +56,7 @@ const LEVEL_STYLE: Record<Level, { bg: string; border: string; text: string; dot
 
 const LEVEL_ORDER: Level[] = ["foundation", "core", "application", "extension"];
 const ZERO_POSITION = { x: 0, y: 0 };
+type GraphAppearance = "default" | "teaching-rail";
 
 // ===== 自定义节点 =====
 type KgNodeData = {
@@ -64,34 +66,49 @@ type KgNodeData = {
   keyInfo?: string;
   isActive?: boolean;
   isDimmed?: boolean;
+  appearance?: GraphAppearance;
 };
 
 function KnowledgeNode({ data }: NodeProps) {
   const d = data as KgNodeData;
   const style = LEVEL_STYLE[d.level];
+  const isTeachingRail = d.appearance === "teaching-rail";
   return (
     <div
-      className="flex min-w-[140px] max-w-[200px] flex-col gap-1 rounded-[10px] border-2 px-3 py-2 shadow-sm transition-all"
+      className={cn(
+        "flex min-w-[140px] max-w-[200px] flex-col gap-1 px-3 py-2 transition-all duration-500",
+        isTeachingRail ? "rounded-[14px] border" : "rounded-[10px] border-2 shadow-sm",
+      )}
       style={{
-        background: d.isActive ? "#fffbeb" : style.bg,
-        borderColor: d.isActive ? "#f59e0b" : style.border,
-        color: style.text,
-        opacity: d.isDimmed ? 0.35 : 1,
-        boxShadow: d.isActive
-          ? "0 0 0 4px rgba(245, 158, 11, 0.25), 0 4px 12px rgba(0,0,0,0.08)"
-          : "0 1px 3px rgba(0,0,0,0.06)",
-        transform: d.isActive ? "scale(1.06)" : "scale(1)",
+        background: isTeachingRail
+          ? d.isActive ? "rgba(237, 247, 243, 0.98)" : "rgba(255, 255, 255, 0.9)"
+          : d.isActive ? "#fffbeb" : style.bg,
+        borderColor: isTeachingRail
+          ? d.isActive ? "#4f8f82" : "rgba(148, 163, 184, 0.38)"
+          : d.isActive ? "#f59e0b" : style.border,
+        color: isTeachingRail ? (d.isActive ? "#17473f" : "#52645f") : style.text,
+        opacity: d.isDimmed ? (isTeachingRail ? 0.28 : 0.35) : 1,
+        boxShadow: isTeachingRail
+          ? d.isActive
+            ? "0 8px 24px rgba(39, 99, 86, 0.14), 0 0 0 3px rgba(79, 143, 130, 0.1)"
+            : "0 3px 12px rgba(15, 23, 42, 0.055)"
+          : d.isActive
+            ? "0 0 0 4px rgba(245, 158, 11, 0.25), 0 4px 12px rgba(0,0,0,0.08)"
+            : "0 1px 3px rgba(0,0,0,0.06)",
+        transform: d.isActive ? `scale(${isTeachingRail ? 1.03 : 1.06})` : "scale(1)",
       }}
     >
       <Handle position={Position.Top} type="target" style={{ opacity: 0 }} />
       <div className="flex items-center gap-1.5">
         <span
           className="inline-block h-2 w-2 shrink-0 rounded-full"
-          style={{ background: d.isActive ? "#f59e0b" : style.dot }}
+          style={{ background: isTeachingRail ? (d.isActive ? "#3f8174" : "#9fb5af") : d.isActive ? "#f59e0b" : style.dot }}
         />
         <span className="truncate text-[13px] font-bold leading-tight">{d.label}</span>
       </div>
-      <span className="text-[10px] font-semibold opacity-70">{LEVEL_LABEL[d.level]}</span>
+      <span className="text-[10px] font-semibold opacity-70">
+        {LEVEL_LABEL[d.level]}
+      </span>
       <Handle position={Position.Bottom} type="source" style={{ opacity: 0 }} />
     </div>
   );
@@ -102,6 +119,7 @@ type KgEdgeData = {
   label?: string;
   isActive?: boolean;
   isDimmed?: boolean;
+  appearance?: GraphAppearance;
 };
 
 function KnowledgeEdge({
@@ -114,8 +132,11 @@ function KnowledgeEdge({
   markerEnd,
 }: EdgeProps) {
   const d = (data ?? {}) as KgEdgeData;
-  const stroke = d.isActive ? "#f59e0b" : d.isDimmed ? "#cbd5e1" : "#94a3b8";
-  const strokeWidth = d.isActive ? 2.5 : 1.5;
+  const isTeachingRail = d.appearance === "teaching-rail";
+  const stroke = isTeachingRail
+    ? d.isActive ? "#5b9a8d" : d.isDimmed ? "#e4ece9" : "#c5d5d1"
+    : d.isActive ? "#f59e0b" : d.isDimmed ? "#cbd5e1" : "#94a3b8";
+  const strokeWidth = d.isActive ? (isTeachingRail ? 2 : 2.5) : 1.5;
 
   const midY = (sourceY + targetY) / 2;
   const path = `M ${sourceX},${sourceY} C ${sourceX},${midY} ${targetX},${midY} ${targetX},${targetY}`;
@@ -131,7 +152,7 @@ function KnowledgeEdge({
         markerEnd={markerEnd}
         style={{ transition: "stroke 0.2s, stroke-width 0.2s" }}
       />
-      {d.label ? (
+      {d.label && !isTeachingRail ? (
         <text
           x={(sourceX + targetX) / 2}
           y={(sourceY + targetY) / 2}
@@ -151,6 +172,46 @@ function KnowledgeEdge({
 
 const nodeTypes = { kgNode: KnowledgeNode };
 const edgeTypes = { kgEdge: KnowledgeEdge };
+
+function ActiveNodeFocus({ nodeId, zoom }: { nodeId?: string | null; zoom: number }) {
+  const { getInternalNode, getViewport, setCenter, setViewport } = useReactFlow();
+  const previousNodeRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!nodeId) return;
+    let focusTimer: ReturnType<typeof setTimeout> | null = null;
+    const prepareTimer = setTimeout(() => {
+      const node = getInternalNode(nodeId);
+      if (!node) return;
+      const width = node.measured?.width ?? node.width ?? 140;
+      const height = node.measured?.height ?? node.height ?? 56;
+      const position = node.internals.positionAbsolute;
+      const centerX = position.x + width / 2;
+      const centerY = position.y + height / 2;
+
+      if (previousNodeRef.current && previousNodeRef.current !== nodeId) {
+        const viewport = getViewport();
+        void setViewport(
+          { ...viewport, zoom: Math.max(0.42, viewport.zoom * 0.76) },
+          { duration: 420 },
+        );
+        focusTimer = setTimeout(() => {
+          void setCenter(centerX, centerY, { duration: 900, zoom });
+        }, 420);
+      } else {
+        void setCenter(centerX, centerY, { duration: 700, zoom });
+      }
+      previousNodeRef.current = nodeId;
+    }, 80);
+
+    return () => {
+      clearTimeout(prepareTimer);
+      if (focusTimer) clearTimeout(focusTimer);
+    };
+  }, [getInternalNode, getViewport, nodeId, setCenter, setViewport, zoom]);
+
+  return null;
+}
 
 // ===== 布局：按层级自上而下分层 =====
 function layoutNodes(nodes: KnowledgeGraphNode[]): { id: string; position: { x: number; y: number } }[] {
@@ -207,6 +268,10 @@ export function KnowledgeGraphFlow({
   activeNodeId,
   height = 360,
   showMiniMap = true,
+  showControls = true,
+  focusActiveNode = false,
+  activeZoom = 0.72,
+  appearance = "default",
   isFullscreen = false,
   onToggleFullscreen,
   onNodeSelect,
@@ -217,6 +282,11 @@ export function KnowledgeGraphFlow({
   activeNodeId?: string | null;
   height?: number;
   showMiniMap?: boolean;
+  showControls?: boolean;
+  /** Keep the externally active node centered; intended for compact previews. */
+  focusActiveNode?: boolean;
+  activeZoom?: number;
+  appearance?: GraphAppearance;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   /** 节点选中回调，返回选中的节点 ID（再次点击同一节点返回 null） */
@@ -256,10 +326,11 @@ export function KnowledgeGraphFlow({
           keyInfo: node.keyInfo,
           isActive: false,
           isDimmed: false,
+          appearance,
         } as KgNodeData,
       };
     });
-  }, [normalized.nodes, layout]);
+  }, [normalized.nodes, layout, appearance]);
 
   const baseEdges: Edge[] = useMemo(() => {
     return normalized.edges.map((edge) => ({
@@ -267,14 +338,18 @@ export function KnowledgeGraphFlow({
       source: edge.source,
       target: edge.target,
       type: "kgEdge",
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: appearance === "teaching-rail" ? "#b7cbc5" : "#94a3b8",
+      },
       data: {
         label: edge.label,
         isActive: false,
         isDimmed: false,
+        appearance,
       } as KgEdgeData,
     }));
-  }, [normalized.edges]);
+  }, [normalized.edges, appearance]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(baseNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(baseEdges);
@@ -309,12 +384,17 @@ export function KnowledgeGraphFlow({
           highlightId && edge.source !== highlightId && edge.target !== highlightId ? true : false;
         return {
           ...edge,
-          markerEnd: { type: MarkerType.ArrowClosed, color: isActive ? "#f59e0b" : "#94a3b8" },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: appearance === "teaching-rail"
+              ? isActive ? "#5b9a8d" : "#b7cbc5"
+              : isActive ? "#f59e0b" : "#94a3b8",
+          },
           data: { ...(edge.data as KgEdgeData), isActive, isDimmed },
         };
       }),
     );
-  }, [highlightId, normalized.edges, setNodes, setEdges]);
+  }, [appearance, highlightId, normalized.edges, setNodes, setEdges]);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedId((prev) => {
@@ -355,10 +435,20 @@ export function KnowledgeGraphFlow({
           minZoom={0.3}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" } }}
+          defaultEdgeOptions={{
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: appearance === "teaching-rail" ? "#b7cbc5" : "#94a3b8",
+            },
+          }}
         >
-          <Background color="#e2e8f0" gap={20} size={1.4} />
-          <Controls position="bottom-right" showInteractive={false} />
+          {focusActiveNode ? <ActiveNodeFocus nodeId={activeNodeId} zoom={activeZoom} /> : null}
+          <Background
+            color={appearance === "teaching-rail" ? "#cfe0db" : "#e2e8f0"}
+            gap={appearance === "teaching-rail" ? 24 : 20}
+            size={appearance === "teaching-rail" ? 1 : 1.4}
+          />
+          {showControls ? <Controls position="bottom-right" showInteractive={false} /> : null}
           {showMiniMap && normalized.nodes.length > 4 ? (
             <MiniMap
               position="top-right"

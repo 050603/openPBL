@@ -28,6 +28,11 @@ import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import type { StudentClaims } from "@/lib/auth/session";
 import { isCompanionStageEnabled } from "@/lib/companion/stage-access";
 import { isShuttingDown } from "@/lib/runtime/lifecycle";
+import {
+  canRequestCompanionSupport,
+  isReadyMadeDeliverableRequest,
+} from "@/lib/learning-evidence/ai-policy";
+import { isLearningEvidenceStructurallyComplete } from "@/lib/learning-evidence/readiness";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -92,7 +97,6 @@ function buildRequestContext(body: CompanionChatRequest): CompanionContextSnapsh
     stageLabel: body.stageLabel,
     studentId: body.studentId,
     studentName: body.studentName,
-    currentProgress: 0,
     sections,
     prompt: [
       "服务端学习上下文（本次请求未关联可持久化课程，以下仅使用请求中提供的事实）：",
@@ -226,6 +230,59 @@ export async function POST(req: NextRequest) {
         (id) => configuredIds.includes(id) && getCompanion(id).stages.includes(body.stageKey),
       );
     }
+    if (!body.trigger) {
+      if (isReadyMadeDeliverableRequest(body.message)) {
+        const access = canRequestCompanionSupport(
+          course,
+          body.studentId!,
+          body.stageKey,
+          "ideation",
+        );
+        if (!access.allowed) {
+          return Response.json(
+            {
+              error: "STUDENT_SEED_REQUIRED",
+              message:
+                "系统不能先替你生成可直接提交的完整方案或作品。请先提交自己的想法、草稿或测试结果。",
+            },
+            { status: 422 },
+          );
+        }
+        teacherContext = [
+          teacherContext,
+          "学生请求了可直接提交的完整成品。只能基于学生已有证据提出局部反馈、问题或修改选项，不得返回完整可提交方案、作品或代写文本。",
+        ].filter(Boolean).join("\n");
+      }
+      const preferred = body.preferredCompanionId;
+      if (preferred) {
+        const access = canRequestCompanionSupport(
+          course,
+          body.studentId!,
+          body.stageKey,
+          preferred,
+        );
+        if (!access.allowed) {
+          return Response.json(
+            {
+              error: "STUDENT_SEED_REQUIRED",
+              message: access.reason,
+            },
+            { status: 422 },
+          );
+        }
+      }
+      effectiveCompanionIds = effectiveCompanionIds.filter((id) =>
+        canRequestCompanionSupport(course, body.studentId!, body.stageKey, id).allowed);
+      if (!effectiveCompanionIds.length) {
+        return Response.json(
+          {
+            error: "STUDENT_SEED_REQUIRED",
+            message: "先提交你自己的想法、草稿或测试结果，再请求方向、计划或质量建议。",
+          },
+          { status: 422 },
+        );
+      }
+    }
     if (!effectiveCompanionIds.length) {
       return Response.json({ error: "NO_CONFIGURED_COMPANIONS_FOR_STAGE" }, { status: 400 });
     }
@@ -263,8 +320,17 @@ export async function POST(req: NextRequest) {
     const recentStudentMessages = (thread?.messages ?? []).filter((message) => message.role === "student").slice(-3);
     if (!body.trigger && recentStudentMessages.length === 3) {
       const evidenceStart = Date.parse(recentStudentMessages[0].createdAt);
-      const hasNewArtifact = (course.submissions ?? []).some(
-        (submission) => submission.studentId === body.studentId && Date.parse(submission.updatedAt) > evidenceStart,
+      const hasNewArtifact = (course.learningEvidence ?? []).some(
+        (evidence) =>
+          evidence.studentId === body.studentId
+          && evidence.stageKey === body.stageKey
+          && evidence.source === "student"
+          && evidence.countsTowardReadiness
+          && Date.parse(evidence.updatedAt) > evidenceStart
+          && isLearningEvidenceStructurallyComplete(
+            evidence,
+            course.artifactSnapshots ?? [],
+          ),
       );
       if (!hasNewArtifact) {
         const now = new Date().toISOString();
@@ -280,7 +346,7 @@ export async function POST(req: NextRequest) {
             severity: existing?.severity ?? "warning" as const,
             status: "open" as const,
             title: "多轮伴学对话没有形成产物进展",
-            summary: "连续 4 轮对话后没有检测到新的事实、选择或产物修改。",
+            summary: "连续 4 轮对话后没有检测到新的完整学习证据或作品版本变化。",
             normalizedIssueKey: `conversation-no-progress:${body.stageKey}:stage`,
             evidenceEventIds: [...recentStudentMessages.map((message) => message.id), "current-message"],
             aiInterventionAttempts: existing?.aiInterventionAttempts ?? 0,

@@ -231,7 +231,7 @@ describe('office orchestrator partner conversations', () => {
     expect(archiveActions).toHaveLength(1)
     expect(workstations.jiji.person.play).toHaveBeenCalledWith(
       'organizing_files',
-      expect.objectContaining({ loop: false, restart: true }),
+      expect.objectContaining({ loop: true, restart: true }),
     )
     expect(workstations.jiji.person.placeVisualAnchorAt).toHaveBeenCalledWith(
       studyZoneDefinitions.archive.actionAnchorPoint.x,
@@ -244,6 +244,95 @@ describe('office orchestrator partner conversations', () => {
     office.destroy()
   })
 
+  it('releases shared navigation after arrival so independent workbench actions run concurrently', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+    let finishArchiveAction: (() => void) | undefined
+    const archiveAction = new Promise<void>((resolve) => {
+      finishArchiveAction = resolve
+    })
+
+    vi.mocked(workstations.jiji.person.play).mockImplementation(async (action, options) => {
+      timeline.push({ agentId: 'jiji', kind: 'play', value: action, at: Date.now() })
+      options?.onMounted?.()
+      if (action === 'organizing_files') await archiveAction
+    })
+
+    const firstVisit = office.goToStudyZone('jiji', 'archive')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(timeline.some(
+      (event) => event.agentId === 'jiji' && event.kind === 'play' && event.value === 'organizing_files',
+    )).toBe(true)
+
+    const secondVisit = office.goToStudyZone('wenwen', 'library')
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(timeline.some(
+      (event) => event.agentId === 'wenwen' && event.kind === 'move',
+    )).toBe(true)
+    expect(timeline.some(
+      (event) => event.agentId === 'wenwen' && event.kind === 'play' && event.value === 'reading_book',
+    )).toBe(true)
+
+    finishArchiveAction?.()
+    await Promise.all([firstVisit, secondVisit])
+    office.destroy()
+  })
+
+  it('moves the left and right classroom lanes concurrently while keeping each lane ordered', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+    let releaseLeftDeparture: (() => void) | undefined
+    const blockedLeftDeparture = new Promise<void>((resolve) => {
+      releaseLeftDeparture = resolve
+    })
+
+    vi.mocked(workstations.zhizhi.person.moveVisualAnchorTo).mockImplementationOnce(async (x, y) => {
+      timeline.push({ agentId: 'zhizhi', kind: 'move', value: { x, y }, at: Date.now() })
+      await blockedLeftDeparture
+    })
+
+    const firstLeftRoute = office.goToStudyZone('zhizhi', 'library')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(timeline.some((event) => event.agentId === 'zhizhi' && event.kind === 'move')).toBe(true)
+
+    const rightRoute = office.goToStudyZone('wenwen', 'planning')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(timeline.some((event) => event.agentId === 'wenwen' && event.kind === 'move')).toBe(true)
+    expect(timeline.some(
+      (event) => event.agentId === 'wenwen'
+        && event.kind === 'play'
+        && ['planning_board', 'board_listening', 'screen_pointing'].includes(String(event.value)),
+    )).toBe(true)
+
+    const secondLeftRoute = office.goToStudyZone('lingling', 'archive')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(timeline.some((event) => event.agentId === 'lingling' && event.kind === 'move')).toBe(false)
+
+    releaseLeftDeparture?.()
+    await Promise.all([firstLeftRoute, rightRoute, secondLeftRoute])
+    expect(timeline.some((event) => event.agentId === 'lingling' && event.kind === 'move')).toBe(true)
+    expect(timeline.some(
+      (event) => event.agentId === 'lingling'
+        && event.kind === 'move'
+        && typeof event.value === 'object'
+        && event.value.x === 640,
+    )).toBe(true)
+    expect(timeline.some(
+      (event) => event.agentId === 'wenwen'
+        && event.kind === 'move'
+        && typeof event.value === 'object'
+        && event.value.x === 756,
+    )).toBe(true)
+    office.destroy()
+  })
+
   it('plays one workbench action for one visit, then sends the companion back', async () => {
     const timeline: TimelineEvent[] = []
     const workstations = createWorkstations(timeline)
@@ -252,7 +341,7 @@ describe('office orchestrator partner conversations', () => {
     })
 
     const interaction = office.interactWithStudyZone('lingling', 'planning')
-    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.advanceTimersByTimeAsync(6_000)
     await interaction
 
     const planningActions = timeline.filter(
@@ -263,7 +352,7 @@ describe('office orchestrator partner conversations', () => {
     expect(planningActions).toHaveLength(1)
     expect(workstations.lingling.person.play).toHaveBeenCalledWith(
       'screen_pointing',
-      expect.objectContaining({ loop: false, restart: true }),
+      expect.objectContaining({ loop: true, restart: true }),
     )
     expect(workstations.lingling.person.getVisualAnchorPosition('bottomCenter'))
       .toEqual(workstations.lingling.seatAnchor)

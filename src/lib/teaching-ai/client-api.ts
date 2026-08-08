@@ -51,7 +51,17 @@ export type ProposalDiagnosisResult = {
 
 export type ProcessEvaluationResult = {
   summary: string;
-  dimensions: Array<{ name: string; score: number; evidence: string[] }>;
+  dimensions: Array<{
+    dimensionId: string;
+    name: string;
+    score: number;
+    rationale: string;
+    evidenceIds: string[];
+    evidenceGaps: string[];
+  }>;
+  evidenceIds: string[];
+  evidenceGaps: string[];
+  confidence: "low" | "medium" | "high";
   highlights: string[];
   improvements: string[];
   source: "llm" | "local";
@@ -176,6 +186,7 @@ export async function diagnoseAllProposals(input: {
 export async function generateProcessEvaluation(input: {
   course: Course;
   groupId?: string;
+  teacherGuidance?: string;
 }): Promise<ProcessEvaluationResult> {
   return callSupport("generateProcessEvaluation", input);
 }

@@ -29,7 +29,7 @@ interface ChatSessionProps {
 }
 
 const AVATARS = {
-  teacher: '/avatars/teacher.png',
+  teacher: '/openmaic/avatars/openpbl-ai-teacher.webp',
   user: '/avatars/user.png',
 };
 

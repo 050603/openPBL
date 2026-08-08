@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TimerPanel } from "./page";
+import { ClassroomToolPopover, shouldShowClassroomDataSidebar, TimerPanel } from "./page";
 import type { ClassroomTimingSnapshot } from "@/lib/classroom/timing";
 
 const snapshot: ClassroomTimingSnapshot = {
@@ -71,5 +71,23 @@ describe("TimerPanel", () => {
     expect(onAdjust).toHaveBeenNthCalledWith(2, 120);
     expect(onTogglePause).toHaveBeenCalledOnce();
     expect(onReset).toHaveBeenCalledOnce();
+  });
+});
+
+describe("classroom data sidebar", () => {
+  it("stays hidden during showcase and focus mode", () => {
+    expect(shouldShowClassroomDataSidebar("showcase", false)).toBe(false);
+    expect(shouldShowClassroomDataSidebar("make", true)).toBe(false);
+    expect(shouldShowClassroomDataSidebar("make", false)).toBe(true);
+  });
+});
+
+describe("classroom header tools", () => {
+  it("anchors desktop tool content to the triggering button wrapper", () => {
+    const { container } = render(<ClassroomToolPopover onClose={vi.fn()}><div>工具内容</div></ClassroomToolPopover>);
+    const popover = container.firstElementChild;
+    expect(popover?.className).toContain("absolute");
+    expect(popover?.className).toContain("top-[calc(100%+12px)]");
+    expect(screen.getByText("工具内容")).toBeTruthy();
   });
 });

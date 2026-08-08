@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleStop,
   Clock3,
   Copy,
@@ -23,27 +25,26 @@ import {
   X,
   Maximize2,
   Minimize2,
-  PanelRightClose,
 } from "lucide-react";
 import { DashboardShell, Avatar } from "@/components/dashboard-shell";
-import { TeacherClassroomBanner } from "@/components/classroom-ux";
 import { StageGateDialog, StageProgress } from "@/components/classroom/classroom-chrome";
 import { TeacherStageView } from "@/components/views/teacher/stage-dispatcher";
 import { CompanionMonitor } from "@/components/views/teacher/companion-monitor";
-import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 import { TeacherStageResources } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, Button, FlowActionBar, ProgressBar, SaveStatus } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
-import { isStudentOnline } from "@/lib/session/actions";
 import { cn } from "@/lib/utils";
 import { evaluateStageGate } from "@/lib/classroom/stage-gates";
 import { makeRecordId } from "@/lib/session/actions";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
-import type { Course } from "@/lib/session/types";
+import { useCoursePresence } from "@/hooks/use-course-presence";
+import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
+import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 import {
-  isProjectLaunchStage,
-  projectLaunchProgress,
-} from "@/lib/project-launch-readiness";
+  aiAssessmentConfidenceLabel,
+  aiAssessmentStatusLabel,
+  uniqueEvidenceGaps,
+} from "@/lib/evaluation/process-assessment";
 import {
   adjustClassroomStageTiming,
   createClassroomTimingState,
@@ -58,6 +59,13 @@ import {
 
 type ToolPanel = "timer" | "invite" | "students" | null;
 
+export function shouldShowClassroomDataSidebar(
+  stageKey: string | undefined,
+  focusMode: boolean,
+): boolean {
+  return !focusMode && stageKey !== "showcase";
+}
+
 export default function TeachClassroomPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -65,6 +73,11 @@ export default function TeachClassroomPage() {
   const { user, endTeaching, generateNewInviteCode, updateCourse } = session;
   const course = useCourse(params?.id);
   useRealtimeSync(params?.id);
+  const presence = useCoursePresence({
+    courseId: course?.id,
+    role: "teacher",
+    enabled: course?.status === "teaching",
+  });
   const hydrated = useHydrated();
   const [nowTick, setNowTick] = useState(0);
   const [toolPanel, setToolPanel] = useState<ToolPanel>(null);
@@ -112,11 +125,9 @@ export default function TeachClassroomPage() {
     });
   }, [course, updateCourse]);
 
-  const onlineCount = useMemo(() => {
-    if (!course) return 0;
-    void nowTick;
-    return course.students.filter((s) => isStudentOnline(s)).length;
-  }, [course, nowTick]);
+  const onlineCount = course?.students.filter((student) =>
+    presence.onlineStudentIds.has(student.id)
+  ).length ?? 0;
 
   const timingSnapshot = useMemo(() => {
     void nowTick;
@@ -146,6 +157,8 @@ export default function TeachClassroomPage() {
   }
 
   const currentStage = course.stages[course.currentStageIndex];
+  const showDataSidebar = shouldShowClassroomDataSidebar(currentStage?.key, focusMode);
+  const companionStageActive = currentStage?.key === "proposal" || currentStage?.key === "make";
   const canPrev = course.currentStageIndex > 0;
   const canNext = course.currentStageIndex < course.stages.length - 1;
   const timerText = timingSnapshot?.activeStage
@@ -153,23 +166,19 @@ export default function TeachClassroomPage() {
       ? `+${formatClock(timingSnapshot.activeStage.overrunSec)}`
       : formatClock(timingSnapshot.activeStage.remainingSec)
     : "--:--";
-  const progressForCurrentStage = (student: Course["students"][number]) => {
-    if (!currentStage) return 0;
-    if (!isProjectLaunchStage(currentStage)) {
-      return student.stageProgress[currentStage.key] ?? 0;
-    }
-    return projectLaunchProgress(course.todos ?? [], student.id);
-  };
-  const stageCompletion = currentStage
-    ? Math.round(
-        course.students.reduce((sum, student) => sum + progressForCurrentStage(student), 0) /
-          Math.max(1, course.students.length),
-      )
-    : 0;
+  const stageReadinessRows = currentStage
+    ? course.students.map((student) => ({
+        student,
+        readiness: deriveStageReadiness(course, student.id, currentStage.key),
+      }))
+    : [];
+  const readyStudentCount = stageReadinessRows.filter(
+    (item) => item.readiness.status === "ready",
+  ).length;
 
   // 只根据真实课堂记录生成关注队列，不再用固定进度阈值推断“风险”。
   const attentionRows = currentStage
-    ? course.students.map((student) => {
+    ? stageReadinessRows.map(({ student, readiness }) => {
         const openSignals = (course.learningSignals ?? []).filter(
           (signal) =>
             signal.stageKey === currentStage.key
@@ -188,38 +197,57 @@ export default function TeachClassroomPage() {
             && item.studentId === student.id
             && item.status === "pending",
         );
+        const pendingAiDecisions = (course.aiContributions ?? []).filter(
+          (item) =>
+            item.stageKey === currentStage.key
+            && item.studentId === student.id
+            && item.status === "pending-decision",
+        );
+        const readinessNeedsAction = ["awaiting-calibration", "needs-revision"].includes(
+          readiness.status,
+        );
         return {
           student,
-          count: openSignals.length + failedTasks.length + pendingDecisions.length,
+          count:
+            (readinessNeedsAction ? 1 : 0)
+            + openSignals.length
+            + failedTasks.length
+            + pendingDecisions.length
+            + pendingAiDecisions.length,
           reasons: [
+            readiness.status === "awaiting-calibration" ? "学习证据待教师校准" : "",
+            readiness.status === "needs-revision" ? "学习证据需修订" : "",
             openSignals.length ? `${openSignals.length} 条学习信号` : "",
             failedTasks.length ? `${failedTasks.length} 个失败任务` : "",
             pendingDecisions.length ? `${pendingDecisions.length} 项待学生决定` : "",
+            pendingAiDecisions.length ? `${pendingAiDecisions.length} 项AI建议待决定` : "",
           ].filter(Boolean),
         };
       }).filter((item) => item.count > 0)
     : [];
 
-  // 学生完成度分布：按 0-25 / 25-50 / 50-75 / 75-100 四档分桶
+  // 学生阶段状态只由有效证据和教师校准派生，不再显示任意百分比。
   const distribution = (() => {
     if (!currentStage || course.students.length === 0) return [];
     const buckets = [
-      { range: "0-25%", min: 0, max: 25, count: 0, tone: "rose" as const },
-      { range: "25-50%", min: 25, max: 50, count: 0, tone: "amber" as const },
-      { range: "50-75%", min: 50, max: 75, count: 0, tone: "sky" as const },
-      { range: "75-100%", min: 75, max: 101, count: 0, tone: "emerald" as const },
+      { status: "not-started", range: "未开始", count: 0, tone: "slate" as const },
+      { status: "working", range: "进行中", count: 0, tone: "sky" as const },
+      { status: "awaiting-calibration", range: "待校准", count: 0, tone: "amber" as const },
+      { status: "needs-revision", range: "需修订", count: 0, tone: "rose" as const },
+      { status: "ready", range: "已达标", count: 0, tone: "emerald" as const },
     ];
-    course.students.forEach((s) => {
-      const p = progressForCurrentStage(s);
-      const bucket = buckets.find((b) => p >= b.min && p < b.max) ?? buckets[buckets.length - 1];
-      bucket.count += 1;
+    stageReadinessRows.forEach(({ readiness }) => {
+      const bucket = buckets.find((item) => item.status === readiness.status);
+      if (bucket) bucket.count += 1;
     });
     return buckets;
   })();
 
-  // 本阶段 AI 建议记录
-  const stageAiSupports = currentStage
-    ? (course.aiSupports ?? []).filter((r) => r.stageKey === currentStage.key).slice(-3).reverse()
+  const stageAiSuggestions = currentStage
+    ? (course.aiAssessmentSuggestions ?? [])
+        .filter((item) => item.stageKey === currentStage.key)
+        .slice(-3)
+        .reverse()
     : [];
   const hasTeacherResources = Boolean(
     course.teacherClassroomId ||
@@ -325,6 +353,20 @@ export default function TeachClassroomPage() {
     setTargetStageIndex(null);
   }
 
+  const toolPanelContent = toolPanel === "timer" ? (
+    <TimerPanel snapshot={timingSnapshot} onTogglePause={toggleClassroomTimer} onReset={resetActiveStageTimer} onAdjust={adjustActiveStage} />
+  ) : toolPanel === "invite" ? (
+    <InvitePanel
+      code={course.inviteCode}
+      onCopy={() => {
+        if (typeof navigator !== "undefined" && navigator.clipboard && course.inviteCode) navigator.clipboard.writeText(course.inviteCode);
+      }}
+      onRefresh={() => generateNewInviteCode(course.id)}
+    />
+  ) : toolPanel === "students" ? (
+    <StudentsPanel course={course} currentStageKey={currentStage?.key} onlineStudentIds={presence.onlineStudentIds} />
+  ) : null;
+
   return (
     <DashboardShell
       role="teacher"
@@ -338,45 +380,55 @@ export default function TeachClassroomPage() {
       headerSlot={
         <div className="hidden items-center gap-1 md:flex">
           {/* 计时器 */}
-          <button
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 px-2.5 text-[12px] font-semibold text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
-            onClick={() => setToolPanel("timer")}
-            type="button"
-          >
-            <Clock3 size={14} />
-            <span className="font-mono font-bold text-[var(--pbl-teacher)]">{timerText}</span>
-          </button>
+          <div className="relative">
+            <button
+              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 px-2.5 text-[12px] font-semibold text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
+              onClick={() => setToolPanel((value) => value === "timer" ? null : "timer")}
+              type="button"
+            >
+              <Clock3 size={14} />
+              <span className="font-mono font-bold text-[var(--pbl-teacher)]">{timerText}</span>
+            </button>
+            {toolPanel === "timer" ? <ClassroomToolPopover onClose={() => setToolPanel(null)}>{toolPanelContent}</ClassroomToolPopover> : null}
+          </div>
           {/* 邀请码 */}
-          <button
-            className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
-            onClick={() => setToolPanel("invite")}
-            type="button"
-            aria-label="学生邀请码"
-          >
-            <QrCode size={14} />
-          </button>
+          <div className="relative">
+            <button
+              className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
+              onClick={() => setToolPanel((value) => value === "invite" ? null : "invite")}
+              type="button"
+              aria-label="学生邀请码"
+            >
+              <QrCode size={14} />
+            </button>
+            {toolPanel === "invite" ? <ClassroomToolPopover onClose={() => setToolPanel(null)}>{toolPanelContent}</ClassroomToolPopover> : null}
+          </div>
           {/* 在线学生 */}
-          <button
-            className="inline-flex h-8 items-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 px-2.5 text-[12px] font-semibold text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
-            onClick={() => setToolPanel("students")}
-            type="button"
-            aria-label="在线学生"
-          >
-            <UserRoundCheck size={14} />
-            <span>{onlineCount}/{course.students.length}</span>
-            {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success)]" /> : null}
-          </button>
+          <div className="relative">
+            <button
+              className="inline-flex h-8 items-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 px-2.5 text-[12px] font-semibold text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
+              onClick={() => setToolPanel((value) => value === "students" ? null : "students")}
+              type="button"
+              aria-label="在线学生"
+            >
+              <UserRoundCheck size={14} />
+              <span>{onlineCount}/{course.students.length}</span>
+              {onlineCount > 0 ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-success)]" /> : null}
+            </button>
+            {toolPanel === "students" ? <ClassroomToolPopover align="right" onClose={() => setToolPanel(null)}>{toolPanelContent}</ClassroomToolPopover> : null}
+          </div>
           <div className="mx-0.5 h-5 w-px bg-stone-200" />
-          <button
-            aria-label="打开学生伴学观察"
-            className="relative grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
-            onClick={() => openCompanionMonitor()}
-            type="button"
-          >
-            <Bot size={14} />
-            {attentionRows.length ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[9px] font-bold text-white">{attentionRows.length}</span> : null}
-          </button>
-          <button aria-label={focusMode ? "退出专注授课" : "进入专注授课"} className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setFocusMode((value) => !value)} type="button"><PanelRightClose size={14} /></button>
+          {companionStageActive ? (
+            <button
+              aria-label="打开学生伴学观察"
+              className="relative grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
+              onClick={() => openCompanionMonitor()}
+              type="button"
+            >
+              <Bot size={14} />
+              {attentionRows.length ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[9px] font-bold text-white">{attentionRows.length}</span> : null}
+            </button>
+          ) : null}
           {currentStage?.key === "showcase" ? <button aria-label="进入投影展示模式" className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setPresentationMode(true)} type="button"><Maximize2 size={14} /></button> : null}
           {/* 查看课程 */}
           <Link
@@ -424,14 +476,16 @@ export default function TeachClassroomPage() {
         >
           <UserRoundCheck size={15} /> {onlineCount}/{course.students.length}
         </button>
-        <button
-          className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600"
-          onClick={() => openCompanionMonitor()}
-          type="button"
-          aria-label="学生伴学观察"
-        >
-          <Bot size={15} />
-        </button>
+        {companionStageActive ? (
+          <button
+            className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600"
+            onClick={() => openCompanionMonitor()}
+            type="button"
+            aria-label="学生伴学观察"
+          >
+            <Bot size={15} />
+          </button>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <Link
             className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600"
@@ -452,7 +506,7 @@ export default function TeachClassroomPage() {
       </div>
 
       {/* 双栏布局：中主区 + 右数据面板 */}
-      <div className={cn("grid gap-3", !focusMode && "xl:grid-cols-[minmax(0,1fr)_340px]")}>
+      <div className={cn("grid gap-3 pb-8", showDataSidebar && "xl:pr-[340px]")}>
         {/* 中间：阶段控制 + 横幅 + 阶段视图 */}
         <div className="min-w-0 space-y-3">
           {course.uiState?.aiAnalysisPending ? (
@@ -463,17 +517,6 @@ export default function TeachClassroomPage() {
           ) : null}
 
           <StageProgress course={course} onSelect={requestStage} />
-
-          {currentStage ? (
-            <TeacherClassroomBanner
-              completion={stageCompletion}
-              course={course}
-              currentStage={currentStage}
-              onlineCount={onlineCount}
-              riskCount={attentionRows.length + (course.uiState?.aiAnalysisPending ? 1 : 0)}
-              timerText={timerText}
-            />
-          ) : null}
 
           {currentStage && hasTeacherResources && currentStage.key !== "ai-learning" ? (
             <TeacherStageResources course={course} stageKey={currentStage.key} />
@@ -486,8 +529,8 @@ export default function TeachClassroomPage() {
             >
               <TeacherStageView
                 course={course}
-                onSelectGroup={openProjectInMonitor}
-                onSelectStudent={openCompanionMonitor}
+                onSelectGroup={companionStageActive ? openProjectInMonitor : undefined}
+                onSelectStudent={companionStageActive ? openCompanionMonitor : undefined}
                 view={currentStage.view}
               />
             </section>
@@ -495,19 +538,51 @@ export default function TeachClassroomPage() {
         </div>
 
         {/* 右侧：数据面板（完成度分布 + 风险预警 + AI 建议） */}
-        {!focusMode ? <aside className="space-y-3">
-          <StageWorkspacePolicyPanel
-            compact
-            currentStageKey={currentStage?.key}
-            onChange={(stageWorkspacePolicies) =>
-              updateCourse(course.id, { stageWorkspacePolicies })
-            }
-            policies={course.stageWorkspacePolicies}
-            stages={course.stages}
-          />
+        {showDataSidebar ? <div className="relative xl:fixed xl:bottom-[4.5rem] xl:right-0 xl:top-16 xl:z-20 xl:w-[340px]">
+          <aside className="flex h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-white/95 shadow-[0_18px_50px_rgba(30,64,175,0.10)] backdrop-blur xl:h-full xl:rounded-l-2xl xl:rounded-r-none xl:border-r-0">
+            <header className="relative overflow-hidden border-b border-blue-100 bg-[linear-gradient(145deg,#eff6ff_0%,#ffffff_60%,#ecfdf5_100%)] px-4 pb-4 pt-3.5">
+              <div className="absolute -right-8 -top-10 size-28 rounded-full bg-blue-100/60 blur-2xl" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-2">
+                  <button
+                    aria-label="收起班级概览"
+                    aria-expanded="true"
+                    className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-blue-200 bg-white/85 text-blue-600 shadow-sm transition hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                    onClick={() => setFocusMode(true)}
+                    title="收起班级概览"
+                    type="button"
+                  >
+                    <ChevronRight size={15} strokeWidth={2.4} />
+                  </button>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">课堂实时监控</div>
+                    <h2 className="mt-1 truncate text-base font-black text-stone-950">{currentStage?.label ?? "当前阶段"}</h2>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white/80 px-2 py-1 text-[10px] font-bold text-emerald-700 shadow-sm">
+                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                  实时
+                </span>
+              </div>
+              <div className="relative mt-3 grid grid-cols-3 divide-x divide-blue-100 rounded-xl border border-white/80 bg-white/75 py-2.5 shadow-sm">
+                <div className="px-2 text-center">
+                  <div className="text-lg font-black tabular-nums text-stone-950">{onlineCount}</div>
+                  <div className="text-[10px] font-semibold text-stone-500">在线学生</div>
+                </div>
+                <div className="px-2 text-center">
+                  <div className="text-lg font-black tabular-nums text-blue-700">{readyStudentCount}</div>
+                  <div className="text-[10px] font-semibold text-stone-500">已达标</div>
+                </div>
+                <div className="px-2 text-center">
+                  <div className={cn("text-lg font-black tabular-nums", attentionRows.length ? "text-amber-600" : "text-emerald-600")}>{attentionRows.length}</div>
+                  <div className="text-[10px] font-semibold text-stone-500">需关注</div>
+                </div>
+              </div>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <DataPanelCard
             icon={<Users size={15} />}
-            title="完成度分布"
+            title="阶段状态分布"
             hint={`本阶段 · ${course.students.length} 人`}
           >
             {course.students.length === 0 ? (
@@ -530,6 +605,7 @@ export default function TeachClassroomPage() {
                             b.tone === "amber" && "bg-[var(--pbl-warning)]",
                             b.tone === "sky" && "bg-[var(--pbl-ai)]",
                             b.tone === "emerald" && "bg-[var(--pbl-success)]",
+                            b.tone === "slate" && "bg-stone-400",
                           )}
                           style={{ width: `${Math.max(widthPct, b.count > 0 ? 8 : 0)}%` }}
                         />
@@ -541,8 +617,10 @@ export default function TeachClassroomPage() {
                   );
                 })}
                 <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-2.5 text-[11px] text-stone-500">
-                  <span>班级平均</span>
-                  <span className="font-bold text-[var(--pbl-teacher)]">{stageCompletion}%</span>
+                  <span>已达标学生</span>
+                  <span className="font-bold text-[var(--pbl-teacher)]">
+                    {readyStudentCount}/{course.students.length}
+                  </span>
                 </div>
               </div>
             )}
@@ -588,42 +666,38 @@ export default function TeachClassroomPage() {
 
           <DataPanelCard
             icon={<Bot size={15} />}
-            title="AI 教学建议"
-            hint={course.uiState?.aiAnalysisRefreshedAt ? `已刷新 ${timeAgo(course.uiState.aiAnalysisRefreshedAt)}` : "未刷新"}
-            tone={course.uiState?.aiAnalysisPending ? "warning" : "default"}
+            title="AI评价建议状态"
+            hint={`${stageAiSuggestions.filter((item) => item.status === "pending-teacher-confirmation").length} 项待教师确认`}
+            tone={stageAiSuggestions.some((item) => item.status === "pending-teacher-confirmation") ? "warning" : "default"}
           >
-            {course.uiState?.aiAnalysisPending ? (
-              <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-xs)] border border-orange-200 bg-[var(--pbl-warning-soft)] px-2.5 py-2 text-[12px] text-[var(--pbl-warning)]">
-                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                <span>学生有新更新，建议刷新 AI 建议。</span>
-              </div>
-            ) : null}
-
-            {stageAiSupports.length === 0 ? (
+            {stageAiSuggestions.length === 0 ? (
               <div className="flex items-center gap-2 py-3 text-[13px] text-stone-500">
                 <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]">
                   <Lightbulb size={14} />
                 </span>
-                本阶段暂无 AI 建议记录
+                本阶段暂无基于新流程证据的评价建议
               </div>
             ) : (
               <ul className="space-y-2">
-                {stageAiSupports.map((rec) => (
+                {stageAiSuggestions.map((suggestion) => (
                   <li
                     className="rounded-[var(--radius-xs)] border border-stone-200 bg-white/70 px-2.5 py-2"
-                    key={rec.id}
+                    key={suggestion.id}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--pbl-ai)]">
                         <Lightbulb size={11} />
-                        {rec.trigger}
+                        {course.students.find((student) => student.id === suggestion.studentId)?.name ?? "学生"}
                       </span>
-                      <span className="text-[10px] text-stone-400">
-                        {new Date(rec.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                      <span className="text-[10px] font-semibold text-stone-500">
+                        {aiAssessmentStatusLabel(suggestion.status)}
                       </span>
                     </div>
                     <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-stone-600">
-                      {rec.diagnosis}
+                      置信度{aiAssessmentConfidenceLabel(suggestion.confidence)} · 引用 {suggestion.evidenceIds.length} 项证据
+                      {uniqueEvidenceGaps(suggestion.evidenceGaps).length
+                        ? ` · ${uniqueEvidenceGaps(suggestion.evidenceGaps).length} 项证据缺口`
+                        : ""}
                     </p>
                   </li>
                 ))}
@@ -631,13 +705,30 @@ export default function TeachClassroomPage() {
             )}
           </DataPanelCard>
 
-        </aside> : null}
+            </div>
+          </aside>
+        </div> : null}
       </div>
+
+      {currentStage?.key !== "showcase" && !showDataSidebar ? (
+        <button
+          aria-label="显示班级概览"
+          aria-expanded="false"
+          className="fixed right-0 top-1/2 z-40 grid h-14 w-7 -translate-y-1/2 place-items-center rounded-l-xl border border-r-0 border-blue-200 bg-white/95 text-blue-500 shadow-[-6px_0_18px_rgba(30,64,175,0.12)] backdrop-blur transition hover:w-8 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          onClick={() => setFocusMode(false)}
+          title="展开班级概览"
+          type="button"
+        >
+          <ChevronLeft size={16} strokeWidth={2.4} />
+        </button>
+      ) : null}
 
       {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="mx-auto mb-6 flex max-w-[1440px] items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="mx-auto max-w-[1440px]"><TeacherStageView course={course} onSelectGroup={openProjectInMonitor} onSelectStudent={openCompanionMonitor} view={currentStage.view} /></main></div> : null}
 
       <FlowActionBar
         back={canPrev ? <Button onClick={() => requestStage(course.currentStageIndex - 1)} variant="text">上一步</Button> : null}
+        persistent
+        reserveSpace={false}
         saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}
       >
         {canNext ? <Button onClick={() => requestStage(course.currentStageIndex + 1)}>检查条件并进入下一阶段</Button> : <Button onClick={() => setEndDialogOpen(true)}>检查评价并结束课程</Button>}
@@ -656,7 +747,7 @@ export default function TeachClassroomPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {companionMonitorOpen && currentStage ? (
+      {companionMonitorOpen && currentStage && companionStageActive ? (
         <div className="fixed inset-0 z-[80] bg-stone-950/30 backdrop-blur-[2px]">
           <button aria-label="关闭学生伴学观察" className="absolute inset-0 h-full w-full cursor-default" onClick={() => setCompanionMonitorOpen(false)} type="button" />
           <section aria-label="学生伴学观察" aria-modal="true" className="absolute inset-y-3 right-3 w-[min(1180px,calc(100vw-24px))] overflow-y-auto rounded-[20px] border border-stone-200 bg-[var(--pbl-surface)] p-4 shadow-[0_28px_100px_rgba(15,23,42,0.28)]" role="dialog">
@@ -669,11 +760,11 @@ export default function TeachClassroomPage() {
         </div>
       ) : null}
 
-      {/* 工具弹窗：点击顶栏工具按钮后显示 */}
+      {/* 移动端工具弹窗；桌面端弹层直接锚定在对应顶栏按钮下方。 */}
       {toolPanel ? (
         <>
-          <div className="fixed inset-0 z-[35]" onClick={() => setToolPanel(null)} />
-          <div className="pbl-glass fixed right-4 top-[84px] z-40 w-[min(360px,calc(100vw-32px))] rounded-[var(--radius-md)] p-4 md:right-8">
+          <div className="fixed inset-0 z-[35] md:hidden" onClick={() => setToolPanel(null)} />
+          <div className="pbl-glass fixed left-1/2 top-20 z-40 w-[min(360px,calc(100vw-32px))] -translate-x-1/2 rounded-[var(--radius-md)] p-4 md:hidden">
             <button
               className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-stone-400 transition hover:bg-white hover:text-stone-700"
               onClick={() => setToolPanel(null)}
@@ -682,35 +773,30 @@ export default function TeachClassroomPage() {
             >
               <X size={15} />
             </button>
-            {toolPanel === "timer" ? (
-              <TimerPanel
-                snapshot={timingSnapshot}
-                onTogglePause={toggleClassroomTimer}
-                onReset={resetActiveStageTimer}
-                onAdjust={adjustActiveStage}
-              />
-            ) : null}
-            {toolPanel === "invite" ? (
-              <InvitePanel
-                code={course.inviteCode}
-                onCopy={() => {
-                  if (typeof navigator !== "undefined" && navigator.clipboard && course.inviteCode) {
-                    navigator.clipboard.writeText(course.inviteCode);
-                  }
-                }}
-                onRefresh={() => generateNewInviteCode(course.id)}
-              />
-            ) : null}
-            {toolPanel === "students" ? (
-              <StudentsPanel
-                course={course}
-                currentStageKey={currentStage?.key}
-              />
-            ) : null}
+            {toolPanelContent}
           </div>
         </>
       ) : null}
     </DashboardShell>
+  );
+}
+
+export function ClassroomToolPopover({
+  align = "left",
+  children,
+  onClose,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className={cn("pbl-glass absolute top-[calc(100%+12px)] z-50 w-[360px] rounded-[var(--radius-md)] p-4", align === "right" ? "right-0" : "left-0")}>
+      <button className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-[var(--radius-xs)] text-stone-400 transition hover:bg-white hover:text-stone-700" onClick={onClose} type="button" aria-label="关闭">
+        <X size={15} />
+      </button>
+      {children}
+    </div>
   );
 }
 
@@ -951,12 +1037,14 @@ function InvitePanel({
 function StudentsPanel({
   course,
   currentStageKey,
+  onlineStudentIds,
 }: {
   course: NonNullable<ReturnType<typeof useCourse>>;
   currentStageKey?: string;
+  onlineStudentIds: ReadonlySet<string>;
 }) {
   const total = course.students.length;
-  const online = course.students.filter((s) => isStudentOnline(s)).length;
+  const online = course.students.filter((student) => onlineStudentIds.has(student.id)).length;
   return (
     <div>
       <div className="mb-2.5 flex items-center justify-between gap-2 pr-8">
@@ -978,21 +1066,16 @@ function StudentsPanel({
         <ul className="max-h-[300px] space-y-1.5 overflow-auto pr-1">
           {[...course.students]
             .sort((a, b) => {
-              const aOnline = isStudentOnline(a);
-              const bOnline = isStudentOnline(b);
+              const aOnline = onlineStudentIds.has(a.id);
+              const bOnline = onlineStudentIds.has(b.id);
               if (aOnline !== bOnline) return aOnline ? -1 : 1;
               return 0;
             })
             .map((s) => {
-              const currentStage = course.stages.find(
-                (stage) => stage.key === currentStageKey,
-              );
-              const progress = currentStage && isProjectLaunchStage(currentStage)
-                ? projectLaunchProgress(course.todos ?? [], s.id)
-                : currentStageKey
-                  ? s.stageProgress[currentStageKey] ?? 0
-                  : 0;
-              const sOnline = isStudentOnline(s);
+              const readiness = currentStageKey
+                ? deriveStageReadiness(course, s.id, currentStageKey)
+                : null;
+              const sOnline = onlineStudentIds.has(s.id);
               return (
                 <li
                   className="flex items-center gap-2 rounded-[var(--radius-xs)] border border-stone-200 bg-white/70 px-2.5 py-2"
@@ -1009,8 +1092,8 @@ function StudentsPanel({
                     )}
                     title={sOnline ? "在线" : "离线"}
                   />
-                  <span className="w-9 shrink-0 text-right text-[11px] font-bold text-stone-600">
-                    {progress}%
+                  <span className="shrink-0 text-right text-[11px] font-bold text-stone-600">
+                    {readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"}
                   </span>
                 </li>
               );
@@ -1039,24 +1122,24 @@ function DataPanelCard({
   children: ReactNode;
 }) {
   return (
-    <section className="pbl-card rounded-[var(--radius-md)] p-3.5 transition hover:shadow-[var(--shadow-raised)]">
-      <header className="mb-3 flex items-center justify-between gap-2">
+    <section className="border-b border-stone-100 bg-white/70 px-4 py-4 last:border-b-0">
+      <header className="mb-3 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
             className={cn(
-              "grid h-6 w-6 shrink-0 place-items-center rounded-[var(--radius-xs)]",
+              "grid size-7 shrink-0 place-items-center rounded-lg",
               tone === "warning"
                 ? "bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]"
                 : tone === "ok"
                   ? "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]"
-                  : "bg-stone-100 text-stone-700",
+                  : "bg-blue-50 text-blue-700",
             )}
           >
             {icon}
           </span>
-          <h3 className="truncate text-[13px] font-bold text-stone-900">{title}</h3>
+          <h3 className="pt-1 text-[13px] font-black text-stone-900">{title}</h3>
         </div>
-        {hint ? <span className="shrink-0 text-[11px] text-stone-400">{hint}</span> : null}
+        {hint ? <span className="pt-1 text-right text-[10px] font-semibold leading-4 text-stone-400">{hint}</span> : null}
       </header>
       {children}
     </section>
@@ -1070,14 +1153,4 @@ function EmptyHint({ text }: { text: string }) {
       {text}
     </div>
   );
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "刚刚";
-  if (mins < 60) return `${mins} 分钟前`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
 }

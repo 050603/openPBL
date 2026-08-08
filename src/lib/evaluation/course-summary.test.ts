@@ -24,12 +24,17 @@ describe("course summary presentation", () => {
   it("creates an evidence-aware deck without inventing student conclusions", () => {
     const deck = buildCourseSummaryPresentation(course, {
       summary: "班级通过多轮测试改进方案。",
-      dimensions: [{ name: "过程推进", score: 84, evidence: ["submission-1"] }],
+      dimensions: [{
+        name: "过程推进",
+        score: 84,
+        evidenceIds: ["evidence-1"],
+        evidenceGaps: [],
+      }],
       highlights: ["完成两轮方案迭代"],
       improvements: ["补充长期验证计划"],
     });
     expect(deck.slides).toHaveLength(4);
-    expect(deck.evidenceIds).toEqual(["submission-1"]);
+    expect(deck.evidenceIds).toEqual(["evidence-1"]);
     expect(deck.slides[0].bullets[0]).toContain("如何减少");
     expect(deck.script).toContain("补充长期验证计划");
     expect(deck.status).toBe("draft");

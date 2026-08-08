@@ -73,9 +73,10 @@ COPY . .
 # into the builder explicitly.
 COPY --from=deps /app/public/vendor/maic-importer ./public/vendor/maic-importer
 
-# Build the Next.js app. `next build` produces `.next/standalone` because
-# `output: 'standalone'` is set in next.config.ts.
-RUN pnpm build
+# Containers keep the conventional `.next` path used by the copy steps below.
+# Local `pnpm build` defaults to `.next-build` so it cannot invalidate a
+# concurrently running `next dev` server under `.next/dev`.
+RUN NEXT_DIST_DIR=.next pnpm build
 
 # ============================================================================
 # Stage 3: runner

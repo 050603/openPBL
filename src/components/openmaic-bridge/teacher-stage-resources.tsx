@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   FileText,
   ListVideo,
   MonitorUp,
@@ -45,6 +46,7 @@ export function TeacherStageResources({
   const [requestedId, setRequestedId] = useState(resources[0]?.id ?? "");
   const [projectionMode, setProjectionMode] = useState<ProjectionMode>("forced");
   const [scaffoldLoading, setScaffoldLoading] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const classroomId = course.teacherClassroomId ?? course.content.teacherClassroomId;
   const projection = course.uiState?.teacherResourceProjection;
 
@@ -179,15 +181,23 @@ export function TeacherStageResources({
 
   return (
     <section data-openpbl-embed className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/80 px-4 py-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-base font-bold text-stone-900">
-            <Presentation className="text-[var(--pbl-teacher)]" size={18} /> 本阶段授课资源
-          </h2>
-          <p className="mt-0.5 text-xs text-stone-500">
-            AI 生成的 PPT、互动演示与教师讲稿
-          </p>
-        </div>
+      <div className={cn("flex flex-wrap items-center justify-between gap-3 bg-stone-50/80 px-4 py-3", expanded && "border-b border-stone-200")}>
+        <button
+          aria-controls={`teacher-stage-resources-${stageKey}`}
+          aria-expanded={expanded}
+          className="flex min-w-0 items-center gap-3 text-left"
+          onClick={() => setExpanded((value) => !value)}
+          type="button"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
+            <Presentation size={18} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-stone-900">本阶段授课资源</span>
+            <span className="mt-0.5 block text-xs text-stone-500">{resources.length} 个资源 · {expanded ? "点击收起" : "点击展开"}</span>
+          </span>
+          <ChevronDown className={cn("shrink-0 text-stone-400 transition-transform", expanded && "rotate-180")} size={17} />
+        </button>
         {projection ? (
           <div className="flex items-center gap-2">
             <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--pbl-success-soft)] px-3 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-student-border)]">
@@ -205,9 +215,13 @@ export function TeacherStageResources({
         ) : null}
       </div>
 
-      {resources.length === 0 ? null : (
-        <div className="grid min-h-[560px] xl:grid-cols-[230px_minmax(0,1fr)_300px]">
-          <div className="border-b border-stone-200 bg-stone-50/60 p-3 xl:border-b-0 xl:border-r">
+      {expanded ? resources.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-stone-500" id={`teacher-stage-resources-${stageKey}`}>
+          本阶段暂无生成的授课资源。
+        </div>
+      ) : (
+        <div className="grid xl:h-[480px] xl:grid-cols-[210px_minmax(0,1fr)_300px]" id={`teacher-stage-resources-${stageKey}`}>
+          <div className="border-b border-stone-200 bg-stone-50/60 p-3 xl:min-h-0 xl:overflow-y-auto xl:border-b-0 xl:border-r">
             <div className="mb-2 px-2 text-[11px] font-bold uppercase text-stone-400">资源列表</div>
             <div className="space-y-1.5">
               {resources.map((resource, index) => (
@@ -236,7 +250,7 @@ export function TeacherStageResources({
             </div>
           </div>
 
-          <div className="min-w-0 border-b border-stone-200 p-3 xl:border-b-0 xl:border-r">
+          <div className="flex min-w-0 flex-col border-b border-stone-200 p-3 xl:min-h-0 xl:border-b-0 xl:border-r">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-bold text-stone-900">{selected?.title}</div>
@@ -287,29 +301,25 @@ export function TeacherStageResources({
             </div>
             {classroomId && selected ? (
               <OpenMaicResourcePlayer
-                className="h-[500px] rounded-[6px] border border-stone-200"
+                className="h-[420px] rounded-[6px] border border-stone-200 xl:min-h-0 xl:flex-1"
                 classroomId={classroomId}
                 sceneId={selected.id}
                 experience="teacher-resource"
                 onPlaybackStateChange={syncProjection}
               />
             ) : (
-              <div className="grid h-[500px] place-items-center rounded-[6px] border border-dashed border-rose-200 bg-rose-50 text-sm text-rose-700">
+              <div className="grid h-[420px] place-items-center rounded-[6px] border border-dashed border-rose-200 bg-rose-50 text-sm text-rose-700 xl:min-h-0 xl:flex-1">
                 授课资源课堂未关联，请重新生成课程。
               </div>
             )}
           </div>
 
-          <aside className="min-w-0 bg-white p-4">
+          <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-white p-4">
             <h3 className="flex items-center gap-2 text-sm font-bold text-stone-900">
               <FileText className="text-amber-600" size={17} /> 教师讲稿
             </h3>
-            {selected ? <p className="mt-1 text-xs text-[var(--pbl-teacher)]">{selected.stageLabel ?? stageKey} · {selected.generationPurpose === "facilitation-scaffold" ? "教师主持支架" : selected.generationPurpose === "companion-guidance" ? "伴学引导提示" : "教师资源脚本"}</p> : null}
-            {selected?.description ? (
-              <p className="mt-3 text-xs leading-6 text-stone-500">{selected.description}</p>
-            ) : null}
             {selected?.keyPoints.length ? (
-              <ul className="mt-3 space-y-1.5 border-y border-stone-100 py-3">
+              <ul className="mt-3 space-y-1.5 border-b border-stone-100 pb-3">
                 {selected.keyPoints.map((point) => (
                   <li className="flex gap-2 text-xs leading-5 text-stone-600" key={point}>
                     <span className="text-[var(--pbl-teacher-border)]">·</span><span>{point}</span>
@@ -318,7 +328,7 @@ export function TeacherStageResources({
               </ul>
             ) : null}
             {selected?.script ? (
-              <div className="mt-3 max-h-[340px] overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-amber-50/70 p-3 text-sm leading-7 text-stone-700 ring-1 ring-amber-100">
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-amber-50/70 p-3 text-sm leading-7 text-stone-700 ring-1 ring-amber-100">
                 {selected.script}
               </div>
             ) : (
@@ -336,7 +346,7 @@ export function TeacherStageResources({
             ) : null}
           </aside>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

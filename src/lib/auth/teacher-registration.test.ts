@@ -25,6 +25,28 @@ describe("TeacherRegistrationSchema", () => {
     ).toBe(false);
   });
 
+  it("accepts a ten-character password", () => {
+    const parsed = TeacherRegistrationSchema.safeParse({
+      username: "teacher",
+      displayName: "李老师",
+      password: "openpbl123",
+      confirmPassword: "openpbl123",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects a password shorter than ten characters", () => {
+    const parsed = TeacherRegistrationSchema.safeParse({
+      username: "teacher",
+      displayName: "李老师",
+      password: "openpbl12",
+      confirmPassword: "openpbl12",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects mismatched password confirmation", () => {
     const parsed = TeacherRegistrationSchema.safeParse({
       username: "teacher",

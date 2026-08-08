@@ -10,5 +10,5 @@ export function ProjectMakingTeacherView({
   course: Course;
   onSelectStudent?: (studentId: string) => void;
 }) {
-  return <div className="space-y-8"><header className="border-b border-[var(--pbl-border)] pb-5"><p className="text-sm font-semibold text-[var(--pbl-teacher)]">课堂巡视与介入台</p><h2 className="font-editorial mt-1 text-2xl font-semibold">按学生查看制作进度与伴学风险</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--pbl-text-muted)]">学生卡片集中显示进度和真实伴学风险；教师可打开统一观察台查看证据并介入。</p></header><WorkspaceTeacherView course={course} onSelectStudent={onSelectStudent} /></div>;
+  return <div className="space-y-8"><header className="border-b border-[var(--pbl-border)] pb-5"><h2 className="font-editorial text-2xl font-semibold">阶段四 · 项目实践</h2><p className="mt-2 text-sm text-[var(--pbl-text-muted)]">查看学生作品版本和需要帮助的学生。</p></header><WorkspaceTeacherView course={course} onSelectStudent={onSelectStudent} /></div>;
 }

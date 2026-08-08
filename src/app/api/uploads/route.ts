@@ -1,11 +1,7 @@
-import { createWriteStream } from "node:fs";
-import { mkdir, stat, unlink } from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { pipeline } from "node:stream/promises";
-import { Readable } from "node:stream";
-import Busboy, { type BusboyFileStream } from "@fastify/busboy";
-import { fileTypeFromFile } from "file-type";
+import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileTypeFromBuffer } from "file-type";
 import { z } from "zod";
 import { prisma, isDatabaseConfigured } from "@/lib/db/client";
 import { authenticateRequest, requireSameOrigin } from "@/lib/auth/request-guards";
@@ -15,15 +11,14 @@ import { rateLimitedResponse } from "@/lib/auth/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const dataDir =
-  process.env.UPLOAD_DIR?.trim() ||
-  path.resolve(".openpbl-data", "uploads");
+const dataDir = process.env.UPLOAD_DIR?.trim() || path.resolve(".openpbl-data", "uploads");
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_REQUEST_BYTES = MAX_UPLOAD_BYTES + 256 * 1024;
 
 const UploadFieldsSchema = z.object({
   title: z.string().trim().max(200).optional(),
-  courseId: z.string().uuid().optional(),
+  courseId: z.string().trim().min(1).max(128).optional(),
+  bindAsCourseResource: z.literal("true").optional(),
 });
 
 const ALLOWED_TYPES: Record<string, { detected: string[]; mime: string }> = {
@@ -48,23 +43,14 @@ const ALLOWED_TYPES: Record<string, { detected: string[]; mime: string }> = {
   ".webp": { detected: ["webp"], mime: "image/webp" },
 };
 
-type PendingFile = {
-  id: string;
-  originalName: string;
-  storedName: string;
-  targetPath: string;
-  extension: string;
-  stream: BusboyFileStream;
-  write: Promise<void>;
-};
-
 export async function POST(request: Request) {
+  const requestId = request.headers.get("x-request-id") ?? randomUUID();
   const csrfError = requireSameOrigin(request);
   if (csrfError) return csrfError;
   const auth = await authenticateRequest(request);
   if ("response" in auth) return auth.response;
   if (!isDatabaseConfigured()) {
-    return apiError(request, "DATABASE_REQUIRED", "Uploads require the production database.", 503);
+    return apiError(requestId, "DATABASE_REQUIRED", "上传功能需要连接数据库。", 503);
   }
 
   const limit = await checkDistributedRateLimit({
@@ -77,161 +63,142 @@ export async function POST(request: Request) {
 
   const contentLength = Number(request.headers.get("content-length") ?? "");
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
-    return apiError(request, "FILE_TOO_LARGE", "Upload exceeds 50 MiB.", 413);
+    return apiError(requestId, "FILE_TOO_LARGE", "单个文件不能超过 50 MiB。", 413);
   }
   const contentType = request.headers.get("content-type");
-  if (!contentType?.toLowerCase().startsWith("multipart/form-data") || !request.body) {
-    return apiError(request, "INVALID_CONTENT_TYPE", "Expected multipart/form-data.", 415);
+  if (!contentType?.toLowerCase().startsWith("multipart/form-data")) {
+    return apiError(requestId, "INVALID_CONTENT_TYPE", "请求必须使用 multipart/form-data。", 415);
   }
 
-  await mkdir(/* turbopackIgnore: true */ dataDir, { recursive: true });
-  const fields: Record<string, string> = {};
-  let pending: PendingFile | null = null;
-  let parseError: Error | null = null;
-  const parser = Busboy({
-    headers: { "content-type": contentType },
-    limits: {
-      files: 1,
-      fields: 4,
-      parts: 5,
-      fieldNameSize: 64,
-      fieldSize: 1_024,
-      fileSize: MAX_UPLOAD_BYTES,
-      headerPairs: 64,
-      headerSize: 16 * 1024,
-    },
-  });
-
-  parser.on("field", (name, value, _nameTruncated, valueTruncated) => {
-    if (valueTruncated) parseError = new Error("Form field is too large.");
-    if (name === "title" || name === "courseId") fields[name] = value;
-  });
-  parser.on("file", (fieldName, stream, filename) => {
-    if (pending || fieldName !== "file") {
-      parseError = new Error("Exactly one file field is required.");
-      stream.resume();
-      return;
-    }
-    const originalName = path.basename(filename).normalize("NFC");
-    const extension = path.extname(originalName).toLowerCase();
-    if (!ALLOWED_TYPES[extension]) {
-      parseError = new Error("Unsupported file extension.");
-      stream.resume();
-      return;
-    }
-    const id = randomUUID();
-    const storedName = `${id}${extension}`;
-    const targetPath = path.join(dataDir, storedName);
-    stream.once("limit", () => {
-      parseError = new Error("Upload exceeds 50 MiB.");
-    });
-    pending = {
-      id,
-      originalName,
-      storedName,
-      targetPath,
-      extension,
-      stream,
-      write: pipeline(
-        stream,
-        createWriteStream(/* turbopackIgnore: true */ targetPath, {
-          flags: "wx",
-          mode: 0o600,
-        }),
-      ),
-    };
-  });
-  parser.on("filesLimit", () => {
-    parseError = new Error("Only one file is allowed.");
-  });
-  parser.on("fieldsLimit", () => {
-    parseError = new Error("Too many form fields.");
-  });
-  parser.on("partsLimit", () => {
-    parseError = new Error("Too many multipart sections.");
-  });
-
+  let targetPath: string | null = null;
+  let failureStage = "parse-form-data";
   try {
-    const input = Readable.fromWeb(
-      request.body as unknown as import("node:stream/web").ReadableStream<Uint8Array>,
-    );
-    await pipeline(input, parser);
-    const completed = pending as PendingFile | null;
-    if (completed) await completed.write;
-    if (parseError) throw parseError;
-    if (!completed) throw new Error("Missing file.");
-    if (completed.stream.truncated) throw new Error("Upload exceeds 50 MiB.");
+    const form = await request.formData().catch(() => {
+      throw new UploadHttpError("INVALID_MULTIPART", "无法解析上传内容，请重新选择文件后重试。", 400);
+    });
+    const files = form.getAll("file");
+    if (files.length !== 1 || !(files[0] instanceof File)) {
+      throw new UploadHttpError("FILE_REQUIRED", "请选择一个文件上传。", 400);
+    }
 
-    const parsedFields = UploadFieldsSchema.safeParse(fields);
-    if (!parsedFields.success) throw new Error("Invalid upload metadata.");
+    const file = files[0];
+    const originalName = path.basename(file.name).normalize("NFC");
+    const extension = path.extname(originalName).toLowerCase();
+    const expected = ALLOWED_TYPES[extension];
+    if (!expected) {
+      throw new UploadHttpError("UNSUPPORTED_FILE", "暂不支持该文件格式。", 415);
+    }
+    if (file.size <= 0) {
+      throw new UploadHttpError("EMPTY_FILE", "不能上传空文件。", 400);
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new UploadHttpError("FILE_TOO_LARGE", "单个文件不能超过 50 MiB。", 413);
+    }
+
+    failureStage = "validate-metadata";
+    const rawFields = {
+      title: getOptionalText(form, "title"),
+      courseId: getOptionalText(form, "courseId"),
+      bindAsCourseResource: getOptionalText(form, "bindAsCourseResource"),
+    };
+    const parsedFields = UploadFieldsSchema.safeParse(rawFields);
+    if (!parsedFields.success) {
+      throw new UploadHttpError("INVALID_METADATA", "课程或文件信息无效，请刷新页面后重试。", 400);
+    }
+
     const courseId = parsedFields.data.courseId ?? null;
-    if (
-      auth.claims.role === "student" &&
-      (!courseId || courseId !== auth.claims.courseId)
-    ) {
-      throw new UploadHttpError("FORBIDDEN", "Students may upload only to their course.", 403);
+    const bindAsCourseResource = parsedFields.data.bindAsCourseResource === "true";
+    if (bindAsCourseResource && auth.claims.role !== "teacher") {
+      throw new UploadHttpError("FORBIDDEN", "只有教师可以发布课程资源。", 403);
+    }
+    if (bindAsCourseResource && !courseId) {
+      throw new UploadHttpError("COURSE_REQUIRED", "发布课程资源时必须指定课程。", 400);
+    }
+    if (auth.claims.role === "student" && (!courseId || courseId !== auth.claims.courseId)) {
+      throw new UploadHttpError("FORBIDDEN", "学生只能向当前课程上传文件。", 403);
     }
     if (courseId) {
       const courseExists = await prisma.course.count({ where: { id: courseId } });
-      if (courseExists !== 1) throw new UploadHttpError("COURSE_NOT_FOUND", "Course not found.", 404);
+      if (courseExists !== 1) {
+        throw new UploadHttpError("COURSE_NOT_FOUND", "课程不存在或已被删除。", 404);
+      }
     }
 
-    const detected = await fileTypeFromFile(completed.targetPath);
-    const expected = ALLOWED_TYPES[completed.extension];
+    failureStage = "inspect-file";
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const detected = await fileTypeFromBuffer(bytes).catch(() => null);
     if (!detected || !expected.detected.includes(detected.ext)) {
-      throw new UploadHttpError(
-        "FILE_SIGNATURE_MISMATCH",
-        "File contents do not match the extension.",
-        415,
-      );
-    }
-    const info = await stat(/* turbopackIgnore: true */ completed.targetPath);
-    if (info.size <= 0 || info.size > MAX_UPLOAD_BYTES) {
-      throw new UploadHttpError("FILE_TOO_LARGE", "Invalid upload size.", 413);
+      throw new UploadHttpError("FILE_SIGNATURE_MISMATCH", "文件内容与扩展名不匹配，可能是文件已损坏或仅修改了后缀名。", 415);
     }
 
-    await prisma.uploadFile.create({
-      data: {
-        id: completed.id,
-        fileName: completed.originalName,
-        storedName: completed.storedName,
-        courseId,
-        uploadedById: auth.claims.sub!,
-        uploadedByRole: auth.claims.role,
-        size: info.size,
-        mimeType: expected.mime,
-        referencedBy: [],
-        refCount: 0,
-      },
+    const id = randomUUID();
+    const storedName = `${id}${extension}`;
+    targetPath = path.join(dataDir, storedName);
+    failureStage = "write-file";
+    await mkdir(/* turbopackIgnore: true */ dataDir, { recursive: true });
+    await writeFile(/* turbopackIgnore: true */ targetPath, bytes, {
+      flag: "wx",
+      mode: 0o600,
+    });
+    const info = await stat(/* turbopackIgnore: true */ targetPath);
+    if (info.size <= 0 || info.size > MAX_UPLOAD_BYTES) {
+      throw new UploadHttpError("INVALID_FILE_SIZE", "文件大小无效。", 413);
+    }
+
+    const title = parsedFields.data.title || originalName;
+    const fileType = extension.slice(1).toUpperCase();
+    const formattedSize = formatSize(info.size);
+    const url = `/api/uploads/${id}`;
+    failureStage = "bind-database";
+    await prisma.$transaction(async (tx) => {
+      await tx.uploadFile.create({
+        data: {
+          id,
+          fileName: originalName,
+          storedName,
+          courseId,
+          uploadedById: auth.claims.sub!,
+          uploadedByRole: auth.claims.role,
+          size: info.size,
+          mimeType: expected.mime,
+          referencedBy: bindAsCourseResource ? [id] : [],
+          refCount: bindAsCourseResource ? 1 : 0,
+        },
+      });
+      if (bindAsCourseResource && courseId) {
+        await tx.courseResource.create({
+          data: {
+            id,
+            courseId,
+            title,
+            type: fileType,
+            size: formattedSize,
+            description: "教师在项目启动阶段补充的课程资源",
+            url,
+            downloadedBy: [],
+          },
+        });
+        await tx.course.update({
+          where: { id: courseId },
+          data: { version: { increment: 1 } },
+        });
+      }
     });
 
     return Response.json(
-      {
-        id: completed.id,
-        title: parsedFields.data.title || completed.originalName,
-        fileName: completed.originalName,
-        fileType: completed.extension.slice(1).toUpperCase(),
-        size: formatSize(info.size),
-        url: `/api/uploads/${completed.id}`,
-      },
-      { status: 201 },
+      { id, title, fileName: originalName, fileType, size: formattedSize, url, boundToCourse: bindAsCourseResource },
+      { status: 201, headers: { "x-request-id": requestId } },
     );
   } catch (error) {
-    const failed = pending as PendingFile | null;
-    if (failed) {
-      await unlink(/* turbopackIgnore: true */ failed.targetPath).catch(() => undefined);
+    if (targetPath) {
+      await unlink(/* turbopackIgnore: true */ targetPath).catch(() => undefined);
     }
     if (error instanceof UploadHttpError) {
-      return apiError(request, error.code, error.message, error.status);
+      return apiError(requestId, error.code, error.message, error.status);
     }
-    const message = error instanceof Error ? error.message : "Upload failed.";
-    const tooLarge = message.includes("50 MiB");
-    return apiError(
-      request,
-      tooLarge ? "FILE_TOO_LARGE" : "INVALID_UPLOAD",
-      tooLarge ? "Upload exceeds 50 MiB." : "The uploaded file is invalid.",
-      tooLarge ? 413 : 400,
-    );
+    const detail = serializeUploadError(error);
+    console.error(`[uploads] Unexpected upload failure ${JSON.stringify({ requestId, failureStage, ...detail })}`);
+    return apiError(requestId, "UPLOAD_SERVICE_ERROR", "上传服务暂时不可用，请稍后重试。", 500);
   }
 }
 
@@ -245,10 +212,26 @@ class UploadHttpError extends Error {
   }
 }
 
-function apiError(request: Request, code: string, message: string, status: number): Response {
+function getOptionalText(form: FormData, name: string): string | undefined {
+  const value = form.get(name);
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function serializeUploadError(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) return { error: String(error) };
+  const databaseError = error as Error & { code?: string; meta?: unknown };
+  return {
+    name: databaseError.name,
+    message: databaseError.message,
+    code: databaseError.code,
+    meta: databaseError.meta,
+  };
+}
+
+function apiError(requestId: string, code: string, message: string, status: number): Response {
   return Response.json(
-    { code, message, requestId: request.headers.get("x-request-id") ?? "unknown" },
-    { status },
+    { code, message, requestId },
+    { status, headers: { "x-request-id": requestId } },
   );
 }
 

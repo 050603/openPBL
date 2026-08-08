@@ -38,7 +38,12 @@ export interface TriggerEvent {
 export interface PlaybackEngineCallbacks {
   onModeChange?: (mode: EngineMode) => void;
   onSceneChange?: (sceneId: string) => void;
-  onSpeechStart?: (text: string) => void;
+  onSpeechStart?: (
+    text: string,
+    cue?: { sceneId: string; actionIndex: number },
+  ) => void;
+  /** Reading position within the active lecture speech, normalized to 0-1. */
+  onSpeechProgress?: (progress: number) => void;
   onSpeechEnd?: () => void;
   onTextDelta?: (content: string) => void;
   onSpeakerChange?: (role: string) => void;

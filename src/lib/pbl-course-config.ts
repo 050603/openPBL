@@ -7,6 +7,7 @@
 
 import { getCompanion } from "@/lib/ai-companions";
 import { COMPANION_STAGE_KEYS, buildStagePolicyPrompt, getCompanionStagePolicy } from "@/lib/companion/stage-policy";
+import type { LearningPresetId } from "@/lib/learning-evidence/types";
 
 export type PblCompanionId =
   | "knowledge"
@@ -43,6 +44,8 @@ export type PblCourseConfig = {
   projectMode: "personal";
   /** Used by the deterministic timing model to adjust scaffolding and practice demand. */
   difficultyLevel: "introductory" | "standard" | "advanced";
+  /** Optional teacher override; otherwise inferred conservatively from grade. */
+  learnerPreset?: LearningPresetId;
   evidenceRequirements: PblEvidenceRequirement[];
   outcome: PblOutcomeSpec;
   companionIds: PblCompanionId[];
@@ -158,12 +161,7 @@ export function normalizePblCourseConfig(
     .filter((item) => item.label && item.stageKeys.length > 0)
     .map(cloneEvidenceRequirement);
 
-  const configuredCompanions = Array.isArray(input?.companionIds)
-    ? input.companionIds.filter((id): id is PblCompanionId => PBL_COMPANION_ORDER.includes(id as PblCompanionId))
-    : PBL_COMPANION_ORDER;
-  const companionIds = Array.from(
-    new Set<PblCompanionId>([...configuredCompanions, "recorder"]),
-  );
+  const companionIds = [...PBL_COMPANION_ORDER];
   const inquiryQuestions = Array.from(
     new Set(
       (Array.isArray(input?.inquiryQuestions) ? input.inquiryQuestions : [])
@@ -180,6 +178,13 @@ export function normalizePblCourseConfig(
       input?.difficultyLevel === "advanced"
         ? input.difficultyLevel
         : "standard",
+    learnerPreset:
+      input?.learnerPreset === "guided"
+      || input?.learnerPreset === "research"
+        ? input.learnerPreset
+        : input?.learnerPreset === "standard"
+          ? "standard"
+          : undefined,
     evidenceRequirements,
     outcome: {
       ...DEFAULT_PBL_OUTCOME,

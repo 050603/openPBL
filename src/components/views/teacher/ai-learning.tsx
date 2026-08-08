@@ -9,7 +9,6 @@ import {
   Clock3,
   Eye,
   PauseCircle,
-  Repeat2,
   Route,
   Settings2,
   Users,
@@ -61,7 +60,6 @@ function summarizeStudent(course: Course, student: Student) {
     }
   }
   const expectedDurationMs = [...expectedByScene.values()].reduce((sum, value) => sum + value, 0);
-  const replayCount = events.filter((event) => event.type === "scene-replay").length;
   const lastEvent = events.at(-1);
   const signals = (course.learningSignals ?? []).filter(
     (signal) => signal.studentId === student.id
@@ -79,7 +77,6 @@ function summarizeStudent(course: Course, student: Student) {
     progress: computeAiLearningProgress(course.aiLearningProgress?.[student.id]),
     effectiveDurationMs,
     expectedDurationMs,
-    replayCount,
     lastEvent,
     signals,
     hasEvidence: events.length > 0,
@@ -141,7 +138,6 @@ export function AiLearningTeacherView({
         }, 0) / evidenceStudents.length,
       )
     : undefined;
-  const repeatLearners = summaries.filter((summary) => summary.replayCount >= 3).length;
   const unresolvedSignals = summaries.flatMap((summary) => summary.signals);
   const commonIssues = aggregateCommonIssues(unresolvedSignals, course.students.length);
 
@@ -183,27 +179,19 @@ export function AiLearningTeacherView({
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-col gap-3 border-b border-[var(--pbl-border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-teacher)]">AI 授知 · 教师观察台</p>
-          <h2 className="mt-1 text-2xl font-black text-stone-950">用学习证据决定何时现场介入</h2>
-          <p className="mt-1 text-sm text-stone-500">本阶段不控制伴学 Agent；风险用于教师巡视、个别辅导和全班补充教学。</p>
-        </div>
-        {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
-      </header>
-
       {!hasClassroom ? (
         <Card className="border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70">
           <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-black text-[var(--pbl-warning)]">AI 课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
         </Card>
       ) : null}
 
-      <section aria-label="AI 授知班级指标" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="AI 授知班级指标" className="grid gap-3 sm:grid-cols-3">
         <MetricCard icon={<Bot size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
         <MetricCard icon={<Clock3 size={19} />} label="容忍时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对设计、实际语音与思考操作余量"} />
-        <MetricCard icon={<Repeat2 size={19} />} label="重复学习学生" value={evidenceStudents.length ? `${repeatLearners} 人` : "—"} helper={evidenceStudents.length ? "同一内容重复至少 3 次且未形成进展" : "暂无足够证据"} />
         <MetricCard icon={<CircleAlert size={19} />} label="未解决风险" value={evidenceStudents.length ? `${unresolvedSignals.length} 条` : "—"} helper={evidenceStudents.length ? "需要教师观察或介入" : "暂无足够证据"} tone={unresolvedSignals.length ? "danger" : "default"} />
       </section>
+
+      {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
 
       <Card>
         <div className="flex items-center justify-between gap-3">
@@ -219,8 +207,8 @@ export function AiLearningTeacherView({
 
       <Card>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div><h3 className="text-lg font-black">学生学习证据与资源响应</h3><p className="mt-1 text-sm text-stone-500">查看前测缺口、模块掌握与额外资源学习状态；教师可关闭或重新开启个体编排。</p></div>
-          <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+          <div><h3 className="text-lg font-black">学生学习情况</h3></div>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
             <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">存在先决缺口 {summaries.filter((summary) => (course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.pretestWeakKnowledgePointIds?.length ?? 0) > 0).length}</span>
             <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-900">已学额外资源 {summaries.filter((summary) => course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.branchRuns.some((run) => run.status === "completed")).length}</span>
           </div>

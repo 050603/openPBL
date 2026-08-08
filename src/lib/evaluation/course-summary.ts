@@ -2,7 +2,12 @@ import type { Course, CourseSummaryPresentation } from "@/lib/session/types";
 
 type SummaryEvaluation = {
   summary: string;
-  dimensions: Array<{ name: string; score: number; evidence: string[] }>;
+  dimensions: Array<{
+    name: string;
+    score?: number;
+    evidenceIds: string[];
+    evidenceGaps: string[];
+  }>;
   highlights: string[];
   improvements: string[];
 };
@@ -12,11 +17,18 @@ export function buildCourseSummaryPresentation(
   evaluation?: SummaryEvaluation | null,
 ): CourseSummaryPresentation {
   const now = new Date().toISOString();
-  const evidenceIds = evaluation?.dimensions.flatMap((dimension) => dimension.evidence).filter(Boolean) ?? [];
+  const evidenceIds = evaluation?.dimensions
+    .flatMap((dimension) => dimension.evidenceIds)
+    .filter(Boolean) ?? [];
   const highlights = evaluation?.highlights.length ? evaluation.highlights : ["课堂过程亮点：待教师根据真实学生产物补充。"];
   const improvements = evaluation?.improvements.length ? evaluation.improvements : ["下一步改进：待教师结合班级共性问题补充。"];
   const dimensions = evaluation?.dimensions.length
-    ? evaluation.dimensions.map((dimension) => `${dimension.name}：${dimension.score} 分`)
+    ? evaluation.dimensions.map((dimension) =>
+        `${dimension.name}：${
+          typeof dimension.score === "number"
+            ? `${dimension.score} 分`
+            : "0 分（证据不足）"
+        }`)
     : ["过程推进：待填充", "证据与迭代：待填充", "方案专业性：待填充"];
   const slides = [
     {

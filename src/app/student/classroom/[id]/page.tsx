@@ -1,31 +1,28 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Clock3,
   Hourglass,
-  ListTodo,
   LogIn,
   MonitorUp,
-  UsersRound,
   X,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StudentLeaveButton } from "@/components/student-leave-button";
 import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
-import { isStudentOnline } from "@/lib/session/actions";
 import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { StudentStageView } from "@/components/views/student/stage-dispatcher";
 import { CompanionRuntimeProvider } from "@/components/views/student/companion-runtime";
 import { CompanionStudioWorkspace } from "@/components/views/student/companion-studio-workspace";
-import { useStudentWorkspaceMode } from "@/components/views/student/workspace-mode";
-import {
-  getStageWorkspacePolicy,
-  resolveStageWorkspaceMode,
-} from "@/lib/classroom/stage-workspace-policy";
+import { getStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
+import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
+import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
+import type { TeacherResourceProjection } from "@/lib/session/types";
+import { useCoursePresence } from "@/hooks/use-course-presence";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
@@ -34,92 +31,32 @@ export default function StudentClassroomPage() {
   useRealtimeSync(params?.id);
   const hydrated = useHydrated();
   const { user, studentName, studentId, joinedCourseId } = useSession();
-  const presenceRef = useRef<{ courseId?: string; studentId?: string }>({});
+  const presence = useCoursePresence({
+    courseId: course?.id,
+    role: "student",
+    enabled: course?.status === "teaching" && course.id === joinedCourseId,
+    heartbeat: true,
+  });
   const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
   const activeStageKey = course?.stages[course.currentStageIndex]?.key;
   const workspacePolicy = getStageWorkspacePolicy(
     course?.stageWorkspacePolicies,
     activeStageKey,
   );
-  const [workspacePreference, setWorkspacePreference] =
-    useStudentWorkspaceMode(
-      params?.id ?? "classroom",
-      studentId,
-      activeStageKey,
-      workspacePolicy.defaultMode,
-    );
-  const workspaceMode = resolveStageWorkspaceMode(
-    workspacePolicy,
-    workspacePreference,
-  );
-  const canSwitchWorkspace = workspacePolicy.access === "student-choice";
+  const workspaceMode = activeStageKey === "ai-learning"
+    || workspacePolicy.access === "task-only"
+    ? "task"
+    : "companions";
+
+  useEffect(() => {
+    if (workspaceMode !== "task" || typeof window === "undefined") return;
+    window.speechSynthesis?.cancel();
+  }, [activeStageKey, workspaceMode]);
 
   useEffect(() => {
     if (!hydrated) return;
     if (joinedCourseId && joinedCourseId !== params?.id) router.replace("/student");
   }, [hydrated, joinedCourseId, params?.id, router]);
-
-  useEffect(() => {
-    if (!hydrated || !course || course.status !== "teaching") return;
-    if (!studentId || course.id !== joinedCourseId) return;
-
-    presenceRef.current = { courseId: course.id, studentId };
-
-    const sendHeartbeat = () => {
-      fetch(`/api/courses/${encodeURIComponent(course.id)}/presence`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-OpenPBL-Role": "student",
-        },
-        keepalive: true,
-      }).catch(() => {
-        // The server sweep handles missed heartbeats.
-      });
-    };
-
-    sendHeartbeat();
-    const intervalId = window.setInterval(sendHeartbeat, 20_000);
-
-    const sendOffline = () => {
-      const { courseId, studentId } = presenceRef.current;
-      if (!courseId || !studentId) return;
-      const url = `/api/courses/${encodeURIComponent(courseId)}/presence`;
-      // visibilitychange hidden / beforeunload 时浏览器会中止大部分 inflight
-      // 请求，sendBeacon 是专门为这种场景设计的 API。如果它返回 false
-      // （被中止或配额超限），不再降级到 fetch —— fetch keepalive 同样会被
-      // 浏览器中止，只会再产生一条 net::ERR_ABORTED 网络错误。直接依赖
-      // 服务器心跳超时机制（HEARTBEAT_TIMEOUT_MS）兜底标记离线即可。
-      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-        try {
-          void fetch(url, {
-            method: "DELETE",
-            headers: { "X-OpenPBL-Role": "student" },
-            keepalive: true,
-          });
-        } catch {
-          // sendBeacon 不可用或被中止 —— 静默失败，依赖心跳超时。
-        }
-      }
-    };
-
-    const handleVisibilityHidden = () => {
-      if (document.visibilityState === "hidden") sendOffline();
-    };
-    const handleBeforeUnload = () => sendOffline();
-
-    document.addEventListener("visibilitychange", handleVisibilityHidden);
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    return () => {
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityHidden);
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      // 组件卸载时不主动调用 sendOffline —— 这通常是 React StrictMode
-      // 双 mount 或路由切换产生的清理，主动上报会触发 net::ERR_ABORTED。
-      // 依赖服务器心跳超时机制兜底。
-    };
-  }, [hydrated, course, studentId, joinedCourseId]);
 
   const displayName = studentName || (user.name && user.name !== "教师" ? user.name : "学生");
 
@@ -151,10 +88,12 @@ export default function StudentClassroomPage() {
   const currentStage = course.stages[course.currentStageIndex];
   const total = course.stages.length;
   const isTeaching = course.status === "teaching";
-  const onlineCount = course.students.filter((s) => isStudentOnline(s)).length;
-  const progress = currentStage && studentId
-    ? course.students.find((item) => item.id === studentId)?.stageProgress[currentStage.key] ?? 0
-    : 0;
+  const onlineCount = course.students.filter((student) =>
+    presence.onlineStudentIds.has(student.id)
+  ).length;
+  const readiness = currentStage && studentId
+    ? deriveStageReadiness(course, studentId, currentStage.key)
+    : null;
   const projectedResource =
     course.uiState?.teacherResourceProjection?.stageKey === currentStage?.key
       ? course.uiState.teacherResourceProjection
@@ -181,12 +120,9 @@ export default function StudentClassroomPage() {
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-student)]" />
               阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
             </span>
-            <div className="flex items-center gap-1.5">
-              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-stone-200">
-                <div className="h-full rounded-full bg-[var(--pbl-student)] transition-all" style={{ width: `${progress}%` }} />
-              </div>
-              <span className="text-[12px] font-bold text-[var(--pbl-student)]">{progress}%</span>
-            </div>
+            <span className="inline-flex h-7 items-center rounded-full bg-white px-2.5 text-[12px] font-bold text-stone-700 ring-1 ring-stone-200">
+              {readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"}
+            </span>
             <span className="text-[12px] font-semibold text-stone-400">在线 {onlineCount}</span>
             <StudentLeaveButton className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-orange-200 bg-white/80 px-2.5 text-[12px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]" />
           </div>
@@ -203,37 +139,19 @@ export default function StudentClassroomPage() {
         <WaitingState status={course.status} />
       ) : currentStage ? (
         <>
-          {forcedProjection ? <StudentProjectedTeacherResource projection={forcedProjection} /> : null}
-          {optionalProjection ? (
-            <div className="mb-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--pbl-teacher)]"><MonitorUp size={18} /></span><div><p className="font-bold text-stone-900">教师正在投屏：{optionalProjection.title}</p><p className="text-xs text-[var(--pbl-teacher)]">你可以继续当前任务，也可以打开只读实时演示。</p></div></div>
-                <PrimaryButton onClick={() => setOptionalProjectionOpen((value) => !value)} type="button" variant="outline">{optionalProjectionOpen ? <><X size={15} />收起投屏</> : <><MonitorUp size={15} />查看投屏</>}</PrimaryButton>
-              </div>
-              {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
-            </div>
-          ) : null}
           {workspaceMode === "task" ? (
             <div className="space-y-3">
-              {canSwitchWorkspace ? (
-                <div className="flex justify-end">
-                  <button
-                    className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-200 bg-[#fff8e8] px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-[#fff1cf]"
-                    onClick={() => setWorkspacePreference("companions")}
-                    type="button"
-                  >
-                    <UsersRound size={15} />
-                    进入 AI 伴学场景
-                  </button>
+              {forcedProjection ? <StudentProjectedTeacherResource projection={forcedProjection} /> : null}
+              {optionalProjection ? (
+                <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--pbl-teacher)]"><MonitorUp size={18} /></span><div><p className="font-bold text-stone-900">教师正在投屏：{optionalProjection.title}</p><p className="text-xs text-[var(--pbl-teacher)]">你可以继续当前任务，也可以打开只读实时演示。</p></div></div>
+                    <PrimaryButton onClick={() => setOptionalProjectionOpen((value) => !value)} type="button" variant="outline">{optionalProjectionOpen ? <><X size={15} />收起投屏</> : <><MonitorUp size={15} />查看投屏</>}</PrimaryButton>
+                  </div>
+                  {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
                 </div>
               ) : null}
-              <section
-                className={
-                  currentStage.key === "ai-learning"
-                    ? "overflow-hidden rounded-[var(--radius-lg)]"
-                    : "pbl-card overflow-hidden rounded-[var(--radius-lg)] p-4 md:p-5"
-                }
-              >
+              <section className="overflow-hidden rounded-[var(--radius-lg)]">
                 <StudentStageView
                   course={course}
                   view={currentStage.view}
@@ -246,28 +164,106 @@ export default function StudentClassroomPage() {
               course={course}
               stageKey={currentStage.key}
             >
-              {canSwitchWorkspace ? (
-                <div className="mb-3 flex justify-end">
-                  <button
-                    className="inline-flex min-h-9 items-center gap-2 rounded-full border border-stone-200 bg-white/90 px-3.5 text-xs font-bold text-stone-700 shadow-sm transition hover:border-[var(--pbl-student-border)] hover:text-[var(--pbl-student)]"
-                    onClick={() => setWorkspacePreference("task")}
-                    type="button"
-                  >
-                    <ListTodo size={15} />
-                    切换到传统学习页面
-                  </button>
-                </div>
-              ) : null}
               <CompanionStudioWorkspace
                 contextLabel={currentStage.label}
                 course={course}
+                onOpenTeacherProjection={optionalProjection
+                  ? () => setOptionalProjectionOpen(true)
+                  : undefined}
                 stageKey={currentStage.key}
+                teacherProjection={optionalProjection
+                  ? { title: optionalProjection.title }
+                  : undefined}
               />
+              {forcedProjection ? (
+                <ProjectedResourceOverlay projection={forcedProjection} />
+              ) : optionalProjection && optionalProjectionOpen ? (
+                <ProjectedResourceOverlay
+                  onClose={() => setOptionalProjectionOpen(false)}
+                  projection={optionalProjection}
+                />
+              ) : null}
             </CompanionRuntimeProvider>
           )}
         </>
       ) : null}
     </DashboardShell>
+  );
+}
+
+function ProjectedResourceOverlay({
+  projection,
+  onClose,
+}: {
+  projection: TeacherResourceProjection;
+  onClose?: () => void;
+}) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[140] flex items-stretch justify-end bg-slate-950/25 p-2 backdrop-blur-[3px] sm:p-3"
+      role="presentation"
+    >
+      {onClose ? (
+        <button
+          aria-label="关闭教师演示"
+          className="absolute inset-0 cursor-default"
+          onClick={onClose}
+          type="button"
+        />
+      ) : null}
+      <section
+        aria-labelledby="student-projection-title"
+        aria-modal="true"
+        className="relative z-10 flex h-full w-full max-w-[1480px] flex-col overflow-hidden rounded-2xl border border-white/80 bg-stone-50 shadow-[0_28px_90px_rgba(15,23,42,.28)] sm:rounded-[24px]"
+        role="dialog"
+      >
+        <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-stone-200 bg-white/95 px-4 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
+              <MonitorUp size={19} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[.16em] text-[var(--pbl-teacher)]">
+                {onClose ? "可选课堂演示" : "教师同步演示"}
+              </p>
+              <h2 className="truncate text-base font-black text-stone-950 sm:text-lg" id="student-projection-title">
+                {projection.title}
+              </h2>
+            </div>
+          </div>
+          {onClose ? (
+            <button
+              aria-label="关闭教师演示"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-stone-300 hover:bg-stone-50"
+              onClick={onClose}
+              type="button"
+            >
+              <X size={18} />
+            </button>
+          ) : (
+            <span className="rounded-full bg-[var(--pbl-teacher-soft)] px-3 py-1.5 text-xs font-bold text-[var(--pbl-teacher)]">
+              课堂同步中
+            </span>
+          )}
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3">
+          <StudentProjectedTeacherResource projection={projection} />
+        </div>
+      </section>
+    </div>
   );
 }
 

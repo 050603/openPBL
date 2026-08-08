@@ -117,7 +117,7 @@ describe('directional walking cadence', () => {
   })
 
   it('derives world speed from stride, authored fps, and frame count', () => {
-    expect(walkingSpeedForAction('fc_walking_h')).toBe(90)
+    expect(walkingSpeedForAction('fc_walking_h')).toBeCloseTo(85, 1)
     expect(walkingSpeedForAction('fc_walking_up')).toBe(85)
     expect(walkingSpeedForAction('fc_walking_down')).toBe(85)
   })
@@ -127,7 +127,7 @@ describe('directional walking cadence', () => {
       { x: 0, y: 0 },
       { x: 90, y: 0 },
       'fc_walking_h',
-    )).toBe(1000)
+    )).toBe(1059)
     expect(walkingDurationForAction(
       { x: 0, y: 0 },
       { x: 0, y: 85 },

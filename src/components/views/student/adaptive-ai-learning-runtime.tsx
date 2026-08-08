@@ -374,6 +374,8 @@ export function AdaptiveAiLearningRuntime({
         classroomId={classroomId}
         className="rounded-none border-0"
         courseId={course.id}
+        knowledgeGraph={course.content.knowledgeGraph}
+        knowledgePoints={course.content.knowledgePoints ?? []}
         onSceneComplete={(detail) => {
           if (
             (detail.scene as Scene & { openpblAdaptiveInsertionId?: string })

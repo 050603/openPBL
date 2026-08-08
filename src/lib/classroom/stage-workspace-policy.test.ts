@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_STAGE_WORKSPACE_POLICY,
   getStageWorkspacePolicy,
   normalizeStageWorkspacePolicy,
   resolveStageWorkspaceMode,
@@ -9,22 +8,20 @@ import {
 } from "./stage-workspace-policy";
 
 describe("stage workspace policy", () => {
-  it("keeps the first two stages fixed to the traditional learning page", () => {
-    ["launch", "ai-learning"].forEach((stageKey) => {
+  it("uses companion immersion only for proposal and making", () => {
+    ["proposal", "make"].forEach((stageKey) => {
+      expect(stageSupportsCompanionWorkspace(stageKey)).toBe(true);
+      expect(getStageWorkspacePolicy(undefined, stageKey)).toEqual({
+        access: "companions-only",
+        defaultMode: "companions",
+      });
+    });
+    ["launch", "ai-learning", "showcase", "reflection"].forEach((stageKey) => {
       expect(stageSupportsCompanionWorkspace(stageKey)).toBe(false);
       expect(getStageWorkspacePolicy(undefined, stageKey)).toEqual({
         access: "task-only",
         defaultMode: "task",
       });
-    });
-  });
-
-  it("defaults stages three through six to teacher-enabled student choice", () => {
-    ["proposal", "make", "showcase", "reflection"].forEach((stageKey) => {
-      expect(stageSupportsCompanionWorkspace(stageKey)).toBe(true);
-      expect(getStageWorkspacePolicy(undefined, stageKey)).toEqual(
-        DEFAULT_STAGE_WORKSPACE_POLICY,
-      );
     });
   });
 
@@ -70,23 +67,23 @@ describe("stage workspace policy", () => {
     ).toBe("task");
   });
 
-  it("refuses companion policies for the first two stages", () => {
-    const policies = updateStageWorkspacePolicy(undefined, "launch", {
+  it("refuses companion policies for every fixed task stage", () => {
+    const policies = updateStageWorkspacePolicy(undefined, "showcase", {
       access: "companions-only",
     });
-    expect(policies.launch).toEqual({
+    expect(policies.showcase).toEqual({
       access: "task-only",
       defaultMode: "task",
     });
   });
 
-  it("persists teacher control for supported stages", () => {
+  it("does not let legacy teacher settings disable a companion stage", () => {
     const policies = updateStageWorkspacePolicy(undefined, "make", {
       access: "task-only",
     });
     expect(policies.make).toEqual({
-      access: "task-only",
-      defaultMode: "task",
+      access: "companions-only",
+      defaultMode: "companions",
     });
   });
 });

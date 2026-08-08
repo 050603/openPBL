@@ -15,7 +15,6 @@ import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { useSettingsStore } from '@openmaic/lib/store/settings';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { SceneSidebar } from '@openmaic/components/stage/scene-sidebar';
-import { Header } from '@openmaic/components/header';
 import { CanvasArea } from '@openmaic/components/canvas/canvas-area';
 import { Roundtable } from '@openmaic/components/roundtable';
 import { PlaybackEngine, computePlaybackView } from '@openmaic/lib/playback';
@@ -64,9 +63,9 @@ export interface PlaybackChromeRootHandle {
 
 interface PlaybackChromeRootProps {
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
-  /** Whether the Pro Switch in Header should be enabled. */
+  /** Retained for Stage API compatibility; student playback no longer renders a top header. */
   readonly canEnterProMode?: boolean;
-  /** Pro Switch click handler — parent coordinates editLock + teardown. */
+  /** Retained for Stage API compatibility; edit transitions remain owned by Stage. */
   readonly onEnterProMode?: () => void;
   readonly experience?: StageExperience;
   readonly playbackState?: PlaybackSyncState;
@@ -78,24 +77,27 @@ interface PlaybackChromeRootProps {
    * manipulations replayed. No-op for other experiences.
    */
   readonly interactionState?: Record<string, unknown> | null;
+  /** When provided, controls the page-thumbnail rail without mutating the
+   * persisted player preference. */
+  readonly sidebarCollapsed?: boolean;
+  readonly onSidebarCollapsedChange?: (collapsed: boolean) => void;
 }
 
 /**
  * PlaybackChromeRoot — owns the entire playback/autonomous chrome and
- * its state. Mounted whenever `mode !== 'edit'`. The Pro Switch in
- * `Header` calls `onEnterProMode`; the parent `Stage` is responsible
+ * its state. Mounted whenever `mode !== 'edit'`. The parent `Stage` is responsible
  * for calling `ref.teardown()` before unmounting this root so SSE and
  * the engine wind down cleanly.
  */
 export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackChromeRootProps>(
   function PlaybackChromeRoot({
     onRetryOutline,
-    canEnterProMode,
-    onEnterProMode,
     experience = 'student-course',
     playbackState,
     onPlaybackStateChange,
     interactionState,
+    sidebarCollapsed: controlledSidebarCollapsed,
+    onSidebarCollapsedChange,
   }, ref) {
     const { t } = useI18n();
     const {
@@ -121,8 +123,16 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     }, [onPlaybackStateChange]);
 
     // Layout state from settings store (persisted via localStorage)
-    const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
-    const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
+    const persistedSidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+    const setPersistedSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
+    const sidebarCollapsed = controlledSidebarCollapsed ?? persistedSidebarCollapsed;
+    const setSidebarCollapsed = useCallback((collapsed: boolean) => {
+      if (controlledSidebarCollapsed !== undefined) {
+        onSidebarCollapsedChange?.(collapsed);
+        return;
+      }
+      setPersistedSidebarCollapsed(collapsed);
+    }, [controlledSidebarCollapsed, onSidebarCollapsedChange, setPersistedSidebarCollapsed]);
     const chatAreaWidth = useSettingsStore((s) => s.chatAreaWidth);
     const setChatAreaWidth = useSettingsStore((s) => s.setChatAreaWidth);
     const chatAreaCollapsed = useSettingsStore((s) => s.chatAreaCollapsed);
@@ -134,6 +144,8 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const [engineMode, setEngineMode] = useState<EngineMode>('idle');
     const [playbackCompleted, setPlaybackCompleted] = useState(false); // Distinguishes "never played" idle from "finished" idle
     const [lectureSpeech, setLectureSpeech] = useState<string | null>(null); // From PlaybackEngine (lecture)
+    const [lectureCueIndex, setLectureCueIndex] = useState(-1);
+    const [lectureSpeechProgress, setLectureSpeechProgress] = useState(0);
     const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
     const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
     const [discussionTrigger, setDiscussionTrigger] = useState<TriggerEvent | null>(null);
@@ -301,6 +313,8 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       resetLiveState();
       setPlaybackCompleted(false);
       setLectureSpeech(null);
+      setLectureCueIndex(-1);
+      setLectureSpeechProgress(0);
       setSpeechProgress(null);
       setShowEndFlash(false);
       setActiveBubbleId(null);
@@ -547,8 +561,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         onSceneChange: () => {
           // Scene change handled by engine
         },
-        onSpeechStart: (text) => {
+        onSpeechStart: (text, cue) => {
           setLectureSpeech(text);
+          setLectureCueIndex(cue?.actionIndex ?? -1);
+          setLectureSpeechProgress(0);
           // Add to lecture session with incrementing index for dedup
           // Chat area pacing is handled by the StreamBuffer (onTextReveal)
           if (lectureSessionIdRef.current) {
@@ -564,6 +580,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
             if (msgId) setActiveBubbleId(msgId);
           }
         },
+        onSpeechProgress: setLectureSpeechProgress,
         onSpeechEnd: () => {
           // Don't clear lectureSpeech — let it persist until the next
           // onSpeechStart replaces it or the scene transitions.
@@ -802,6 +819,25 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       audioPlayerRef.current.setPlaybackRate(playbackSpeed);
     }, [playbackSpeed]);
 
+    // Pre-generated audio exposes a precise clock. Browser-native speech sends
+    // equivalent boundary events through PlaybackEngine, so both paths drive
+    // the same subtitle progress value without changing course narration.
+    useEffect(() => {
+      if (engineMode !== 'playing' || !lectureSpeech) return;
+      const updateFromAudio = () => {
+        const audioPlayer = audioPlayerRef.current;
+        if (!audioPlayer.isPlaying()) return;
+        const duration = audioPlayer.getDuration();
+        if (duration <= 0) return;
+        setLectureSpeechProgress(
+          Math.max(0, Math.min(1, audioPlayer.getCurrentTime() / duration)),
+        );
+      };
+      updateFromAudio();
+      const timer = window.setInterval(updateFromAudio, 120);
+      return () => window.clearInterval(timer);
+    }, [engineMode, lectureSpeech]);
+
     /**
      * Handle discussion SSE — POST /api/chat and push events to engine
      */
@@ -830,6 +866,27 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         currentScene?.actions?.find((a): a is SpeechAction => a.type === 'speech')?.text ?? null,
       [currentScene],
     );
+    const lectureCues = useMemo(
+      () =>
+        (currentScene?.actions ?? []).flatMap((action, actionIndex) =>
+          action.type === 'speech' && action.text.trim()
+            ? [{ actionIndex, text: action.text.trim() }]
+            : [],
+        ),
+      [currentScene],
+    );
+    const activeLectureCuePosition = useMemo(() => {
+      const position = lectureCues.findIndex((cue) => cue.actionIndex === lectureCueIndex);
+      if (position >= 0) return position;
+      const textPosition = lectureCues.findIndex((cue) => cue.text === (lectureSpeech ?? firstSpeechText));
+      return textPosition >= 0 ? textPosition : 0;
+    }, [firstSpeechText, lectureCueIndex, lectureCues, lectureSpeech]);
+    const playLectureCueAt = useCallback((position: number) => {
+      const cue = lectureCues[position];
+      if (!cue) return false;
+      setPlaybackCompleted(false);
+      return engineRef.current?.playSpeechAt(cue.actionIndex) ?? false;
+    }, [lectureCues]);
 
     // Whether the speaking agent is a student (for bubble role derivation)
     const speakingStudentFlag = useMemo(() => {
@@ -1156,16 +1213,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     // 192px in playback mode (autonomous hides it). Mode is guaranteed
     // non-'edit' here since the parent Stage unmounts this component
     // when entering Pro mode.
-    const sceneViewerHeight = (() => {
-      const headerHeight = isStudentCourse && !isPresenting ? 80 : 0;
-      const roundtableHeight =
-        capabilities.showRoundtable && mode === 'playback' && !isPresenting
-          ? activeActivity?.purpose === 'interaction'
-            ? 236
-            : 192
-          : 0;
-      return `calc(100% - ${headerHeight + roundtableHeight}px)`;
-    })();
+    const useSideTeachingRail =
+      isStudentCourse &&
+      !isPresenting &&
+      !playbackView.isInLiveFlow &&
+      !discussionRequest &&
+      !isCueUser;
 
     return (
       <div
@@ -1184,32 +1237,21 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         /> : null}
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
-          {/* Header — playback only. The Pro Switch fires `onEnterProMode`
-            (passed by the parent Stage) which acquires the cross-tab
-            edit lock and then awaits our `teardown()` before flipping
-            mode to 'edit'. */}
-          {isStudentCourse && !isPresenting && (
-            <Header
-              currentSceneTitle={
-                currentScene?.title ||
-                (isCourseComplete && isPendingScene ? t('stage.courseComplete') : '')
-              }
-              mode={mode}
-              canEdit={!!canEnterProMode}
-              onToggleEditMode={onEnterProMode}
-              showControls={capabilities.showHeaderControls}
-            />
+        <div
+          className={cn(
+            'relative flex min-w-0 flex-1 flex-col overflow-hidden',
+            useSideTeachingRail &&
+              'xl:grid xl:grid-cols-[minmax(0,1fr)_304px] xl:grid-rows-[minmax(0,1fr)]',
           )}
-
+        >
           {/* Canvas Area — playback-only renderer. The parent Stage swaps
             this whole PlaybackChromeRoot out when entering edit mode, so
             no inline branching is needed here. */}
           <div
-            className="overflow-hidden relative flex-1 min-h-0 isolate"
-            style={{
-              height: sceneViewerHeight,
-            }}
+            className={cn(
+              'relative isolate min-h-0 flex-1 overflow-hidden',
+              useSideTeachingRail && 'xl:col-start-1 xl:row-start-1',
+            )}
             suppressHydrationWarning
           >
             <CanvasArea
@@ -1243,6 +1285,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               minimalToolbar={isTeacherResource}
               readOnly={isProjectedReadonly}
               showCourseComplete={isStudentCourse}
+              integrated={isStudentCourse}
               isPendingScene={isPendingScene}
               isCourseComplete={isStudentCourse && isCourseComplete}
               isGenerationFailed={
@@ -1263,6 +1306,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 'transition-opacity duration-300',
                 !isPresenting && 'shrink-0',
                 isPresenting && 'absolute inset-x-0 bottom-0 z-20',
+                useSideTeachingRail && 'xl:col-start-2 xl:row-start-1 xl:h-full xl:min-h-0',
               )}
             >
               <Roundtable
@@ -1285,6 +1329,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 playbackView={playbackView}
                 currentSpeech={liveSpeech}
                 lectureSpeech={lectureSpeech}
+                lectureSpeechProgress={lectureSpeechProgress}
+                lectureCues={lectureCues}
+                activeLectureActionIndex={lectureCueIndex}
                 idleText={firstSpeechText}
                 playbackCompleted={playbackCompleted}
                 discussionRequest={discussionRequest}
@@ -1377,6 +1424,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 }}
                 onResumeTopic={doResumeTopic}
                 onPlayPause={handlePlayPause}
+                onPreviousCue={() => playLectureCueAt(activeLectureCuePosition - 1)}
+                onNextCue={() => playLectureCueAt(activeLectureCuePosition + 1)}
+                canGoPreviousCue={activeLectureCuePosition > 0}
+                canGoNextCue={activeLectureCuePosition < lectureCues.length - 1}
                 isDiscussionPaused={isDiscussionPaused}
                 onDiscussionPause={() => {
                   const paused = chatAreaRef.current?.pauseActiveLiveBuffer();

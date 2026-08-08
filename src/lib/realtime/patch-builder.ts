@@ -65,6 +65,13 @@ function actionToEventType(
     case "UPSERT_COMPANION_CONFIRMATION":
     case "RESOLVE_COMPANION_CONFIRMATION":
     case "ADD_COMPANION_PROCESS_RECORD":
+    case "REQUEST_TEACHER_HELP":
+    case "UPSERT_LEARNING_EVIDENCE":
+    case "REVIEW_LEARNING_EVIDENCE":
+    case "UPSERT_ARTIFACT_SNAPSHOT":
+    case "UPSERT_AI_CONTRIBUTION":
+    case "RECORD_STUDENT_AI_DECISION":
+    case "UPSERT_AI_ASSESSMENT_SUGGESTION":
     case "SET_UI_STATE":
     case "ADD_ACTIVITY":
     case "SET_PRESENTING_GROUP":
@@ -155,6 +162,13 @@ function courseIdFromAction(action: SessionAction): string | undefined {
     case "UPSERT_COMPANION_CONFIRMATION":
     case "RESOLVE_COMPANION_CONFIRMATION":
     case "ADD_COMPANION_PROCESS_RECORD":
+    case "REQUEST_TEACHER_HELP":
+    case "UPSERT_LEARNING_EVIDENCE":
+    case "REVIEW_LEARNING_EVIDENCE":
+    case "UPSERT_ARTIFACT_SNAPSHOT":
+    case "UPSERT_AI_CONTRIBUTION":
+    case "RECORD_STUDENT_AI_DECISION":
+    case "UPSERT_AI_ASSESSMENT_SUGGESTION":
     case "SET_UI_STATE":
       return action.payload.courseId;
     case "HYDRATE":

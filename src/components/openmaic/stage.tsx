@@ -37,6 +37,8 @@ export function Stage({
   playbackState,
   onPlaybackStateChange,
   interactionState,
+  sidebarCollapsed,
+  onSidebarCollapsedChange,
 }: {
   onRetryOutline?: (outlineId: string) => Promise<void>;
   experience?: StageExperience;
@@ -49,6 +51,9 @@ export function Stage({
    * see the teacher's manipulations replayed on their device.
    */
   interactionState?: Record<string, unknown> | null;
+  /** Controlled page-thumbnail rail state for embedded preview surfaces. */
+  sidebarCollapsed?: boolean;
+  onSidebarCollapsedChange?: (collapsed: boolean) => void;
 }) {
   const { mode, setMode, scenes, currentSceneId, generatingOutlines, stage } = useStageStore();
   const currentScene = useStageStore((s) => s.getCurrentScene());
@@ -169,6 +174,8 @@ export function Stage({
               playbackState={playbackState}
               onPlaybackStateChange={onPlaybackStateChange}
               interactionState={interactionState}
+              sidebarCollapsed={sidebarCollapsed}
+              onSidebarCollapsedChange={onSidebarCollapsedChange}
             />
           </motion.div>
         )}

@@ -101,6 +101,9 @@ export class PlaybackEngine {
   private browserTTSChunks: string[] = []; // sentence-level chunks for sequential playback
   private browserTTSChunkIndex: number = 0; // current chunk being spoken
   private browserTTSPausedChunks: string[] = []; // remaining chunks saved on pause (for cancel+re-speak)
+  private browserTTSTotalChars: number = 0;
+  private browserTTSBaseChars: number = 0;
+  private browserTTSPausedBaseChars: number = 0;
   private speechTimerRemaining: number = 0; // remaining ms (set on pause)
   private speechTimerIsActivityPause: boolean = false;
   private speechTimerIsTimelinePause: boolean = false;
@@ -181,6 +184,20 @@ export class PlaybackEngine {
     this.processNext();
   }
 
+  /** Restart playback from one exact speech cue in the current scene. */
+  playSpeechAt(actionIndex: number): boolean {
+    const scene = this.scenes[0];
+    const action = scene?.actions?.[actionIndex];
+    if (!action || action.type !== 'speech' || !action.text.trim()) return false;
+
+    this.stop();
+    this.sceneIndex = 0;
+    this.actionIndex = actionIndex;
+    this.setMode('playing');
+    this.processNext();
+    return true;
+  }
+
   /** playing → paused | live → paused (abort SSE, truncate, topic pending) */
   pause(): void {
     if (this.mode === 'playing') {
@@ -209,6 +226,11 @@ export class PlaybackEngine {
           // speechSynthesis.pause()/resume() is broken on Firefox, so we
           // cancel now and re-speak from current chunk onward on resume.
           this.browserTTSPausedChunks = this.browserTTSChunks.slice(this.browserTTSChunkIndex);
+          this.browserTTSPausedBaseChars =
+            this.browserTTSBaseChars +
+            this.browserTTSChunks
+              .slice(0, this.browserTTSChunkIndex)
+              .reduce((total, chunk) => total + chunk.length, 0);
           window.speechSynthesis?.cancel();
           // Note: cancel fires onerror('canceled'), which we ignore (see playBrowserTTSChunk)
         } else if (this.audioPlayer.isPlaying()) {
@@ -246,6 +268,7 @@ export class PlaybackEngine {
         this.browserTTSActive = true;
         this.browserTTSChunks = this.browserTTSPausedChunks;
         this.browserTTSChunkIndex = 0;
+        this.browserTTSBaseChars = this.browserTTSPausedBaseChars;
         this.browserTTSPausedChunks = [];
         this.playBrowserTTSChunk();
       } else if (this.audioPlayer.hasActiveAudio()) {
@@ -566,10 +589,15 @@ export class PlaybackEngine {
           this.callbacks.onActivityStart?.(this.activeActivity);
           break;
         }
-        this.callbacks.onSpeechStart?.(speechAction.text);
+        this.callbacks.onSpeechStart?.(speechAction.text, {
+          sceneId,
+          actionIndex: this.actionIndex - 1,
+        });
+        this.callbacks.onSpeechProgress?.(0);
 
         // onEnded → processNext; if paused, resume() will call processNext
         this.audioPlayer.onEnded(() => {
+          this.callbacks.onSpeechProgress?.(1);
           this.callbacks.onSpeechEnd?.();
           if (this.mode === 'playing') {
             this.processNext();
@@ -764,6 +792,12 @@ export class PlaybackEngine {
     this.browserTTSChunks = this.splitIntoChunks(speechAction.text);
     this.browserTTSChunkIndex = 0;
     this.browserTTSPausedChunks = [];
+    this.browserTTSTotalChars = Math.max(
+      1,
+      this.browserTTSChunks.reduce((total, chunk) => total + chunk.length, 0),
+    );
+    this.browserTTSBaseChars = 0;
+    this.browserTTSPausedBaseChars = 0;
     this.browserTTSActive = true;
     this.playBrowserTTSChunk();
   }
@@ -774,6 +808,7 @@ export class PlaybackEngine {
       // All chunks done
       this.browserTTSActive = false;
       this.browserTTSChunks = [];
+      this.callbacks.onSpeechProgress?.(1);
       this.callbacks.onSpeechEnd?.();
       if (this.mode === 'playing') this.processNext();
       return;
@@ -781,6 +816,11 @@ export class PlaybackEngine {
 
     const settings = useSettingsStore.getState();
     const chunkText = this.browserTTSChunks[this.browserTTSChunkIndex];
+    const chunkStart =
+      this.browserTTSBaseChars +
+      this.browserTTSChunks
+        .slice(0, this.browserTTSChunkIndex)
+        .reduce((total, chunk) => total + chunk.length, 0);
     const utterance = new SpeechSynthesisUtterance(chunkText);
 
     // Apply settings
@@ -814,7 +854,17 @@ export class PlaybackEngine {
       utterance.lang = cjkRatio > CJK_LANG_THRESHOLD ? 'zh-CN' : 'en-US';
     }
 
+    utterance.onboundary = (event) => {
+      const charIndex = Math.max(0, Math.min(chunkText.length, event.charIndex));
+      this.callbacks.onSpeechProgress?.(
+        Math.min(1, (chunkStart + charIndex) / this.browserTTSTotalChars),
+      );
+    };
+
     utterance.onend = () => {
+      this.callbacks.onSpeechProgress?.(
+        Math.min(1, (chunkStart + chunkText.length) / this.browserTTSTotalChars),
+      );
       this.browserTTSChunkIndex++;
       if (this.mode === 'playing') {
         this.playBrowserTTSChunk(); // next chunk
@@ -882,6 +932,9 @@ export class PlaybackEngine {
       this.browserTTSChunks = [];
       this.browserTTSChunkIndex = 0;
       this.browserTTSPausedChunks = [];
+      this.browserTTSTotalChars = 0;
+      this.browserTTSBaseChars = 0;
+      this.browserTTSPausedBaseChars = 0;
       window.speechSynthesis?.cancel();
     }
   }

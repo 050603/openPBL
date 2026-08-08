@@ -80,13 +80,33 @@ export async function DELETE(
   if (!file || (auth.claims.role !== "teacher" && file.uploadedById !== auth.claims.sub)) {
     return new Response(null, { status: 404 });
   }
-  await prisma.uploadFile.update({
-    where: { id: file.id },
-    data: { deletedAt: new Date() },
+  if (path.basename(file.storedName) !== file.storedName) {
+    return new Response(null, { status: 404 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const removedResource = await tx.courseResource.deleteMany({
+      where: { id: file.id, ...(file.courseId ? { courseId: file.courseId } : {}) },
+    });
+    await tx.uploadFile.update({
+      where: { id: file.id },
+      data: { deletedAt: new Date(), referencedBy: [], refCount: 0 },
+    });
+    if (file.courseId && removedResource.count > 0) {
+      await tx.course.update({
+        where: { id: file.courseId },
+        data: { version: { increment: 1 } },
+      });
+    }
   });
   await unlink(
     /* turbopackIgnore: true */ path.join(dataDir, file.storedName),
-  ).catch(() => undefined);
+  ).catch((error) => {
+    console.warn("[uploads] Resource metadata deleted but disk cleanup failed", {
+      uploadId: file.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   return new Response(null, { status: 204 });
 }
 

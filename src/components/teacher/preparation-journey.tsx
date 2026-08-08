@@ -40,7 +40,7 @@ export function PreparationJourney({
           </Link>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-800">
-              课程设计旅程 · {current.phase}
+              课程设计 · {current.phase}
             </p>
             <h2 className="font-editorial mt-1 text-xl font-semibold text-stone-950">
               {current.label}
@@ -51,7 +51,7 @@ export function PreparationJourney({
           </div>
         </div>
         <div className="rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs font-semibold tabular-nums text-stone-600">
-          第 {currentIndex + 1} 站 / 共 {PREPARATION_FLOW_STEPS.length} 站
+          步骤 {currentIndex + 1} / {PREPARATION_FLOW_STEPS.length}
         </div>
       </div>
 

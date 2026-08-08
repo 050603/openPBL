@@ -10,18 +10,16 @@ export type AiCollaborationEvidence = {
 
 export type AiCollaborationHealth =
   | { status: "insufficient-evidence"; score: null; reasons: string[] }
-  | { status: "scored"; score: number; reasons: string[] };
+  | { status: "support-observation"; score: null; reasons: string[] };
 
 export function evaluateAiCollaborationHealth(evidence: AiCollaborationEvidence): AiCollaborationHealth {
   const observable = evidence.specificContextCount + evidence.independentProgressCount + evidence.verificationCount + evidence.artifactChangeCount + evidence.corroborationCount + evidence.delegationPatternCount;
   if (observable < 2) return { status: "insufficient-evidence", score: null, reasons: ["可观察的提问、核验或产物变化证据不足"] };
-  const positive = Math.min(20, evidence.specificContextCount * 4) + Math.min(25, evidence.independentProgressCount * 5) + Math.min(20, evidence.verificationCount * 5) + Math.min(20, evidence.artifactChangeCount * 4) + Math.min(15, evidence.corroborationCount * 5);
-  const penalty = Math.min(60, evidence.delegationPatternCount * 25);
-  const score = Math.max(0, Math.min(100, positive - penalty));
   const reasons = [
-    evidence.verificationCount ? "能核验或修改 AI 输出" : "尚未观察到核验行为",
-    evidence.artifactChangeCount ? "对话后产生了实际产物推进" : "对话后产物推进证据不足",
-    evidence.delegationPatternCount ? "出现直接索要完整答案或代做的模式" : "未发现明显代做依赖",
+    evidence.verificationCount ? "观察到核验或修改 AI 输出的行为" : "尚未观察到核验行为",
+    evidence.artifactChangeCount ? "观察到对话后的产物推进" : "对话后产物推进证据不足",
+    evidence.delegationPatternCount ? "出现直接索要完整答案或代做的模式，需要即时支援" : "未发现明显代做依赖",
+    "该观察只用于调整支架，不作为分数或阶段进度",
   ];
-  return { status: "scored", score, reasons };
+  return { status: "support-observation", score: null, reasons };
 }

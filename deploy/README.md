@@ -16,7 +16,7 @@ loopback and is reached through an SSH tunnel.
 
    `docker compose --env-file deploy/.deploy.env -f docker-compose.prod.yml run --rm -e OPENPBL_INITIAL_TEACHER_PASSWORD migrate pnpm exec tsx scripts/init-teacher.ts --username teacher --display-name "Teacher"`
 
-   Export `OPENPBL_INITIAL_TEACHER_PASSWORD` (at least 12 characters) in the
+   Export `OPENPBL_INITIAL_TEACHER_PASSWORD` (at least 10 characters) in the
    operator shell first and replace the example names. The command deliberately
    refuses to run once any teacher exists and reads the database URL from the
    same Docker secret as the migration command.

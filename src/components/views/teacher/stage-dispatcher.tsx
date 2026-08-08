@@ -1,11 +1,9 @@
 import type { Course, StageViewKey } from "@/lib/session/types";
-import { ProjectLaunchTeacherView } from "./project-launch";
 import { AiLearningTeacherView } from "./ai-learning";
-import { WorkspaceTeacherView } from "./workspace";
-import { ShowcaseTeacherView } from "./showcase";
+import { ProjectLaunchTeacherView } from "./project-launch";
 import { ReflectionTeacherView } from "./reflection";
-import { ProposalReviewTeacherView } from "./proposal-review";
-import { ProjectMakingTeacherView } from "./project-making";
+import { ShowcaseTeacherView } from "./showcase";
+import { CompanionMonitor } from "./companion-monitor";
 
 /**
  * Teacher-side stage view dispatcher.
@@ -37,27 +35,17 @@ export function TeacherStageView({
         />
       );
     case "group":
-      return <ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />;
+      return <CompanionMonitor className="mt-0" course={course} stageKey="proposal" />;
     case "workspace":
-      return <WorkspaceTeacherView course={course} onSelectStudent={onSelectStudent} />;
+      return <CompanionMonitor className="mt-0" course={course} stageKey="make" />;
     case "proposal-review":
-      return <ProposalReviewTeacherView course={course} onSelectGroup={onSelectGroup} />;
+      return <CompanionMonitor className="mt-0" course={course} stageKey="proposal" />;
     case "project-making":
-      return <ProjectMakingTeacherView course={course} onSelectStudent={onSelectStudent} />;
+      return <CompanionMonitor className="mt-0" course={course} stageKey="make" />;
     case "showcase":
-      return (
-        <ShowcaseTeacherView
-          course={course}
-          onSelectGroup={onSelectGroup}
-        />
-      );
+      return <ShowcaseTeacherView course={course} onSelectGroup={onSelectGroup} />;
     case "reflection":
-      return (
-        <ReflectionTeacherView
-          course={course}
-          onSelectStudent={onSelectStudent}
-        />
-      );
+      return <ReflectionTeacherView course={course} onSelectStudent={onSelectStudent} />;
     default:
       return <ProjectLaunchTeacherView course={course} />;
   }

@@ -36,19 +36,28 @@ export function PageState({ action, description, icon, title, tone = "neutral" }
 export function FlowActionBar({
   back,
   children,
+  fullBleed = false,
   persistent = false,
+  reserveSpace = true,
   saveStatus,
 }: {
   back?: ReactNode;
   children: ReactNode;
+  fullBleed?: boolean;
   persistent?: boolean;
+  reserveSpace?: boolean;
   saveStatus?: ReactNode;
 }) {
   const bar = (
-    <div className={cn(
-      "pbl-safe-bottom z-30 border-t border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] px-4 pt-3 shadow-[0_-8px_24px_rgba(31,41,51,0.06)] backdrop-blur-sm md:px-6",
-      persistent ? "fixed inset-x-0 bottom-0" : "sticky bottom-0 mt-8",
-    )}>
+    <div
+      className={cn(
+        "pbl-safe-bottom z-30 border-t border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] px-4 pt-3 shadow-[0_-8px_24px_rgba(31,41,51,0.06)] backdrop-blur-sm md:px-6",
+        persistent ? "fixed inset-x-0 bottom-0" : "sticky bottom-0 mt-8",
+      )}
+      style={fullBleed && !persistent
+        ? { marginLeft: "calc(50% - 50vw)", width: "100vw" }
+        : undefined}
+    >
       <div className="mx-auto flex max-w-[96rem] items-center justify-between gap-3">
         <div className="min-w-0">{back}</div>
         <div className="hidden flex-1 justify-center sm:flex">{saveStatus}</div>
@@ -59,7 +68,7 @@ export function FlowActionBar({
 
   return (
     <>
-      {persistent ? <div aria-hidden="true" className="h-24" /> : null}
+      {persistent && reserveSpace ? <div aria-hidden="true" className="h-24" /> : null}
       {bar}
     </>
   );

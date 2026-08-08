@@ -40,6 +40,14 @@ model Course {
   classConfig                   Json?
   pblConfig                     Json?
   stageWorkspacePolicies        Json?
+  // Canonical evidence workspace. Kept as bounded JSONB arrays because the
+  // course aggregate is replaced atomically and these contracts evolve
+  // together with the classroom workflow.
+  learningEvidence              Json?
+  artifactSnapshots             Json?
+  aiContributions               Json?
+  studentAiDecisions            Json?
+  aiAssessmentSuggestions       Json?
   // Course content (single nested object) — kept as JSONB for flexibility.
   content                       Json?
   // Stages array — small bounded list, JSONB is sufficient.

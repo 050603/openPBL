@@ -23,6 +23,7 @@ type PixiStageProps = {
   onClearSelection: () => void
   studyZoneCommand: StudyZoneCommand | null
   ambientMotion: boolean
+  paused?: boolean
 }
 
 export default function PixiStage({
@@ -33,6 +34,7 @@ export default function PixiStage({
   onClearSelection,
   studyZoneCommand,
   ambientMotion,
+  paused = false,
 }: PixiStageProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<Application | null>(null)
@@ -48,6 +50,7 @@ export default function PixiStage({
   const selectedAgentIdRef = useRef(selectedAgentId)
   const studyZoneCommandRef = useRef<StudyZoneCommand | null>(studyZoneCommand)
   const ambientMotionRef = useRef(ambientMotion)
+  const pausedRef = useRef(paused)
   const lastStudyZoneCommandRef = useRef<number | null>(null)
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [loadingError, setLoadingError] = useState<string | null>(null)
@@ -88,8 +91,13 @@ export default function PixiStage({
 
   useEffect(() => {
     ambientMotionRef.current = ambientMotion
-    controllerRef.current?.setAmbientMotion(ambientMotion)
-  }, [ambientMotion])
+    pausedRef.current = paused
+    controllerRef.current?.setAmbientMotion(ambientMotion && !paused)
+    const app = appRef.current
+    if (!app) return
+    if (paused) app.ticker.stop()
+    else app.ticker.start()
+  }, [ambientMotion, paused])
 
   useEffect(() => {
     const mountNode = mountRef.current
@@ -151,8 +159,9 @@ export default function PixiStage({
 
         sceneRef.current = scene
         controllerRef.current = scene.officeController
-        scene.officeController.setAmbientMotion(ambientMotionRef.current)
+        scene.officeController.setAmbientMotion(ambientMotionRef.current && !pausedRef.current)
         app.stage.addChild(scene.container)
+        if (pausedRef.current) app.ticker.stop()
         syncController(scene.officeController, agentStatesRef.current, selectedAgentIdRef.current)
         const command = studyZoneCommandRef.current
         if (command && lastStudyZoneCommandRef.current !== command.token) {

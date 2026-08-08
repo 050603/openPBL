@@ -232,9 +232,9 @@ export default function TeacherRegisterPage() {
                 autoComplete="new-password"
                 icon={<Lock size={16} />}
                 label="登录密码"
-                minLength={12}
+                minLength={10}
                 onChange={setPassword}
-                placeholder="至少 12 个字符"
+                placeholder="至少 10 个字符"
                 type="password"
                 value={password}
               />
@@ -242,7 +242,7 @@ export default function TeacherRegisterPage() {
                 autoComplete="new-password"
                 icon={<Lock size={16} />}
                 label="确认密码"
-                minLength={12}
+                minLength={10}
                 onChange={setConfirmPassword}
                 placeholder="再次输入密码"
                 type="password"
@@ -262,8 +262,8 @@ export default function TeacherRegisterPage() {
                   submitting ||
                   username.trim().length < 3 ||
                   !displayName.trim() ||
-                  password.length < 12 ||
-                  confirmPassword.length < 12
+                  password.length < 10 ||
+                  confirmPassword.length < 10
                 }
                 type="submit"
               >

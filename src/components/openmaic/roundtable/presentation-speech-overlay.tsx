@@ -85,7 +85,7 @@ export function buildPresentationBubbleModel({
       role: 'teacher',
       side: 'left',
       name: teacherParticipant?.name || fallbackTeacherName,
-      avatar: teacherParticipant?.avatar || DEFAULT_TEACHER_AVATAR,
+      avatar: DEFAULT_TEACHER_AVATAR,
       text: sourceText,
       isLoading,
       isTopicPending,

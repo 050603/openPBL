@@ -4,19 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   Download,
   Eye,
   FileText,
   Lightbulb,
   Loader2,
   MessageCircle,
+  Search,
   Users,
   Sparkles,
+  RefreshCw,
   Wand2,
+  X,
 } from "lucide-react";
-import { Avatar, AvatarStack } from "@/components/dashboard-shell";
-import { Card, FileBadge, Pill, PrimaryButton, TextArea, toast } from "@/components/ui";
+import { Avatar } from "@/components/dashboard-shell";
+import { Card, FileBadge, PrimaryButton, TextArea, toast } from "@/components/ui";
 import type {
+  AiAssessmentSuggestion,
   Course,
   EvaluationDimension,
   ProjectGroup,
@@ -25,9 +30,64 @@ import type {
 import { useSession } from "@/lib/session/store";
 import { generateProcessEvaluation, type ProcessEvaluationResult } from "@/lib/teaching-ai/client-api";
 import { computeFinalScore } from "@/lib/evaluation/scoring";
+import {
+  aiAssessmentConfidenceLabel,
+  aiAssessmentStatusLabel,
+  calculateProcessSuggestionTotal,
+  confirmedProcessScore,
+  localizeEvaluationText,
+  uniqueEvidenceGaps,
+} from "@/lib/evaluation/process-assessment";
 import { getTeacherEvaluationDimensions } from "@/lib/evaluation/responsibility";
+import {
+  isLearningEvidenceStructurallyComplete,
+} from "@/lib/learning-evidence/readiness";
 
-type StatusTone = "slate" | "blue" | "green" | "orange";
+export type ShowcaseMaterial = {
+  id: string;
+  title: string;
+  fileName: string;
+  fileType: string;
+  url?: string;
+  inspectionStatus: "inspectable" | "student-annotated" | "metadata-only" | "unsupported";
+  note?: string;
+  createdAt: string;
+};
+
+export function collectShowcaseMaterials(course: Course, group: ProjectGroup | undefined): ShowcaseMaterial[] {
+  if (!group) return [];
+  const studentIds = new Set(group.members.map((member) => member.studentId));
+  const byFile = new Map<string, ShowcaseMaterial>();
+  (course.uploads ?? [])
+    .filter((upload) => upload.stageKey === "showcase" && (upload.groupId === group.id || Boolean(upload.studentId && studentIds.has(upload.studentId))))
+    .forEach((upload) => {
+      byFile.set(upload.url || `${upload.fileName}:${upload.createdAt}`, {
+        id: upload.id,
+        title: upload.title,
+        fileName: upload.fileName,
+        fileType: upload.fileType,
+        url: upload.url,
+        inspectionStatus: "metadata-only",
+        createdAt: upload.createdAt,
+      });
+    });
+  (course.artifactSnapshots ?? [])
+    .filter((snapshot) => snapshot.stageKey === "showcase" && studentIds.has(snapshot.studentId))
+    .forEach((snapshot) => {
+      const fileName = snapshot.fileName ?? snapshot.title;
+      byFile.set(snapshot.sourceUrl || `${fileName}:${snapshot.createdAt}`, {
+        id: snapshot.id,
+        title: snapshot.title,
+        fileName,
+        fileType: snapshot.fileType,
+        url: snapshot.sourceUrl,
+        inspectionStatus: snapshot.inspectionStatus,
+        note: snapshot.studentExcerpt ?? snapshot.annotation,
+        createdAt: snapshot.createdAt,
+      });
+    });
+  return [...byFile.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
 
 export function ShowcaseTeacherView({
   course,
@@ -45,47 +105,81 @@ export function ShowcaseTeacherView({
   const dimensions = getTeacherEvaluationDimensions(
     course.content.evaluationPlan.dimensions,
   );
-  const activeUploads = (course.uploads ?? []).filter(
-    (item) => item.groupId === active?.id && item.stageKey === "showcase",
-  );
   const activeStudentIds = new Set(
     active?.members.map((member) => member.studentId) ?? [],
   );
-  const hasActiveProcessEvidence = Boolean(
-    activeUploads.length
-    || (course.submissions ?? []).some(
-      (item) =>
-        item.groupId === active?.id
-        || (item.studentId ? activeStudentIds.has(item.studentId) : false),
-    )
-    || (course.companionThreads ?? []).some(
-      (thread) =>
-        activeStudentIds.has(thread.studentId) && thread.messages.length > 0,
-    )
-    || (course.learningEvents ?? []).some((event) =>
-      activeStudentIds.has(event.studentId),
-    )
-    || (course.companionProcessRecords ?? []).some((record) =>
-      activeStudentIds.has(record.studentId),
-    ),
+  const activeStudentId = active?.members[0]?.studentId;
+  const activeShowcaseEvidence = (course.learningEvidence ?? []).filter(
+    (item) =>
+      activeStudentIds.has(item.studentId)
+      && item.stageKey === "showcase"
+      && item.countsTowardReadiness
+      && ["submitted", "teacher-confirmed"].includes(item.status)
+      && isLearningEvidenceStructurallyComplete(
+        item,
+        course.artifactSnapshots ?? [],
+      ),
   );
+  const requiredShowcaseKinds = [
+    "final-artifact",
+    "presentation-claim",
+    "defense-response",
+  ] as const;
+  const hasCompleteShowcaseEvidence = requiredShowcaseKinds.every((kind) =>
+    activeShowcaseEvidence.some((item) => item.kind === kind));
+  const activeMaterials = collectShowcaseMaterials(course, active);
+  const activeFinalArtifact = activeShowcaseEvidence.find((item) =>
+    item.kind === "final-artifact");
+  const activeIntent = (course.learningEvidence ?? []).find((item) =>
+    item.studentId === activeStudentId && item.kind === "project-intent");
+  const activeProjectTitle =
+    (activeFinalArtifact?.payload as { title?: string } | undefined)?.title
+    ?? (activeIntent?.payload as { personalQuestion?: string } | undefined)?.personalQuestion
+    ?? "尚未形成新流程项目证据";
+  const activeProcessEvidence = (course.learningEvidence ?? []).filter(
+    (item) =>
+      activeStudentIds.has(item.studentId)
+      && item.countsTowardReadiness
+      && ["submitted", "teacher-confirmed"].includes(item.status)
+      && isLearningEvidenceStructurallyComplete(
+        item,
+        course.artifactSnapshots ?? [],
+      ),
+  );
+  const hasActiveProcessEvidence = activeProcessEvidence.length > 0;
+  const persistedSuggestion = (course.aiAssessmentSuggestions ?? [])
+    .filter((item) =>
+      item.studentId === activeStudentId && item.stageKey === "showcase")
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 
   // ===== 取该组已评过的分数（用于编辑模式预填） =====
-  const existingScore: RubricScore | undefined = (course.rubricScores ?? []).find(
-    (s) => s.groupId === active?.id && s.stageKey === "showcase",
-  );
+  const existingScore: RubricScore | undefined = hasCompleteShowcaseEvidence
+    ? (course.rubricScores ?? []).find(
+        (s) => s.groupId === active?.id && s.stageKey === "showcase",
+      )
+    : undefined;
 
   const [scores, setScores] = useState<Record<string, number>>({});
   const [comment, setComment] = useState("");
   const [savingScore, setSavingScore] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState(false);
+  const [studentQuery, setStudentQuery] = useState("");
+  const [materialDrawerOpen, setMaterialDrawerOpen] = useState(false);
   const [message, setMessage] = useState<
     { tone: "ok" | "err"; text: string } | null
   >(null);
   const [processEvaluation, setProcessEvaluation] = useState<ProcessEvaluationResult | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalError, setEvalError] = useState<string | undefined>();
-  const [aiProcessScore, setAiProcessScore] = useState<number | null>(existingScore?.aiTotal ?? null);
+  const [teacherGuidance, setTeacherGuidance] = useState("");
+  const [assessmentSuggestion, setAssessmentSuggestion] =
+    useState<AiAssessmentSuggestion | null>(persistedSuggestion ?? null);
+  const [assessmentScoreDraft, setAssessmentScoreDraft] = useState<number | "">(
+    persistedSuggestion?.teacherScore ?? persistedSuggestion?.suggestedTotal ?? "",
+  );
+  const [aiProcessScore, setAiProcessScore] = useState<number | null>(
+    confirmedProcessScore(persistedSuggestion),
+  );
 
   // Track which group's score we've loaded so we don't reset sliders
   // when dimensions array reference changes during re-renders.
@@ -120,12 +214,27 @@ export function ShowcaseTeacherView({
     setMessage(null);
     setProcessEvaluation(null);
     setEvalError(undefined);
-    setAiProcessScore(existingScore?.aiTotal ?? null);
+    setTeacherGuidance("");
+    setMaterialDrawerOpen(false);
+    setAssessmentSuggestion(persistedSuggestion ?? null);
+    setAssessmentScoreDraft(
+      persistedSuggestion?.teacherScore ?? persistedSuggestion?.suggestedTotal ?? "",
+    );
+    setAiProcessScore(confirmedProcessScore(persistedSuggestion));
     // Group changes are the only reset boundary; including derived rubric objects
     // would overwrite slider edits whenever the session store re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    if (!materialDrawerOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMaterialDrawerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [materialDrawerOpen]);
 
   function flashMessage(text: string, tone: "ok" | "err") {
     setMessage({ tone, text });
@@ -141,47 +250,45 @@ export function ShowcaseTeacherView({
   }, []);
 
   // AI 仅评价过程与方案专业性，不读取教师现场评分，也不提供教师参考分。
-  async function runLiveEval() {
+  async function runLiveEval(guidance?: string) {
     if (!active || !hasActiveProcessEvidence) return;
     setEvalLoading(true);
     setEvalError(undefined);
     try {
-      const result = await generateProcessEvaluation({ course, groupId: active.id });
-      const total = result.dimensions.length
-        ? Math.round(result.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / result.dimensions.length)
-        : null;
-      const aiDimensionScores = Object.fromEntries(
-        result.dimensions.map((dimension) => [dimension.name, dimension.score]),
-      );
-      const aiProcessEvidence = Array.from(
-        new Set(result.dimensions.flatMap((dimension) => dimension.evidence)),
-      );
-      setProcessEvaluation(result);
-      setAiProcessScore(total);
-      const teacherTotal = weightedTotal(scores, dimensions);
-      const finalTotal = computeFinalScore({
-        aiScore: total,
-        aiWeight,
-        teacherScore: teacherTotal,
-        teacherWeight,
-      });
-      session.upsertRubricScore({
-        id: existingScore?.id,
-        courseId: course.id,
+      const result = await generateProcessEvaluation({
+        course,
         groupId: active.id,
-        stageKey: "showcase",
-        dimensionScores: scores,
-        teacherTotal,
-        aiDimensionScores,
-        aiTotal: total,
-        aiProcessSummary: result.summary,
-        aiProcessEvidence,
-        finalTotal: finalTotal ?? undefined,
-        scoringMode: "hybrid",
-        comment: comment.trim(),
-        total: finalTotal ?? teacherTotal,
-        status: existingScore?.status ?? "draft",
+        teacherGuidance: guidance?.trim() || undefined,
       });
+      const total = calculateProcessSuggestionTotal(result.dimensions);
+      const suggestion: AiAssessmentSuggestion = {
+        id: `ai-assessment-${course.id}-${activeStudentId ?? active.id}-showcase`,
+        courseId: course.id,
+        studentId: activeStudentId ?? "",
+        stageKey: "showcase",
+        dimensions: result.dimensions.map((dimension) => ({
+          dimensionId: dimension.dimensionId,
+          dimensionLabel: dimension.name,
+          suggestedScore: dimension.score,
+          rationale: dimension.rationale,
+          evidenceIds: dimension.evidenceIds,
+          evidenceGaps: dimension.evidenceGaps,
+        })),
+        evidenceIds: result.evidenceIds,
+        evidenceGaps: result.evidenceGaps,
+        confidence: result.confidence,
+        suggestedTotal: total,
+        status: "pending-teacher-confirmation",
+        createdAt: new Date().toISOString(),
+      };
+      setProcessEvaluation(result);
+      setAssessmentSuggestion(suggestion);
+      setAssessmentScoreDraft(total);
+      setAiProcessScore(null);
+      session.upsertAiAssessmentSuggestion(suggestion);
+      if (guidance?.trim()) {
+        flashMessage("AI 已按教师指导重新评分，请检查后确认", "ok");
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : "AI 过程评价失败";
       setEvalError(message);
@@ -191,23 +298,80 @@ export function ShowcaseTeacherView({
     }
   }
 
-  async function submitFeedback(kind: "question" | "comment") {
-    if (!active) return;
+  function reviewAiSuggestion(status: "confirmed" | "adjusted" | "rejected") {
+    if (!assessmentSuggestion) return;
+    const teacherScore = status === "confirmed"
+      ? assessmentSuggestion.suggestedTotal
+      : status === "adjusted" && assessmentScoreDraft !== ""
+        ? clampScore(assessmentScoreDraft)
+        : undefined;
+    if (status !== "rejected" && typeof teacherScore !== "number") {
+      flashMessage("证据不足，暂无法确认分数；可拒绝建议并补充证据", "err");
+      return;
+    }
+    const reviewed: AiAssessmentSuggestion = {
+      ...assessmentSuggestion,
+      status,
+      teacherScore,
+      teacherName: session.user.name,
+      teacherComment: comment.trim() || undefined,
+      reviewedAt: new Date().toISOString(),
+    };
+    session.upsertAiAssessmentSuggestion(reviewed);
+    setAssessmentSuggestion(reviewed);
+    setAiProcessScore(status === "rejected" ? null : teacherScore ?? null);
+
+    if (status !== "rejected" && typeof teacherScore === "number" && existingScore) {
+      const synchronizedFinalScore = computeFinalScore({
+        aiScore: teacherScore,
+        aiWeight,
+        teacherScore: existingScore.teacherTotal,
+        teacherWeight,
+      });
+      session.upsertRubricScore({
+        ...existingScore,
+        aiDimensionScores: Object.fromEntries(
+          assessmentSuggestion.dimensions.map((dimension) => [
+            dimension.dimensionId,
+            dimension.suggestedScore ?? 0,
+          ]),
+        ),
+        aiTotal: teacherScore,
+        aiProcessSummary: processEvaluation?.summary ?? existingScore.aiProcessSummary,
+        aiProcessEvidence: assessmentSuggestion.evidenceIds,
+        finalTotal: synchronizedFinalScore ?? undefined,
+        total: synchronizedFinalScore ?? existingScore.teacherTotal ?? existingScore.total,
+      });
+    }
+    flashMessage(
+      status === "rejected"
+        ? "已拒绝AI评价建议，不会进入成绩"
+        : existingScore
+          ? "AI过程分已确认，并同步更新最终分"
+          : "AI过程分已确认；完成教师现场评分后将自动合成最终分",
+      "ok",
+    );
+  }
+
+  async function submitFeedback() {
+    if (!active || !activeStudentId) return;
     if (!comment.trim()) {
-      flashMessage("请先填写点评内容", "err");
+      flashMessage("请先填写现场追问", "err");
       return;
     }
     setSavingFeedback(true);
     try {
-      session.addFeedback({
+      session.upsertTeacherAgentDirective({
         courseId: course.id,
-        targetType: "student",
-        targetId: active.members[0]?.studentId ?? active.id,
         stageKey: "showcase",
-        kind,
-        content: comment.trim(),
+        targetStudentIds: [activeStudentId],
+        targetScope: "student",
+        goal: "完成教师现场追问",
+        instruction: comment.trim(),
+        successCriteria: ["使用至少一条项目证据作答", "说明回答的边界或局限"],
+        status: "active",
       });
-      flashMessage("已发送点评给学生", "ok");
+      flashMessage("现场追问已下发，等待学生形成答辩证据", "ok");
     } catch (e) {
       flashMessage(`发送失败：${e instanceof Error ? e.message : "未知错误"}`, "err");
     } finally {
@@ -215,8 +379,32 @@ export function ShowcaseTeacherView({
     }
   }
 
+  function requestRevision() {
+    if (!comment.trim()) {
+      flashMessage("请先写明需要修订的内容", "err");
+      return;
+    }
+    const targetEvidence = [...activeShowcaseEvidence]
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+    if (!targetEvidence) {
+      flashMessage("尚无可退回的展示学习证据，请先让学生提交任务舱证据", "err");
+      return;
+    }
+    session.upsertLearningEvidence({
+      ...targetEvidence,
+      status: "needs-revision",
+      teacherFeedback: comment.trim(),
+      updatedAt: new Date().toISOString(),
+    });
+    flashMessage("已将展示证据退回修订，并记录教师反馈", "ok");
+  }
+
   async function submitScore(status: "submitted" | "passed" | "revision" = "submitted") {
     if (!active) return;
+    if (!hasCompleteShowcaseEvidence) {
+      flashMessage("最终作品、主张—证据—局限图和答辩证据完整后才能进行现场评分", "err");
+      return;
+    }
     const normalizedScores = dimensions.reduce<Record<string, number>>((result, dimension) => {
       result[dimension.id] = clampScore(scores[dimension.id] ?? 0);
       return result;
@@ -236,26 +424,24 @@ export function ShowcaseTeacherView({
         stageKey: "showcase",
         dimensionScores: normalizedScores,
         teacherTotal: total,
-        aiDimensionScores: processEvaluation
-          ? Object.fromEntries(
-              processEvaluation.dimensions.map((dimension) => [
-                dimension.name,
-                dimension.score,
-              ]),
-            )
-          : existingScore?.aiDimensionScores,
+        aiDimensionScores:
+          assessmentSuggestion
+          && ["confirmed", "adjusted"].includes(assessmentSuggestion.status)
+            ? Object.fromEntries(
+                assessmentSuggestion.dimensions.flatMap((dimension) =>
+                  typeof dimension.suggestedScore === "number"
+                    ? [[dimension.dimensionId, dimension.suggestedScore]]
+                    : []),
+              )
+            : undefined,
         aiTotal: aiProcessScore,
         aiProcessSummary:
           processEvaluation?.summary ?? existingScore?.aiProcessSummary,
-        aiProcessEvidence: processEvaluation
-          ? Array.from(
-              new Set(
-                processEvaluation.dimensions.flatMap(
-                  (dimension) => dimension.evidence,
-                ),
-              ),
-            )
-          : existingScore?.aiProcessEvidence,
+        aiProcessEvidence:
+          assessmentSuggestion
+          && ["confirmed", "adjusted"].includes(assessmentSuggestion.status)
+            ? assessmentSuggestion.evidenceIds
+            : undefined,
         finalTotal: finalTotal ?? undefined,
         scoringMode: "hybrid",
         comment: comment.trim(),
@@ -268,7 +454,9 @@ export function ShowcaseTeacherView({
       flashMessage(
         status === "revision"
           ? `已记录「需修改」，当前总分 ${total}`
-          : finalTotal === null ? `教师评分已提交，等待 AI 过程评价后合成` : `评分已提交，最终分 ${finalTotal}`,
+          : finalTotal === null
+            ? `教师评分已提交，等待教师确认AI过程建议后合成`
+            : `评分已提交，最终分 ${finalTotal}`,
         "ok",
       );
     } catch (e) {
@@ -281,7 +469,6 @@ export function ShowcaseTeacherView({
   function setPresenting(group: ProjectGroup) {
     setActiveId(group.id);
     session.setPresentingGroup(course.id, group.id);
-    session.addActivity(course.id, "切换当前个人汇报", group.name, "教师");
   }
 
   const teacherScoreTotal = weightedTotal(scores, dimensions);
@@ -289,24 +476,24 @@ export function ShowcaseTeacherView({
   const aiWeight = scoredFlows.find((flow) => flow.sourceRole === "ai")?.weight ?? 40;
   const teacherWeight = scoredFlows.find((flow) => flow.sourceRole === "teacher")?.weight ?? 60;
   const finalScore = computeFinalScore({ aiScore: aiProcessScore, aiWeight, teacherScore: teacherScoreTotal || existingScore?.teacherTotal, teacherWeight });
+  const processSummary = processEvaluation?.summary ?? existingScore?.aiProcessSummary;
+  const localizedProcessSummary = processSummary
+    ? localizeEvaluationText(processSummary)
+    : undefined;
+  const processEvidenceById = new Map(
+    activeProcessEvidence.map((evidence) => [evidence.id, evidence]),
+  );
+  const normalizedStudentQuery = studentQuery.trim().toLocaleLowerCase("zh-CN");
+  const filteredGroups = normalizedStudentQuery
+    ? groups.filter((group) => [
+        group.name,
+        group.topic,
+        ...group.members.map((member) => member.name),
+      ].some((value) => value?.toLocaleLowerCase("zh-CN").includes(normalizedStudentQuery)))
+    : groups;
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-4">
-        <Metric label="本场个人汇报数" value={`${groups.length}`} />
-        <Metric
-          label="当前汇报学生"
-          value={groups.find((g) => g.id === course.presentingGroupId)?.name ?? "-"}
-          tone="blue"
-        />
-        <Metric
-          label="已评分"
-          value={`${(course.rubricScores ?? []).filter((s) => s.stageKey === "showcase").length} / ${groups.length}`}
-          tone="green"
-        />
-        <Metric label="展示材料" value={`${(course.uploads ?? []).filter((upload) => upload.stageKey === "showcase").length}`} tone="orange" />
-      </div>
-
+    <div className="space-y-3">
       {message ? (
         <div
           className={`flex items-start gap-2 rounded-[8px] border px-4 py-3 text-sm font-semibold ${
@@ -324,83 +511,95 @@ export function ShowcaseTeacherView({
         </div>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
-        <Card>
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
-            <Users className="text-blue-700" size={20} /> 学生项目列表
-          </h2>
-          <ul className="space-y-2">
-            {groups.map((group) => {
+      <div className="grid gap-3 xl:h-[calc(100dvh-9rem)] xl:min-h-[680px] xl:max-h-[920px] xl:grid-cols-[230px_minmax(0,1fr)] xl:overflow-hidden">
+        <Card className="flex min-h-0 flex-col p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-bold">
+              <Users className="text-blue-700" size={16} /> 学生列表
+            </h2>
+            <span className="text-xs font-semibold text-stone-400">{filteredGroups.length}/{groups.length}</span>
+          </div>
+          <label className="relative mb-2 block">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" size={14} />
+            <input
+              aria-label="搜索学生"
+              className="h-8 w-full rounded-lg border border-stone-200 bg-stone-50 pl-8 pr-2 text-xs outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              onChange={(event) => setStudentQuery(event.target.value)}
+              placeholder="搜索姓名或项目"
+              value={studentQuery}
+            />
+          </label>
+          <ul className="min-h-0 flex-1 space-y-1.5 xl:overflow-y-auto xl:pr-1">
+            {filteredGroups.map((group) => {
               const isPresenting = course.presentingGroupId === group.id;
-              const scored = Boolean(
-                (course.rubricScores ?? []).some(
+              const groupScore = (course.rubricScores ?? []).find(
                   (score) => score.groupId === group.id && score.stageKey === "showcase",
-                ),
               );
+              const studentName = group.members[0]?.name ?? group.name;
               return (
-                <li
-                  className={`cursor-pointer rounded-[6px] border px-3 py-2 transition ${
+                <li key={group.id}>
+                  <button
+                  aria-pressed={group.id === active?.id}
+                  className={`w-full rounded-lg border px-2.5 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600 ${
                     group.id === active?.id
-                      ? "border-blue-400 bg-blue-50/60"
+                      ? "border-blue-400 bg-blue-50 shadow-sm"
                       : "border-stone-200 bg-white hover:border-blue-300"
                   }`}
-                  key={group.id}
                   onClick={() => setActiveId(group.id)}
+                  type="button"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">{group.name}</span>
+                  <div className="flex items-center gap-2">
+                    <Avatar name={studentName} size={28} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="truncate text-sm font-semibold">{studentName}</span>
                     {isPresenting ? (
-                      <Pill tone="green">汇报中</Pill>
-                    ) : scored ? (
-                      <Pill tone="blue">已评</Pill>
+                          <span className="shrink-0 text-[10px] font-bold text-emerald-700">汇报中</span>
+                        ) : groupScore ? (
+                          <span className="shrink-0 text-[10px] font-bold text-blue-700">{Math.round(groupScore.total)}分</span>
                     ) : (
-                      <Pill tone="orange">待评</Pill>
+                          <span className="shrink-0 text-[10px] font-bold text-amber-700">待评</span>
                     )}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-stone-500">{group.topic || "待确认项目主题"}</div>
+                    </div>
                   </div>
-                  <div className="mt-1 text-xs text-stone-500">
-                    {group.topic || "待确认主题"} · 个人项目
-                  </div>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    {group.members.slice(0, 4).map((m) => (
-                      <Avatar key={m.studentId} name={m.name} size={24} />
-                    ))}
-                  </div>
+                  </button>
                 </li>
               );
             })}
+            {!filteredGroups.length ? (
+              <li className="rounded-lg border border-dashed border-stone-200 px-2 py-8 text-center text-xs text-stone-400">没有匹配的学生</li>
+            ) : null}
           </ul>
         </Card>
 
         {active ? (
-          <div className="space-y-5">
-            <Card>
-              <div className="flex items-center justify-between">
+          <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(480px,1.15fr)_minmax(420px,0.85fr)] xl:grid-rows-[auto_minmax(0,1fr)_auto] xl:overflow-hidden">
+            <Card className="p-3 xl:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-bold">
-                    {active.name}
-                    <span className="ml-2 text-base font-semibold text-stone-500">
-                      {active.topic}
-                    </span>
-                  </h2>
-                  <div className="mt-1 flex items-center gap-2 text-sm text-stone-500">
-                    <AvatarStack names={active.members.map((m) => m.name)} /> 汇报人：
-                    {active.members[0]?.name ?? "-"}
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <h2 className="text-base font-bold">{active.members[0]?.name ?? active.name}</h2>
+                    <span className="max-w-2xl truncate text-sm font-semibold text-stone-500">{activeProjectTitle}</span>
                   </div>
                   {existingScore ? (
-                    <div className="mt-1 text-xs text-stone-500">
-                      已评过：总分 {existingScore.total}（{existingScore.status === "passed" ? "通过" : existingScore.status === "revision" ? "需修改" : "已提交"}）
+                    <div className="mt-1 text-[11px] text-stone-500">
+                      已提交评分：{existingScore.total} 分 · {existingScore.status === "passed" ? "通过" : existingScore.status === "revision" ? "需修改" : "已提交"}
                     </div>
                   ) : null}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <PrimaryButton
-                    className="h-9 px-3 text-sm"
-                    onClick={() => onSelectGroup?.(active.id)}
+                    className="h-8 px-2.5 text-xs"
+                    onClick={() => setMaterialDrawerOpen(true)}
+                    type="button"
+                    variant="outline"
                   >
-                    <Eye size={15} /> 查看过程与作品
+                    <FileText size={14} /> 查看材料（{activeMaterials.length}）
                   </PrimaryButton>
                   <PrimaryButton
-                    className="h-9 px-3 text-sm"
+                    className="h-8 px-2.5 text-xs"
                     onClick={() => setPresenting(active)}
                     tone={course.presentingGroupId === active.id ? "green" : "blue"}
                   >
@@ -410,72 +609,47 @@ export function ShowcaseTeacherView({
               </div>
             </Card>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Card>
-                <h3 className="mb-3 flex items-center gap-2 font-bold">
-                  <FileText className="text-blue-700" size={18} /> 展示材料
-                </h3>
-                {activeUploads.length ? (
-                  <ul className="space-y-2">
-                    {activeUploads.map((file) => (
-                      <li
-                        className="flex items-center gap-3 rounded-[6px] border border-stone-200 px-3 py-2"
-                        key={file.id}
-                      >
-                        <FileBadge type={file.fileType} />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold">{file.fileName}</div>
-                          <div className="text-xs text-stone-500">
-                            {file.title} · {file.size}
-                          </div>
-                        </div>
-                        <a
-                          className="grid h-8 w-8 place-items-center rounded-[6px] border border-blue-200 text-blue-700 hover:bg-blue-50"
-                          href={file.url}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          <Eye size={15} />
-                        </a>
-                        <a
-                          className="grid h-8 w-8 place-items-center rounded-[6px] border border-stone-200 text-stone-600 hover:bg-stone-50"
-                          href={file.url}
-                          download
-                        >
-                          <Download size={15} />
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="rounded-[6px] border border-dashed border-stone-300 py-10 text-center text-sm text-stone-500">
-                    暂未提交
+            <div className="contents">
+              <Card className="min-h-0 overflow-y-auto p-4 xl:col-start-1 xl:row-start-2">
+                <div className="flex flex-wrap items-start justify-between gap-2 border-b border-stone-200 pb-2">
+                  <div>
+                    <h3 className="flex items-center gap-2 font-bold text-stone-950">
+                      <span className="grid size-7 place-items-center rounded-lg bg-blue-50 text-blue-700">
+                        <Sparkles size={15} />
+                      </span>
+                      AI 过程评价
+                    </h3>
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-stone-500">
+                      基于学习证据给出建议，缺证据维度记 0 分；教师确认后才计入最终分。
+                    </p>
                   </div>
-                )}
-              </Card>
-
-              <Card className="xl:col-span-2">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="flex items-center gap-2 font-bold">
-                    <Sparkles className="text-blue-600" size={18} /> AI 过程与专业评价
-                  </h3>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${aiProcessScore !== null ? "bg-emerald-50 text-[var(--pbl-success)]" : "bg-stone-100 text-stone-600"}`}>
-                    {aiProcessScore !== null ? `${aiProcessScore} 分 · 权重 ${aiWeight}%` : "待生成"}
+                  <span className={`rounded-full border px-3 py-1 text-xs font-bold ${
+                    aiProcessScore !== null
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : assessmentSuggestion?.status === "pending-teacher-confirmation"
+                        ? "border-amber-200 bg-amber-50 text-amber-800"
+                        : "border-stone-200 bg-stone-50 text-stone-600"
+                  }`}>
+                    {assessmentSuggestion
+                      ? aiAssessmentStatusLabel(assessmentSuggestion.status)
+                      : "尚未生成"}
                   </span>
                 </div>
-                <p className="mb-3 text-sm leading-6 text-stone-600">基于学习轨迹、伴学对话、作品迭代、AI 协作健康度和最终方案专业性独立评分；不会读取或建议教师现场评分。</p>
-                <PrimaryButton
-                  className="h-9 px-3 text-sm"
-                  onClick={() => void runLiveEval()}
-                  disabled={evalLoading || !active || !hasActiveProcessEvidence}
-                  type="button"
-                >
-                  {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                  {evalLoading ? "正在生成..." : "生成 AI 过程评价"}
-                </PrimaryButton>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <PrimaryButton
+                    className="h-8 px-2.5 text-xs"
+                    onClick={() => void runLiveEval()}
+                    disabled={evalLoading || !active || !hasActiveProcessEvidence}
+                    type="button"
+                  >
+                    {evalLoading ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                    {evalLoading ? "正在评分..." : assessmentSuggestion ? "重新生成评价" : "生成 AI 过程评价"}
+                  </PrimaryButton>
+                </div>
                 {!hasActiveProcessEvidence ? (
                   <p className="mt-3 rounded-[6px] border border-dashed border-stone-300 px-3 py-4 text-sm text-stone-500">
-                    尚无该项目的真实过程或成果证据，暂不生成推测性评价。
+                    尚无可评价的学习证据。学生提交结构完整的过程或成果证据后即可生成。
                   </p>
                 ) : null}
                 {evalError ? (
@@ -483,20 +657,159 @@ export function ShowcaseTeacherView({
                     {evalError}
                   </div>
                 ) : null}
-                {processEvaluation ? (
-                  <div className="mt-3 rounded-[6px] border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs leading-5 text-blue-700">
-                    {processEvaluation.summary}
+                {assessmentSuggestion ? (
+                  <div className="mt-3 space-y-2.5">
+                    <div className="grid gap-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:grid-cols-[92px_1fr]">
+                      <div className="flex items-center gap-3 sm:block">
+                        <div className="text-3xl font-black tabular-nums text-blue-800">
+                          {assessmentSuggestion.suggestedTotal ?? 0}
+                          <span className="ml-1 text-sm font-bold text-blue-600">分</span>
+                        </div>
+                        <div className="mt-1 text-xs font-semibold text-blue-700">AI 建议过程分</div>
+                      </div>
+                      <div className="border-blue-100 sm:border-l sm:pl-4">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-stone-600">
+                          <span>置信度：{aiAssessmentConfidenceLabel(assessmentSuggestion.confidence)}</span>
+                          <span>引用学习证据：{assessmentSuggestion.evidenceIds.length} 项</span>
+                          <span>计分权重：{aiWeight}%</span>
+                        </div>
+                        {localizedProcessSummary ? (
+                          <p className="mt-1 line-clamp-3 text-xs leading-5 text-stone-700">{localizedProcessSummary}</p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {assessmentSuggestion.dimensions.map((dimension) => {
+                        const score = dimension.suggestedScore ?? 0;
+                        const gaps = uniqueEvidenceGaps(dimension.evidenceGaps).map(localizeEvaluationText);
+                        return (
+                          <article
+                            className={`rounded-lg border px-3 py-2 ${
+                              score === 0
+                                ? "border-amber-200 bg-amber-50/35"
+                                : "border-stone-200 bg-white"
+                            }`}
+                            key={dimension.dimensionId}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <strong className="text-xs text-stone-900">{dimension.dimensionLabel}</strong>
+                                <p className="mt-1 text-xs leading-5 text-stone-600">{localizeEvaluationText(dimension.rationale)}</p>
+                              </div>
+                              <div className={`shrink-0 text-right ${score === 0 ? "text-amber-800" : "text-blue-800"}`}>
+                                <div className="text-xl font-black tabular-nums">{score}</div>
+                                <div className="text-[9px] font-bold">建议分</div>
+                              </div>
+                            </div>
+                            <details className="group mt-1.5 border-t border-current/10 pt-1.5 text-[10px]">
+                              <summary className="flex cursor-pointer list-none items-center justify-between font-semibold text-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                                <span>评分依据 · {dimension.evidenceIds.length} 项证据 · {gaps.length} 项缺口</span>
+                                <ChevronDown className="transition-transform group-open:rotate-180" size={14} />
+                              </summary>
+                              <div className="mt-2 space-y-2 leading-5 text-stone-600">
+                                {dimension.evidenceIds.length ? (
+                                  <ul className="space-y-1">
+                                    {dimension.evidenceIds.map((evidenceId) => {
+                                      const evidence = processEvidenceById.get(evidenceId);
+                                      return (
+                                        <li key={evidenceId}>• {evidence?.title ?? "已提交学习证据"}{evidence?.summary ? `：${localizeEvaluationText(evidence.summary)}` : ""}</li>
+                                      );
+                                    })}
+                                  </ul>
+                                ) : <p>本维度没有可引用证据，因此记 0 分。</p>}
+                                {gaps.length ? (
+                                  <div className="rounded-lg bg-amber-100/60 px-3 py-2 text-amber-900">
+                                    <strong>还缺：</strong>{gaps.join("；")}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </details>
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    {uniqueEvidenceGaps(assessmentSuggestion.evidenceGaps).length ? (
+                      <details className="group rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3 text-xs text-amber-900">
+                        <summary className="flex cursor-pointer list-none items-center justify-between font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700">
+                          <span>整体证据缺口（{uniqueEvidenceGaps(assessmentSuggestion.evidenceGaps).length} 项）</span>
+                          <ChevronDown className="transition-transform group-open:rotate-180" size={14} />
+                        </summary>
+                        <ul className="mt-2 space-y-1 leading-5">
+                          {uniqueEvidenceGaps(assessmentSuggestion.evidenceGaps).map((gap) => <li key={gap}>• {localizeEvaluationText(gap)}</li>)}
+                        </ul>
+                      </details>
+                    ) : null}
+
+                    <details className="group rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+                      <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold text-stone-800">
+                        给 AI 指导并重新评分
+                        <ChevronDown className="transition-transform group-open:rotate-180" size={13} />
+                      </summary>
+                      <p className="mt-1 text-[10px] leading-4 text-stone-500">说明本轮需要关注的标准；AI 仍只能引用现有学习证据。</p>
+                      <TextArea className="mt-2 min-h-16 bg-white text-xs" id="process-evaluation-guidance" onChange={(event) => setTeacherGuidance(event.target.value)} placeholder="例如：重点检查测试方法是否可靠" value={teacherGuidance} />
+                      <PrimaryButton className="mt-2 h-8 px-2.5 text-xs" disabled={evalLoading || !teacherGuidance.trim()} onClick={() => void runLiveEval(teacherGuidance)} type="button" variant="outline">
+                        {evalLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />} 按指导重新评分
+                      </PrimaryButton>
+                    </details>
+
+                    {assessmentSuggestion.status === "pending-teacher-confirmation" ? (
+                      <div className="sticky bottom-0 z-10 grid grid-cols-[82px_minmax(0,1fr)] items-end gap-2 rounded-xl border-2 border-emerald-200 bg-emerald-50/95 p-2 shadow-[0_-8px_20px_rgba(255,255,255,0.9)] backdrop-blur">
+                        <label className="grid gap-1 text-xs font-bold text-emerald-950">
+                          确认分
+                          <input
+                            aria-label="教师确认过程分"
+                            className="h-8 w-full rounded-lg border border-emerald-300 bg-white px-2 text-sm font-black tabular-nums outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+                            max={100}
+                            min={0}
+                            onChange={(event) =>
+                              setAssessmentScoreDraft(
+                                event.target.value === ""
+                                  ? ""
+                                  : clampScore(Number(event.target.value)),
+                              )}
+                            type="number"
+                            value={assessmentScoreDraft}
+                          />
+                        </label>
+                        <div className="flex min-w-0 gap-1.5">
+                          <PrimaryButton className="h-8 shrink-0 px-2 text-xs" onClick={() => reviewAiSuggestion("rejected")} tone="red" type="button" variant="outline">
+                            不采用
+                          </PrimaryButton>
+                          <PrimaryButton
+                            className="h-8 min-w-0 flex-1 px-2 text-xs"
+                            onClick={() => reviewAiSuggestion(
+                              assessmentScoreDraft === assessmentSuggestion.suggestedTotal
+                                ? "confirmed"
+                                : "adjusted",
+                            )}
+                            tone="green"
+                            type="button"
+                          >
+                            <CheckCircle2 size={14} /> 确认计分
+                          </PrimaryButton>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs font-semibold text-stone-700">
+                        状态：{aiAssessmentStatusLabel(assessmentSuggestion.status)}
+                        {typeof assessmentSuggestion.teacherScore === "number"
+                          ? ` · 最终采用 ${assessmentSuggestion.teacherScore} 分`
+                          : ""}
+                      </p>
+                    )}
                   </div>
                 ) : null}
               </Card>
-              <Card className="xl:col-span-2">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="flex items-center gap-2 font-bold">
-                    <Sparkles className="text-emerald-600" size={18} /> 教师现场汇报评分
+              <Card className="min-h-0 overflow-y-auto p-4 xl:col-start-2 xl:row-start-2">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-2 text-sm font-bold">
+                    <Sparkles className="text-emerald-600" size={16} /> 教师现场评分
                   </h3>
                   <span className="text-xs font-bold text-[var(--pbl-success)]">独立权重 {teacherWeight}%</span>
                 </div>
-                <ul className="space-y-3">
+                <ul className="space-y-2">
                   {dimensions.map((d) => (
                     <DimensionRow
                       dimension={d}
@@ -510,31 +823,39 @@ export function ShowcaseTeacherView({
                 </ul>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <ScoreChip label="教师评分" value={teacherScoreTotal} tone="emerald" />
-                  <ScoreChip label="AI 过程评价" value={aiProcessScore ?? "待完成"} tone="blue" />
-                  <ScoreChip label="当前最终分" value={finalScore ?? (aiProcessScore === null ? "待 AI 评价" : "待教师评分")} tone="amber" />
+                  <ScoreChip
+                    label="AI 过程分"
+                    value={aiProcessScore ?? (assessmentSuggestion ? "待确认" : "未生成")}
+                    tone="blue"
+                  />
+                  <ScoreChip
+                    label="当前最终分"
+                    value={finalScore ?? (aiProcessScore === null ? "待确认 AI 过程分" : "待教师评分")}
+                    tone="amber"
+                  />
                 </div>
-                <div className="mt-2 rounded-[6px] border border-blue-100 bg-blue-50/40 p-2 text-xs leading-5 text-blue-700">
-                  <span className="font-semibold">评分流程：</span>
-                  AI 与教师分别负责不同板块并独立评分；两部分都完成后系统才按 {aiWeight}/{teacherWeight} 权重合成最终分。
+                <div className="mt-2 rounded-[6px] border border-blue-100 bg-blue-50/40 p-2 text-[10px] leading-4 text-blue-700">
+                  AI 过程分确认后，与教师现场分按 {aiWeight}/{teacherWeight} 合成。
                 </div>
               </Card>
             </div>
 
-            <Card>
-              <h3 className="mb-3 flex items-center gap-2 font-bold">
-                <MessageCircle className="text-blue-700" size={18} /> 提问 / 点评
-              </h3>
-              <TextArea
-                className="h-24"
+            <Card className="p-3 xl:col-span-2 xl:row-start-3">
+              <div className="grid items-end gap-3 xl:grid-cols-[minmax(260px,1fr)_auto]">
+                <label className="grid gap-1 text-xs font-bold text-stone-700">
+                  <span className="flex items-center gap-1.5"><MessageCircle className="text-blue-700" size={14} /> 提问与点评</span>
+                  <TextArea
+                className="h-16 min-h-16 text-xs"
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="对当前学生汇报的点评、问题或建议..."
                 value={comment}
               />
-              <div className="mt-3 flex justify-end gap-2">
+                </label>
+              <div className="flex flex-wrap justify-end gap-2">
                 <PrimaryButton
-                  className="h-9 px-3 text-sm"
+                  className="h-8 px-2.5 text-xs"
                   disabled={savingFeedback}
-                  onClick={() => void submitFeedback("question")}
+                  onClick={() => void submitFeedback()}
                   variant="outline"
                 >
                   {savingFeedback ? (
@@ -545,7 +866,7 @@ export function ShowcaseTeacherView({
                   提问给学生
                 </PrimaryButton>
                 <PrimaryButton
-                  className="h-9 px-3 text-sm"
+                  className="h-8 px-2.5 text-xs"
                   disabled={savingScore}
                   onClick={() => void submitScore("submitted")}
                 >
@@ -557,16 +878,17 @@ export function ShowcaseTeacherView({
                   {existingScore ? "更新评分" : "提交评分"}
                 </PrimaryButton>
                 <PrimaryButton
-                  className="h-9 px-3 text-sm"
-                  disabled={savingScore}
-                  onClick={() => void submitScore("revision")}
+                  className="h-8 px-2.5 text-xs"
+                  disabled={savingFeedback}
+                  onClick={requestRevision}
                   tone="orange"
                 >
-                  {savingScore ? (
+                  {savingFeedback ? (
                     <Loader2 className="animate-spin" size={15} />
                   ) : null}{" "}
                   要求修改
                 </PrimaryButton>
+              </div>
               </div>
             </Card>
           </div>
@@ -576,36 +898,102 @@ export function ShowcaseTeacherView({
           </div>
         )}
       </div>
-    </div>
-  );
-}
 
-function Metric({
-  label,
-  value,
-  tone = "slate",
-}: {
-  label: string;
-  value: string;
-  tone?: StatusTone;
-}) {
-  return (
-    <Card>
-      <div className="text-sm text-stone-500">{label}</div>
-      <div
-        className={`mt-2 truncate text-2xl font-bold ${
-          tone === "blue"
-            ? "text-blue-700"
-            : tone === "green"
-              ? "text-[var(--pbl-success)]"
-              : tone === "orange"
-                ? "text-[var(--pbl-warning)]"
-                : "text-stone-900"
-        }`}
-      >
-        {value}
-      </div>
-    </Card>
+      {active && materialDrawerOpen ? (
+        <div className="fixed inset-0 z-[80]" role="presentation">
+          <button
+            aria-label="关闭展示材料"
+            className="absolute inset-0 bg-stone-950/25 backdrop-blur-[1px]"
+            onClick={() => setMaterialDrawerOpen(false)}
+            type="button"
+          />
+          <aside
+            aria-labelledby="showcase-material-title"
+            aria-modal="true"
+            className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-stone-200 bg-white shadow-2xl"
+            role="dialog"
+          >
+            <header className="flex items-start justify-between gap-3 border-b border-stone-200 px-5 py-4">
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-bold" id="showcase-material-title">
+                  <FileText className="text-blue-700" size={18} /> 展示材料
+                </h2>
+                <p className="mt-1 text-xs text-stone-500">
+                  {active.members[0]?.name ?? active.name} · {activeMaterials.length} 项材料
+                </p>
+              </div>
+              <button
+                aria-label="关闭"
+                className="grid size-9 place-items-center rounded-lg border border-stone-200 text-stone-500 transition hover:bg-stone-50 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                onClick={() => setMaterialDrawerOpen(false)}
+                type="button"
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {activeMaterials.length ? (
+                <ul className="space-y-2">
+                  {activeMaterials.map((material) => (
+                    <li className="rounded-xl border border-stone-200 p-3" key={material.id}>
+                      <div className="flex items-center gap-3">
+                        <FileBadge type={material.fileType} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold">
+                            {material.fileName}
+                          </div>
+                        </div>
+                        {material.url ? (
+                          <div className="flex gap-1.5">
+                            <a
+                              aria-label={`查看${material.fileName}`}
+                              className="grid size-8 place-items-center rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50"
+                              href={material.url}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <Eye size={15} />
+                            </a>
+                            <a
+                              aria-label={`下载${material.fileName}`}
+                              className="grid size-8 place-items-center rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50"
+                              download
+                              href={material.url}
+                            >
+                              <Download size={15} />
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                      {material.note ? (
+                        <details className="group mt-2 border-t border-stone-100 pt-2 text-xs text-stone-600">
+                          <summary className="flex cursor-pointer list-none items-center justify-between font-semibold">
+                            查看学生标注
+                            <ChevronDown className="transition-transform group-open:rotate-180" size={14} />
+                          </summary>
+                          <p className="mt-2 leading-5">{material.note}</p>
+                        </details>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="rounded-xl border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">
+                  暂无最终作品快照
+                </div>
+              )}
+            </div>
+            {onSelectGroup ? (
+              <footer className="border-t border-stone-200 p-4">
+                <PrimaryButton className="w-full" onClick={() => onSelectGroup(active.id)} type="button" variant="outline">
+                  <Eye size={15} /> 打开完整过程与作品
+                </PrimaryButton>
+              </footer>
+            ) : null}
+          </aside>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -625,14 +1013,14 @@ function ScoreChip({
         ? "border-blue-200 bg-blue-50 text-blue-700"
         : "border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]";
   return (
-    <div className={`rounded-[6px] border p-3 ${className}`}>
-      <div className="text-xs font-semibold">{label}</div>
-      <div className="mt-1 text-2xl font-bold">{value}</div>
+    <div className={`min-w-0 rounded-[6px] border p-2 ${className}`}>
+      <div className="truncate text-[10px] font-semibold">{label}</div>
+      <div className="mt-0.5 truncate text-lg font-black tabular-nums">{value}</div>
     </div>
   );
 }
 
-function DimensionRow({
+export function DimensionRow({
   dimension,
   value,
   onChange,
@@ -642,19 +1030,22 @@ function DimensionRow({
   onChange: (v: number) => void;
 }) {
   return (
-    <li className="rounded-[8px] border border-stone-200 bg-white p-3">
-      <div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-stone-800">
-            {dimension.name}
-            <span className="ml-2 text-xs text-stone-500">权重 {dimension.weight}%</span>
-          </span>
-          <span className="text-sm font-bold">{value}</span>
+    <li className="rounded-xl border border-stone-200 bg-white p-3 shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="text-sm text-stone-900">{dimension.name}</strong>
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-500">
+              权重 {dimension.weight}%
+            </span>
+          </div>
+          <p className="mt-1.5 text-xs leading-5 text-stone-600">
+            {dimension.description || "请根据学生本次汇报与作品表现进行综合判断。"}
+          </p>
         </div>
-        <div className="mt-1 text-xs text-stone-500">{dimension.description}</div>
         <input
           aria-label={`${dimension.name}分数`}
-          className="mt-1 h-8 w-20 rounded-[4px] border border-stone-200 px-2 text-right text-sm font-semibold tabular-nums outline-none focus:border-blue-500"
+          className="h-9 w-16 shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-center text-sm font-black tabular-nums text-emerald-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
           inputMode="numeric"
           max={100}
           min={0}
@@ -662,14 +1053,19 @@ function DimensionRow({
           type="number"
           value={value}
         />
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <span className="text-[10px] font-semibold text-stone-400">0</span>
         <input
-          className="mt-1 w-full accent-blue-600"
+          aria-label={`${dimension.name}评分滑块`}
+          className="h-2 w-full cursor-pointer accent-emerald-600"
           max={100}
           min={0}
           onChange={(e) => onChange(clampScore(Number(e.target.value)))}
           type="range"
           value={value}
         />
+        <span className="text-[10px] font-semibold text-stone-400">100</span>
       </div>
     </li>
   );

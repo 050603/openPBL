@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { ShowcaseView } from "./showcase";
+import { buildShowcaseArtifactSnapshot, selectMeaningfulShowcaseProcessRecords, ShowcaseView } from "./showcase";
 import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 
@@ -12,12 +12,46 @@ vi.mock("@/lib/session/store", () => ({
     studentName: "测试学生",
     upsertUpload: vi.fn(() => ({ id: "u1" })),
     upsertSubmission: vi.fn(),
+    upsertArtifactSnapshot: vi.fn(),
+    addCompanionProcessRecord: vi.fn(),
     setPreviewUpload: vi.fn(),
     updateStudentProgress: vi.fn(),
     addActivity: vi.fn(),
     upsertTeamContribution: vi.fn(),
   }),
 }));
+
+describe("showcase material and process contracts", () => {
+  it("binds a successful final upload to a showcase artifact snapshot", () => {
+    expect(buildShowcaseArtifactSnapshot({
+      courseId: "course-1",
+      studentId: "s1",
+      uploadId: "upload-1",
+      title: "最终报告.pdf",
+      fileName: "stored-report.pdf",
+      fileType: "application/pdf",
+      url: "/api/uploads/stored-report.pdf",
+      createdAt: "2024-01-02T03:04:05.000Z",
+    })).toMatchObject({
+      id: "snapshot-upload-1",
+      courseId: "course-1",
+      studentId: "s1",
+      stageKey: "showcase",
+      fileName: "stored-report.pdf",
+      sourceUrl: "/api/uploads/stored-report.pdf",
+    });
+  });
+
+  it("keeps real work records and removes per-round agent learning replies", () => {
+    const records = selectMeaningfulShowcaseProcessRecords([
+      { id: "reply", courseId: "course-1", studentId: "s1", stageKey: "proposal", title: "策策回应了一个学习请求", summary: "逐轮对话", source: "agent", companionId: "cece", createdAt: "2024-01-03T00:00:00.000Z" },
+      { id: "operation", courseId: "course-1", studentId: "s1", stageKey: "make", title: "策策提出了方案草稿建议", summary: "等待学生确认", source: "agent", companionId: "cece", taskId: "task-1", createdAt: "2024-01-02T00:00:00.000Z" },
+      { id: "upload", courseId: "course-1", studentId: "s1", stageKey: "showcase", title: "上传最终成果", summary: "报告已提交", source: "student", createdAt: "2024-01-04T00:00:00.000Z" },
+    ], "s1");
+
+    expect(records.map((record) => record.id)).toEqual(["upload", "operation"]);
+  });
+});
 
 // Mock dashboard-shell Avatar to keep things simple.
 vi.mock("@/components/dashboard-shell", () => ({

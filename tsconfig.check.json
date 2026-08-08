@@ -9,7 +9,7 @@
     "src/**/*.tsx",
     "*.config.ts",
     "*.config.mts",
-    ".next/types/**/*.ts"
+    ".next-build/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -17,6 +17,7 @@
     "packages/**/src",
     "packages/docs",
     "e2e",
-    ".next/dev"
+    ".next/dev",
+    ".next-build/dev"
   ]
 }

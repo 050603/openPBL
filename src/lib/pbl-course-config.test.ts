@@ -21,10 +21,12 @@ describe("PBL course configuration", () => {
     );
   });
 
-  it("keeps the recorder when a teacher customizes the companion list", () => {
+  it("uses the fixed role set without teacher configuration", () => {
     const config = normalizePblCourseConfig({ companionIds: ["critic", "critic"] });
 
-    expect(config.companionIds).toEqual(["critic", "recorder"]);
+    expect(config.companionIds).toEqual([
+      "knowledge", "ideation", "critic", "planner", "reviewer", "recorder",
+    ]);
   });
 
   it("normalizes and deduplicates teacher-authored inquiry questions", () => {
@@ -68,7 +70,7 @@ describe("PBL course configuration", () => {
     expect(text).toContain("recorder");
     expect(text).toContain("companionProfiles");
     expect(text).toContain("companionStagePolicies");
-    expect(text).toContain("算法教程");
+    expect(text).not.toContain('"reflection": {');
     expect(text).toContain("过程记录");
   });
 });

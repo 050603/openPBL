@@ -103,7 +103,7 @@ export function ProjectCoverImage({
       >
         <div className="flex flex-col items-center gap-2 text-[var(--pbl-text-muted)]">
           <Loader2 size={28} className="animate-spin" />
-          <span className="text-xs font-medium">正在生成课程封面…</span>
+          <span className="text-xs font-medium">正在根据课程主题生成封面…</span>
         </div>
       </div>
     );
@@ -127,7 +127,7 @@ export function ProjectCoverImage({
         <div className="relative flex flex-col items-center gap-2 text-[var(--pbl-text)]">
           {error ? <RefreshCw size={24} /> : <Sparkles size={24} />}
           <span className="text-xs font-semibold">
-            {error ? "点击重新生成" : "生成课程封面图"}
+            {error ? "点击重新生成" : "按课程主题生成封面"}
           </span>
         </div>
       </div>

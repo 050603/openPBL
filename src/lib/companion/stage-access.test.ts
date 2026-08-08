@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isCompanionStageEnabled } from "./stage-access";
 
 describe("isCompanionStageEnabled", () => {
-  it("disables companions in launch and AI learning regardless of stored policy", () => {
+  it("keeps launch and AI learning on their dedicated task pages", () => {
     expect(
       isCompanionStageEnabled(
         {
@@ -35,7 +35,7 @@ describe("isCompanionStageEnabled", () => {
     ).toBe(false);
   });
 
-  it("follows the teacher policy in stages three through six", () => {
+  it("uses the fixed companion boundary instead of legacy teacher policy", () => {
     const stageWorkspacePolicies = {
       proposal: {
         access: "companions-only",
@@ -49,7 +49,7 @@ describe("isCompanionStageEnabled", () => {
     ).toBe(true);
     expect(
       isCompanionStageEnabled({ stageWorkspacePolicies }, "make"),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("uses the companion-first default for a supported stage", () => {

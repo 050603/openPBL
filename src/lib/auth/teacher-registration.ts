@@ -21,7 +21,7 @@ export const TeacherRegistrationSchema = z
       .transform((value) => value.normalize("NFC")),
     password: z
       .string()
-      .min(12, "密码至少需要 12 个字符")
+      .min(10, "密码至少需要 10 个字符")
       .max(256, "密码不能超过 256 个字符"),
     confirmPassword: z.string(),
   })

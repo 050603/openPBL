@@ -1,0 +1,471 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  Play,
+  Maximize2,
+  MousePointer2,
+  Network,
+  Repeat2,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
+import type { EngineMode } from '@openmaic/lib/playback';
+import { cn } from '@openmaic/lib/utils';
+import { useStageStore } from '@openmaic/lib/store';
+import { KnowledgeGraphFlow } from '@/components/knowledge-graph-flow';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/overlays';
+import { useTeachingKnowledgeGraph } from '@/components/openmaic-bridge/knowledge-graph-context';
+
+type LectureCue = { actionIndex: number; text: string };
+
+interface LectureSubtitleDockProps {
+  readonly cues: ReadonlyArray<LectureCue>;
+  readonly activeActionIndex: number;
+  readonly currentText: string;
+  readonly speechProgress?: number;
+  readonly teacherAvatar: string;
+  readonly teacherName: string;
+  readonly engineMode: EngineMode;
+  readonly playbackCompleted?: boolean;
+  readonly muted: boolean;
+  readonly playbackSpeed: number;
+  readonly autoPlay: boolean;
+  readonly sceneIndex: number;
+  readonly scenesCount: number;
+  readonly canGoPrevious: boolean;
+  readonly canGoNext: boolean;
+  readonly canGoPreviousCue: boolean;
+  readonly canGoNextCue: boolean;
+  readonly interactionAssistance?: {
+    readonly active: boolean;
+    readonly onContinue: () => void;
+  };
+  readonly onPlayPause?: () => void;
+  readonly onPreviousCue?: () => boolean;
+  readonly onNextCue?: () => boolean;
+  readonly onToggleMute: () => void;
+  readonly onCycleSpeed: () => void;
+  readonly onPrevious?: () => void;
+  readonly onNext?: () => void;
+  readonly onToggleAutoPlay: () => void;
+}
+
+export type SubtitleLine = {
+  actionIndex: number;
+  cueIndex: number;
+  text: string;
+  start: number;
+  end: number;
+};
+
+/** Split narration only at sentence endings; visual wrapping remains a CSS concern. */
+export function splitSubtitleText(text: string): string[] {
+  const source = text.trim();
+  if (!source) return [];
+  const sentences: string[] = [];
+  const closingMarks = new Set(['”', '’', '"', "'", '）', ')', '】', ']', '》', '」', '』']);
+  let sentenceStart = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    let punctuationEnd = index + 1;
+    while (
+      punctuationEnd < source.length &&
+      ('。！？!?…；;'.includes(source[punctuationEnd]) ||
+        source[punctuationEnd] === '.' ||
+        closingMarks.has(source[punctuationEnd]))
+    ) {
+      punctuationEnd += 1;
+    }
+    const nextCharacter = source[punctuationEnd];
+    const isStrongEnding = '。！？!?…；;'.includes(character);
+    const isWesternPeriod = character === '.' && (!nextCharacter || /\s/.test(nextCharacter));
+    const isParagraphBreak = character === '\n';
+    if (!isStrongEnding && !isWesternPeriod && !isParagraphBreak) continue;
+
+    const sentenceEnd = punctuationEnd;
+    const sentence = source.slice(sentenceStart, sentenceEnd).trim();
+    if (sentence) sentences.push(sentence);
+    sentenceStart = sentenceEnd;
+    while (sentenceStart < source.length && /\s/.test(source[sentenceStart])) {
+      sentenceStart += 1;
+    }
+    index = sentenceStart - 1;
+  }
+
+  const remainder = source.slice(sentenceStart).trim();
+  if (remainder) sentences.push(remainder);
+  return sentences;
+}
+
+export function buildSubtitleLines(cues: ReadonlyArray<LectureCue>): SubtitleLine[] {
+  return cues.flatMap((cue, cueIndex) => {
+    let offset = 0;
+    return splitSubtitleText(cue.text).map((text) => {
+      const start = offset;
+      offset += text.length;
+      return { actionIndex: cue.actionIndex, cueIndex, text, start, end: offset };
+    });
+  });
+}
+
+export function resolveActiveSubtitleLineIndex(
+  lines: ReadonlyArray<SubtitleLine>,
+  activeCueIndex: number,
+  progress: number,
+): number {
+  const cueLines = lines.filter((line) => line.cueIndex === activeCueIndex);
+  if (!cueLines.length) return 0;
+  const total = cueLines.at(-1)?.end ?? 1;
+  const target = Math.min(total - Number.EPSILON, Math.max(0, progress) * total);
+  const active = cueLines.find((line) => target < line.end) ?? cueLines.at(-1)!;
+  return Math.max(0, lines.indexOf(active));
+}
+
+export function resolveActiveCueIndex(
+  cues: ReadonlyArray<LectureCue>,
+  activeActionIndex: number,
+  currentText: string,
+): number {
+  const exactAction = cues.findIndex((cue) => cue.actionIndex === activeActionIndex);
+  if (exactAction >= 0) return exactAction;
+  const exactText = cues.findIndex((cue) => cue.text === currentText.trim());
+  return exactText >= 0 ? exactText : 0;
+}
+
+export function LectureSubtitleDock({
+  cues,
+  activeActionIndex,
+  currentText,
+  speechProgress = 0,
+  teacherAvatar,
+  teacherName,
+  engineMode,
+  playbackCompleted,
+  muted,
+  playbackSpeed,
+  autoPlay,
+  sceneIndex,
+  scenesCount,
+  canGoPrevious,
+  canGoNext,
+  canGoPreviousCue,
+  canGoNextCue,
+  interactionAssistance,
+  onPlayPause,
+  onPreviousCue,
+  onNextCue,
+  onToggleMute,
+  onCycleSpeed,
+  onPrevious,
+  onNext,
+  onToggleAutoPlay,
+}: LectureSubtitleDockProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const browsingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isBrowsingSubtitles, setIsBrowsingSubtitles] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
+  const currentScene = useStageStore((state) => state.getCurrentScene());
+  const { graph, points } = useTeachingKnowledgeGraph();
+  const activeCueIndex = useMemo(
+    () => resolveActiveCueIndex(cues, activeActionIndex, currentText),
+    [activeActionIndex, cues, currentText],
+  );
+  const displayCues = useMemo(
+    () => (cues.length ? cues : currentText ? [{ actionIndex: -1, text: currentText }] : []),
+    [cues, currentText],
+  );
+  const subtitleLines = useMemo(() => buildSubtitleLines(displayCues), [displayCues]);
+  const activeSubtitleLineIndex = useMemo(
+    () => resolveActiveSubtitleLineIndex(subtitleLines, activeCueIndex, speechProgress),
+    [activeCueIndex, speechProgress, subtitleLines],
+  );
+  const isPlaying = engineMode === 'playing';
+  const activeKnowledgePointId = useMemo(() => {
+    const knownIds = new Set([
+      ...(graph?.nodes.map((node) => node.id) ?? []),
+      ...points.map((point) => point.id),
+    ]);
+    const direct = currentScene?.knowledgePointIds?.find((id) => knownIds.has(id));
+    if (direct) return direct;
+    return graph?.nodes.find((node) => node.relatedLessonIds?.includes(currentScene?.id ?? ''))?.id ?? null;
+  }, [currentScene?.id, currentScene?.knowledgePointIds, graph?.nodes, points]);
+  const hasKnowledgeGraph = Boolean(graph?.nodes.length || points.length);
+
+  const revealSubtitleHistory = useCallback(() => {
+    setIsBrowsingSubtitles(true);
+    if (browsingTimerRef.current) clearTimeout(browsingTimerRef.current);
+    browsingTimerRef.current = setTimeout(() => setIsBrowsingSubtitles(false), 1600);
+  }, []);
+
+  useEffect(() => {
+    if (isBrowsingSubtitles) return;
+    const active = scrollRef.current?.querySelector<HTMLElement>('[data-active-line="true"]');
+    active?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }, [activeSubtitleLineIndex, isBrowsingSubtitles]);
+
+  useEffect(() => () => {
+    if (browsingTimerRef.current) clearTimeout(browsingTimerRef.current);
+  }, []);
+
+  return (
+    <aside
+      aria-label="AI 授课字幕与播放控制"
+      className="relative z-10 flex w-full shrink-0 border-t border-slate-200/80 bg-white/96 dark:border-white/10 dark:bg-slate-950/96 xl:h-full xl:w-[304px] xl:border-l xl:border-t-0"
+    >
+      <div className="flex min-w-0 flex-1 flex-col px-4 py-3 xl:px-5 xl:py-4">
+        <header className="flex items-center gap-3 xl:items-start">
+          <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-[14px] bg-[#edf5f2] ring-1 ring-slate-900/8 dark:ring-white/10 xl:h-12 xl:w-12">
+            <img alt={teacherName} className="h-full w-full object-cover" src={teacherAvatar} />
+            <span
+              className={cn(
+                'absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-slate-950',
+                isPlaying ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600',
+              )}
+            />
+          </div>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{teacherName}</h3>
+              {isPlaying ? (
+                <span className="flex h-4 items-end gap-[2px]" aria-label="正在讲解">
+                  {[8, 13, 10].map((height, index) => (
+                    <span
+                      className="w-[2px] animate-pulse rounded-full bg-teal-600 dark:bg-teal-400"
+                      key={height}
+                      style={{ height, animationDelay: `${index * 120}ms` }}
+                    />
+                  ))}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {isPlaying ? 'AI 正在讲解' : playbackCompleted ? '本页讲解完成' : '讲解已暂停'}
+            </p>
+          </div>
+          <span className="pt-1 text-[11px] font-semibold tabular-nums text-slate-400">
+            {Math.max(1, sceneIndex + 1)} / {Math.max(1, scenesCount)}
+          </span>
+        </header>
+
+        <div className="my-3 h-px bg-slate-100 dark:bg-white/8 xl:my-4" />
+
+        <div className="relative min-w-0 flex-1 xl:min-h-0">
+          <div
+            aria-live="polite"
+            className="h-[96px] snap-y snap-mandatory overflow-y-auto pr-1 [scrollbar-width:none] xl:h-full [&::-webkit-scrollbar]:hidden"
+            onPointerDown={revealSubtitleHistory}
+            onTouchMove={revealSubtitleHistory}
+            onWheel={revealSubtitleHistory}
+            ref={scrollRef}
+          >
+            <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
+            {subtitleLines.map((line, index) => {
+              const active = index === activeSubtitleLineIndex;
+              return (
+                <p
+                  className={cn(
+                    'flex min-h-24 snap-center items-center py-3 text-[15px] leading-6 transition-[color,opacity] duration-300',
+                    active
+                      ? 'font-semibold text-slate-900 dark:text-slate-50'
+                      : cn(
+                          'text-slate-400 dark:text-slate-500',
+                          isBrowsingSubtitles
+                            ? index < activeSubtitleLineIndex ? 'opacity-25' : 'opacity-55'
+                            : 'pointer-events-none opacity-0',
+                        ),
+                  )}
+                  data-active-line={active ? 'true' : undefined}
+                  key={`${line.actionIndex}-${index}`}
+                >
+                  {line.text}
+                </p>
+              );
+            })}
+            <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
+          </div>
+        </div>
+
+        {hasKnowledgeGraph ? (
+          <div className="hidden border-t border-slate-100 pt-4 dark:border-white/8 xl:mt-4 xl:block">
+            <div className="mb-2 flex items-center justify-between gap-2 px-1">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-teal-50 text-teal-700 dark:bg-teal-400/10 dark:text-teal-300">
+                    <Network size={12} strokeWidth={1.8} />
+                  </span>
+                  <span>知识脉络</span>
+                </p>
+              </div>
+              <button
+                aria-label="完整浏览知识图谱"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/8 dark:hover:text-slate-200"
+                onClick={() => setGraphOpen(true)}
+                type="button"
+              >
+                <Maximize2 size={14} />
+              </button>
+            </div>
+            <button
+              className="group relative block h-[164px] w-full overflow-hidden rounded-[18px] bg-[radial-gradient(circle_at_50%_42%,rgba(221,240,234,0.78),rgba(248,251,250,0.46)_58%,transparent_100%)] text-left transition hover:bg-[radial-gradient(circle_at_50%_42%,rgba(210,235,227,0.9),rgba(248,251,250,0.58)_62%,transparent_100%)] dark:bg-[radial-gradient(circle_at_50%_42%,rgba(45,96,84,0.22),rgba(15,23,42,0.02)_65%,transparent_100%)]"
+              onClick={() => setGraphOpen(true)}
+              type="button"
+            >
+              <div className="pointer-events-none h-full w-full">
+                <KnowledgeGraphFlow
+                  activeNodeId={activeKnowledgePointId}
+                  activeZoom={0.68}
+                  appearance="teaching-rail"
+                  focusActiveNode
+                  graph={graph}
+                  height={164}
+                  points={points}
+                  showControls={false}
+                  showMiniMap={false}
+                />
+              </div>
+            </button>
+          </div>
+        ) : null}
+
+        {interactionAssistance?.active ? (
+          <div
+            aria-live="polite"
+            className="mt-3 flex items-center gap-3 border-t border-slate-100 pt-3 dark:border-white/8 xl:mt-4 xl:pt-4"
+            role="status"
+          >
+            <span
+              aria-hidden="true"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300"
+            >
+              <MousePointer2 size={15} strokeWidth={1.8} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">互动操作进行中</p>
+              <button
+                className="mt-0.5 inline-flex max-w-full items-center gap-0.5 text-left text-[11px] text-slate-400 transition hover:text-amber-700 dark:hover:text-amber-300"
+                onClick={interactionAssistance.onContinue}
+                type="button"
+              >
+                <span className="truncate">页面未响应？继续讲解</span>
+                <ChevronRight className="shrink-0" size={12} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-white/8 xl:mt-4 xl:flex-col xl:items-stretch xl:gap-4 xl:pt-4">
+          <div className="flex items-center justify-center gap-1 xl:justify-between">
+            <IconButton disabled={!canGoPreviousCue} label="上一句" onClick={onPreviousCue}>
+              <SkipBack size={17} strokeWidth={1.8} />
+            </IconButton>
+            <IconButton label={muted ? '打开声音' : '静音'} onClick={onToggleMute}>
+              {muted ? <VolumeX size={17} strokeWidth={1.8} /> : <Volume2 size={17} strokeWidth={1.8} />}
+            </IconButton>
+            <button
+              aria-label={isPlaying ? '暂停讲解' : '继续讲解'}
+              className="mx-1 grid h-11 w-11 place-items-center rounded-full bg-teal-700 text-white transition hover:bg-teal-800 active:scale-95 dark:bg-teal-500 dark:text-slate-950"
+              onClick={onPlayPause}
+              type="button"
+            >
+              {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play className="ml-0.5" size={18} fill="currentColor" />}
+            </button>
+            <IconButton label="切换播放倍速" onClick={onCycleSpeed}>
+              <span className="text-[11px] font-bold tabular-nums">{playbackSpeed}x</span>
+            </IconButton>
+            <IconButton disabled={!canGoNextCue} label="下一句" onClick={onNextCue}>
+              <SkipForward size={17} strokeWidth={1.8} />
+            </IconButton>
+          </div>
+
+          <div className="flex items-center gap-1 xl:justify-between">
+            <button
+              className="inline-flex h-8 items-center gap-1 rounded-md px-1.5 text-xs font-semibold text-slate-500 transition hover:text-teal-700 disabled:opacity-25 dark:text-slate-400 dark:hover:text-teal-300"
+              disabled={!canGoPrevious}
+              onClick={onPrevious}
+              type="button"
+            >
+              <ChevronLeft size={15} /> 上一页
+            </button>
+            <button
+              aria-pressed={autoPlay}
+              className={cn(
+                'hidden h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold transition sm:inline-flex',
+                autoPlay ? 'text-teal-700 dark:text-teal-300' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300',
+              )}
+              onClick={onToggleAutoPlay}
+              type="button"
+            >
+              <Repeat2 size={14} /> 自动
+            </button>
+            <button
+              className="inline-flex h-8 items-center gap-1 rounded-md px-1.5 text-xs font-semibold text-slate-700 transition hover:text-teal-700 disabled:opacity-25 dark:text-slate-200 dark:hover:text-teal-300"
+              disabled={!canGoNext}
+              onClick={onNext}
+              type="button"
+            >
+              下一页 <ChevronRight size={15} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <Dialog onOpenChange={setGraphOpen} open={graphOpen}>
+        <DialogContent className="w-[min(960px,calc(100vw-24px))] max-w-none overflow-hidden p-0">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>课程知识图谱</DialogTitle>
+            <DialogDescription>
+              当前讲授的知识点会自动高亮，可拖动、缩放并浏览完整关联路径。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="h-[min(68vh,620px)] min-h-[420px] border-t border-slate-100 dark:border-white/8">
+            <KnowledgeGraphFlow
+              activeNodeId={activeKnowledgePointId}
+              graph={graph}
+              height={520}
+              points={points}
+              showMiniMap
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </aside>
+  );
+}
+
+function IconButton({
+  children,
+  disabled,
+  label,
+  onClick,
+}: {
+  readonly children: React.ReactNode;
+  readonly disabled?: boolean;
+  readonly label: string;
+  readonly onClick?: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className="grid h-9 min-w-9 place-items-center rounded-full px-1 text-slate-500 transition hover:bg-slate-100 hover:text-teal-700 active:scale-95 disabled:pointer-events-none disabled:opacity-20 dark:text-slate-400 dark:hover:bg-white/8 dark:hover:text-teal-300"
+      disabled={disabled}
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}

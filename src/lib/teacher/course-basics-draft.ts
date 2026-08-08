@@ -5,6 +5,9 @@ import {
   normalizePblCourseConfig,
 } from "@/lib/pbl-course-config";
 
+export const DEFAULT_NEW_COURSE_SUBJECT = "人工智能通识课程";
+export const DEFAULT_NEW_COURSE_HOURS = 2;
+
 export type CourseBasicsDraft = {
   name: string;
   subject: string;
@@ -20,6 +23,22 @@ export type CourseBasicsDraft = {
   outcomePresentation: string;
   outcomeReflection: string;
 };
+
+export type CourseBasicsSuggestionPart =
+  | "learningObjectives"
+  | "summary"
+  | "learnerProfile"
+  | "drivingQuestions";
+
+export function getEmptyCourseBasicsSuggestionParts(
+  draft: CourseBasicsDraft,
+): CourseBasicsSuggestionPart[] {
+  const parts: CourseBasicsSuggestionPart[] = [];
+  if (!draft.learningObjectivesText.trim()) parts.push("learningObjectives");
+  if (!draft.summary.trim()) parts.push("summary");
+  if (!draft.drivingQuestions.some((question) => question.trim())) parts.push("drivingQuestions");
+  return parts;
+}
 
 export function createCourseBasicsDraft(course: Course): CourseBasicsDraft {
   return {
