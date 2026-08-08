@@ -25,6 +25,16 @@ vi.mock("@/lib/session/store", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-course-presence", () => ({
+  useCoursePresence: () => ({
+    members: [{ id: "student-1", role: "student", name: "测试学生" }],
+    onlineStudentIds: new Set(["student-1"]),
+    onlineCount: 1,
+    degraded: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock("@/components/dashboard-shell", () => ({
   DashboardShell: ({ children }: { children: ReactNode }) => (
     <main>{children}</main>
@@ -42,9 +52,34 @@ vi.mock("@/components/views/student/stage-dispatcher", () => ({
   ),
 }));
 vi.mock("@/components/views/student/companion-studio-workspace", () => ({
-  CompanionStudioWorkspace: () => (
-    <section aria-label="companion-workspace">AI 伴学场景</section>
+  CompanionStudioWorkspace: ({
+    teacherProjection,
+    onOpenTeacherProjection,
+  }: {
+    teacherProjection?: { title: string };
+    onOpenTeacherProjection?: () => void;
+  }) => (
+    <section aria-label="companion-workspace">
+      AI 伴学场景
+      {teacherProjection && onOpenTeacherProjection ? (
+        <button
+          aria-label={`打开教师演示：${teacherProjection.title}`}
+          onClick={onOpenTeacherProjection}
+          type="button"
+        >
+          教师演示
+        </button>
+      ) : null}
+    </section>
   ),
+}));
+vi.mock("@/components/views/student/evidence-task/stage-workspace", () => ({
+  EvidenceStageWorkspace: () => (
+    <section aria-label="evidence-task-workspace">阶段任务工作台</section>
+  ),
+}));
+vi.mock("@/components/views/student/stage-mission-hud", () => ({
+  StageMissionHud: () => <aside>当前阶段任务条</aside>,
 }));
 vi.mock("@/components/views/student/companion-runtime", async () => {
   const React = await import("react");
@@ -134,16 +169,14 @@ describe("student classroom workspace policy", () => {
     expect(
       screen.getByRole("region", { name: "companion-workspace" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "切换到传统学习页面" }),
-    ).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "evidence-task-workspace" })).toBeNull();
     expect(runtimeStats.mounts).toBe(1);
   });
 
   it("keeps the companion runtime mounted while an optional projection opens", () => {
     render(<StudentClassroomPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看投屏" }));
+    fireEvent.click(screen.getByRole("button", { name: "打开教师演示：教师示范" }));
 
     expect(screen.getByText("教师实时投屏")).toBeTruthy();
     expect(
@@ -153,29 +186,22 @@ describe("student classroom workspace policy", () => {
     expect(runtimeStats.unmounts).toBe(0);
   });
 
-  it("renders only the traditional page when the teacher enforces task-only", () => {
+  it("keeps proposal in the companion scene even when a legacy policy says task-only", () => {
     course.stageWorkspacePolicies = {
       proposal: { access: "task-only", defaultMode: "task" },
     };
 
     render(<StudentClassroomPage />);
 
-    expect(
-      screen.getByRole("region", { name: "traditional-workspace" }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "companion-workspace" }))
-      .toBeNull();
-    expect(runtimeStats.mounts).toBe(0);
+    expect(screen.getByRole("region", { name: "companion-workspace" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "traditional-workspace" })).toBeNull();
+    expect(runtimeStats.mounts).toBe(1);
   });
 
-  it.each([
-    ["launch", "项目启动", "project-launch"],
-    ["ai-learning", "知识学习", "ai-learning"],
-  ])("keeps %s on the traditional page even if legacy data enables companions", (
-    stageKey,
-    stageLabel,
-    view,
-  ) => {
+  it("keeps only AI learning on its dedicated task page", () => {
+    const stageKey = "ai-learning";
+    const stageLabel = "知识学习";
+    const view = "ai-learning";
     course.stages = [
       {
         key: stageKey,
@@ -205,19 +231,50 @@ describe("student classroom workspace policy", () => {
     expect(runtimeStats.mounts).toBe(0);
   });
 
-  it("allows the student to switch only when the teacher selects student-choice", () => {
+  it("keeps project launch on its dedicated project introduction page", () => {
+    course.stages = [{
+      key: "launch",
+      label: "项目启动",
+      description: "项目启动",
+      view: "project-launch",
+    }] as Course["stages"];
+    course.stageWorkspacePolicies = {
+      launch: { access: "companions-only", defaultMode: "companions" },
+    };
+    course.uiState = {};
+
     render(<StudentClassroomPage />);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "切换到传统学习页面" }),
-    );
+    expect(screen.getByRole("region", { name: "traditional-workspace" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "companion-workspace" })).toBeNull();
+    expect(runtimeStats.mounts).toBe(0);
+  });
+
+  it.each([
+    ["showcase", "成果汇报", "showcase"],
+    ["reflection", "学习反思", "reflection"],
+  ])("keeps %s on its dedicated workstation", (stageKey, stageLabel, view) => {
+    course.stages = [{ key: stageKey, label: stageLabel, description: stageLabel, view }] as Course["stages"];
+    course.stageWorkspacePolicies = {
+      [stageKey]: { access: "companions-only", defaultMode: "companions" },
+    };
+    course.uiState = {};
+
+    render(<StudentClassroomPage />);
+
+    expect(screen.getByRole("region", { name: "traditional-workspace" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "companion-workspace" })).toBeNull();
+    expect(runtimeStats.mounts).toBe(0);
+  });
+
+  it("keeps the companion scene primary when the teacher allows student choice", () => {
+    render(<StudentClassroomPage />);
 
     expect(
-      screen.getByRole("region", { name: "traditional-workspace" }),
+      screen.getByRole("region", { name: "companion-workspace" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "进入 AI 伴学场景" }),
-    ).toBeTruthy();
-    expect(runtimeStats.unmounts).toBe(1);
+    expect(screen.queryByRole("region", { name: "traditional-workspace" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "evidence-task-workspace" })).toBeNull();
+    expect(runtimeStats.unmounts).toBe(0);
   });
 });

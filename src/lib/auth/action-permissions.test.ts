@@ -223,4 +223,18 @@ describe("isStudentActionForSelf", () => {
     expect(isStudentActionForSelf(action, "student-1", "course-1")).toBe(true);
     expect(isStudentActionForSelf(action, "student-2", "course-1")).toBe(false);
   });
+
+  it("allows a student to request teacher help only for themselves", () => {
+    const action = {
+      type: "REQUEST_TEACHER_HELP",
+      payload: {
+        courseId: "course-1",
+        signal: { studentId: "student-1" },
+      },
+    } as SessionAction;
+
+    expect(isActionAllowed("student", action.type)).toBe(true);
+    expect(isStudentActionForSelf(action, "student-1", "course-1")).toBe(true);
+    expect(isStudentActionForSelf(action, "student-2", "course-1")).toBe(false);
+  });
 });

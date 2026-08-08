@@ -27,7 +27,13 @@ import { migrateScene } from '@openmaic/lib/edit/slide-schema';
 import { createLogger } from '@openmaic/lib/logger';
 import type { Scene, Stage as StageType } from '@openmaic/lib/types/stage';
 import { createLearningEvent, postLearningEvents } from '@/lib/learning-analytics/telemetry';
-import type { LearningEvent, LearningEventType } from '@/lib/session/types';
+import type {
+  KnowledgeGraph,
+  KnowledgePoint,
+  LearningEvent,
+  LearningEventType,
+} from '@/lib/session/types';
+import { TeachingKnowledgeGraphProvider } from '@/components/openmaic-bridge/knowledge-graph-context';
 import { cn } from '@/lib/utils';
 import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 import { estimateSpeechDurationSec } from '@openmaic/lib/audio/tts-timing';
@@ -115,6 +121,12 @@ interface StudentStageHostProps {
   adaptiveInsertions?: AdaptiveSceneInsertion[];
   /** Prepared classroom ids to warm while the student completes the pretest/main lesson. */
   prefetchClassroomIds?: string[];
+  knowledgeGraph?: KnowledgeGraph;
+  knowledgePoints?: KnowledgePoint[];
+  /** Optional controlled state for the page thumbnail rail. Teacher preview
+   * uses this to open the rail without changing the student's saved setting. */
+  sidebarCollapsed?: boolean;
+  onSidebarCollapsedChange?: (collapsed: boolean) => void;
 }
 
 export type AdaptiveSceneInsertion = {
@@ -259,6 +271,10 @@ export function StudentStageHost({
   standalone = false,
   adaptiveInsertions = [],
   prefetchClassroomIds = [],
+  knowledgeGraph,
+  knowledgePoints = [],
+  sidebarCollapsed,
+  onSidebarCollapsedChange,
 }: StudentStageHostProps) {
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
@@ -781,7 +797,6 @@ export function StudentStageHost({
               className,
             )}
           >
-            {/* 返回入口由 Header 内置的 ArrowLeft 提供，避免 z-index 重叠 */}
 
             {state === 'loading' ? (
               <div className="flex flex-1 items-center justify-center">
@@ -803,10 +818,14 @@ export function StudentStageHost({
                 </div>
               </div>
             ) : (
-              <Stage
-                experience="student-course"
-                onPlaybackStateChange={handlePlaybackStateChange}
-              />
+              <TeachingKnowledgeGraphProvider graph={knowledgeGraph} points={knowledgePoints}>
+                <Stage
+                  experience="student-course"
+                  onPlaybackStateChange={handlePlaybackStateChange}
+                  sidebarCollapsed={sidebarCollapsed}
+                  onSidebarCollapsedChange={onSidebarCollapsedChange}
+                />
+              </TeachingKnowledgeGraphProvider>
             )}
           </div>
         </MediaStageProvider>

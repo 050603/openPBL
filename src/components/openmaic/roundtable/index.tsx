@@ -32,6 +32,7 @@ import { DEFAULT_TEACHER_AVATAR, DEFAULT_USER_AVATAR } from '@openmaic/component
 import type { DiscussionAction } from '@openmaic/lib/types/action';
 import type { EngineMode, PlaybackView } from '@openmaic/lib/playback';
 import type { Participant } from '@openmaic/lib/types/roundtable';
+import { LectureSubtitleDock } from '@openmaic/components/roundtable/lecture-subtitle-dock';
 
 export interface DiscussionRequest {
   topic: string;
@@ -51,6 +52,9 @@ interface RoundtableProps {
   readonly playbackView?: PlaybackView; // Centralised derived state from Stage
   readonly currentSpeech?: string | null; // Live SSE speech (from StreamBuffer — discussion/QA)
   readonly lectureSpeech?: string | null; // Active lecture speech (from PlaybackEngine, full text)
+  readonly lectureSpeechProgress?: number;
+  readonly lectureCues?: ReadonlyArray<{ actionIndex: number; text: string }>;
+  readonly activeLectureActionIndex?: number;
   readonly idleText?: string | null; // Static idle text (first speech action)
   readonly playbackCompleted?: boolean; // True when engine finished all actions (show restart icon)
   readonly discussionRequest?: DiscussionAction | null;
@@ -74,6 +78,10 @@ interface RoundtableProps {
 
   readonly onResumeTopic?: () => void;
   readonly onPlayPause?: () => void;
+  readonly onPreviousCue?: () => boolean;
+  readonly onNextCue?: () => boolean;
+  readonly canGoPreviousCue?: boolean;
+  readonly canGoNextCue?: boolean;
   readonly isDiscussionPaused?: boolean;
   readonly onDiscussionPause?: () => void;
   readonly onDiscussionResume?: () => void;
@@ -141,6 +149,9 @@ export function Roundtable({
   playbackView,
   currentSpeech,
   lectureSpeech,
+  lectureSpeechProgress = 0,
+  lectureCues = [],
+  activeLectureActionIndex = -1,
   idleText,
   playbackCompleted,
   discussionRequest,
@@ -164,6 +175,10 @@ export function Roundtable({
 
   onResumeTopic,
   onPlayPause,
+  onPreviousCue,
+  onNextCue,
+  canGoPreviousCue = false,
+  canGoNextCue = false,
   isDiscussionPaused,
   onDiscussionPause,
   onDiscussionResume,
@@ -333,7 +348,7 @@ export function Roundtable({
   // Separate participants by role (teacherParticipant & studentParticipants declared earlier for effect)
   const userParticipant = initialParticipants.find((p) => p.role === 'user');
 
-  const teacherAvatar = teacherParticipant?.avatar || DEFAULT_TEACHER_AVATAR;
+  const teacherAvatar = DEFAULT_TEACHER_AVATAR;
   const teacherName = teacherParticipant?.name || t('roundtable.teacher');
   const userAvatar = userParticipant?.avatar || DEFAULT_USER_AVATAR;
 
@@ -676,6 +691,48 @@ export function Roundtable({
       onCycleSpeed={handleCycleSpeed}
     />
   );
+
+  const showLectureSubtitleDock =
+    hideCompanionArea &&
+    !isPresenting &&
+    !isInLiveFlow &&
+    !discussionRequest &&
+    !isCueUser &&
+    !isInputOpen &&
+    !isVoiceOpen;
+
+  if (showLectureSubtitleDock) {
+    return (
+      <LectureSubtitleDock
+        activeActionIndex={activeLectureActionIndex}
+        autoPlay={autoPlayLecture}
+        canGoNext={currentSceneIndex < scenesCount - 1}
+        canGoPrevious={currentSceneIndex > 0}
+        cues={lectureCues}
+        currentText={sourceText}
+        speechProgress={lectureSpeechProgress}
+        engineMode={engineMode}
+        interactionAssistance={interactionAssistance}
+        muted={ttsMuted}
+        onNext={onNextSlide}
+        onPlayPause={onPlayPause}
+        onPrevious={onPrevSlide}
+        onPreviousCue={onPreviousCue}
+        onNextCue={onNextCue}
+        canGoPreviousCue={canGoPreviousCue}
+        canGoNextCue={canGoNextCue}
+        onToggleAutoPlay={() => setAutoPlayLecture(!autoPlayLecture)}
+        onToggleMute={() => ttsEnabled && setTTSMuted(!ttsMuted)}
+        onCycleSpeed={handleCycleSpeed}
+        playbackCompleted={playbackCompleted}
+        playbackSpeed={playbackSpeed}
+        sceneIndex={currentSceneIndex}
+        scenesCount={scenesCount}
+        teacherAvatar={teacherAvatar}
+        teacherName={teacherName}
+      />
+    );
+  }
 
   if (isPresenting) {
     return (

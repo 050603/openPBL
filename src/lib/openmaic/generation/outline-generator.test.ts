@@ -210,7 +210,7 @@ describe("PBL outline fallbacks", () => {
     expect(systemPrompt).toContain("fixed seconds-per-page");
     expect(userPrompt).toContain("fixed seconds-per-page threshold");
     expect(userPrompt).toContain("assigned knowledge points");
-    expect(result.data?.outlines[0]?.companionIds).toEqual(["knowledge", "ideation"]);
+    expect(result.data?.outlines[0]?.companionIds).toBeUndefined();
   });
 
   it("preserves interactive learning intent and adds ordinary activity teacher support", () => {

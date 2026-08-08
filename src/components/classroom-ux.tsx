@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   Bell,
   Bot,
-  CheckCircle2,
   ClipboardCheck,
   Flag,
   Gauge,
@@ -227,36 +226,31 @@ export function TeacherClassroomBanner({
   currentStage,
   timerText,
   onlineCount,
-  completion,
+  readyCount,
   riskCount,
 }: {
   course: Course;
   currentStage: Stage;
   timerText: string;
   onlineCount: number;
-  completion: number;
+  readyCount: number;
   riskCount: number;
 }) {
-  void timerText;
-  void onlineCount;
   const help = getStageHelp(currentStage);
   const projectCount = course.groups?.length ?? 0;
   return (
-    <section className="relative overflow-hidden rounded-[var(--radius-lg)] bg-[var(--pbl-teacher)] text-white">
-      <div className="pbl-hero-grid absolute inset-0 opacity-55" aria-hidden="true" />
-      <div className="absolute -right-16 -top-28 h-64 w-64 rounded-full bg-blue-400/28 blur-3xl" aria-hidden="true" />
-      <div className="relative grid gap-3 p-3 md:p-4 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-center">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white/12 text-white ring-1 ring-white/18">
+    <section className="flex flex-wrap items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(30,64,175,0.06)] md:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]">
             {help.icon}
           </div>
           <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-bold text-white/65">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-[var(--pbl-text-muted)]">
               <span>阶段 {course.currentStageIndex + 1}/{course.stages.length}</span>
               <span>·</span>
               <span className="truncate">{course.name}</span>
               <button
-                className="grid h-5 w-5 place-items-center rounded-full bg-white/10 text-white/70 ring-1 ring-white/14 transition hover:bg-white/18"
+                className="grid h-5 w-5 place-items-center rounded-full text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)] transition hover:bg-[var(--pbl-teacher-soft)]"
                 title={`${help.goal}｜产出：${help.deliverable}｜AI：${help.ai}`}
                 type="button"
                 aria-label="查看阶段说明"
@@ -264,20 +258,21 @@ export function TeacherClassroomBanner({
                 <HelpCircle size={13} />
               </button>
             </div>
-            <h1 className="truncate text-2xl font-bold leading-tight md:text-3xl">{currentStage.label}</h1>
+            <h1 className="mt-0.5 truncate text-xl font-bold leading-tight text-[var(--pbl-text-strong)] md:text-2xl">{currentStage.label}</h1>
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-4">
-          <TeacherMetric icon={<Gauge size={16} />} label="完成" value={`${completion}%`} tone={completion >= 80 ? "green" : "blue"} />
+        <div className="flex flex-wrap items-center gap-2">
+          <TeacherMetric icon={<Presentation size={15} />} label="计时" value={timerText} tone="blue" />
+          <TeacherMetric
+            icon={<Gauge size={16} />}
+            label="达标"
+            value={`${readyCount}/${course.students.length}`}
+            tone={readyCount === course.students.length ? "green" : "blue"}
+          />
           <TeacherMetric icon={<AlertTriangle size={16} />} label="介入" value={`${riskCount}`} tone={riskCount ? "orange" : "green"} />
-          <TeacherMetric icon={<Users size={16} />} label="学生" value={`${course.students.length}`} tone="blue" />
-          <TeacherMetric icon={<ClipboardCheck size={16} />} label="个人项目" value={`${projectCount}`} tone="green" />
+          <TeacherMetric icon={<Users size={16} />} label="在线" value={`${onlineCount}/${course.students.length}`} tone="blue" />
+          <TeacherMetric icon={<ClipboardCheck size={16} />} label="项目" value={`${projectCount}`} tone="green" />
         </div>
-      </div>
-      <div className="relative grid gap-2 border-t border-white/10 px-3 py-2 text-xs md:grid-cols-2 md:px-4">
-        <MiniFact icon={<CheckCircle2 size={14} />} label="本阶段证据" value={help.deliverable} />
-        <MiniFact icon={<Lightbulb size={14} />} label="AI 支架重点" value={help.ai} />
-      </div>
     </section>
   );
 }
@@ -303,18 +298,6 @@ function HeroChip({ icon, label, value }: { icon: ReactNode; label: string; valu
   );
 }
 
-function MiniFact({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-start gap-2 rounded-[10px] bg-white/10 px-3 py-2 ring-1 ring-white/10">
-      <span className="mt-0.5 shrink-0 text-white/78">{icon}</span>
-      <div className="min-w-0">
-        <div className="text-[11px] font-semibold text-white/50">{label}</div>
-        <div className="mt-0.5 truncate text-xs font-semibold text-white/84">{value}</div>
-      </div>
-    </div>
-  );
-}
-
 function TeacherMetric({
   icon,
   label,
@@ -327,12 +310,12 @@ function TeacherMetric({
   tone: "blue" | "green" | "orange";
 }) {
   return (
-    <div className="rounded-[12px] bg-white/10 px-3 py-2 ring-1 ring-white/12 backdrop-blur">
-      <div className={cn("flex items-center gap-1.5 text-[11px] font-semibold", tone === "green" ? "text-green-200" : tone === "orange" ? "text-orange-200" : "text-blue-200")}>
+    <div className={cn("inline-flex h-9 items-center gap-2 rounded-[10px] border px-2.5", tone === "green" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : tone === "orange" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-100 bg-blue-50 text-blue-700")}>
+      <div className="flex items-center gap-1 text-[11px] font-semibold">
         {icon}
         {label}
       </div>
-      <div className="mt-0.5 text-xl font-bold text-white">{value}</div>
+      <div className="font-mono text-sm font-black tabular-nums">{value}</div>
     </div>
   );
 }

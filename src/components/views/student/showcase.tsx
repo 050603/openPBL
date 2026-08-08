@@ -13,17 +13,56 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { Card, FileBadge, Pill, PrimaryButton, toast } from "@/components/ui";
-import type { Course, CourseUpload } from "@/lib/session/types";
+import type { ArtifactSnapshot, CompanionProcessRecord, Course, CourseUpload } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { buildShowcaseCoach } from "@/lib/teaching-ai/client-api";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
 import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
+import { MakeEvidenceTask } from "./evidence-task/make-task";
 
 function uploadCategory(file: File): CourseUpload["category"] {
   const name = file.name.toLowerCase();
   return /\.(ppt|pptx|key|mp4|mov|webm)$/.test(name) || file.type.startsWith("video/")
     ? "presentation"
     : "artifact";
+}
+
+export function buildShowcaseArtifactSnapshot(input: {
+  courseId: string;
+  studentId: string;
+  uploadId: string;
+  title: string;
+  fileName: string;
+  fileType: string;
+  url: string;
+  createdAt?: string;
+}): ArtifactSnapshot {
+  return {
+    id: `snapshot-${input.uploadId}`,
+    courseId: input.courseId,
+    studentId: input.studentId,
+    stageKey: "showcase",
+    title: input.title,
+    fileName: input.fileName,
+    fileType: input.fileType,
+    sourceUrl: input.url,
+    inspectionStatus: "metadata-only",
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  };
+}
+
+export function selectMeaningfulShowcaseProcessRecords(
+  records: CompanionProcessRecord[],
+  studentId: string,
+): CompanionProcessRecord[] {
+  return records
+    .filter((record) => {
+      if (record.studentId !== studentId) return false;
+      if (record.source !== "agent") return true;
+      const genericReply = /学习请求|回应了|回复了/.test(record.title);
+      return !genericReply && Boolean(record.taskId || record.evidenceIds?.length);
+    })
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
 export function ShowcaseView({ course, embedded = false }: { course: Course; embedded?: boolean }) {
@@ -44,9 +83,7 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
     [course.uploads, project?.id, studentId],
   );
   const processRecords = useMemo(
-    () => (course.companionProcessRecords ?? [])
-      .filter((item) => item.studentId === studentId)
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    () => selectMeaningfulShowcaseProcessRecords(course.companionProcessRecords ?? [], studentId),
     [course.companionProcessRecords, studentId],
   );
   const previewUpload = uploads.find((item) => item.id === course.uiState?.previewUploadId) ?? uploads[0];
@@ -59,6 +96,7 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
   const [timerRunning, setTimerRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [improvingWork, setImprovingWork] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const confirmation = useStudentActionConfirmation({ course, stageKey: "showcase" });
@@ -84,6 +122,7 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
       const data = await response.json() as { id?: string; url?: string; fileName?: string; fileType?: string; size?: string };
       if (!data.id || !data.url || !data.fileName) throw new Error("上传响应异常");
       const category = uploadCategory(file);
+      const fileType = data.fileType || file.type || "application/octet-stream";
       const upload = session.upsertUpload({
         id: data.id,
         courseId: course.id,
@@ -94,7 +133,7 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
         category,
         title: file.name,
         fileName: data.fileName,
-        fileType: data.fileType ?? file.type,
+        fileType,
         size: data.size ?? `${file.size}`,
         url: data.url,
       });
@@ -107,7 +146,25 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
         title: file.name,
         content: `成果文件：${data.fileName}`,
         groupId: project.id,
-        files: [{ name: data.fileName, type: data.fileType ?? file.type, size: data.size, url: data.url }],
+        files: [{ name: data.fileName, type: fileType, size: data.size, url: data.url }],
+      });
+      const snapshot = buildShowcaseArtifactSnapshot({
+        courseId: course.id,
+        studentId,
+        uploadId: upload.id,
+        title: file.name,
+        fileName: data.fileName,
+        fileType,
+        url: data.url,
+      });
+      session.upsertArtifactSnapshot(snapshot);
+      session.addCompanionProcessRecord({
+        courseId: course.id,
+        studentId,
+        stageKey: "showcase",
+        title: `上传最终成果“${file.name}”`,
+        summary: "最终成果材料已提交，教师可以直接打开真实文件查看。",
+        source: "student",
       });
       session.setPreviewUpload(course.id, upload.id);
       session.updateStudentProgress("showcase", Math.max(85, stageProgress));
@@ -134,7 +191,7 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
     confirmation.request({
       action: "upload",
       title: `上传成果“${file.name}”`,
-      summary: "系统接受教师设定的任意成果形式。该文件会作为你的真实成果材料同步给教师，不会自动标记展示完成。",
+      summary: "上传后，教师可以查看这份成果材料。",
       payload: { fileName: file.name, fileType: file.type, size: file.size },
       onConfirm: () => performUpload(file),
     });
@@ -167,11 +224,8 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
     <div className="space-y-5">
       <header className="flex flex-col gap-3 border-b border-stone-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-[var(--pbl-student)]">阶段五 · 成果展示与评价</p>
-          <h1 className="font-editorial mt-1 text-2xl font-semibold">提交真实成果，准备说明你的选择与证据</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
-            成果形式由项目任务决定，不限定为 PDF 或 PPT。正式展示由教师统一启动，你可以先在这里上传、预览和彩排。
-          </p>
+          <h1 className="font-editorial text-2xl font-semibold">阶段五 · 成果展示与评价</h1>
+          <p className="mt-2 text-sm text-stone-500">上传成果，准备课堂展示。</p>
         </div>
         <Pill tone={isPresenting ? "green" : uploads.length ? "blue" : "gray"}>
           {isPresenting ? "教师已开始你的展示" : uploads.length ? `已上传 ${uploads.length} 份成果` : "等待成果上传"}
@@ -181,7 +235,7 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
       {isPresenting ? (
         <div className="flex items-center gap-3 rounded-[12px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900">
           <CheckCircle2 size={20} />
-          <div><strong className="block text-sm">现在轮到你的个人项目展示</strong><span className="text-xs">请按教师节奏完成汇报与答辩；阶段完成状态由教师评价记录决定。</span></div>
+          <div><strong className="block text-sm">现在轮到你的个人项目展示</strong><span className="text-xs">请按教师安排完成汇报与答辩。</span></div>
         </div>
       ) : null}
 
@@ -252,19 +306,31 @@ export function ShowcaseView({ course, embedded = false }: { course: Course; emb
               {latestShowcaseSupport.suggestions.map((tip) => <p className="border-l-2 border-[var(--pbl-student)] pl-3 text-sm leading-6 text-stone-700" key={tip}>{tip}</p>)}
               <p className="text-xs leading-5 text-stone-500">依据：{latestShowcaseSupport.evidence.join("；") || "当前已上传成果与过程记录"}</p>
             </div>
-          ) : <p className="mt-4 rounded-[9px] border border-dashed border-stone-200 py-8 text-center text-sm text-stone-500">尚未生成检查结果；系统不会显示通用提示冒充个性化建议。</p>}
+          ) : <p className="mt-4 rounded-[9px] border border-dashed border-stone-200 py-8 text-center text-sm text-stone-500">尚未生成汇报建议</p>}
         </Card>
 
         <Card>
-          <h2 className="text-lg font-bold">自动形成的过程证据</h2>
-          <p className="mt-1 text-xs leading-5 text-stone-500">对话任务、项目修改以及 AI 建议的采纳或拒绝会自动沉淀，无需在展示阶段重复上传。</p>
+          <h2 className="text-lg font-bold">项目过程</h2>
           {processRecords.length ? (
             <ol className="mt-4 space-y-3">
-              {processRecords.slice(0, 6).map((record) => <li className="border-l-2 border-stone-200 pl-3" key={record.id}><strong className="block text-sm">{record.title}</strong><p className="mt-1 text-xs leading-5 text-stone-500">{record.summary}</p></li>)}
+              {processRecords.slice(0, 6).map((record) => <li className="border-l-2 border-stone-200 pl-3" key={record.id}><div className="flex flex-wrap items-baseline justify-between gap-2"><strong className="block text-sm">{record.title}</strong><time className="text-[10px] text-stone-400">{new Date(record.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div><p className="mt-1 text-xs leading-5 text-stone-500">{record.summary}</p></li>)}
             </ol>
           ) : <p className="mt-4 rounded-[9px] border border-dashed border-stone-200 py-8 text-center text-sm text-stone-500">当前还没有可展示的过程记录</p>}
         </Card>
       </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold">继续完善作品</h2>
+            <p className="mt-1 text-xs text-stone-500">展示后仍可提交新版本，原有版本会继续保留。</p>
+          </div>
+          <PrimaryButton onClick={() => setImprovingWork((value) => !value)} variant="outline">
+            <RotateCcw size={16} />{improvingWork ? "收起" : "提交新版本"}
+          </PrimaryButton>
+        </div>
+        {improvingWork ? <div className="mt-5"><MakeEvidenceTask course={course} studentId={studentId} /></div> : null}
+      </Card>
 
       <StudentActionConfirmationDialog busy={confirmation.busy} onConfirm={() => void confirmation.confirm()} onReject={confirmation.reject} pending={confirmation.pending} />
     </div>

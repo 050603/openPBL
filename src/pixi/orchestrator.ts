@@ -24,7 +24,15 @@ import {
   type DeskAmbientBehavior,
 } from './ambient-behavior'
 
-const classroomMainAisleX = 690
+const classroomNavigationLanes = {
+  // Keep enough horizontal separation for two full character silhouettes while
+  // staying inside the clear corridor between the workstation columns.
+  left: 640,
+  right: 756,
+} as const
+const classroomColumnDividerX = 698
+
+type ClassroomNavigationLane = keyof typeof classroomNavigationLanes
 
 type OfficeOrchestratorOptions = {
   random?: () => number
@@ -77,7 +85,10 @@ export function createOfficeOrchestrator(
   const zoneInteractionTimers = new Map<AgentId, number>()
   const zoneInteractionRequests = new Map<AgentId, number>()
   const zoneActionPlayedForVisit = new Map<AgentId, StudyZoneId>()
-  const navigationTraffic = createNavigationTrafficController()
+  const navigationTrafficByLane: Record<ClassroomNavigationLane, ReturnType<typeof createNavigationTrafficController>> = {
+    left: createNavigationTrafficController(),
+    right: createNavigationTrafficController(),
+  }
   const speechLockedAgents = new Set<AgentId>()
   const speechFinishingAgents = new Set<AgentId>()
   const speechFinishRequests = new Map<AgentId, number>()
@@ -358,9 +369,17 @@ export function createOfficeOrchestrator(
     agentId: AgentId,
     request: number,
   ): Promise<NavigationTrafficLease | null> {
-    return navigationTraffic.acquire(
+    return navigationTrafficByLane[navigationLaneForAgent(agentId)].acquire(
       () => !destroyed && isCurrentMotion(agentId, request),
     )
+  }
+
+  function navigationLaneForAgent(agentId: AgentId): ClassroomNavigationLane {
+    return workstations[agentId].seatAnchor.x <= classroomColumnDividerX ? 'left' : 'right'
+  }
+
+  function navigationAisleXForAgent(agentId: AgentId): number {
+    return classroomNavigationLanes[navigationLaneForAgent(agentId)]
   }
 
   async function sitAtDesk(agentId: AgentId, request: number): Promise<boolean> {
@@ -477,14 +496,17 @@ export function createOfficeOrchestrator(
 
     person.setFacing(definition.facing)
     await person.play(action, {
-      loop: false,
+      // Choose only one action for this visit, but keep that action alive until
+      // the companion leaves. A one-shot strip freezes on its final frame while
+      // the return route is queued, which makes every workbench look stalled.
+      loop: true,
       restart: true,
       preserveVisualAnchor: 'bottomCenter',
       onMounted: () => {
         if (!isCurrentZoneInteraction(agentId, zoneId, request)) return
         // Props and hands are not stable registration points. Mount the chosen
-        // one-shot action once, then pin its authored body anchor for the full
-        // cycle so a workbench visit cannot jump or drift.
+        // action once, then pin its authored body anchor for the full visit so a
+        // looping workbench action cannot jump or drift between cycles.
         person.placeVisualAnchorAt(
           actionAnchorPoint.x,
           actionAnchorPoint.y,
@@ -589,10 +611,16 @@ export function createOfficeOrchestrator(
       const route = classroomAisleRoute(
         workstation.person.getVisualAnchorPosition('bottomCenter'),
         chatPoint,
-        classroomMainAisleX,
+        navigationAisleXForAgent(agentId),
       )
       if (!await walkRoute(agentId, request, route)) return
       if (!isCurrentIdleRequest(agentId, idleRequest)) return
+
+      // The shared aisle is clear as soon as the visitor reaches the chat point.
+      // Conversation sprite preparation is local to the destination and must not
+      // keep every other companion waiting behind this visitor.
+      trafficLease.release()
+      trafficLease = null
 
       // The standing visitor is on the far side of the target workstation.
       // Mount only its body behind the desk so the monitor naturally occludes
@@ -722,7 +750,7 @@ export function createOfficeOrchestrator(
           const canContinue = await waitForIdleRoam(
             agentId,
             idleRequest,
-            450 + Math.round(nextIdleRandom(agentId) * 350),
+            4_000 + Math.round(nextIdleRandom(agentId) * 1_500),
           )
           if (canContinue) {
             await returnAgentToDesk(agentId)
@@ -809,10 +837,16 @@ export function createOfficeOrchestrator(
       }
       const current = workstation.person.getVisualAnchorPosition('bottomCenter')
       const route = [
-        ...classroomAisleRoute(current, definition.approachPoint, classroomMainAisleX),
+        ...classroomAisleRoute(current, definition.approachPoint, navigationAisleXForAgent(agentId)),
         definition.interactionPoint,
       ]
       if (!await walkRoute(agentId, request, route)) return
+
+      // Only route traversal needs global traffic coordination. The workbench
+      // action happens at a private interaction point and can run concurrently
+      // with other companions' routes and actions.
+      trafficLease.release()
+      trafficLease = null
 
       currentZoneByAgent.set(agentId, zoneId)
       studyZones.setAgentActive(zoneId, agentId, true)
@@ -838,7 +872,7 @@ export function createOfficeOrchestrator(
       return
     }
     await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, 550)
+      window.setTimeout(resolve, 4_500)
     })
     if (currentZoneByAgent.get(agentId) === zoneId) {
       await returnAgentToDesk(agentId)
@@ -889,11 +923,16 @@ export function createOfficeOrchestrator(
             ...classroomAisleRoute(
               previousZoneDefinition.approachPoint,
               workstation.homeAnchor,
-              classroomMainAisleX,
+              navigationAisleXForAgent(agentId),
             ),
           ]
         : [workstation.homeAnchor]
       if (!await walkRoute(agentId, request, route)) return
+
+      // The home anchor is outside the shared route. Release the aisle before
+      // the private sit-down transition so another companion can start moving.
+      trafficLease.release()
+      trafficLease = null
 
       workstation.person.setFacing('left')
       if (!await sitAtDesk(agentId, request)) return

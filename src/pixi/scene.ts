@@ -8,6 +8,7 @@ import { pixiResources } from './resources'
 import { createSpriteFactory } from './sprite-factory'
 import { createStudyZones, type StudyZoneController } from './study-zones'
 import { createWorkstationFactory, type WorkstationController } from './workstation'
+import { pixiAssetLoadOptions, retryAssetLoad } from './asset-loading'
 
 export const sceneWidth = 1200
 export const sceneHeight = 900
@@ -42,6 +43,47 @@ type SceneOptions = {
   onClearSelection: () => void
 }
 
+const agentHitPadding = 12
+
+export function getAgentHitArea(bounds: { x: number; y: number; width: number; height: number }): Rectangle {
+  return new Rectangle(
+    bounds.x - agentHitPadding,
+    bounds.y - agentHitPadding,
+    bounds.width + agentHitPadding * 2,
+    bounds.height + agentHitPadding * 2,
+  )
+}
+
+export function bindAgentPointerSelection(
+  container: Container,
+  agentId: AgentId,
+  onSelectAgent: SceneOptions['onSelectAgent'],
+): void {
+  container.on('pointerdown', (event: FederatedPointerEvent) => {
+    event.stopPropagation()
+    onSelectAgent(agentId, { x: event.global.x, y: event.global.y })
+  })
+}
+
+type AgentPointerCandidate = {
+  id: AgentId
+  bounds: { x: number; y: number; width: number; height: number }
+}
+
+export function resolveAgentPointerTarget(
+  hoveredAgentId: AgentId | null,
+  candidates: AgentPointerCandidate[],
+  point: SceneClickAnchor,
+): AgentId | null {
+  if (hoveredAgentId) return hoveredAgentId
+  return candidates.find(({ bounds }) => (
+    point.x >= bounds.x - agentHitPadding
+    && point.x <= bounds.x + bounds.width + agentHitPadding
+    && point.y >= bounds.y - agentHitPadding
+    && point.y <= bounds.y + bounds.height + agentHitPadding
+  ))?.id ?? null
+}
+
 export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudyZone, onHoverTarget, onClearSelection }: SceneOptions): Promise<SceneController> {
   reportProgress(onLoadProgress, 0)
   const [
@@ -54,14 +96,14 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
     classroomDeskTexture,
     classroomChairTexture,
   ] = await Promise.all([
-    Assets.load<Texture>(pixiResources.workstationImageUrl),
+    Assets.load<Texture>(pixiResources.workstationImageUrl, pixiAssetLoadOptions),
     fetchSheet(pixiResources.workstationSheetUrl),
-    Assets.load<Texture>(pixiResources.studyZoneImageUrls.library),
-    Assets.load<Texture>(pixiResources.studyZoneImageUrls.planning),
-    Assets.load<Texture>(pixiResources.studyZoneImageUrls.archive),
-    Assets.load<Texture>(pixiResources.studyZoneImageUrls.archiveClosed),
-    Assets.load<Texture>(pixiResources.classroomFurnitureImageUrls.desk),
-    Assets.load<Texture>(pixiResources.classroomFurnitureImageUrls.chair),
+    Assets.load<Texture>(pixiResources.studyZoneImageUrls.library, pixiAssetLoadOptions),
+    Assets.load<Texture>(pixiResources.studyZoneImageUrls.planning, pixiAssetLoadOptions),
+    Assets.load<Texture>(pixiResources.studyZoneImageUrls.archive, pixiAssetLoadOptions),
+    Assets.load<Texture>(pixiResources.studyZoneImageUrls.archiveClosed, pixiAssetLoadOptions),
+    Assets.load<Texture>(pixiResources.classroomFurnitureImageUrls.desk, pixiAssetLoadOptions),
+    Assets.load<Texture>(pixiResources.classroomFurnitureImageUrls.chair, pixiAssetLoadOptions),
   ])
   reportProgress(onLoadProgress, 0.25)
 
@@ -82,9 +124,24 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
     },
   })
 
-  const createdWorkstations = await Promise.all(
+  const workstationResults = await Promise.allSettled(
     agentRoles.map((role) => workstationFactory.createWorkstation(role)),
   )
+  const failedWorkstation = workstationResults.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  )
+  if (failedWorkstation) {
+    workstationResults.forEach((result) => {
+      if (result.status === 'fulfilled') result.value.destroy()
+    })
+    textureLoader.clearCache()
+    throw failedWorkstation.reason
+  }
+  const createdWorkstations = workstationResults
+    .filter((result): result is PromiseFulfilledResult<WorkstationController> => (
+      result.status === 'fulfilled'
+    ))
+    .map((result) => result.value)
   const workstations = Object.fromEntries(
     createdWorkstations.map((workstation) => [workstation.roleProfile.id, workstation]),
   ) as Record<AgentId, WorkstationController>
@@ -106,29 +163,27 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
   })
   const background = createStudioBackground(studyZones)
   const workstationLayer = new Container()
+  let hoveredAgentId: AgentId | null = null
 
   agentRoles.forEach((role) => {
     const workstation = workstations[role.id]
     workstation.person.container.eventMode = 'static'
     workstation.person.container.cursor = 'pointer'
     const personBounds = workstation.person.container.getLocalBounds()
-    workstation.person.container.hitArea = new Rectangle(
-      personBounds.x,
-      personBounds.y,
-      personBounds.width,
-      personBounds.height,
-    )
-    workstation.person.container.on('pointertap', (event: FederatedPointerEvent) => {
-      event.stopPropagation()
-      onSelectAgent(role.id, { x: event.global.x, y: event.global.y })
-    })
+    workstation.person.container.hitArea = getAgentHitArea(personBounds)
+    bindAgentPointerSelection(workstation.person.container, role.id, onSelectAgent)
     workstation.person.container.on('pointerenter', (event: FederatedPointerEvent) => {
+      hoveredAgentId = role.id
       onHoverTarget({ kind: 'agent', id: role.id, x: event.global.x, y: event.global.y })
     })
     workstation.person.container.on('pointermove', (event: FederatedPointerEvent) => {
+      hoveredAgentId = role.id
       onHoverTarget({ kind: 'agent', id: role.id, x: event.global.x, y: event.global.y })
     })
-    workstation.person.container.on('pointerleave', () => onHoverTarget(null))
+    workstation.person.container.on('pointerleave', () => {
+      if (hoveredAgentId === role.id) hoveredAgentId = null
+      onHoverTarget(null)
+    })
     workstationLayer.addChild(workstation.container)
   })
 
@@ -136,7 +191,23 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
   root.addChild(viewport)
   root.eventMode = 'static'
   root.hitArea = new Rectangle(0, 0, sceneWidth, sceneHeight)
-  root.on('pointertap', onClearSelection)
+  root.on('pointerdown', (event: FederatedPointerEvent) => {
+    const point = { x: event.global.x, y: event.global.y }
+    const agentId = resolveAgentPointerTarget(
+      hoveredAgentId,
+      [...agentRoles].reverse().map((role) => ({
+        id: role.id,
+        bounds: workstations[role.id].person.container.getBounds(),
+      })),
+      point,
+    )
+    if (agentId) {
+      event.stopPropagation()
+      onSelectAgent(agentId, point)
+      return
+    }
+    onClearSelection()
+  })
 
   const officeController = createOfficeOrchestrator(workstations, studyZones)
   const sceneController: SceneController = {
@@ -160,10 +231,13 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
 }
 
 async function fetchSheet(url: string): Promise<SpritesheetData> {
-  const response = await fetch(url, { cache: 'force-cache' })
-  if (!response.ok) {
-    throw new Error(`Unable to load spritesheet data: ${url}`)
-  }
+  const response = await retryAssetLoad(async () => {
+    const result = await fetch(url, { cache: 'force-cache' })
+    if (!result.ok) {
+      throw new Error(`Unable to load spritesheet data: ${url}`)
+    }
+    return result
+  })
   return (await response.json()) as SpritesheetData
 }
 
@@ -204,34 +278,10 @@ function layoutScene(viewport: Container, width: number, height: number): void {
 function createStudioBackground(studyZones: StudyZoneController): Container {
   const background = new Container()
   const paper = new Graphics()
-  const learningBays = new Graphics()
-  const aisle = new Graphics()
-  // A cool, almost-white gray keeps the study furniture grounded while the
-  // white materials and their contact shadows remain readable.
+  // Keep the room floor as one uninterrupted color. Previous decorative
+  // white bays, aisle and top strip read as empty UI cards behind the scene.
   paper.rect(0, 0, sceneWidth, sceneHeight).fill({ color: 0xf2f4f5 })
-  paper.rect(0, 0, sceneWidth, 15).fill({ color: 0xffffff, alpha: 0.98 })
-  paper.rect(0, 15, sceneWidth, 3).fill({ color: 0xe4e8ea, alpha: 0.9 })
-  ;[
-    { y: 26, accent: 0x5f9d97 },
-    { y: 287, accent: 0xd7a24f },
-    { y: 548, accent: 0x7891bd },
-  ].forEach(({ y, accent }) => {
-    learningBays
-      .roundRect(430, y, 700, 236, 30)
-      .fill({ color: 0xffffff, alpha: 0.2 })
-      .stroke({ color: accent, alpha: 0.08, width: 1 })
-      .roundRect(448, y + 218, 664, 2, 1)
-      .fill({ color: accent, alpha: 0.05 })
-  })
-  aisle
-    .roundRect(classroomMainAisleXForBackground() - 18, 34, 36, 804, 18)
-    .fill({ color: 0xffffff, alpha: 0.13 })
-    .stroke({ color: 0xaab6b9, alpha: 0.08, width: 1 })
-  background.addChild(paper, learningBays, aisle)
+  background.addChild(paper)
   background.addChild(studyZones.container)
   return background
-}
-
-function classroomMainAisleXForBackground(): number {
-  return 690
 }

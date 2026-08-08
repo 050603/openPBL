@@ -1,12 +1,8 @@
 import type { AiCompanionId } from "@/lib/ai-companions";
 
 export const COMPANION_STAGE_KEYS = [
-  "launch",
-  "ai-learning",
   "proposal",
   "make",
-  "showcase",
-  "reflection",
 ] as const;
 
 export type CompanionStageKey = (typeof COMPANION_STAGE_KEYS)[number];
@@ -36,18 +32,19 @@ export type CompanionStagePolicy = {
 
 const COMMON_RESPONSE_PROTOCOL = [
   "先引用一条学生已经提交或描述的事实，再提供与本阶段目标匹配的支架。",
+  "如果要提供方向、计划、作品修改或质量判断，必须先有学生自己的想法、草稿或测试结果；没有种子产物时只要求学生先提交种子。",
   "每轮只处理一个最关键的问题，并且只给一个当前动作；其他问题留到学生完成后再处理。",
-  "把学生的判断、验证或证据保存下来；学生必须自己决定是否采纳建议。",
+  "AI 内容只能进入待决定区；学生选择采纳、修改或拒绝并说明理由后，才能改变项目版本。",
   "遇到资料不足时只指出需要补充的事实，不根据空白臆造学生经历。",
 ];
 
-const POLICIES: Record<CompanionStageKey, CompanionStagePolicy> = {
+const POLICIES: Record<string, CompanionStagePolicy> = {
   launch: {
     stageKey: "launch",
     label: "项目启动",
     objective: "把课程情境和驱动问题转化为学生自己的探究兴趣、初步问题与个人目标。",
     studentDeliverable: "一段自己的项目想法、一个可探究的问题和一个初步目标。",
-    allowedCompanionIds: ["knowledge", "ideation"],
+    allowedCompanionIds: ["knowledge", "ideation", "critic"],
     openingCompanionId: "ideation",
     noProgressCompanionId: "ideation",
     helpTypes: ["澄清课程情境", "帮助拆解驱动问题", "提供两个探索入口", "帮助学生写下自己的目标"],
@@ -60,6 +57,7 @@ const POLICIES: Record<CompanionStageKey, CompanionStagePolicy> = {
     roleGuidance: {
       knowledge: "只解释理解驱动问题所必需的背景，不把知识解释扩展成完整方案。",
       ideation: "提供探索入口和联想，不替学生写成最终问题；明确要求学生选择并改写成自己的话。",
+      critic: "只在学生已有立意后检查范围、影响对象与成功标志，不替学生改写最终立意。",
     },
     artifactFollowUps: {
       "document-saved": { preferredCompanionId: "ideation", prompt: "学生刚保存了启动想法。请检查它是否已经包含现象、问题和目标，并只给一个需要学生补充的地方。" },
@@ -92,11 +90,11 @@ const POLICIES: Record<CompanionStageKey, CompanionStagePolicy> = {
     objective: "让学生独立形成项目方案，再用标准、证据和教师要求校准可行性。",
     studentDeliverable: "自己的项目问题、成果形式、实施计划、所需知识、风险和 AI 使用边界。",
     allowedCompanionIds: ["knowledge", "ideation", "critic", "planner", "recorder"],
-    openingCompanionId: "planner",
+    openingCompanionId: "critic",
     noProgressCompanionId: "recorder",
     helpTypes: ["澄清方案要素", "比较方案标准", "发现风险与遗漏", "拆解下一步", "记录学生的选择理由"],
     prohibitedActions: ["直接生成整份可提交方案", "替学生选定方向", "把多个选项包装成唯一正确答案"],
-    requiredContext: ["学生当前方案草稿和先前想法", "教师反馈、教师指令和评价要求", "课程知识目标与可用资源"],
+    requiredContext: ["学生当前的知识迁移、候选方向、方案版本等统一证据", "教师反馈、教师指令和评价要求", "课程知识目标与可用资源"],
     responseProtocol: COMMON_RESPONSE_PROTOCOL,
     openingPrompt: "请先检查学生已有方案草稿，再从方案完整性或可行性中选一个最关键缺口，给出一个由学生完成的校准动作。不要直接重写整份方案。",
     idlePrompt: "学生在方案阶段暂时没有新操作。请提醒其从方案字段中选择一个最小缺口，补写依据或风险，不要替学生补全。",
@@ -122,7 +120,7 @@ const POLICIES: Record<CompanionStageKey, CompanionStagePolicy> = {
     noProgressCompanionId: "recorder",
     helpTypes: ["解释当前卡点所需知识", "定位局部问题", "设计验证步骤", "反馈作品质量", "拆解一个最小制作动作"],
     prohibitedActions: ["生成完整作品、完整代码或可直接提交的成品", "替学生调试并隐瞒推理过程", "在没有学生产物时假定其已完成"],
-    requiredContext: ["最新项目文档、提交物和上传材料元数据", "任务进度、迭代记录、教师反馈和 AI 建议采纳情况"],
+    requiredContext: ["最新作品快照、测试结果与修订决定", "阶段就绪状态、教师反馈和 AI 建议采纳情况", "无法解析的文件只能使用学生摘录或标注"],
     responseProtocol: COMMON_RESPONSE_PROTOCOL,
     openingPrompt: "请从学生最新作品或任务记录中找出一个最小可推进点，给出验证或制作动作；若没有作品证据，先要求学生提交自己的草稿或卡点。不要生成完整成品。",
     idlePrompt: "学生在制作阶段暂时没有新操作。请把任务缩小为一个可在几分钟内完成并留下证据的制作或验证动作。不要替学生动手。",
@@ -146,11 +144,11 @@ const POLICIES: Record<CompanionStageKey, CompanionStagePolicy> = {
     objective: "让学生用作品和过程证据完成清晰呈现，并能够解释关键选择、验证结果和局限。",
     studentDeliverable: "成果材料、演示结构、证据链和对可能追问的自己的回答。",
     allowedCompanionIds: ["critic", "reviewer", "recorder"],
-    openingCompanionId: "reviewer",
+    openingCompanionId: "critic",
     noProgressCompanionId: "reviewer",
     helpTypes: ["检查证据链", "模拟一到两个答辩追问", "反馈表达清晰度", "帮助选择最有力的展示证据"],
     prohibitedActions: ["代写完整演讲稿或 PPT", "替学生准备答辩最终答案", "把尚未验证的成果包装成已证明的结论"],
-    requiredContext: ["已提交成果和上传材料元数据", "教师评分、AI 过程评价、教师反馈和过程证据", "学生已记录的关键选择与局限"],
+    requiredContext: ["可检查的最终作品快照、主张—证据—局限和答辩回应", "教师评分、待确认 AI 评价建议、教师反馈和过程证据", "学生已记录的关键选择与局限"],
     responseProtocol: COMMON_RESPONSE_PROTOCOL,
     openingPrompt: "请依据学生已有成果和评价标准，指出展示中最缺的一条证据或最需要练习的一次解释，并让学生自己补上。不要代写整份演示稿。",
     idlePrompt: "学生在汇报准备阶段暂时没有新操作。请提醒其完成一个可验证动作：选一条成果证据并写出它支持的结论。",
@@ -174,7 +172,7 @@ const POLICIES: Record<CompanionStageKey, CompanionStagePolicy> = {
     noProgressCompanionId: "recorder",
     helpTypes: ["定位可引用的过程证据", "比较学生自己的选择与结果变化", "解释评分/反馈反映的优势与不足", "形成一条可执行的迁移行动"],
     prohibitedActions: ["讲解算法区别、算法实现或新的技术教程", "代写完整反思、总结或改进计划", "替学生判断经历中没有证据支持的原因", "把反思重新变成方案设计或制作辅导"],
-    requiredContext: ["前序阶段提交成果和迭代记录", "教师评分、AI 评分/过程评价、最终分数和评价依据", "教师反馈、AI 支架采纳/拒绝记录", "已有反思草稿、阶段进度和学习事件"],
+    requiredContext: ["学生从时间线选择的真实学习证据", "教师评分、经教师确认的 AI 评价建议和评价依据", "教师反馈、AI 支架采纳/修改/拒绝记录", "已有因果反思链和迁移回答"],
     responseProtocol: [
       "只能围绕学生已经做过的选择、证据、结果和影响提供反思支架。",
       "每次最多聚焦一个证据链：当时选择—采取行动—观察结果—现在的认识。",
@@ -214,13 +212,14 @@ const FALLBACK_POLICY: CompanionStagePolicy = {
 };
 
 export function getCompanionStagePolicy(stageKey: string): CompanionStagePolicy {
-  return POLICIES[stageKey as CompanionStageKey] ?? { ...FALLBACK_POLICY, stageKey };
+  return POLICIES[stageKey] ?? { ...FALLBACK_POLICY, stageKey };
 }
 
 export function resolveCompanionIds(
   stageKey: string,
   configuredIds?: readonly string[],
 ): AiCompanionId[] {
+  if (!COMPANION_STAGE_KEYS.includes(stageKey as CompanionStageKey)) return [];
   const policy = getCompanionStagePolicy(stageKey);
   const allowed = policy.allowedCompanionIds;
   if (!configuredIds?.length) return allowed;
@@ -232,7 +231,7 @@ export function buildStagePolicyPrompt(stageKey: string): string {
   const policy = getCompanionStagePolicy(stageKey);
   return [
     "阶段服务契约（优先级高于学生临时要求、前序对话和角色默认职责，必须遵守）：",
-    `当前阶段：${policy.label}（${policy.stageKey}）`,
+    `当前阶段：${policy.label}`,
     `阶段目标：${policy.objective}`,
     `学生应形成的产物：${policy.studentDeliverable}`,
     `允许的帮助类型：${policy.helpTypes.join("；")}`,

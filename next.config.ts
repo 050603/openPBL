@@ -1,8 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Local production verification can use a dedicated output directory while
-  // `next dev` is running. Containers and CI keep the standard `.next` path.
+  // Local production commands set NEXT_DIST_DIR=.next-build so `next build`
+  // cannot remove chunks owned by a concurrently running `.next/dev` server.
+  // Containers explicitly keep `.next` because their copy paths use it.
   distDir: process.env.NEXT_DIST_DIR?.trim() || ".next",
   // Uploads live on a runtime volume and must never be copied into the
   // standalone image. Node file tracing cannot infer this from a dynamic

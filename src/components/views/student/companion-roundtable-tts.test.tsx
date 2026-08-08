@@ -116,4 +116,27 @@ describe("companion TTS pipeline", () => {
     expect(onItemStart).toHaveBeenCalledWith(expect.objectContaining({ companionId: "planner" }));
     unmount();
   });
+
+  it("never falls back to the browser voice when configured API audio fails", async () => {
+    const speak = vi.fn();
+    vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak });
+    vi.stubGlobal("SpeechSynthesisUtterance", class {
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onstart: (() => void) | null = null;
+      lang = "";
+      rate = 1;
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false })));
+
+    const { result, unmount } = renderHook(() => useCompanionTTS());
+    await act(async () => {
+      result.current.enqueue("API 配音失败时只显示文字", "knowledge");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(speak).not.toHaveBeenCalled();
+    unmount();
+  });
 });

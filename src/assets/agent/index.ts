@@ -289,13 +289,30 @@ const actionDefinitionOverrides: Partial<
   cheer2_sub: { playback: { animationSpeed: 0.12 } },
   fc_high_press: { playback: { animationSpeed: 0.1 } },
   fc_walking_h: {
-    authoredFacing: 'right',
+    // The approved horizontal strip is authored facing left; Pixi mirrors this
+    // single stable gait for rightward travel so both directions share the
+    // exact same frame cadence and body registration.
+    authoredFacing: 'left',
+    // Eight genuinely distinct gait phases match the approved vertical walk:
+    // contact, load, passing and swing repeat for the opposite physical leg.
     authoredFps: 10,
     frameCount: 8,
-    pixelsPerCycle: 72,
+    pixelsPerCycle: 68,
     registrationAnchor: 'bottomCenter',
     transitionMs: 120,
     bodyCoreAnchor: { x: 96, y: 110 },
+    // Measured from the torso silhouette between y=55..170, excluding feet,
+    // hands and scarf tail. Stabilize the plush body while limbs cycle.
+    frameBodyOffsets: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 1, y: 0 },
+    ],
   },
   fc_walking_up: {
     authoredFacing: 'left',

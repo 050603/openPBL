@@ -15,9 +15,16 @@ export function StudentLeaveButton({
   className?: string;
 }) {
   const router = useRouter();
-  const { leaveClass } = useSession();
+  const { leaveClass, joinedCourseId } = useSession();
 
   async function handleClick() {
+    if (joinedCourseId) {
+      await fetch(`/api/courses/${encodeURIComponent(joinedCourseId)}/presence`, {
+        method: "DELETE",
+        headers: { "X-OpenPBL-Role": "student" },
+        keepalive: true,
+      }).catch(() => undefined);
+    }
     const left = await leaveClass();
     if (!left) return;
     const response = await fetch("/api/auth/logout", {

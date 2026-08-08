@@ -1,9 +1,21 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 
-vi.mock("@/lib/session/store", () => ({ useSession: () => ({ upsertTeacherAgentDirective: vi.fn() }) }));
+const { resolveInterventionSignals } = vi.hoisted(() => ({
+  resolveInterventionSignals: vi.fn(),
+}));
+
+vi.mock("@/lib/session/store", () => ({
+  useSession: () => ({
+    user: { name: "教师" },
+    reviewLearningEvidence: vi.fn(),
+    addActivity: vi.fn(),
+    upsertTeacherAgentDirective: vi.fn(),
+    resolveInterventionSignals,
+  }),
+}));
 vi.mock("./teacher-directive-form", () => ({ TeacherDirectiveForm: () => <div>教师目标表单</div> }));
 
 import { CompanionMonitor } from "./companion-monitor";
@@ -19,14 +31,27 @@ const course: Course = {
 };
 
 describe("CompanionMonitor", () => {
-  it("groups signals by student and separates class common issues", () => {
+  it("prioritizes students by readiness and keeps chat in the audit drawer", () => {
     render(<CompanionMonitor course={course} stageKey="proposal" />);
-    expect(screen.getByText("暂无共性问题")).toBeTruthy();
+    expect(screen.getByText("方案校准行动台")).toBeTruthy();
+    expect(screen.getByText("班级共同证据缺口")).toBeTruthy();
+    expect(screen.getAllByText("可验证方案版本").length).toBeGreaterThan(0);
     expect(screen.getAllByText("张三").length).toBeGreaterThan(0);
     expect(screen.getAllByText("李四").length).toBeGreaterThan(0);
+    expect(screen.queryByText("教师目标表单")).toBeNull();
+    expect(screen.queryByText("教师持续目标")).toBeNull();
+    expect(screen.queryByText("当前任务")).toBeNull();
+    expect(screen.queryByText("建议教师动作")).toBeNull();
+    expect(screen.getAllByText(/1 条学习信号/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "标记已处理" }));
+    expect(resolveInterventionSignals).toHaveBeenCalledWith("c1", ["sig1"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /李四.*尚未提交阶段证据/ }));
+    expect(screen.getByText("该学生尚未提交本阶段内容")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /仅对此学生下发目标/ }));
     expect(screen.getByText("教师目标表单")).toBeTruthy();
-    expect(screen.getByText("伴学协作现场")).toBeTruthy();
-    expect(screen.getByText("拆解项目步骤")).toBeTruthy();
-    expect(screen.getByText(/策策/)).toBeTruthy();
+    expect(screen.getByText("伴学任务与对话记录")).toBeTruthy();
+    expect(screen.queryByText(/阶段进度.*%/)).toBeNull();
   });
 });

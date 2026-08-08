@@ -35,6 +35,8 @@ const TEACHER_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
   "RESOLVE_COMPANION_CONFIRMATION",
   "SET_UI_STATE",
   "UPSERT_AI_SUPPORT",
+  "REVIEW_LEARNING_EVIDENCE",
+  "UPSERT_AI_ASSESSMENT_SUGGESTION",
   "UPSERT_WHITEBOARD_NODE",
   "DELETE_WHITEBOARD_NODE",
   "UPSERT_GROUP_BOARD",
@@ -64,8 +66,13 @@ const STUDENT_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
   "UPSERT_AI_SUPPORT",
   "UPSERT_COMPANION_TASK",
   "ADD_COMPANION_PROCESS_RECORD",
+  "REQUEST_TEACHER_HELP",
   "UPSERT_COMPANION_CONFIRMATION",
   "RESOLVE_COMPANION_CONFIRMATION",
+  "UPSERT_LEARNING_EVIDENCE",
+  "UPSERT_ARTIFACT_SNAPSHOT",
+  "UPSERT_AI_CONTRIBUTION",
+  "RECORD_STUDENT_AI_DECISION",
 ]);
 
 const SYSTEM_ACTIONS: ReadonlySet<ActionType> = new Set<ActionType>([
@@ -112,6 +119,11 @@ export function isStudentActionForSelf(
     "task",
     "record",
     "confirmation",
+    "signal",
+    "evidence",
+    "snapshot",
+    "contribution",
+    "decision",
     "reply",
   ]
     .map((key) => payload[key])

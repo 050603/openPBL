@@ -10,6 +10,23 @@ import type { PblModuleTimingPlan, PblProjectMainline } from "@/lib/pbl-time-mod
 import type { PblActivityTimingInput } from "@/lib/pbl-time-estimation";
 import type { TtsTimingPlan } from "@/lib/openmaic/audio/tts-timing";
 import type { ClassroomTimingState } from "@/lib/classroom/timing";
+import type {
+  AiAssessmentSuggestion,
+  AiContribution,
+  ArtifactSnapshot,
+  LearningEvidence,
+  StudentAiDecision,
+} from "@/lib/learning-evidence/types";
+
+export type {
+  AiAssessmentSuggestion,
+  AiContribution,
+  ArtifactSnapshot,
+  LearningEvidence,
+  StageMissionDefinition,
+  StageReadiness,
+  StudentAiDecision,
+} from "@/lib/learning-evidence/types";
 
 export type CourseStatus =
   | "draft"
@@ -495,7 +512,8 @@ export type LearningSignalKind =
   | "repeated-playback"
   | "idle"
   | "conversation-no-progress"
-  | "goal-stalled";
+  | "goal-stalled"
+  | "student-help-request";
 export type InterventionStatus = "open" | "handled" | "resolved" | "dismissed";
 
 export type LearningSignal = {
@@ -935,6 +953,16 @@ export type Course = {
   companionProcessRecords?: CompanionProcessRecord[];
   /** 由确定性规则从学习事件和会话中派生的个体信号。 */
   learningSignals?: LearningSignal[];
+  /** 可用于形成性评价的统一学习证据；运行信号不得混入此集合。 */
+  learningEvidence?: LearningEvidence[];
+  /** 文档、图片和演示材料的可检查快照或学生标注。 */
+  artifactSnapshots?: ArtifactSnapshot[];
+  /** AI 提议本身，仅在学生作出决定后才可能影响项目。 */
+  aiContributions?: AiContribution[];
+  /** 学生对 AI 提议的采纳、修改或拒绝决定。 */
+  studentAiDecisions?: StudentAiDecision[];
+  /** 等待教师确认的 AI 评价建议；未确认不得计分。 */
+  aiAssessmentSuggestions?: AiAssessmentSuggestion[];
   /** 达到班级阈值的共性问题。 */
   classCommonIssues?: ClassCommonIssue[];
   /** 教师对单人、多人与全班 Agent 下发的目标指令。 */
@@ -1297,6 +1325,11 @@ export type ArchivedCourseData = {
   stageTransitions?: StageTransitionRecord[];
   evaluations?: EvaluationRecord[];
   learningEvents?: LearningEvent[];
+  learningEvidence?: LearningEvidence[];
+  artifactSnapshots?: ArtifactSnapshot[];
+  aiContributions?: AiContribution[];
+  studentAiDecisions?: StudentAiDecision[];
+  aiAssessmentSuggestions?: AiAssessmentSuggestion[];
 };
 
 export type CourseSession = {

@@ -24,6 +24,7 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly readOnly?: boolean;
   readonly showCourseComplete?: boolean;
   readonly minimalToolbar?: boolean;
+  readonly integrated?: boolean;
 }
 
 export function CanvasArea({
@@ -54,6 +55,7 @@ export function CanvasArea({
   readOnly = false,
   showCourseComplete = true,
   minimalToolbar = false,
+  integrated = false,
 }: CanvasAreaProps) {
   const { t } = useI18n();
   const showControls = mode === 'playback' && !whiteboardOpen && !readOnly && !minimalToolbar;
@@ -89,11 +91,15 @@ export function CanvasArea({
   );
 
   return (
-    <div className="w-full h-full flex flex-col bg-gray-50 dark:bg-gray-900 group/canvas">
+    <div className={cn(
+      'group/canvas flex h-full w-full flex-col',
+      integrated ? 'bg-white dark:bg-slate-950' : 'bg-gray-50 dark:bg-gray-900',
+    )}>
       {/* Slide area — takes remaining space */}
       <div
         className={cn(
-          'flex-1 min-h-0 relative overflow-hidden flex items-center justify-center p-2 transition-colors duration-500',
+          'relative flex min-h-0 flex-1 items-center justify-center overflow-hidden transition-colors duration-500',
+          integrated ? 'bg-white p-0 dark:bg-slate-950' : 'p-2',
           currentScene?.type === 'interactive'
             ? 'bg-blue-50/30 dark:bg-blue-900/10'
             : 'bg-gray-50/30 dark:bg-gray-900/30',
@@ -101,12 +107,13 @@ export function CanvasArea({
       >
         <div
           className={cn(
-            'aspect-[16/9] h-full max-h-full max-w-full bg-white dark:bg-gray-800 shadow-2xl rounded-lg overflow-hidden relative transition-all duration-700',
+            'relative aspect-[16/9] h-full max-h-full max-w-full overflow-hidden bg-white transition-all duration-700 dark:bg-gray-800',
+            integrated ? 'rounded-none shadow-none ring-0' : 'rounded-lg shadow-2xl',
             showControls && !isLiveSession && currentScene?.type === 'slide' && 'cursor-pointer',
             readOnly && 'pointer-events-none select-none',
             currentScene?.type === 'interactive'
-              ? 'shadow-blue-200/50 dark:shadow-blue-900/50 ring-1 ring-blue-900/5 dark:ring-blue-500/10'
-              : 'shadow-gray-200/50 dark:shadow-gray-800/50 ring-1 ring-gray-950/5 dark:ring-white/5',
+              ? !integrated && 'shadow-blue-200/50 dark:shadow-blue-900/50 ring-1 ring-blue-900/5 dark:ring-blue-500/10'
+              : !integrated && 'shadow-gray-200/50 dark:shadow-gray-800/50 ring-1 ring-gray-950/5 dark:ring-white/5',
           )}
           onClick={handleSlideClick}
         >

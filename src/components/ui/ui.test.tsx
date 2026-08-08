@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Button } from "./button";
 import { FormField, Input } from "./form";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "./overlays";
-import { SaveStatus } from "./states";
+import { FlowActionBar, SaveStatus } from "./states";
 
 describe("openPBL shared UI", () => {
   it("disables a loading primary action", () => {
@@ -34,5 +34,17 @@ describe("openPBL shared UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(screen.getByText("保存失败").closest("div")?.getAttribute("aria-live")).toBe("polite");
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("supports a fixed full-width action bar without reserving blank space", () => {
+    const { container } = render(
+      <FlowActionBar persistent reserveSpace={false}><button type="button">继续</button></FlowActionBar>,
+    );
+    const bar = screen.getByRole("button", { name: "继续" }).closest<HTMLElement>(".pbl-safe-bottom");
+    expect(bar).not.toBeNull();
+    expect(bar?.className).toContain("fixed");
+    expect(bar?.className).toContain("inset-x-0");
+    expect(bar?.firstElementChild?.className).toContain("max-w-[96rem]");
+    expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
   });
 });

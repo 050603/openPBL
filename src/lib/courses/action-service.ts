@@ -16,6 +16,7 @@ const DIRECT_ACTIONS = new Set<SessionAction["type"]>([
   "ADD_ANNOUNCEMENT_REPLY",
   "JOIN_GROUP",
   "LEAVE_GROUP",
+  "REVIEW_LEARNING_EVIDENCE",
 ]);
 
 export class CourseActionError extends Error {
@@ -140,6 +141,31 @@ async function applyDirectMutation(
   courseId: string,
   action: SessionAction,
 ): Promise<void> {
+  if (action.type === "REVIEW_LEARNING_EVIDENCE") {
+    const course = await tx.course.findUnique({
+      where: { id: courseId },
+      select: { learningEvidence: true },
+    });
+    if (!course) {
+      throw new CourseActionError("COURSE_NOT_FOUND", "Course not found.", 404);
+    }
+    const learningEvidence = applyLearningEvidenceReview(
+      course.learningEvidence,
+      action.payload,
+    );
+    if (!learningEvidence) {
+      throw new CourseActionError(
+        "EVIDENCE_NOT_FOUND",
+        "Learning evidence not found.",
+        404,
+      );
+    }
+    await tx.course.update({
+      where: { id: courseId },
+      data: { learningEvidence: toJson(learningEvidence) },
+    });
+    return;
+  }
   if (action.type === "UPSERT_SUBMISSION") {
     const submission = action.payload.submission;
     await tx.classroomSubmission.upsert({
@@ -382,6 +408,45 @@ async function applyDirectMutation(
     return;
   }
   throw new CourseActionError("UNSUPPORTED_ACTION", "Action is not implemented.", 400);
+}
+
+export function applyLearningEvidenceReview(
+  value: unknown,
+  review: {
+    evidenceId: string;
+    status: "teacher-confirmed" | "needs-revision";
+    feedback?: string;
+    reviewedAt: string;
+  },
+): Prisma.JsonValue[] | null {
+  if (!Array.isArray(value)) return null;
+  let found = false;
+  const feedback = review.feedback?.trim();
+  const records = value.map((item) => {
+    if (
+      !item
+      || typeof item !== "object"
+      || Array.isArray(item)
+      || (item as { id?: unknown }).id !== review.evidenceId
+    ) {
+      return item as Prisma.JsonValue;
+    }
+    found = true;
+    const updated = {
+      ...(item as Prisma.JsonObject),
+      status: review.status,
+      updatedAt: review.reviewedAt,
+    } as Prisma.JsonObject;
+    if (feedback) updated.teacherFeedback = feedback;
+    else delete updated.teacherFeedback;
+    if (review.status === "teacher-confirmed") {
+      updated.confirmedAt = review.reviewedAt;
+    } else {
+      delete updated.confirmedAt;
+    }
+    return updated;
+  });
+  return found ? records : null;
 }
 
 function parseGroupMembers(value: Prisma.JsonValue): Array<{

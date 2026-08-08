@@ -1,69 +1,74 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bot, CircleAlert, ClipboardCheck, MessageSquareText, Target, Users, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  Bot,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  CircleAlert,
+  ClipboardCheck,
+  FileSearch,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
-import { Card, Pill, PrimaryButton, ProgressBar } from "@/components/ui";
+import {
+  Card,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  Pill,
+  PrimaryButton,
+  Textarea,
+} from "@/components/ui";
+import {
+  deriveStageReadiness,
+  evidenceLabel,
+  isLearningEvidenceStructurallyComplete,
+} from "@/lib/learning-evidence/readiness";
+import {
+  getStageMissionDefinition,
+  resolveCourseLearningPreset,
+} from "@/lib/learning-evidence/missions";
+import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
+import type { Course, LearningEvidence } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { detectInterventionSignals, type InterventionSignal } from "@/lib/classroom/stage-gates";
-import type { Course, LearningSignal } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
 import { TeacherDirectiveForm } from "./teacher-directive-form";
-import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
-import { aggregateCommonIssues, isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
-import { AI_COMPANIONS } from "@/lib/ai-companions";
-import type { CompanionTaskStatus } from "@/lib/session/types";
 
-type StudentSignal = LearningSignal | InterventionSignal;
+const READINESS_TONE = {
+  "not-started": "gray",
+  working: "blue",
+  "awaiting-calibration": "amber",
+  "needs-revision": "red",
+  ready: "green",
+} as const;
 
-const COMPANION_STATUS_LABEL: Record<CompanionTaskStatus, string> = {
-  queued: "等待调度",
-  assigned: "已分配",
-  processing: "正在处理",
-  responding: "正在回应",
-  "waiting-student": "待学生审核",
-  "waiting-confirmation": "待学生确认",
-  result: "结果已返回",
-  saved: "已写入工作台",
-  failed: "需要重试",
-};
-
-function signalTargetsStudent(course: Course, signal: InterventionSignal, studentId: string): boolean {
-  if (signal.targetType === "student") return signal.targetIds.includes(studentId);
-  if (signal.targetType === "course") return true;
-  const group = course.groups?.find((item) => signal.targetIds.includes(item.id));
-  return Boolean(group?.members.some((member) => member.studentId === studentId));
+function recentEvidenceForStudent(
+  course: Course,
+  studentId: string,
+  stageKey: string,
+): LearningEvidence[] {
+  return (course.learningEvidence ?? [])
+    .filter((item) =>
+      item.studentId === studentId
+      && item.stageKey === stageKey
+      && item.countsTowardReadiness)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
-function getStudentSignals(course: Course, stageKey: string, studentId: string): StudentSignal[] {
-  const learningSignals = (course.learningSignals ?? []).filter(
-    (signal) => signal.stageKey === stageKey
-      && signal.studentId === studentId
-      && signal.status === "open"
-      && isLearningSignalRelevant(
-        signal,
-        course.learningEvents ?? [],
-        stageKey === "ai-learning" && ["completed", "mastered"].includes(course.aiLearningProgress?.[studentId]?.masteryLevel ?? ""),
-      ),
-  );
-  const derivedSignals = detectInterventionSignals(course).filter(
-    (signal) => (!signal.stageKey || signal.stageKey === stageKey) && signalTargetsStudent(course, signal, studentId),
-  );
-  const seen = new Set<string>();
-  return [...learningSignals, ...derivedSignals].filter((signal) => {
-    if (seen.has(signal.id)) return false;
-    seen.add(signal.id);
-    return true;
-  });
-}
-
-function getStudentProgress(course: Course, stageKey: string, studentId: string): number {
-  const direct = course.students.find((student) => student.id === studentId)?.stageProgress?.[stageKey];
-  if (typeof direct === "number") return direct;
-  const group = course.groups?.find((item) => item.members.some((member) => member.studentId === studentId));
-  const members = group?.members ?? [];
-  if (!members.length) return 0;
-  return Math.round(members.reduce((sum, member) => sum + (course.students.find((student) => student.id === member.studentId)?.stageProgress?.[stageKey] ?? 0), 0) / members.length);
+function recommendedTeacherAction(
+  status: ReturnType<typeof deriveStageReadiness>["status"],
+): string {
+  if (status === "awaiting-calibration") return "核查学生证据，并确认范围或方案";
+  if (status === "needs-revision") return "查看修订证据，决定是否补充反馈";
+  if (status === "not-started") return "确认学生已找到当前任务，必要时现场启动";
+  if (status === "working") return "围绕首个证据缺口提供最小支架";
+  return "保持观察，让学生继续自主推进";
 }
 
 export function CompanionMonitor({
@@ -79,124 +84,540 @@ export function CompanionMonitor({
 }) {
   const session = useSession();
   const students = course.students;
-  const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId ?? students[0]?.id);
-  const [handling, setHandling] = useState(false);
-  const [handlingNote, setHandlingNote] = useState("");
-
-  const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? students[0];
-  const commonIssues = aggregateCommonIssues(
-    students.flatMap((student) => getStudentSignals(course, stageKey, student.id)).filter((signal): signal is LearningSignal => "normalizedIssueKey" in signal),
-    students.length,
+  const [selectedStudentId, setSelectedStudentId] = useState(
+    initialStudentId ?? students[0]?.id,
   );
-  const selectedSignals = selectedStudent ? getStudentSignals(course, stageKey, selectedStudent.id) : [];
+  const [feedbackByEvidence, setFeedbackByEvidence] = useState<Record<string, string>>({});
+  const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
+  const [selectedForDirective, setSelectedForDirective] = useState<string[]>([]);
+  const [directiveOpen, setDirectiveOpen] = useState(false);
+  const [directiveTargets, setDirectiveTargets] = useState<string[]>([]);
+  const [directiveAllStudents, setDirectiveAllStudents] = useState(false);
+  const selectedStudent =
+    students.find((item) => item.id === selectedStudentId) ?? students[0];
+  const preset = resolveCourseLearningPreset(course);
+
+  const rows = useMemo(
+    () => students.map((student) => {
+      const readiness = deriveStageReadiness(course, student.id, stageKey);
+      const evidence = recentEvidenceForStudent(course, student.id, stageKey);
+      const signals = (course.learningSignals ?? []).filter((signal) =>
+        signal.studentId === student.id
+        && signal.stageKey === stageKey
+        && signal.status === "open");
+      return {
+        student,
+        readiness,
+        evidence,
+        signals,
+        latest: evidence[0],
+        pendingCount: evidence.filter((item) => item.status === "submitted").length,
+      };
+    }).sort((a, b) => {
+      const priority = {
+        "awaiting-calibration": 0,
+        "needs-revision": 1,
+        working: 2,
+        "not-started": 3,
+        ready: 4,
+      };
+      return priority[a.readiness.status] - priority[b.readiness.status];
+    }),
+    [course, stageKey, students],
+  );
+
+  const selectedRow = rows.find((row) => row.student.id === selectedStudent?.id);
+  const selectedReadiness = selectedRow?.readiness;
+  const selectedEvidence = selectedRow?.evidence ?? [];
+  const selectedSignals = selectedRow?.signals ?? [];
+  const mission = selectedReadiness
+    ? getStageMissionDefinition(stageKey, preset, selectedReadiness.missingEvidenceKinds)
+    : null;
   const selectedMessages = (course.companionThreads ?? [])
-    .filter((thread) => thread.stageKey === stageKey && thread.studentId === selectedStudent?.id)
+    .filter((thread) =>
+      thread.stageKey === stageKey && thread.studentId === selectedStudent?.id)
     .flatMap((thread) => thread.messages)
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-  const selectedDirectives = (course.teacherAgentDirectives ?? []).filter((directive) => directive.stageKey === stageKey && (directive.targetScope === "course" || directive.targetStudentIds.includes(selectedStudent?.id ?? "")));
   const selectedTasks = (course.companionTasks ?? [])
-    .filter((task) => task.stageKey === stageKey && task.studentId === selectedStudent?.id)
+    .filter((task) =>
+      task.stageKey === stageKey && task.studentId === selectedStudent?.id)
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const selectedAssessment = (course.aiAssessmentSuggestions ?? [])
+    .filter((item) =>
+      item.stageKey === stageKey && item.studentId === selectedStudent?.id)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 
-  const studentRows = useMemo(() => students.map((student) => ({
-    student,
-    progress: getStudentProgress(course, stageKey, student.id),
-    signals: getStudentSignals(course, stageKey, student.id),
-    messages: (course.companionThreads ?? []).filter((thread) => thread.stageKey === stageKey && thread.studentId === student.id).reduce((count, thread) => count + thread.messages.length, 0),
-    companionTasks: (course.companionTasks ?? []).filter((task) => task.stageKey === stageKey && task.studentId === student.id),
-  })), [course, stageKey, students]);
-
-  function handleSelectedStudent() {
-    if (!selectedStudent || !selectedSignals.length || handling) return;
-    setHandling(true);
-    const signalIds = selectedSignals.map((signal) => signal.id);
-    session.addOfflineIntervention?.({
-      courseId: course.id,
-      stageKey,
-      kind: "individual-guidance",
-      targetStudentIds: [selectedStudent.id],
-      signalIds,
-      note: handlingNote.trim() || "教师已查看风险证据并完成现场介入。",
+  const waitingCount = rows.filter(
+    (row) => row.readiness.status === "awaiting-calibration",
+  ).length;
+  const revisionCount = rows.filter(
+    (row) => row.readiness.status === "needs-revision",
+  ).length;
+  const commonGaps = useMemo(() => {
+    const counts = new Map<string, string[]>();
+    rows.forEach((row) => {
+      row.readiness.missingEvidenceKinds.forEach((kind) => {
+        counts.set(kind, [...(counts.get(kind) ?? []), row.student.id]);
+      });
     });
-    session.resolveInterventionSignals?.(course.id, signalIds);
-    session.addActivity(course.id, "处理学生伴学风险", `${selectedStudent.name}：${handlingNote.trim() || "已完成现场介入"}`, session.user.name);
-    setHandlingNote("");
-    setHandling(false);
+    return Array.from(counts.entries())
+      .filter(([, ids]) => ids.length >= Math.max(2, Math.ceil(students.length * 0.25)))
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 3);
+  }, [rows, students.length]);
+
+  function review(
+    evidence: LearningEvidence,
+    status: "teacher-confirmed" | "needs-revision",
+  ) {
+    const feedback = feedbackByEvidence[evidence.id]?.trim();
+    if (status === "needs-revision" && !feedback) {
+      setReviewErrors((current) => ({
+        ...current,
+        [evidence.id]: "要求修订时，请明确指出证据缺口和下一步。",
+      }));
+      return;
+    }
+    setReviewErrors((current) => ({ ...current, [evidence.id]: "" }));
+    session.reviewLearningEvidence(course.id, evidence.id, status, feedback);
+  }
+
+  function openDirective(targetIds: string[], allStudents = false) {
+    setDirectiveTargets(targetIds);
+    setDirectiveAllStudents(allStudents);
+    setDirectiveOpen(true);
+  }
+
+  function toggleDirectiveStudent(studentId: string) {
+    setSelectedForDirective((current) => current.includes(studentId)
+      ? current.filter((id) => id !== studentId)
+      : [...current, studentId]);
+  }
+
+  function resolveSignals(signalIds: string[]) {
+    if (signalIds.length) session.resolveInterventionSignals(course.id, signalIds);
   }
 
   return (
     <Card className={cn("mt-5", className)}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <header className="flex flex-col gap-3 border-b border-stone-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="flex items-center gap-2 text-lg font-black"><MessageSquareText className="text-indigo-700" size={20} />学生—AI 伴学观察</h3>
-          <p className="mt-1 text-sm text-stone-500">左侧按学生聚合进度与风险，右侧查看完整对话、证据并完成教师处理。</p>
+          <h3 className="flex items-center gap-2 text-lg font-bold">
+            <ClipboardCheck className="text-[var(--pbl-teacher)]" size={20} />
+            方案校准行动台
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-stone-500">
+            先处理学习信号和待核查证据，再确认方案是否具备进入实践的条件。
+          </p>
         </div>
-        <Pill tone={commonIssues.length ? "red" : "green"}>{commonIssues.length ? `${commonIssues.length} 个共性问题` : "暂无共性问题"}</Pill>
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <Pill tone={waitingCount ? "amber" : "gray"}>待校准 {waitingCount}</Pill>
+          <Pill tone={revisionCount ? "red" : "gray"}>需修订 {revisionCount}</Pill>
+        </div>
+      </header>
 
-      {commonIssues.length ? (
-        <section className="mt-4 rounded-lg border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3">
-          <div className="mb-2 flex items-center gap-2 text-sm font-black text-[var(--pbl-danger)]"><Users size={16} />班级共性问题</div>
-          <ul className="space-y-2">{commonIssues.map((issue) => <li className="flex items-start justify-between gap-3 text-sm" key={issue.id}><span><strong>{issue.title}</strong><span className="mt-0.5 block text-xs font-semibold text-stone-500">{formatLearningContentReference(issue.content)}</span><span className="mt-0.5 block text-stone-600">{issue.summary}</span><span className="mt-0.5 block text-xs text-stone-500">{issue.studentIds.map((id) => course.students.find((student) => student.id === id)?.name ?? id).join("、")}</span></span><span className="shrink-0 font-bold text-[var(--pbl-danger)]">{issue.studentIds.length} 人</span></li>)}</ul>
+      <section className="mt-4 flex flex-col gap-3 rounded-[10px] border border-indigo-200 bg-indigo-50/65 p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] bg-indigo-700 text-white">
+            <Bot size={17} />
+          </span>
+          <div>
+            <h4 className="text-sm font-bold text-indigo-950">伴学 Agent 目标控制</h4>
+            <p className="mt-1 text-xs leading-5 text-indigo-800/75">
+              可从行动优先级列表多选学生，也可直接向全班下发持续目标。
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <PrimaryButton
+            disabled={!selectedForDirective.length}
+            onClick={() => openDirective(selectedForDirective)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <SlidersHorizontal size={14} />向已选 {selectedForDirective.length} 人下发
+          </PrimaryButton>
+          <PrimaryButton onClick={() => openDirective([], true)} size="sm" type="button">
+            <Users size={14} />向全班下发
+          </PrimaryButton>
+        </div>
+      </section>
+
+      {commonGaps.length ? (
+        <section className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[9px] border border-amber-200 bg-amber-50 px-4 py-3">
+          <h4 className="flex items-center gap-2 text-sm font-bold text-amber-950">
+            <Users size={16} />
+            班级共同证据缺口
+          </h4>
+          <div className="flex flex-1 flex-wrap gap-x-5 gap-y-2">
+            {commonGaps.map(([kind, ids]) => (
+              <div className="text-sm" key={kind}>
+                <strong className="text-stone-900">{evidenceLabel(kind as Parameters<typeof evidenceLabel>[0])}</strong>
+                <span className="ml-2 text-xs text-stone-500">
+                  {ids.length} 人
+                </span>
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-stone-200 bg-stone-50/70 p-3">
-          <div className="mb-2 flex items-center justify-between"><h4 className="text-sm font-black text-stone-800">学生列表</h4><span className="text-xs text-stone-400">{students.length} 人</span></div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-[310px_minmax(0,1fr)]">
+        <aside className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-bold text-stone-800">按行动优先级排序</h4>
+              <p className="mt-0.5 text-[11px] text-stone-500">勾选学生可批量控制伴学 Agent</p>
+            </div>
+            <button
+              className="text-xs font-bold text-[var(--pbl-teacher)] hover:underline"
+              onClick={() => setSelectedForDirective(
+                selectedForDirective.length === rows.length ? [] : rows.map((row) => row.student.id),
+              )}
+              type="button"
+            >
+              {selectedForDirective.length === rows.length ? "取消全选" : "全选"}
+            </button>
+          </div>
           <ul className="space-y-2">
-            {studentRows.map(({ student, progress, signals, messages, companionTasks }) => (
-              <li key={student.id}>
-                <button aria-label={`${student.name}${signals.length ? " 有干预信号" : ""}`} className={cn("w-full rounded-lg border p-2.5 text-left transition", selectedStudent?.id === student.id ? "border-[var(--pbl-teacher-border)] bg-white shadow-sm" : "border-transparent hover:border-stone-200 hover:bg-white")} onClick={() => setSelectedStudentId(student.id)} type="button">
-                  <div className="flex items-center gap-2.5"><span className="relative"><Avatar name={student.name} size={32} />{signals.length ? <CircleAlert aria-label="有干预信号" className="absolute -right-2 -top-2 fill-white text-[var(--pbl-danger)]" size={17} /> : null}</span><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{student.name}</strong><span className={cn("text-[11px]", signals.length ? "font-bold text-[var(--pbl-danger)]" : "text-stone-500")}>{signals.length ? `${signals.length} 条待处理` : "暂无待处理风险"}</span></span></div>
-                  <div className="mt-2"><div className="mb-1 flex justify-between text-[11px] text-stone-500"><span>阶段进度</span><strong>{progress}%</strong></div><ProgressBar className="h-1.5" tone={signals.length ? "red" : progress >= 80 ? "green" : "slate"} value={progress} /></div>
-                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-stone-400"><span>{messages} 条伴学消息</span><span className={cn(companionTasks.some((task) => task.status === "waiting-student" || task.status === "waiting-confirmation") && "font-bold text-amber-700")}>{companionTasks.length} 项协作</span></div>
-                </button>
+            {rows.map((row) => (
+              <li key={row.student.id}>
+                <article
+                  className={cn(
+                    "grid grid-cols-[30px_minmax(0,1fr)] rounded-[9px] border p-2.5 transition",
+                    selectedStudent?.id === row.student.id
+                      ? "border-[var(--pbl-teacher-border)] bg-white shadow-sm"
+                      : "border-transparent hover:border-stone-200 hover:bg-white",
+                  )}
+                >
+                  <button
+                    aria-label={`${selectedForDirective.includes(row.student.id) ? "取消选择" : "选择"}${row.student.name}`}
+                    aria-pressed={selectedForDirective.includes(row.student.id)}
+                    className={cn(
+                      "mt-1 grid h-5 w-5 place-items-center rounded border",
+                      selectedForDirective.includes(row.student.id)
+                        ? "border-indigo-700 bg-indigo-700 text-white"
+                        : "border-stone-300 bg-white text-transparent",
+                    )}
+                    onClick={() => toggleDirectiveStudent(row.student.id)}
+                    type="button"
+                  >
+                    <Check size={13} />
+                  </button>
+                  <button
+                    className="min-w-0 text-left"
+                    onClick={() => setSelectedStudentId(row.student.id)}
+                    type="button"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={row.student.name} size={34} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <strong className="truncate text-sm">{row.student.name}</strong>
+                          <Pill size="sm" tone={READINESS_TONE[row.readiness.status]}>
+                            {STAGE_READINESS_LABEL[row.readiness.status]}
+                          </Pill>
+                        </span>
+                        <span className="mt-1 block truncate text-[11px] text-stone-500">
+                          {row.latest ? row.latest.title : "尚未提交阶段证据"}
+                        </span>
+                      </span>
+                      <ChevronRight size={15} className="text-stone-400" />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                      {row.pendingCount ? <span className="font-bold text-amber-800">{row.pendingCount} 项待核查</span> : null}
+                      {row.signals.length ? <span className="inline-flex items-center gap-1 font-bold text-rose-700"><CircleAlert size={12} />{row.signals.length} 条学习信号</span> : null}
+                      {!row.pendingCount && !row.signals.length ? <span className="text-emerald-700">暂无待处理项</span> : null}
+                    </div>
+                    <p className="mt-1.5 line-clamp-2 text-[11px] leading-5 text-stone-500">
+                      下一步：{recommendedTeacherAction(row.readiness.status)}
+                    </p>
+                  </button>
+                </article>
               </li>
             ))}
           </ul>
         </aside>
 
-        <section className="min-w-0 rounded-lg border border-stone-200 bg-white p-4">
-          {selectedStudent ? (
+        <section className="min-w-0 rounded-xl border border-stone-200 bg-white p-4 md:p-5">
+          {selectedStudent && selectedReadiness && mission ? (
             <>
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 pb-3"><div className="flex items-center gap-3"><Avatar name={selectedStudent.name} size={42} /><div><h4 className="text-lg font-black">{selectedStudent.name}</h4><p className="text-xs text-stone-500">阶段进度 {getStudentProgress(course, stageKey, selectedStudent.id)}% · {selectedSignals.length ? `${selectedSignals.length} 条待处理信号` : "当前无待处理信号"}</p></div></div>{selectedSignals.length ? <Pill tone="red"><CircleAlert size={13} />需要教师处理</Pill> : <Pill tone="green">已处理</Pill>}</div>
-              <section className="mt-4"><h5 className="flex items-center gap-2 text-sm font-black"><CircleAlert size={15} />介入详情</h5>{selectedSignals.length ? <ul className="mt-2 space-y-2">{selectedSignals.map((signal) => <li className="rounded-lg border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/60 p-3" key={signal.id}><div className="flex items-center justify-between gap-2"><strong className="text-sm text-[var(--pbl-danger)]">{signal.title}</strong><span className="text-[11px] font-bold text-[var(--pbl-danger)]">{"severity" in signal ? signal.severity : signal.confidence === "high" ? "高置信" : "需核查"}</span></div>{"content" in signal ? <p className="mt-1 text-xs font-semibold text-stone-500">{formatLearningContentReference(signal.content, signal.sceneId)}</p> : "contentLocation" in signal && signal.contentLocation ? <p className="mt-1 text-xs font-semibold text-stone-500">{signal.contentLocation}</p> : null}<p className="mt-1 text-sm leading-6 text-stone-600">{"summary" in signal ? signal.summary : signal.whatHappened}</p><p className="mt-1 text-xs text-stone-400">依据：{"evidenceEventIds" in signal ? `${signal.evidenceEventIds.length} 条学习事件` : signal.evidence.join("；")}</p></li>)}</ul> : <p className="mt-2 rounded-lg border border-dashed border-stone-200 py-6 text-center text-sm text-stone-500">暂无未处理风险。教师处理完成后，学生卡片上的叹号会消失。</p>}</section>
-
-              <section className="mt-5 rounded-2xl border border-teal-100 bg-[linear-gradient(145deg,#f7fbfa,#ffffff)] p-4 shadow-[0_12px_34px_rgba(24,74,70,0.06)]">
-                <div className="flex items-center justify-between gap-3">
-                  <h5 className="flex items-center gap-2 text-sm font-black text-teal-950"><Bot className="text-teal-700" size={16} />伴学协作现场</h5>
-                  <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-bold text-teal-800">{selectedTasks.length} 项任务</span>
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <Avatar name={selectedStudent.name} size={44} />
+                  <div>
+                    <h4 className="text-lg font-bold">{selectedStudent.name}</h4>
+                    <p className="mt-1 max-w-2xl text-xs leading-5 text-stone-500">
+                      {mission.currentAction.label} · {recommendedTeacherAction(selectedReadiness.status)}
+                    </p>
+                  </div>
                 </div>
-                {selectedTasks.length ? (
-                  <ol className="mt-3 space-y-2">
-                    {selectedTasks.slice(0, 6).map((task) => {
-                      const companion = AI_COMPANIONS.find((item) => item.id === task.companionId);
-                      const needsStudent = task.status === "waiting-student" || task.status === "waiting-confirmation";
+                <div className="flex flex-wrap items-center gap-2">
+                  <Pill tone={READINESS_TONE[selectedReadiness.status]}>
+                    {STAGE_READINESS_LABEL[selectedReadiness.status]}
+                  </Pill>
+                  <PrimaryButton
+                    onClick={() => openDirective([selectedStudent.id])}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Bot size={14} />仅对此学生下发目标
+                  </PrimaryButton>
+                </div>
+              </div>
+
+              {selectedSignals.length ? (
+                <section className="mt-4 rounded-[9px] border border-rose-200 bg-rose-50/70 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h5 className="flex items-center gap-2 text-sm font-bold text-rose-950">
+                      <CircleAlert size={16} />学习信号 · {selectedSignals.length} 条待处理
+                    </h5>
+                    <button
+                      className="text-xs font-bold text-rose-700 hover:underline"
+                      onClick={() => resolveSignals(selectedSignals.map((signal) => signal.id))}
+                      type="button"
+                    >
+                      全部标记为已处理
+                    </button>
+                  </div>
+                  <ul className="mt-2 divide-y divide-rose-100">
+                    {selectedSignals.map((signal) => (
+                      <li className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center" key={signal.id}>
+                        <div className="min-w-0 flex-1">
+                          <strong className="text-xs text-rose-900">{signal.title}</strong>
+                          <p className="mt-0.5 text-xs leading-5 text-rose-800/75">{signal.summary}</p>
+                        </div>
+                        <button
+                          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[6px] border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                          onClick={() => resolveSignals([signal.id])}
+                          type="button"
+                        >
+                          <Check size={13} />标记已处理
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              <section className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h5 className="flex items-center gap-2 text-sm font-bold">
+                    <FileSearch size={16} />
+                    最近学习证据
+                  </h5>
+                  <span className="text-xs text-stone-500">
+                    {selectedEvidence.length} 项
+                  </span>
+                </div>
+                {selectedEvidence.length ? (
+                  <div className="mt-3 grid gap-3">
+                    {selectedEvidence.slice(0, 8).map((evidence) => {
+                      const structurallyComplete = isLearningEvidenceStructurallyComplete(
+                        evidence,
+                        course.artifactSnapshots ?? [],
+                      );
+                      const feedback = feedbackByEvidence[evidence.id] ?? evidence.teacherFeedback ?? "";
+                      const linkedSnapshots = (course.artifactSnapshots ?? []).filter(
+                        (snapshot) =>
+                          evidence.artifactSnapshotIds.includes(snapshot.id),
+                      );
                       return (
-                        <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-xl border border-stone-100 bg-white p-3" key={task.id}>
-                          <span className="grid h-8 w-8 place-items-center rounded-lg text-xs font-black text-white" style={{ backgroundColor: companion?.color ?? "#476268" }}>{companion?.shortName ?? "组"}</span>
-                          <span className="min-w-0">
-                            <strong className="block truncate text-sm text-stone-800">{task.title}</strong>
-                            <small className="mt-0.5 block truncate text-stone-500">{companion?.name ?? "伴学小组"} · {task.request}</small>
-                          </span>
-                          <span className={cn("rounded-full px-2 py-1 text-[10px] font-bold", needsStudent ? "bg-amber-50 text-amber-800" : task.status === "failed" ? "bg-red-50 text-red-700" : "bg-teal-50 text-teal-800")}>{COMPANION_STATUS_LABEL[task.status]}</span>
-                        </li>
+                        <article className="rounded-xl border border-stone-200 p-4" key={evidence.id}>
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <strong className="text-sm text-stone-900">{evidence.title}</strong>
+                              <p className="mt-1 text-xs text-stone-500">
+                                {evidenceLabel(evidence.kind)} · {
+                                  evidence.status === "teacher-confirmed"
+                                    ? "教师已确认"
+                                    : evidence.status === "needs-revision"
+                                      ? "需修订"
+                                      : evidence.status === "submitted"
+                                        ? "待校准"
+                                        : "草稿"
+                                }
+                              </p>
+                            </div>
+                            <Pill tone={structurallyComplete ? "green" : "red"} size="sm">
+                              {structurallyComplete ? "结构完整" : "证据不完整"}
+                            </Pill>
+                          </div>
+                          <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-stone-700">
+                            {evidence.summary || "尚无可读摘要"}
+                          </p>
+                          {linkedSnapshots.map((snapshot) => (
+                            <div className="mt-2 rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600" key={snapshot.id}>
+                              <strong className="text-stone-800">
+                                快照：{snapshot.title} · {snapshot.inspectionStatus}
+                              </strong>
+                              <p>
+                                {snapshot.inspectableText
+                                  || snapshot.studentExcerpt
+                                  || snapshot.annotation
+                                  || "可打开原文件查看"}
+                              </p>
+                              {snapshot.sourceUrl ? (
+                                <a
+                                  className="font-semibold text-[var(--pbl-teacher)] underline"
+                                  href={snapshot.sourceUrl}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                >
+                                  打开原文件
+                                </a>
+                              ) : null}
+                            </div>
+                          ))}
+                          {evidence.status !== "draft" ? (
+                            <div className="mt-3 grid gap-2">
+                              <Textarea
+                                aria-label={`${evidence.title}教师反馈`}
+                                onChange={(event) => {
+                                  setFeedbackByEvidence((current) => ({
+                                    ...current,
+                                    [evidence.id]: event.target.value,
+                                  }));
+                                  setReviewErrors((current) => ({
+                                    ...current,
+                                    [evidence.id]: "",
+                                  }));
+                                }}
+                                placeholder="填写反馈（要求修订时必填）"
+                                rows={2}
+                                value={feedback}
+                              />
+                              {reviewErrors[evidence.id] ? (
+                                <p className="text-xs font-semibold text-rose-700" role="alert">
+                                  {reviewErrors[evidence.id]}
+                                </p>
+                              ) : null}
+                              <div className="flex flex-wrap justify-end gap-2">
+                                <PrimaryButton
+                                  onClick={() => review(evidence, "needs-revision")}
+                                  size="sm"
+                                  tone="orange"
+                                  type="button"
+                                  variant="outline"
+                                >
+                                  <AlertTriangle size={14} />要求修订
+                                </PrimaryButton>
+                                <PrimaryButton
+                                  disabled={!structurallyComplete}
+                                  onClick={() => review(evidence, "teacher-confirmed")}
+                                  size="sm"
+                                  tone="green"
+                                  type="button"
+                                >
+                                  <CheckCircle2 size={14} />确认此证据
+                                </PrimaryButton>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-stone-500">草稿尚未提交，教师暂不校准。</p>
+                          )}
+                        </article>
                       );
                     })}
-                  </ol>
-                ) : <p className="mt-3 rounded-xl border border-dashed border-teal-100 py-5 text-center text-sm text-stone-500">该学生在本阶段还没有发起伴学任务。</p>}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl border border-dashed border-stone-200 py-8 text-center text-sm text-stone-500">
+                    该学生尚未提交本阶段内容
+                  </p>
+                )}
               </section>
 
-              <section className="mt-5"><h5 className="flex items-center gap-2 text-sm font-black"><MessageSquareText size={15} />AI 对话过程</h5>{selectedMessages.length ? <ol className="mt-2 max-h-64 space-y-2 overflow-y-auto">{selectedMessages.map((message) => <li className="border-l-2 border-stone-200 pl-3" key={message.id}><div className="flex justify-between gap-3 text-[11px] text-stone-400"><span>{message.authorName ?? message.companionId ?? message.role}{message.visibility === "teacher-only" ? " · 仅教师" : ""}</span><time>{new Date(message.createdAt).toLocaleString("zh-CN")}</time></div><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-700">{message.content}</p></li>)}</ol> : <p className="mt-2 text-sm text-stone-500">暂无 AI 对话记录</p>}</section>
+              <section className="mt-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+                <h5 className="flex items-center gap-2 text-sm font-bold text-violet-950">
+                  <Bot size={16} />
+                  AI评价建议状态
+                </h5>
+                {selectedAssessment ? (
+                  <div className="mt-2 text-sm leading-6 text-violet-900">
+                    <p>
+                      状态：{selectedAssessment.status} · 置信度：{selectedAssessment.confidence}
+                    </p>
+                    <p>
+                      证据引用 {selectedAssessment.evidenceIds.length} 项；
+                      证据缺口 {selectedAssessment.evidenceGaps.length
+                        ? selectedAssessment.evidenceGaps.join("、")
+                        : "无"}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-violet-900">
+                    暂无 AI 评价建议
+                  </p>
+                )}
+              </section>
 
-              {selectedSignals.length ? <section className="mt-5 rounded-lg border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/50 p-3"><div className="flex items-center gap-2 text-sm font-black text-indigo-900"><ClipboardCheck size={15} />教师处理</div><textarea aria-label="教师处理备注" className="mt-2 min-h-20 w-full rounded-md border border-[var(--pbl-teacher-border)] bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500" onChange={(event) => setHandlingNote(event.target.value)} placeholder="记录现场介入的关键动作或给学生的下一步要求（可选）" value={handlingNote} /><PrimaryButton className="mt-2" disabled={handling} onClick={handleSelectedStudent} type="button"><ClipboardCheck size={15} />{handling ? "保存中..." : "教师已处理，消除叹号"}</PrimaryButton></section> : null}
+              <details className="mt-5 rounded-xl border border-stone-200 bg-stone-50">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-stone-800">
+                  伴学任务与对话记录
+                </summary>
+                <div className="grid gap-4 border-t border-stone-200 bg-white p-4 lg:grid-cols-2">
+                  <section>
+                    <h6 className="text-xs font-bold uppercase tracking-wide text-stone-500">
+                      伙伴任务 {selectedTasks.length} 项
+                    </h6>
+                    <ol className="mt-2 space-y-2">
+                      {selectedTasks.slice(0, 10).map((task) => (
+                        <li className="rounded-lg border border-stone-100 p-2 text-sm" key={task.id}>
+                          <strong>{task.title}</strong>
+                          <p className="mt-1 text-xs leading-5 text-stone-500">{task.request}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                  <section>
+                    <h6 className="text-xs font-bold uppercase tracking-wide text-stone-500">
+                      完整聊天 {selectedMessages.length} 条
+                    </h6>
+                    <ol className="mt-2 max-h-72 space-y-2 overflow-y-auto">
+                      {selectedMessages.map((message) => (
+                        <li className="border-l-2 border-stone-200 pl-3" key={message.id}>
+                          <span className="text-[11px] text-stone-400">
+                            {message.authorName ?? message.companionId ?? message.role}
+                          </span>
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">
+                            {message.content}
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                </div>
+              </details>
 
-              <section className="mt-5"><h5 className="flex items-center gap-2 text-sm font-black"><Target size={15} />教师持续目标</h5>{selectedDirectives.length ? <ul className="mt-2 space-y-2">{selectedDirectives.map((directive) => <li className="rounded-lg border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] p-3" key={directive.id}><div className="flex justify-between gap-3"><strong className="text-sm">{directive.goal}</strong><span className="text-xs font-bold text-indigo-700">{directive.status}</span></div><p className="mt-1 text-xs leading-5 text-stone-600">{directive.instruction}</p>{directive.status === "active" ? <PrimaryButton className="mt-2" onClick={() => session.upsertTeacherAgentDirective({ ...directive, status: "revoked", revokedAt: new Date().toISOString() })} type="button" variant="outline"><XCircle size={14} />撤销</PrimaryButton> : null}</li>)}</ul> : null}<TeacherDirectiveForm course={course} initialStudentId={selectedStudent.id} stageKey={stageKey} /></section>
             </>
-          ) : <p className="py-12 text-center text-sm text-stone-500">暂无学生数据</p>}
+          ) : (
+            <p className="py-12 text-center text-sm text-stone-500">暂无学生数据</p>
+          )}
         </section>
       </div>
+
+      <Dialog onOpenChange={setDirectiveOpen} open={directiveOpen}>
+        <DialogContent className="max-h-[88vh] w-[min(720px,calc(100vw-24px))] max-w-none overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="text-indigo-700" size={19} />伴学 Agent 目标控制
+            </DialogTitle>
+            <DialogDescription>
+              为选定学生或全班设置持续目标。目标会生效至系统检测完成或教师撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <TeacherDirectiveForm
+            course={course}
+            initialAllStudents={directiveAllStudents}
+            initialStudentIds={directiveTargets}
+            key={`${directiveAllStudents ? "all" : directiveTargets.join("-")}-${directiveOpen}`}
+            onSubmitted={() => setDirectiveOpen(false)}
+            stageKey={stageKey}
+          />
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -11,13 +11,11 @@ import { FormField, Textarea } from "@/components/ui/form";
 
 export function StageProgress({ course, onSelect, readonly = false }: { course: Course; onSelect?: (index: number) => void; readonly?: boolean }) {
   const total = course.stages.length;
-  const completed = course.currentStageIndex;
-  const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
-    <nav aria-label="课堂阶段" className="border-b border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
-      <div className="flex items-center gap-3 px-3 py-2 md:px-5">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <nav aria-label="课堂阶段" className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-white shadow-[0_8px_26px_rgba(15,23,42,0.05)]">
+      <div className="flex min-h-[76px] items-center px-2 py-2 md:px-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1">
           {course.stages.map((stage, index) => {
             const current = index === course.currentStageIndex;
             const done = index < course.currentStageIndex;
@@ -26,11 +24,12 @@ export function StageProgress({ course, onSelect, readonly = false }: { course: 
                 <button
                   aria-current={current ? "step" : undefined}
                   className={cn(
-                    "flex items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-sm transition-colors",
+                    "group flex items-center gap-2 rounded-[12px] text-sm transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pbl-teacher)]",
                     current
-                      ? "bg-[var(--pbl-teacher-soft)] font-semibold text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]"
-                      : "text-[var(--pbl-text-muted)]",
+                      ? "min-h-14 bg-[var(--pbl-teacher)] px-4 font-bold text-white shadow-[0_8px_20px_rgba(30,64,175,0.22)] ring-1 ring-[var(--pbl-teacher)]"
+                      : "min-h-10 px-2.5 text-[var(--pbl-text-muted)]",
                     !readonly && "hover:bg-[var(--pbl-surface-soft)]",
+                    !readonly && current && "hover:bg-[var(--pbl-teacher-hover)]",
                   )}
                   disabled={readonly}
                   onClick={() => onSelect?.(index)}
@@ -38,33 +37,26 @@ export function StageProgress({ course, onSelect, readonly = false }: { course: 
                 >
                   <span
                     className={cn(
-                      "grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold transition-colors",
+                      "grid shrink-0 place-items-center rounded-full font-bold transition-all",
                       done && "bg-[var(--pbl-success)] text-white",
-                      current && "bg-[var(--pbl-teacher)] text-white",
+                      current && "h-9 w-9 bg-white text-sm text-[var(--pbl-teacher)] shadow-sm",
+                      !current && "h-6 w-6 text-[11px]",
                       !done && !current && "border border-[var(--pbl-border-strong)] text-[var(--pbl-text-muted)]",
                     )}
                   >
                     {done ? <Check aria-hidden="true" size={12} /> : index + 1}
                   </span>
-                  <span className="whitespace-nowrap">{stage.label}</span>
+                  <span className="whitespace-nowrap">
+                    {current ? <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-white/65">当前阶段</span> : null}
+                    <span className={cn("block", current && "text-base leading-5")}>{stage.label}</span>
+                  </span>
                 </button>
                 {index < total - 1 ? (
-                  <ChevronRight aria-hidden="true" className="mx-0.5 shrink-0 text-[var(--pbl-border-strong)]" size={14} />
+                  <ChevronRight aria-hidden="true" className="mx-1 shrink-0 text-[var(--pbl-border-strong)]" size={14} />
                 ) : null}
               </div>
             );
           })}
-        </div>
-        <div className="hidden shrink-0 items-center gap-2 md:flex">
-          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-stone-200">
-            <div
-              className="h-full rounded-full bg-[var(--pbl-teacher)] transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-          <span className="text-xs font-semibold text-[var(--pbl-text-muted)]">
-            {completed}/{total}
-          </span>
         </div>
       </div>
     </nav>

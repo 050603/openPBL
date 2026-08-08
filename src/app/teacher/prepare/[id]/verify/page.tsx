@@ -17,13 +17,11 @@ import {
   X,
   Zap,
   Check,
-  CheckCircle2,
   CheckSquare,
-  Lightbulb,
   RefreshCw,
   Plus,
   Square,
-  UsersRound,
+  Sparkles,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { normalizeKnowledgeGraphForDisplay } from "@/components/knowledge-graph";
@@ -47,12 +45,10 @@ import type { AgentInfo } from "@/lib/openmaic/generation/generation-pipeline";
 import { I18nProvider } from "@/lib/openmaic/hooks/use-i18n";
 import { OutlinesEditor } from "@/components/openmaic/generation/outlines-editor";
 import { cn } from "@/lib/utils";
-import { AI_COMPANIONS } from "@/lib/ai-companions";
 import {
   DEFAULT_PBL_EVIDENCE_REQUIREMENTS,
   DEFAULT_PBL_OUTCOME,
   normalizePblCourseConfig,
-  type PblCompanionId,
 } from "@/lib/pbl-course-config";
 import {
   buildPblCourseRequirement,
@@ -79,14 +75,15 @@ import {
   normalizePblTeachingOutline,
 } from "@/lib/pbl-outline-normalization";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
-import { StageWorkspacePolicyPanel } from "@/components/views/teacher/stage-workspace-policy-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 import { getTtsTimingProfile } from "@/lib/openmaic/audio/tts-timing";
 import {
   buildCourseBasicsPatch,
   createCourseBasicsDraft,
+  getEmptyCourseBasicsSuggestionParts,
   parseLearningObjectives,
   validateCourseBasicsDraft,
+  type CourseBasicsSuggestionPart,
   type CourseBasicsDraft,
 } from "@/lib/teacher/course-basics-draft";
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
@@ -331,9 +328,9 @@ export default function VerifyCoursePage() {
   const [info, setInfo] = useState<string | undefined>();
   const [skeleton, setSkeleton] = useState<ProjectSkeletonResult | null>(null);
   const [skeletonLoading, setSkeletonLoading] = useState(false);
-  const [activeSuggestionPart, setActiveSuggestionPart] = useState<
-    "courseHours" | "learningObjectives" | "summary" | "learnerProfile" | "drivingQuestions" | null
-  >(null);
+  const [activeSuggestionPart, setActiveSuggestionPart] = useState<CourseBasicsSuggestionPart | "all" | null>(null);
+  const [suggestionParts, setSuggestionParts] = useState<CourseBasicsSuggestionPart[]>([]);
+  const [learnerProfileOpen, setLearnerProfileOpen] = useState(false);
   const [baseDraft, setBaseDraft] = useState<CourseBasicsDraft | null>(null);
   const [baseDraftDirty, setBaseDraftDirty] = useState(false);
   const initializedDraftCourseIdRef = useRef<string | null>(null);
@@ -345,6 +342,8 @@ export default function VerifyCoursePage() {
     setBaseDraftDirty(false);
     setSkeleton(null);
     setActiveSuggestionPart(null);
+    setSuggestionParts([]);
+    setLearnerProfileOpen(false);
   }, [course]);
 
   function editBaseDraft(patch: Partial<CourseBasicsDraft>) {
@@ -384,10 +383,15 @@ export default function VerifyCoursePage() {
   }
 
   async function requestSkeleton(
-    part: "courseHours" | "learningObjectives" | "summary" | "learnerProfile" | "drivingQuestions",
+    part: CourseBasicsSuggestionPart | "all",
   ) {
     if (!course) return;
     const draft = baseDraft ?? createCourseBasicsDraft(course);
+    const requestedParts = part === "all" ? getEmptyCourseBasicsSuggestionParts(draft) : [part];
+    if (requestedParts.length === 0) {
+      toast.success("课程信息已填写完整", { description: "如需调整某项内容，可以直接编辑对应字段。" });
+      return;
+    }
     setActiveSuggestionPart(part);
     setSkeletonLoading(true);
     try {
@@ -404,21 +408,36 @@ export default function VerifyCoursePage() {
           learningNeeds: draft.learningNeeds,
           familiarContexts: draft.familiarContexts,
         },
-        targetPart: part,
+        targetPart: part === "all" ? undefined : part,
       });
-      setSkeleton(result);
+      setSkeleton((current) => {
+        if (part === "all" || !current) return result;
+        return {
+          ...current,
+          ...(part === "learningObjectives" ? { learningObjectiveOptions: result.learningObjectiveOptions } : {}),
+          ...(part === "summary" ? { summaryOptions: result.summaryOptions } : {}),
+          ...(part === "learnerProfile" ? { learnerProfileOptions: result.learnerProfileOptions } : {}),
+          ...(part === "drivingQuestions" ? { drivingQuestions: result.drivingQuestions } : {}),
+        };
+      });
+      setSuggestionParts((current) => Array.from(new Set([...current, ...requestedParts])));
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "AI 建议生成失败";
       toast.error("AI 建议生成失败", { description: message });
     } finally {
       setSkeletonLoading(false);
+      setActiveSuggestionPart(null);
     }
   }
 
   async function refreshSkeletonPart(
-    part: "courseHours" | "learningObjectives" | "summary" | "learnerProfile" | "drivingQuestions",
+    part: CourseBasicsSuggestionPart,
   ) {
     await requestSkeleton(part);
+  }
+
+  function closeSkeletonPart(part: CourseBasicsSuggestionPart) {
+    setSuggestionParts((current) => current.filter((item) => item !== part));
   }
   const [flowStepKey, setFlowStepKey] = useState<PreparationStepKey>("base");
   // 知识图谱视图状态
@@ -1473,6 +1492,7 @@ export default function VerifyCoursePage() {
   }
 
   const draft = baseDraft ?? createCourseBasicsDraft(course);
+  const emptySkeletonParts = getEmptyCourseBasicsSuggestionParts(draft);
   const completedPreparationKeys = PREPARATION_FLOW_STEPS
     .filter((step) => isPreparationStepReady(step.key))
     .map((step) => step.key);
@@ -2147,11 +2167,6 @@ export default function VerifyCoursePage() {
       key: "lessonOutline",
       node: (
         <div className="space-y-4">
-          <StageWorkspacePolicyPanel
-            onChange={(stageWorkspacePolicies) => updateCourse(course.id, { stageWorkspacePolicies })}
-            policies={course.stageWorkspacePolicies}
-            stages={course.stages}
-          />
           <PblDetailHierarchySummary
             activities={content?.teachingOutline ?? []}
             details={sceneOutlines}
@@ -2477,176 +2492,220 @@ export default function VerifyCoursePage() {
       <div className="space-y-4">
         {flowStepKey === "base" || flowStepKey === "projectDesign" ? (
           <div className="space-y-5">
-            {/* ── 课程底稿 ── */}
-            {flowStepKey === "base" ? <Card className="p-5">
-              <div className="grid gap-5 lg:grid-cols-2 lg:items-end">
-                <div className="min-w-0">
+            {/* ── 课程定位 ── */}
+            {flowStepKey === "base" ? <Card className="overflow-hidden p-0">
+              <div className="grid lg:grid-cols-[minmax(0,0.92fr)_minmax(420px,1.08fr)]">
+                <div className="min-w-0 p-5 sm:p-6">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-teacher)]">课程底稿</p>
-                    <h2 className="font-editorial mt-2 text-xl font-semibold">编辑课程信息</h2>
-                    <p className="mt-1 text-sm text-stone-500">先完成本页编辑，再通过页面底部统一保存草稿；输入过程不会发送保存请求。</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-teacher)]">课程基础信息</p>
+                    <h2 className="font-editorial mt-1.5 text-xl font-semibold">课程定位</h2>
+                    <p className="mt-1 text-sm leading-6 text-stone-500">先填写已经明确的信息，未确定的内容可以在下方统一请 AI 提供候选。</p>
                   </div>
-                  <div className="mt-5">
-                  <label className="text-sm font-bold text-stone-800">课程名称</label>
-                  <input
-                    className="mt-1 h-10 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
-                    maxLength={40}
-                    value={draft.name}
-                    onChange={(e) => editBaseDraft({ name: e.target.value })}
-                    placeholder="例如：校园低碳生活解决方案"
-                  />
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-stone-800 sm:col-span-2">
+                      课程名称
+                      <input
+                        className="mt-1.5 h-11 w-full rounded-[6px] border border-stone-300 px-3 text-sm font-normal outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]"
+                        maxLength={40}
+                        value={draft.name}
+                        onChange={(event) => editBaseDraft({ name: event.target.value })}
+                        placeholder="例如：校园低碳生活解决方案"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-stone-800 sm:col-span-2">
+                      学科
+                      <input
+                        className="mt-1.5 h-11 w-full rounded-[6px] border border-stone-300 px-3 text-sm font-normal outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]"
+                        value={draft.subject}
+                        onChange={(event) => editBaseDraft({ subject: event.target.value })}
+                        placeholder="人工智能通识课程"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-stone-800">
+                      年级
+                      <input
+                        className="mt-1.5 h-11 w-full rounded-[6px] border border-stone-300 px-3 text-sm font-normal outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]"
+                        value={draft.grade}
+                        onChange={(event) => editBaseDraft({ grade: event.target.value })}
+                        placeholder="高一"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-stone-800">
+                      预计课时
+                      <span className="relative mt-1.5 block">
+                        <input
+                          className="h-11 w-full rounded-[6px] border border-stone-300 px-3 pr-12 text-sm font-normal outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]"
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={draft.hours}
+                          onChange={(event) => editBaseDraft({ hours: Number(event.target.value) })}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-normal text-stone-400">课时</span>
+                      </span>
+                    </label>
+                  </div>
                 </div>
-                </div>
-                <div className="overflow-hidden rounded-[10px] border border-stone-200 bg-stone-50 p-2">
-                  <ProjectCoverImage course={course} allowGenerate className="h-[180px] w-full" />
+                <div className="border-t border-stone-200 bg-stone-100/70 p-4 lg:border-l lg:border-t-0 sm:p-5">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">课程封面</p>
+                    <span className="text-xs text-stone-400">16:9</span>
+                  </div>
+                  <div className="overflow-hidden rounded-[10px] border border-stone-200 bg-white p-2 shadow-sm">
+                    <ProjectCoverImage
+                      course={{
+                        ...course,
+                        name: draft.name,
+                        subject: draft.subject,
+                        grade: draft.grade,
+                        summary: draft.summary,
+                        drivingQuestion: draft.drivingQuestions.find((question) => question.trim()) ?? "",
+                      }}
+                      allowGenerate
+                      className="aspect-video w-full"
+                    />
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-stone-500">封面会随课程名称、学科和课程说明更新，也可以单独生成新图片。</p>
                 </div>
               </div>
-              <div className="mt-5 space-y-5 border-t border-stone-100 pt-5">
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div>
-                    <label className="text-sm font-bold text-stone-800">学科</label>
-                    <input className="mt-1 h-10 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={draft.subject} onChange={(e) => editBaseDraft({ subject: e.target.value })} placeholder="环境科学" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-bold text-stone-800">年级</label>
-                    <input className="mt-1 h-10 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={draft.grade} onChange={(e) => editBaseDraft({ grade: e.target.value })} placeholder="高一" />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-sm font-bold text-stone-800">预计课时</label>
-                      <AiFieldButton busy={skeletonLoading} label="AI 建议课时" loading={skeletonLoading && activeSuggestionPart === "courseHours"} onClick={() => void requestSkeleton("courseHours")} />
+
+              <div className="space-y-6 border-t border-stone-200 p-5 sm:p-6">
+                <section className="flex flex-col gap-4 rounded-[12px] border border-[var(--pbl-ai-border)] bg-[linear-gradient(105deg,var(--pbl-ai-soft),white_68%)] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-white text-[var(--pbl-ai)] shadow-sm ring-1 ring-[var(--pbl-ai-border)]">
+                      <Sparkles size={18} />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-bold text-stone-900">AI 补全课程信息</h3>
+                      <p className="mt-1 text-xs leading-5 text-stone-600">仅为课程目标、课程说明和启发问题中的空白项生成候选，不覆盖已经填写的内容。</p>
                     </div>
-                    <input className="mt-1 h-10 w-full rounded-[6px] border border-stone-300 px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]" type="number" min={1} max={5} value={draft.hours} onChange={(e) => editBaseDraft({ hours: Number(e.target.value) })} />
                   </div>
-                </div>
-                {skeleton && activeSuggestionPart === "courseHours" ? (
-                  <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("courseHours")}>
-                    {skeleton.courseHourOptions.map((option) => (
-                      <AiSuggestionCard key={option.hours} onAdopt={() => editBaseDraft({ hours: option.hours })}>
-                        <p className="font-editorial text-lg font-semibold text-stone-900">{option.hours} 课时</p>
-                        <p className="mt-1 font-semibold text-stone-700">{option.rationale}</p>
-                        <p className="mt-1 text-stone-500">{option.scope}</p>
-                      </AiSuggestionCard>
-                    ))}
-                  </AiSuggestionPanel>
-                ) : null}
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <label className="text-sm font-bold text-stone-800">课程目标</label>
-                    <AiFieldButton busy={skeletonLoading} label="AI 生成课程目标建议" loading={skeletonLoading && activeSuggestionPart === "learningObjectives"} onClick={() => void requestSkeleton("learningObjectives")} />
-                  </div>
+                  <button
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[7px] bg-[var(--pbl-ai)] px-4 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-wait disabled:opacity-60 motion-reduce:transform-none"
+                    disabled={skeletonLoading}
+                    onClick={() => void requestSkeleton("all")}
+                    type="button"
+                  >
+                    {skeletonLoading && activeSuggestionPart === "all" ? <Loader2 className="animate-spin" size={15} /> : <Sparkles size={15} />}
+                    {emptySkeletonParts.length > 0 ? `生成 ${emptySkeletonParts.length} 项空白内容` : "检查空白内容"}
+                  </button>
+                </section>
+
+                <section>
+                  <label className="text-sm font-bold text-stone-800">课程目标</label>
                   <p className="mt-0.5 text-xs text-stone-500">每行一个可观察、可评价的学习目标。</p>
                   <textarea
-                    className="mt-1 min-h-[80px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
+                    className="mt-2 min-h-[112px] w-full rounded-[6px] border border-stone-300 px-3 py-2.5 text-sm leading-6 outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]"
                     value={draft.learningObjectivesText}
-                    onChange={(e) => editBaseDraft({ learningObjectivesText: e.target.value })}
+                    onChange={(event) => editBaseDraft({ learningObjectivesText: event.target.value })}
                     placeholder={"解释项目所需的核心概念\n运用证据比较不同方案\n形成并修订可实施的项目成果"}
                   />
-                  {skeleton && activeSuggestionPart === "learningObjectives" ? (
-                    <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("learningObjectives")}>
+                  {skeleton && suggestionParts.includes("learningObjectives") ? (
+                    <AiSuggestionPanel loading={skeletonLoading && activeSuggestionPart === "learningObjectives"} onClose={() => closeSkeletonPart("learningObjectives")} onRefresh={() => void refreshSkeletonPart("learningObjectives")}>
                       {skeleton.learningObjectiveOptions.map((option, index) => (
-                        <AiSuggestionCard key={index} onAdopt={() => editBaseDraft({ learningObjectivesText: option.join("\n") })}>
+                        <AiSuggestionCard key={index} onAdopt={() => { editBaseDraft({ learningObjectivesText: option.join("\n") }); closeSkeletonPart("learningObjectives"); }}>
                           <ol className="list-decimal space-y-1 pl-4">{option.map((item) => <li key={item}>{item}</li>)}</ol>
                         </AiSuggestionCard>
                       ))}
                     </AiSuggestionPanel>
                   ) : null}
-                </div>
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <label className="text-sm font-bold text-stone-800">课程说明</label>
-                    <AiFieldButton busy={skeletonLoading} label="AI 生成课程说明建议" loading={skeletonLoading && activeSuggestionPart === "summary"} onClick={() => void requestSkeleton("summary")} />
-                  </div>
-                  <p className="mt-0.5 text-xs text-stone-500">补充真实情境和课程范围，不必写成宣传文案。</p>
+                </section>
+
+                <section>
+                  <label className="text-sm font-bold text-stone-800">课程说明</label>
+                  <p className="mt-0.5 text-xs text-stone-500">说明真实情境、课程范围和学生需要形成的判断。</p>
                   <textarea
-                    className="mt-1 min-h-[80px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
+                    className="mt-2 min-h-[112px] w-full rounded-[6px] border border-stone-300 px-3 py-2.5 text-sm leading-6 outline-none transition focus:border-[var(--pbl-teacher)] focus:ring-2 focus:ring-[var(--pbl-teacher-soft)]"
                     value={draft.summary}
-                    onChange={(e) => editBaseDraft({ summary: e.target.value })}
+                    onChange={(event) => editBaseDraft({ summary: event.target.value })}
                     placeholder="学生将调查什么、接触哪些真实对象、形成怎样的判断？"
                   />
-                  {skeleton && activeSuggestionPart === "summary" ? (
-                    <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("summary")}>
-                      {skeleton.summaryOptions.map((option, index) => <AiSuggestionCard key={index} onAdopt={() => editBaseDraft({ summary: option })}>{option}</AiSuggestionCard>)}
+                  {skeleton && suggestionParts.includes("summary") ? (
+                    <AiSuggestionPanel loading={skeletonLoading && activeSuggestionPart === "summary"} onClose={() => closeSkeletonPart("summary")} onRefresh={() => void refreshSkeletonPart("summary")}>
+                      {skeleton.summaryOptions.map((option, index) => <AiSuggestionCard key={index} onAdopt={() => { editBaseDraft({ summary: option }); closeSkeletonPart("summary"); }}>{option}</AiSuggestionCard>)}
                     </AiSuggestionPanel>
                   ) : null}
-                </div>
-                <div className="rounded-[var(--radius-sm)] border border-stone-200 bg-stone-50/60 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-bold text-stone-800">学生学情与认知边界</h3>
-                    <AiFieldButton busy={skeletonLoading} label="AI 生成学情建议" loading={skeletonLoading && activeSuggestionPart === "learnerProfile"} onClick={() => void requestSkeleton("learnerProfile")} />
-                  </div>
-                  <p className="mt-1 text-xs text-stone-500">可选。未填写时系统会根据学段、学科采用保守推断。</p>
-                  <div className="mt-3 grid gap-3">
-                    <div>
-                      <label className="text-xs font-semibold text-stone-600">已有基础</label>
-                      <textarea className="mt-1 min-h-[56px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={draft.priorKnowledge} onChange={(e) => editBaseDraft({ priorKnowledge: e.target.value })} placeholder="例如：理解分类和概率的直观含义" />
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div>
-                        <label className="text-xs font-semibold text-stone-600">学习特点或困难</label>
-                        <textarea className="mt-1 min-h-[56px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={draft.learningNeeds} onChange={(e) => editBaseDraft({ learningNeeds: e.target.value })} placeholder="例如：抽象概念需要图示" />
+                </section>
+
+                <section className="overflow-hidden rounded-[10px] border border-stone-200 bg-stone-50/60">
+                  <button
+                    aria-expanded={learnerProfileOpen}
+                    className="flex w-full items-center justify-between gap-4 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--pbl-teacher)]"
+                    onClick={() => setLearnerProfileOpen((open) => !open)}
+                    type="button"
+                  >
+                    <span>
+                      <span className="flex items-center gap-2 text-sm font-bold text-stone-800">
+                        学生学情与认知边界
+                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-stone-500 ring-1 ring-stone-200">选填</span>
+                        {suggestionParts.includes("learnerProfile") ? <span className="rounded-full bg-[var(--pbl-ai-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--pbl-ai)]">AI 候选已就绪</span> : null}
+                      </span>
+                      <span className="mt-1 block text-xs text-stone-500">默认采用基于学段与学科的保守推断，需要精细控制认知边界时再展开填写。</span>
+                    </span>
+                    <ChevronDown className={cn("shrink-0 text-stone-400 transition-transform", learnerProfileOpen && "rotate-180")} size={18} />
+                  </button>
+                  {learnerProfileOpen ? (
+                    <div className="border-t border-stone-200 bg-white p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="text-xs leading-5 text-stone-500">此项不会被“一键补全”自动生成，只有在需要时才调用 AI。</p>
+                        <button
+                          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] border border-[var(--pbl-ai-border)] bg-[var(--pbl-ai-soft)] px-3 text-xs font-semibold text-[var(--pbl-ai)] disabled:cursor-wait disabled:opacity-60"
+                          disabled={skeletonLoading}
+                          onClick={() => void requestSkeleton("learnerProfile")}
+                          type="button"
+                        >
+                          {skeletonLoading && activeSuggestionPart === "learnerProfile" ? <Loader2 className="animate-spin" size={12} /> : <Sparkles size={12} />}
+                          生成学情建议
+                        </button>
                       </div>
-                      <div>
-                        <label className="text-xs font-semibold text-stone-600">熟悉的生活情境</label>
-                        <textarea className="mt-1 min-h-[56px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={draft.familiarContexts} onChange={(e) => editBaseDraft({ familiarContexts: e.target.value })} placeholder="例如：校园生活、短视频推荐" />
+                      <div className="grid gap-3">
+                        <label className="text-xs font-semibold text-stone-600">
+                          已有基础
+                          <textarea className="mt-1 min-h-[64px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm font-normal outline-none focus:border-[var(--pbl-teacher)]" value={draft.priorKnowledge} onChange={(event) => editBaseDraft({ priorKnowledge: event.target.value })} placeholder="例如：理解分类和概率的直观含义" />
+                        </label>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="text-xs font-semibold text-stone-600">
+                            学习特点或困难
+                            <textarea className="mt-1 min-h-[64px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm font-normal outline-none focus:border-[var(--pbl-teacher)]" value={draft.learningNeeds} onChange={(event) => editBaseDraft({ learningNeeds: event.target.value })} placeholder="例如：抽象概念需要图示" />
+                          </label>
+                          <label className="text-xs font-semibold text-stone-600">
+                            熟悉的生活情境
+                            <textarea className="mt-1 min-h-[64px] w-full rounded-[6px] border border-stone-300 px-3 py-2 text-sm font-normal outline-none focus:border-[var(--pbl-teacher)]" value={draft.familiarContexts} onChange={(event) => editBaseDraft({ familiarContexts: event.target.value })} placeholder="例如：校园生活、短视频推荐" />
+                          </label>
+                        </div>
                       </div>
+                      {skeleton && suggestionParts.includes("learnerProfile") ? (
+                        <AiSuggestionPanel loading={skeletonLoading && activeSuggestionPart === "learnerProfile"} onClose={() => closeSkeletonPart("learnerProfile")} onRefresh={() => void refreshSkeletonPart("learnerProfile")}>
+                          {skeleton.learnerProfileOptions.map((option, index) => (
+                            <AiSuggestionCard key={index} onAdopt={() => { editBaseDraft(option); closeSkeletonPart("learnerProfile"); }}>
+                              <div className="space-y-1"><p><b>已有基础：</b>{option.priorKnowledge}</p><p><b>学习特点：</b>{option.learningNeeds}</p><p><b>熟悉情境：</b>{option.familiarContexts}</p></div>
+                            </AiSuggestionCard>
+                          ))}
+                        </AiSuggestionPanel>
+                      ) : null}
                     </div>
-                  </div>
-                  {skeleton && activeSuggestionPart === "learnerProfile" ? (
-                    <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("learnerProfile")}>
-                      {skeleton.learnerProfileOptions.map((option, index) => (
-                        <AiSuggestionCard key={index} onAdopt={() => editBaseDraft(option)}>
-                          <div className="space-y-1"><p><b>已有基础：</b>{option.priorKnowledge}</p><p><b>学习特点：</b>{option.learningNeeds}</p><p><b>熟悉情境：</b>{option.familiarContexts}</p></div>
-                        </AiSuggestionCard>
-                      ))}
-                    </AiSuggestionPanel>
                   ) : null}
-                </div>
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-stone-800">项目启发问题</label>
-                    <AiFieldButton busy={skeletonLoading} label="AI 生成驱动问题建议" loading={skeletonLoading && activeSuggestionPart === "drivingQuestions"} onClick={() => void requestSkeleton("drivingQuestions")} />
-                  </div>
-                  <p className="mt-0.5 text-xs text-stone-500">设置一个或多个真实、开放、可探究的问题。第一题同时作为课程生成使用的主驱动问题。</p>
+                </section>
+
+                <section>
+                  <label className="text-sm font-bold text-stone-800">项目启发问题</label>
+                  <p className="mt-0.5 text-xs text-stone-500">设置一个或多个真实、开放、可探究的问题。第一题将作为课程生成使用的主驱动问题。</p>
                   <div className="mt-3 space-y-2">
                     {draft.drivingQuestions.map((question, index) => (
                       <div className="flex items-start gap-2" key={index}>
-                        <span className="mt-2.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-xs font-bold text-[var(--pbl-teacher)]">
-                          {index + 1}
-                        </span>
-                        <textarea
-                          aria-label={`项目启发问题 ${index + 1}`}
-                          className="min-h-[76px] flex-1 rounded-[6px] border border-stone-300 px-3 py-2 text-sm outline-none focus:border-[var(--pbl-teacher)]"
-                          value={question}
-                          onChange={(event) => updateDrivingQuestion(index, event.target.value)}
-                          placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？"
-                        />
-                        <button
-                          aria-label={`删除项目启发问题 ${index + 1}`}
-                          className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-stone-200 text-stone-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-                          onClick={() => removeDrivingQuestion(index)}
-                          type="button"
-                        >
-                          <X size={16} />
-                        </button>
+                        <span className="mt-2.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-xs font-bold text-[var(--pbl-teacher)]">{index + 1}</span>
+                        <textarea aria-label={`项目启发问题 ${index + 1}`} className="min-h-[82px] flex-1 rounded-[6px] border border-stone-300 px-3 py-2 text-sm leading-6 outline-none focus:border-[var(--pbl-teacher)]" value={question} onChange={(event) => updateDrivingQuestion(index, event.target.value)} placeholder="我们如何为校园提出一项有证据支持、能够被实际采用的低碳改进方案？" />
+                        <button aria-label={`删除项目启发问题 ${index + 1}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-stone-200 text-stone-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeDrivingQuestion(index)} type="button"><X size={16} /></button>
                       </div>
                     ))}
-                    <button
-                      className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-dashed border-[var(--pbl-teacher-border)] px-3 text-sm font-semibold text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]"
-                      onClick={() => addDrivingQuestion()}
-                      type="button"
-                    >
-                      <Plus size={15} /> 增加一个启发问题
-                    </button>
+                    <button className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-dashed border-[var(--pbl-teacher-border)] px-3 text-sm font-semibold text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]" onClick={() => addDrivingQuestion()} type="button"><Plus size={15} /> 增加一个启发问题</button>
                   </div>
-                  {skeleton && activeSuggestionPart === "drivingQuestions" ? (
-                    <AiSuggestionPanel loading={skeletonLoading} onClose={() => setActiveSuggestionPart(null)} onRefresh={() => void refreshSkeletonPart("drivingQuestions")}>
-                      {skeleton.drivingQuestions.map((question, index) => (
-                        <AiSuggestionCard key={index} onAdopt={() => addDrivingQuestion(question)}>{question}</AiSuggestionCard>
-                      ))}
+                  {skeleton && suggestionParts.includes("drivingQuestions") ? (
+                    <AiSuggestionPanel loading={skeletonLoading && activeSuggestionPart === "drivingQuestions"} onClose={() => closeSkeletonPart("drivingQuestions")} onRefresh={() => void refreshSkeletonPart("drivingQuestions")}>
+                      {skeleton.drivingQuestions.map((question, index) => <AiSuggestionCard key={index} onAdopt={() => addDrivingQuestion(question)}>{question}</AiSuggestionCard>)}
                     </AiSuggestionPanel>
                   ) : null}
-                </div>
+                </section>
               </div>
             </Card> : null}
 
@@ -2666,7 +2725,7 @@ export default function VerifyCoursePage() {
                   <select
                     className="mt-2 h-10 w-full rounded-[6px] border border-stone-300 bg-white px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]"
                     value={course.pblConfig?.difficultyLevel ?? "standard"}
-                    onChange={(e) => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: e.target.value as "introductory" | "standard" | "advanced", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
+                    onChange={(e) => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: e.target.value as "introductory" | "standard" | "advanced", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME } }) })}
                   >
                     <option value="introductory">入门：需要更多示范与引导</option>
                     <option value="standard">标准：知识与实践均衡</option>
@@ -2686,7 +2745,7 @@ export default function VerifyCoursePage() {
                           type="button"
                           aria-pressed={selected}
                           className={`flex items-start gap-2 rounded-[6px] border px-2.5 py-2 text-left transition ${selected ? "border-[var(--pbl-ai)] bg-white shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-[var(--pbl-ai)]/50"}`}
-                          onClick={() => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: selected ? currentEvidence.filter((e) => e.kind !== item.kind) : [...currentEvidence, { ...item, required: true }], outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id as PblCompanionId)) }) })}
+                          onClick={() => updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: selected ? currentEvidence.filter((e) => e.kind !== item.kind) : [...currentEvidence, { ...item, required: true }], outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME } }) })}
                         >
                           <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-[var(--pbl-ai)] bg-[var(--pbl-ai)] text-white" : "border-stone-300 text-transparent"}`}>
                             <Check size={11} />
@@ -2695,34 +2754,6 @@ export default function VerifyCoursePage() {
                             <span className="block text-xs font-semibold">{item.label}</span>
                             <span className="mt-0.5 block text-[11px] leading-4 text-stone-500">{item.description}</span>
                           </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </fieldset>
-                <fieldset>
-                  <legend className="flex items-center gap-2 text-sm font-bold text-stone-800"><UsersRound size={16} /> AI 伴学小组角色</legend>
-                  <p className="mt-1 text-xs text-stone-500">生成器会按阶段调度已选角色。记记固定参与。</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    {AI_COMPANIONS.map((companion) => {
-                      const selected = (course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id)).includes(companion.id);
-                      const locked = companion.id === "recorder";
-                      return (
-                        <button
-                          key={companion.id}
-                          type="button"
-                          aria-pressed={selected}
-                          className={`flex items-center gap-2.5 rounded-[6px] border px-2.5 py-2 text-left transition ${selected ? "border-[var(--pbl-ai)] bg-white" : "border-stone-200 bg-stone-50/60"}`}
-                          onClick={() => {
-                            if (locked) return;
-                            const currentIds = course.pblConfig?.companionIds ?? AI_COMPANIONS.map((c) => c.id);
-                            const newIds = selected ? currentIds.filter((id) => id !== companion.id) : [...currentIds, companion.id];
-                            updateCourse(course.id, { pblConfig: normalizePblCourseConfig({ ...course.pblConfig, difficultyLevel: course.pblConfig?.difficultyLevel ?? "standard", evidenceRequirements: course.pblConfig?.evidenceRequirements ?? DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((i) => i.required), outcome: course.pblConfig?.outcome ?? { ...DEFAULT_PBL_OUTCOME }, companionIds: newIds as PblCompanionId[] }) });
-                          }}
-                        >
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm" style={{ backgroundColor: `${companion.color}18` }}>{companion.emoji}</span>
-                          <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{companion.name} · {companion.role}</span><span className="block truncate text-[11px] text-stone-500">{companion.description}</span></span>
-                          {locked ? <span className="text-[9px] font-bold text-[var(--pbl-ai)]">必选</span> : <CheckCircle2 className={selected ? "text-[var(--pbl-ai)]" : "text-stone-300"} size={15} />}
                         </button>
                       );
                     })}
@@ -3039,32 +3070,6 @@ function PblCoverageSummary({
       ) : null}
       {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-stone-500">元数据提醒：{coverage.metadataWarnings.join("；")}</p> : null}
     </section>
-  );
-}
-
-function AiFieldButton({
-  busy,
-  label,
-  loading,
-  onClick,
-}: {
-  busy: boolean;
-  label: string;
-  loading: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-label={label}
-      className="grid size-7 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-400 shadow-sm transition-colors hover:border-[var(--pbl-ai-border)] hover:bg-[var(--pbl-ai-soft)] hover:text-[var(--pbl-ai)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pbl-ai-border)] disabled:cursor-wait disabled:opacity-55"
-      disabled={busy}
-      onClick={onClick}
-      title={label}
-      type="button"
-    >
-      {loading ? <Loader2 aria-hidden="true" className="animate-spin" size={13} /> : <Lightbulb aria-hidden="true" size={13} />}
-      <span className="sr-only">{label}</span>
-    </button>
   );
 }
 

@@ -24,6 +24,15 @@ import {
   haveAllResourcesBeenViewed,
 } from "@/lib/project-launch-readiness";
 
+const STAGE_WORK: Record<string, string> = {
+  launch: "理解问题，查看材料，确定研究方向",
+  "ai-learning": "学习完成项目需要的核心知识",
+  proposal: "形成方案并说明选择依据",
+  make: "制作成果，测试并持续修改",
+  showcase: "展示成果，回应问题与反馈",
+  reflection: "总结方法，把经验迁移到新问题",
+};
+
 export function ProjectLaunchView({ course }: { course: Course }) {
   const session = useSession();
   const [expandedAnnouncement, setExpandedAnnouncement] = useState<string | null>(course?.announcements?.[0]?.id ?? null);
@@ -79,12 +88,11 @@ export function ProjectLaunchView({ course }: { course: Course }) {
     }
   }, [course.id, launchTodos, session, studentId, topicSelected, viewedAllResources]);
 
-  // 从 course.stages 派生时间表（替代 mock-data 的 projectTimeline）
-  const projectTimeline = course.stages.map((stage, index) => {
-    // Stage 类型无日期字段，使用 index 作为序号，description 作为副信息
-    const subtitle = stage.description?.trim() || "—";
-    return [String(index + 1), stage.label, subtitle] as const;
-  });
+  const projectTimeline = course.stages.map((stage, index) => ({
+    index,
+    label: stage.label,
+    work: STAGE_WORK[stage.key] ?? stage.description?.trim() ?? "完成本阶段项目任务",
+  }));
 
   function saveTopic() {
     const topic = effectiveSelectedTopic.trim();
@@ -112,39 +120,30 @@ export function ProjectLaunchView({ course }: { course: Course }) {
           <h1 className="text-3xl font-bold tracking-[0] leading-tight text-stone-900 md:text-4xl">{title}</h1>
           <Pill tone="green">进行中</Pill>
         </div>
-        <ProjectCoverImage course={course} className="h-56 w-full sm:h-60 md:h-64" />
+        <ProjectCoverImage course={course} className="aspect-video w-full" />
 
         <Card>
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600"><HelpCircle size={23} /></div>
-            <div><p className="text-xs font-bold uppercase tracking-wider text-[var(--pbl-student)]">项目任务书</p><h2 className="text-xl font-bold text-stone-900">先理解问题，再确认自己的项目方向</h2></div>
+            <h2 className="text-xl font-bold text-stone-900">项目任务书</h2>
           </div>
           <dl className="mt-5 grid gap-4">
             <div className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-4"><dt className="flex items-center gap-2 text-sm font-bold text-stone-900"><HelpCircle size={17} className="text-[var(--pbl-student)]" />驱动问题</dt><dd className="mt-2 text-[15px] leading-7 text-stone-700">{drivingQ}</dd></div>
             <div className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-4"><dt className="flex items-center gap-2 text-sm font-bold text-stone-900"><Target size={17} className="text-[var(--pbl-student)]" />学习目标</dt><dd className="mt-2 text-sm leading-6 text-stone-600">{course.summary || "教师尚未补充项目目标说明。"}</dd></div>
             <div className="rounded-[10px] border border-stone-200 bg-stone-50/70 p-4"><dt className="flex items-center gap-2 text-sm font-bold text-stone-900"><FileText size={17} className="text-[var(--pbl-student)]" />最终成果</dt><dd className="mt-2 text-sm leading-6 text-stone-600">{course.expectedOutcome?.trim() || "按教师发布的成果要求，完成一个可展示、可说明依据的个人项目成果。"}</dd></div>
           </dl>
-          <div className="mt-4 rounded-[10px] border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm leading-6 text-stone-700">
-            你独立负责完整项目；AI 伙伴只提供解释、提问、质疑和反馈，不能替你选择方向或提交成果。
-          </div>
         </Card>
 
         <Card>
-          <div className="mb-5 flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-blue-600">
-              <Flag size={25} />
-            </div>
-            <h2 className="text-xl font-bold">时间安排</h2>
+          <div className="mb-4 flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-[10px] bg-[var(--pbl-student-soft)] text-blue-600"><Flag size={21} /></div>
+            <div><h2 className="text-xl font-bold">课程安排</h2><p className="mt-0.5 text-sm text-stone-500">六个阶段逐步完成一个完整项目。</p></div>
           </div>
-          <div className="relative grid gap-2 overflow-x-auto pb-1" style={{ gridTemplateColumns: `repeat(${projectTimeline.length}, minmax(96px, 1fr))` }}>
-            <div className="absolute left-[6%] right-[7%] top-[18px] h-1 rounded-full bg-stone-200" />
-            {projectTimeline.map(([step, label, date], index) => (
-              <div className="relative z-10 min-w-[86px] text-center" key={step}>
-                <div className={`mx-auto grid h-9 w-9 place-items-center rounded-full text-base font-bold text-white ${index <= course.currentStageIndex ? "bg-[var(--pbl-student)]" : "bg-stone-300"}`}>
-                  {step}
-                </div>
-                <div className={index <= course.currentStageIndex ? "mt-3 font-bold text-[var(--pbl-student)]" : "mt-3 font-semibold text-stone-600"}>{label}</div>
-                <div className={index <= course.currentStageIndex ? "mt-1 text-sm text-blue-600" : "mt-1 text-sm text-stone-500"}>{date}</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {projectTimeline.map((stage) => (
+              <div className={`flex gap-3 rounded-[9px] border p-3 ${stage.index === course.currentStageIndex ? "border-[var(--pbl-student-border)] bg-[var(--pbl-student-soft)]/55" : "border-stone-200 bg-white"}`} key={stage.label}>
+                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-black ${stage.index <= course.currentStageIndex ? "bg-[var(--pbl-student)] text-white" : "bg-stone-100 text-stone-500"}`}>{stage.index + 1}</span>
+                <div><div className="text-sm font-bold text-stone-900">{stage.label}</div><p className="mt-1 text-xs leading-5 text-stone-500">{stage.work}</p></div>
               </div>
             ))}
           </div>
@@ -155,8 +154,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
         <Card>
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold">启动准备</h2>
-              <p className="mt-1 text-sm text-stone-500">完成实际操作后，状态会自动更新。</p>
+              <h2 className="text-xl font-bold">本阶段要完成</h2>
             </div>
             <Pill tone={viewedAllResources && topicSelected ? "green" : "blue"}>
               {viewedAllResources && topicSelected ? "准备完成" : "进行中"}
@@ -318,7 +316,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                 {expandedAnnouncement === announcement.id ? (
                   <div className="mt-3 border-t border-stone-100 pt-3">
                     <p className="text-sm leading-6 text-stone-700">{announcement.content}</p>
-                    <p className="mt-2 text-xs leading-5 text-stone-500">如有疑问，请在课堂中直接向教师提出，或请伴学伙伴先帮你整理问题。</p>
+                    <p className="mt-2 text-xs leading-5 text-stone-500">如有疑问，请在课堂中直接向教师提出。</p>
                   </div>
                 ) : null}
               </div>

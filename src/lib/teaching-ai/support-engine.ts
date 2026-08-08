@@ -15,6 +15,12 @@ import {
   formatTeachingConstraintsForPrompt,
   type LearnerProfileInput,
 } from "@/lib/openmaic/pedagogy/teaching-constraints";
+import { isLearningEvidenceStructurallyComplete } from "@/lib/learning-evidence/readiness";
+import {
+  learningEvidenceKindLabel,
+  learningEvidenceStatusLabel,
+  learningStageLabel,
+} from "@/lib/evaluation/process-assessment";
 
 export type AiSupportDraft = Omit<
   AiSupportRecord,
@@ -813,18 +819,37 @@ ${groups.map((g) => {
  * 教师端 AI 过程性评价报告（阶段六：学习反思）。
  * 教师点击"AI 生成过程评价"按钮时调用。
  */
+const PROCESS_EVALUATION_DIMENSIONS = [
+  { dimensionId: "process-progress", name: "过程推进" },
+  { dimensionId: "ai-collaboration-health", name: "AI协作健康度" },
+  { dimensionId: "evidence-iteration-quality", name: "证据与迭代质量" },
+  { dimensionId: "professional-accuracy", name: "专业知识准确性" },
+  { dimensionId: "plan-feasibility", name: "方案逻辑与可行性" },
+] as const;
+
 export async function generateProcessEvaluation(input: {
   course: Course;
   groupId?: string;
+  teacherGuidance?: string;
 }, opts: SupportCallOptions = {}): Promise<{
   summary: string;
-  dimensions: Array<{ name: string; score: number; evidence: string[] }>;
+  dimensions: Array<{
+    dimensionId: string;
+    name: string;
+    score: number;
+    rationale: string;
+    evidenceIds: string[];
+    evidenceGaps: string[];
+  }>;
+  evidenceIds: string[];
+  evidenceGaps: string[];
+  confidence: "low" | "medium" | "high";
   highlights: string[];
   improvements: string[];
   source: "llm" | "local";
 }> {
   throwIfAborted(opts.abortSignal);
-  const { course, groupId } = input;
+  const { course, groupId, teacherGuidance } = input;
   const targetGroups = groupId
     ? (course.groups ?? []).filter((g) => g.id === groupId)
     : (course.groups ?? []);
@@ -832,71 +857,123 @@ export async function generateProcessEvaluation(input: {
   const targetStudents = targetGroups.flatMap((g) => g.members);
   const studentIds = new Set(targetStudents.map((m) => m.studentId));
 
-  const supports = (course.aiSupports ?? []).filter(
-    (s) => !groupId || s.groupId === groupId,
-  );
-  const activities = course.activityLog ?? [];
-  const uploads = (course.uploads ?? []).filter(
-    (u) => !groupId || u.groupId === groupId,
-  );
-  const submissions = (course.submissions ?? []).filter(
-    (s) => !groupId || s.groupId === groupId,
-  );
-  const threads = (course.companionThreads ?? []).filter(
-    (thread) => !groupId || targetStudents.some((student) => student.studentId === thread.studentId),
-  );
-  const learningEvents = (course.learningEvents ?? []).filter(
-    (event) => !groupId || studentIds.has(event.studentId),
-  );
+  const snapshots = (course.artifactSnapshots ?? []).filter((snapshot) =>
+    studentIds.has(snapshot.studentId));
+  const evidence = (course.learningEvidence ?? []).filter((item) =>
+    studentIds.has(item.studentId)
+    && item.countsTowardReadiness
+    && ["submitted", "teacher-confirmed"].includes(item.status)
+    && isLearningEvidenceStructurallyComplete(item, snapshots));
+  const decisions = (course.studentAiDecisions ?? []).filter((item) =>
+    studentIds.has(item.studentId));
+  const allowedEvidenceIds = new Set(evidence.map((item) => item.id));
+
+  if (!evidence.length) {
+    return {
+      summary: "当前没有足以支持过程评价的新流程学习证据。",
+      dimensions: [],
+      evidenceIds: [],
+      evidenceGaps: ["缺少已提交且结构完整的学习证据"],
+      confidence: "low",
+      highlights: [],
+      improvements: ["先让学生完成并提交当前阶段证据，再生成评价建议。"],
+      source: "local",
+    };
+  }
 
   const llmResult = await callLLMForJson<{
     summary: string;
-    dimensions: Array<{ name: string; score: number; evidence: string[] }>;
+    dimensions: Array<{
+      dimensionId: string;
+      name: string;
+      score?: number | null;
+      rationale: string;
+      evidenceIds: string[];
+      evidenceGaps: string[];
+    }>;
+    evidenceIds: string[];
+    evidenceGaps: string[];
+    confidence: "low" | "medium" | "high";
     highlights: string[];
     improvements: string[];
   }>(
     stageSystemPrompt("make"),
-    `请基于以下过程数据，生成过程性评价报告。
+    `请基于以下“可进入评价的新流程学习证据”，生成待教师确认的过程评价建议。
 
 课程名称：${course.name}
 评价范围：${groupId ? `单个个人项目（${targetGroups[0]?.name ?? ""}）` : `全班（${targetGroups.length} 个个人项目）`}
 学生数：${studentIds.size}
 
-过程数据：
-- 伴学对话：${threads.reduce((sum, thread) => sum + thread.messages.length, 0)} 条消息（次数只作背景，不能因使用多或少直接加减分）
-- 学习行为事件：${learningEvents.length} 条
-- AI 支架记录：${supports.length} 条（旧记录仅作辅助证据，不推断学生是否采纳或拒绝）
-- 活动记录：${activities.length} 条
-- 上传材料：${uploads.length} 个（证据类 ${uploads.filter((u) => u.category === "evidence").length}）
-- 提交记录：${submissions.length} 条
+教师本轮评分指导：
+${teacherGuidance?.trim() || "（无；按既定评价维度独立判断）"}
 
-各个人项目进度：
-${targetGroups.map((g) => {
-  const progress = averageGroupProgress(course, g, "reflection");
-  const groupSupports = supports.filter((s) => s.groupId === g.id);
-  return `- ${g.name}：阶段进度 ${progress}%，AI 支架 ${groupSupports.length} 条`;
-}).join("\n")}
+学习证据（方括号内是唯一允许引用的真实证据 ID）：
+${evidence.map((item) =>
+  `- [${item.id}] 学生=${item.studentId}；阶段=${learningStageLabel(item.stageKey, course.stages)}；类型=${learningEvidenceKindLabel(item.kind)}；状态=${learningEvidenceStatusLabel(item.status)}；摘要=${item.summary.slice(0, 700)}`,
+).join("\n")}
 
-最近伴学对话与产物证据：
-${threads.flatMap((thread) => thread.messages.filter((message) => message.visibility === "student-and-teacher").slice(-6).map((message) => `- [${message.id}] ${message.authorName ?? message.role}：${message.content}`)).slice(-20).join("\n") || "（无对话证据）"}
-${submissions.slice(-6).map((submission) => `- [${submission.id}] ${submission.title}：${submission.content.replace(/<[^>]+>/g, " ").slice(0, 500)}`).join("\n") || "（无产物证据）"}
+学生对AI建议的真实决定：
+${decisions.length
+  ? decisions.map((item) =>
+      `- 建议=${item.contributionId}；决定=${item.decision}；理由=${item.reason}；实际关联证据=${item.resultingEvidenceIds.join("、") || "无"}`,
+    ).join("\n")
+  : "（无AI建议决定记录；不得据此推断学生AI协作质量）"}
 
 要求：
 1. summary：1 段 100-200 字的过程性评价总结
-2. dimensions：覆盖过程推进、AI 协作健康度、证据与迭代质量、专业知识准确性、方案逻辑与可行性，每维度给 0-100 分并引用证据 ID
-3. highlights：2-3 条过程亮点
-4. improvements：2-3 条改进建议
-5. AI 协作健康度不能按使用频率评分：高频但有核验、修改和产出可为健康；低频但直接照搬或要求代做仍可能不健康
-6. 若某维度证据不足，明确写“证据不足，暂无法评价”，不得强行给低分；不得评价教师负责的现场表达、答辩和课堂通用表现
+2. dimensions：严格按以下顺序返回且不得缺项：过程推进、AI协作健康度、证据与迭代质量、专业知识准确性、方案逻辑与可行性；每项包含 dimensionId、name、rationale、evidenceIds、evidenceGaps
+3. 每个维度都必须返回 score（0-100整数）；证据不足、无法评价时 score 必须为 0，并在 evidenceGaps 中说明缺少什么证据
+4. evidenceIds 只能逐字引用上方方括号中的真实证据 ID，禁止引用聊天、保存、上传、页面、活动或自行编造的 ID
+5. evidenceIds：汇总所有维度引用；evidenceGaps：汇总所有关键缺口；confidence 只能是 low、medium、high
+6. highlights：2-3 条过程亮点
+7. improvements：2-3 条改进建议
+8. AI 协作健康度不能按使用频率评分：高频但有核验、修改和产出可为健康；低频但直接照搬或要求代做仍可能不健康
+9. 若某维度证据不足，明确说明“证据不足，本维度记 0 分”；不得评价教师负责的现场表达、答辩和课堂通用表现
 
-仅返回 JSON：{ "summary": "string", "dimensions": [{ "name": "string", "score": 80, "evidence": ["string"] }], "highlights": ["string"], "improvements": ["string"] }`,
+仅返回 JSON：{ "summary": "string", "dimensions": [{ "dimensionId": "string", "name": "string", "score": 80, "rationale": "string", "evidenceIds": ["真实ID"], "evidenceGaps": [] }], "evidenceIds": ["真实ID"], "evidenceGaps": [], "confidence": "medium", "highlights": ["string"], "improvements": ["string"] }`,
     { abortSignal: opts.abortSignal },
   );
 
   if (llmResult?.summary) {
+    const dimensions = PROCESS_EVALUATION_DIMENSIONS.map((expected, index) => {
+      const dimension = llmResult.dimensions?.[index];
+      const evidenceIds = (dimension?.evidenceIds ?? []).filter((id) =>
+        allowedEvidenceIds.has(id));
+      const score = evidenceIds.length && typeof dimension?.score === "number"
+        ? Math.max(0, Math.min(100, Math.round(dimension.score)))
+        : 0;
+      return {
+        dimensionId: expected.dimensionId,
+        name: expected.name,
+        score,
+        rationale: dimension?.rationale?.trim() || "未获得可核验理由，证据不足，本维度记 0 分。",
+        evidenceIds: dimension ? evidenceIds : [],
+        evidenceGaps: Array.isArray(dimension?.evidenceGaps) && dimension.evidenceGaps.some(Boolean)
+          ? dimension.evidenceGaps.filter(Boolean)
+          : score === 0
+            ? ["证据不足，本维度记 0 分"]
+            : [],
+      };
+    });
+    const evidenceIds = Array.from(new Set(
+      dimensions.flatMap((dimension) => dimension.evidenceIds),
+    ));
+    const evidenceGaps = Array.from(new Set([
+      ...(llmResult.evidenceGaps ?? []).filter(Boolean),
+      ...dimensions.flatMap((dimension) => dimension.evidenceGaps),
+    ]));
     return {
       summary: llmResult.summary,
-      dimensions: llmResult.dimensions?.slice(0, 5) ?? invalidAiResult("过程性评价生成"),
+      dimensions,
+      evidenceIds,
+      evidenceGaps,
+      confidence: ["low", "medium", "high"].includes(llmResult.confidence)
+        ? llmResult.confidence
+        : evidenceIds.length >= 5
+          ? "high"
+          : evidenceIds.length >= 2
+            ? "medium"
+            : "low",
       highlights: llmResult.highlights?.slice(0, 3) ?? invalidAiResult("过程性评价生成"),
       improvements: llmResult.improvements?.slice(0, 3) ?? invalidAiResult("过程性评价生成"),
       source: "llm",

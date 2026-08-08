@@ -62,6 +62,20 @@ describe('C plan motion catalog', () => {
     }
   })
 
+  it('uses eight distinct gait phases at the same cadence and world speed as vertical walking', () => {
+    const horizontal = definitions.fc_walking_h
+    const vertical = definitions.fc_walking_down
+    const horizontalSpeed =
+      (horizontal.pixelsPerCycle! * horizontal.authoredFps!) / horizontal.frameCount!
+    const verticalSpeed =
+      (vertical.pixelsPerCycle! * vertical.authoredFps!) / vertical.frameCount!
+
+    expect(horizontal.authoredFps).toBe(10)
+    expect(horizontal.frameCount).toBe(8)
+    expect(horizontal.pixelsPerCycle).toBe(68)
+    expect(horizontalSpeed).toBeCloseTo(verticalSpeed, 1)
+  })
+
   it('locks every computer interaction toward the character own left side', () => {
     for (const id of [
       'computer_typing_left',

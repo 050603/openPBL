@@ -2,6 +2,7 @@ import { Assets, Spritesheet, Texture } from 'pixi.js'
 import type { SpritesheetData } from 'pixi.js'
 import type { AgentActionName } from '@/assets/agent'
 import { getActionResourceUrls } from './resources'
+import { pixiAssetLoadOptions, retryAssetLoad } from './asset-loading'
 
 export type LoadActionTextureOptions = {
   replaceDefaultRedWith?: string
@@ -40,7 +41,12 @@ export function createActionTextureLoader(): ActionTextureLoader {
       return cachedTextures.promise.then(({ textures }) => textures)
     }
 
-    const loadPromise = loadTextures(actionName, options)
+    const loadPromise = loadTextures(actionName, options).catch((error: unknown) => {
+      if (actionTextures.get(key)?.promise === loadPromise) {
+        actionTextures.delete(key)
+      }
+      throw error
+    })
     actionTextures.set(key, { promise: loadPromise, references: 1 })
     return loadPromise.then(({ textures }) => textures)
   }
@@ -61,9 +67,11 @@ export function createActionTextureLoader(): ActionTextureLoader {
     }
 
     actionTextures.delete(key)
-    void entry.promise.then(({ spritesheet, ownsBaseTexture }) => {
-      spritesheet.destroy(ownsBaseTexture)
-    })
+    void entry.promise
+      .then(({ spritesheet, ownsBaseTexture }) => {
+        spritesheet.destroy(ownsBaseTexture)
+      })
+      .catch(() => undefined)
   }
 
   return {
@@ -73,9 +81,11 @@ export function createActionTextureLoader(): ActionTextureLoader {
       const entries = Array.from(actionTextures.values())
       actionTextures.clear()
       entries.forEach((entry) => {
-        void entry.promise.then(({ spritesheet, ownsBaseTexture }) => {
-          spritesheet.destroy(ownsBaseTexture)
-        })
+        void entry.promise
+          .then(({ spritesheet, ownsBaseTexture }) => {
+            spritesheet.destroy(ownsBaseTexture)
+          })
+          .catch(() => undefined)
       })
     },
   }
@@ -86,16 +96,18 @@ async function loadTextures(
   options: LoadActionTextureOptions,
 ): Promise<{ textures: Texture[]; spritesheet: Spritesheet; ownsBaseTexture: boolean }> {
   const { imageUrl, sheetUrl } = getActionResourceUrls(actionName)
-  const sheetResponse = await fetch(sheetUrl, { cache: 'force-cache' })
-
-  if (!sheetResponse.ok) {
-    throw new Error(`Unable to load action sheet: ${actionName}`)
-  }
+  const sheetResponse = await retryAssetLoad(async () => {
+    const response = await fetch(sheetUrl, { cache: 'force-cache' })
+    if (!response.ok) {
+      throw new Error(`Unable to load action sheet: ${actionName}`)
+    }
+    return response
+  })
 
   const sheetData = (await sheetResponse.json()) as SpritesheetData
   const baseTexture = options.replaceDefaultRedWith
     ? await createRoleScarfTexture(imageUrl, options.replaceDefaultRedWith, sheetData)
-    : await Assets.load<Texture>(imageUrl)
+    : await Assets.load<Texture>(imageUrl, pixiAssetLoadOptions)
   const spritesheet = new Spritesheet(baseTexture, sheetData)
 
   await spritesheet.parse()
@@ -382,10 +394,10 @@ async function createRoleScarfTexture(
 }
 
 function loadImage(imageUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
+  return retryAssetLoad(() => new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
     image.onerror = () => reject(new Error(`Could not load image for recoloring: ${imageUrl}`))
     image.src = imageUrl
-  })
+  }))
 }

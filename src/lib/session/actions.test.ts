@@ -42,6 +42,36 @@ function stateWithCourses(...courses: Course[]): SessionState {
   return { ...initialSessionState(), courses, hydrated: true };
 }
 
+describe("applySessionAction — showcase presentation", () => {
+  it("records presentation switching in the authorized canonical action", () => {
+    const course = makeCourse({
+      students: [makeStudent("s1", "林同学")],
+      groups: [{
+        id: "grp-s1",
+        name: "林同学的项目",
+        topic: "节能方案",
+        keywords: [],
+        selectedForms: [],
+        members: [{ studentId: "s1", name: "林同学", role: "负责人" }],
+        createdAt: "2024-01-01T00:00:00.000Z",
+        updatedAt: "2024-01-01T00:00:00.000Z",
+      }],
+    });
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "SET_PRESENTING_GROUP",
+      payload: { courseId: course.id, groupId: "grp-s1" },
+    });
+
+    expect(next.courses[0].presentingGroupId).toBe("grp-s1");
+    expect(next.courses[0].activityLog?.[0]).toMatchObject({
+      actor: "教师",
+      action: "切换当前个人汇报",
+      detail: "林同学的个人项目",
+    });
+  });
+});
+
 describe("applySessionAction — classroom timing", () => {
   it("persists an absolute stage clock across start, stage changes, and finish", () => {
     vi.useFakeTimers();
@@ -139,12 +169,8 @@ describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
     ]);
     expect(
       completed.courses[0].students.find((student) => student.id === "student-1")
-        ?.stageProgress["project-launch"],
-    ).toBe(100);
-    expect(
-      completed.courses[0].students.find((student) => student.id === "student-1")
-        ?.stageProgress.launch,
-    ).toBe(100);
+        ?.stageProgress,
+    ).toEqual({});
     expect(
       completed.courses[0].students.find((student) => student.id === "student-2")
         ?.stageProgress["project-launch"],
@@ -162,11 +188,11 @@ describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
     expect(reopened.courses[0].todos?.[0].completedBy).toEqual(["student-2"]);
     expect(
       reopened.courses[0].students.find((student) => student.id === "student-1")
-        ?.stageProgress["project-launch"],
-    ).toBe(0);
+        ?.stageProgress,
+    ).toEqual({});
   });
 
-  it("derives project-launch progress from all launch todos", () => {
+  it("keeps todo completion as an operational record without changing learning readiness", () => {
     const student = makeStudent("student-1", "张三");
     const course = makeCourse({
       students: [student],
@@ -193,8 +219,8 @@ describe("applySessionAction — SET_STUDENT_TODO_COMPLETION", () => {
       },
     });
 
-    expect(next.courses[0].students[0].stageProgress["project-launch"]).toBe(50);
-    expect(next.courses[0].students[0].stageProgress.launch).toBe(50);
+    expect(next.courses[0].todos?.[0].completedBy).toEqual(["student-1"]);
+    expect(next.courses[0].students[0].stageProgress).toEqual({});
   });
 });
 
@@ -597,8 +623,166 @@ describe("applySessionAction — SET_STAGE", () => {
   });
 });
 
-describe("normalizeCourse — v2 migration", () => {
-  it("migrates seven stages into the six-stage personal-project model", () => {
+describe("applySessionAction — evidence-driven classroom records", () => {
+  it("stores a student help request as an operational signal, not learning evidence", () => {
+    const course = makeCourse({ students: [makeStudent("student-1", "张三")] });
+    const signal = {
+      id: "help-1",
+      courseId: course.id,
+      studentId: "student-1",
+      stageKey: "make",
+      kind: "student-help-request" as const,
+      severity: "warning" as const,
+      status: "open" as const,
+      title: "学生主动请求帮助",
+      summary: "需要教师查看当前任务",
+      normalizedIssueKey: "student-help-request:student-1:make",
+      evidenceEventIds: [],
+      aiInterventionAttempts: 0,
+      firstDetectedAt: "2026-07-31T00:00:00.000Z",
+      lastDetectedAt: "2026-07-31T00:00:00.000Z",
+    };
+
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "REQUEST_TEACHER_HELP",
+      payload: { courseId: course.id, signal },
+    });
+
+    expect(next.courses[0].learningSignals).toEqual([signal]);
+    expect(next.courses[0].learningEvidence).toEqual([]);
+  });
+
+  it("upserts and teacher-calibrates learning evidence", () => {
+    const course = makeCourse({ students: [makeStudent("student-1", "张三")] });
+    const evidence = {
+      id: "evidence-intent",
+      schemaVersion: 1 as const,
+      courseId: course.id,
+      studentId: "student-1",
+      stageKey: "launch",
+      kind: "project-intent" as const,
+      title: "项目立意",
+      summary: "校园节水",
+      payload: {
+        concern: "浪费水",
+        affectedPeople: "全校",
+        importance: "减少浪费",
+        successIndicator: "用水量下降",
+        personalQuestion: "如何减少浪费？",
+      },
+      status: "submitted" as const,
+      source: "student" as const,
+      countsTowardReadiness: true,
+      evidenceRefs: [],
+      artifactSnapshotIds: [],
+      createdAt: "2026-07-31T00:00:00.000Z",
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    };
+
+    const saved = applySessionAction(stateWithCourses(course), {
+      type: "UPSERT_LEARNING_EVIDENCE",
+      payload: { courseId: course.id, evidence },
+    });
+    const reviewed = applySessionAction(saved, {
+      type: "REVIEW_LEARNING_EVIDENCE",
+      payload: {
+        courseId: course.id,
+        evidenceId: evidence.id,
+        status: "teacher-confirmed",
+        feedback: "范围清楚",
+        reviewedAt: "2026-07-31T00:05:00.000Z",
+      },
+    });
+
+    expect(reviewed.courses[0].learningEvidence?.[0]).toMatchObject({
+      id: evidence.id,
+      status: "teacher-confirmed",
+      teacherFeedback: "范围清楚",
+      confirmedAt: "2026-07-31T00:05:00.000Z",
+    });
+  });
+
+  it("records a student AI decision and closes the contribution", () => {
+    const course = makeCourse({
+      aiContributions: [{
+        id: "contribution-1",
+        courseId: "course-1",
+        studentId: "student-1",
+        stageKey: "proposal",
+        companionId: "planner",
+        impact: "high",
+        request: "检查我的方案",
+        suggestion: "缩小测试范围",
+        sourceEvidenceIds: ["evidence-plan"],
+        status: "pending-decision",
+        createdAt: "2026-07-31T00:00:00.000Z",
+      }],
+    });
+    const next = applySessionAction(stateWithCourses(course), {
+      type: "RECORD_STUDENT_AI_DECISION",
+      payload: {
+        courseId: course.id,
+        decision: {
+          id: "decision-1",
+          courseId: course.id,
+          studentId: "student-1",
+          stageKey: "proposal",
+          contributionId: "contribution-1",
+          decision: "modified",
+          reason: "保留真实测试对象",
+          appliedChangeSummary: "把样本改为两个班级",
+          resultingEvidenceIds: ["evidence-plan-v2"],
+          decidedAt: "2026-07-31T00:10:00.000Z",
+        },
+      },
+    });
+    expect(next.courses[0].studentAiDecisions).toHaveLength(1);
+    expect(next.courses[0].aiContributions?.[0].status).toBe("decided");
+  });
+
+  it("rolls operational learning signals after 30 days without deleting learning evidence", () => {
+    const now = Date.now();
+    const old = new Date(now - 31 * 24 * 60 * 60 * 1000).toISOString();
+    const recent = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const normalized = normalizeCourse(makeCourse({
+      learningEvents: [
+        { id: "old", idempotencyKey: "old", courseId: "course-1", studentId: "s1", stageKey: "make", type: "heartbeat", occurredAt: old },
+        { id: "recent", idempotencyKey: "recent", courseId: "course-1", studentId: "s1", stageKey: "make", type: "heartbeat", occurredAt: recent },
+      ],
+      learningEvidence: [{
+        id: "permanent-evidence",
+        schemaVersion: 1,
+        courseId: "course-1",
+        studentId: "s1",
+        stageKey: "make",
+        kind: "test-result",
+        title: "真实测试",
+        summary: "保留",
+        payload: {
+          iterationId: "iteration-1",
+          method: "观察",
+          target: "样机",
+          observation: "有变化",
+          result: "有效",
+        },
+        status: "submitted",
+        source: "student",
+        countsTowardReadiness: true,
+        evidenceRefs: [],
+        artifactSnapshotIds: [],
+        createdAt: old,
+        updatedAt: old,
+      }],
+    }));
+    expect(normalized.learningEvents?.map((item) => item.id)).toEqual(["recent"]);
+    expect(normalized.learningEvidence?.map((item) => item.id)).toEqual([
+      "permanent-evidence",
+    ]);
+  });
+});
+
+describe("normalizeCourse — evidence-driven full upgrade", () => {
+  it("starts invalid legacy stage/task structures on the new model without mapping old work", () => {
     const legacyStages = [
       ...DEFAULT_STAGES.slice(0, 2),
       { key: "group", label: "小组构思", view: "group" as const, description: "组队" },
@@ -626,7 +810,7 @@ describe("normalizeCourse — v2 migration", () => {
     });
     const result = normalizeCourse(legacy);
     expect(result.stages.map((stage) => stage.key)).toEqual(["launch", "ai-learning", "proposal", "make", "showcase", "reflection"]);
-    expect(result.stages[result.currentStageIndex].key).toBe("proposal");
+    expect(result.stages[result.currentStageIndex].key).toBe("launch");
     expect(result.classConfig).toMatchObject({ groupMode: "solo", perGroup: 1, crossClass: false });
     expect(result.feedback?.[0]).toMatchObject({ sourceRole: "teacher", status: "open", evidence: [] });
     expect(result.content.evaluationPlan.flows).toEqual([
@@ -635,6 +819,7 @@ describe("normalizeCourse — v2 migration", () => {
       expect.objectContaining({ sourceRole: "self", weight: 0, scored: false }),
     ]);
     expect(result.content.evaluationPlan.flows?.some((flow) => flow.sourceRole === "peer")).toBe(false);
+    expect(result.groups).toEqual([]);
     expect(result.learningEvents).toEqual([]);
     expect(result.companionThreads).toEqual([]);
     expect(result.learningSignals).toEqual([]);

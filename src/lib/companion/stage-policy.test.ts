@@ -10,7 +10,8 @@ import {
 } from "./stage-policy";
 
 describe("companion stage policy", () => {
-  it("defines a differentiated contract for every learning stage", () => {
+  it("defines companion contracts only for proposal and making", () => {
+    expect(COMPANION_STAGE_KEYS).toEqual(["proposal", "make"]);
     const policies = COMPANION_STAGE_KEYS.map((stageKey) => getCompanionStagePolicy(stageKey));
 
     expect(new Set(policies.map((policy) => policy.objective)).size).toBe(COMPANION_STAGE_KEYS.length);
@@ -18,27 +19,19 @@ describe("companion stage policy", () => {
     expect(policies.every((policy) => buildStagePolicyPrompt(policy.stageKey).includes(policy.label))).toBe(true);
   });
 
-  it("uses a reflection-specific role allowlist that excludes ideation", () => {
-    const policy = getCompanionStagePolicy("reflection");
-
-    expect(policy.allowedCompanionIds).toEqual(["reviewer", "recorder"]);
-    expect(policy.prohibitedActions.join("；")).toContain("算法");
-  });
-
-  it("filters forbidden configured roles at the server boundary", () => {
-    const ids = resolveCompanionIds("reflection", ["ideation", "recorder"]);
-
-    expect(ids).not.toContain("ideation");
-    expect(ids.every((id) => ["reviewer", "recorder"].includes(id))).toBe(true);
+  it("returns no companion roles outside proposal and making", () => {
+    expect(resolveCompanionIds("launch", ["ideation", "recorder"])).toEqual([]);
+    expect(resolveCompanionIds("ai-learning", ["knowledge"])).toEqual([]);
+    expect(resolveCompanionIds("showcase", ["reviewer"])).toEqual([]);
+    expect(resolveCompanionIds("reflection", ["recorder"])).toEqual([]);
   });
 
   it("builds differentiated prompts and role guidance", () => {
-    const prompt = buildStagePolicyPrompt("reflection");
+    const prompt = buildStagePolicyPrompt("proposal");
 
-    expect(prompt).toContain("学习反思");
-    expect(prompt).toContain("教师评分");
-    expect(prompt).toContain("算法教程");
-    expect(stageRoleGuidance("reflection", "recorder")).toContain("完整反思");
+    expect(prompt).toContain("方案构思与校准");
+    expect(buildStagePolicyPrompt("make")).not.toContain("（make）");
+    expect(stageRoleGuidance("proposal", "recorder")).toContain("记录学生");
     expect(stageArtifactFollowUp("make", "file-uploaded")?.preferredCompanionId).toBe("reviewer");
   });
 

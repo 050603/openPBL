@@ -5,14 +5,15 @@ import type {
 } from "@/lib/session/types";
 
 export const DEFAULT_STAGE_WORKSPACE_POLICY: Readonly<StageWorkspacePolicy> = {
-  access: "student-choice",
+  access: "companions-only",
   defaultMode: "companions",
 };
 
-const TASK_ONLY_STAGE_KEYS = new Set(["launch", "ai-learning"]);
+// AI 授知继续使用原专用课堂；其余五个阶段默认进入沉浸任务舱。
+const COMPANION_STAGE_KEYS = new Set(["proposal", "make"]);
 
 export function stageSupportsCompanionWorkspace(stageKey: string | undefined): boolean {
-  return Boolean(stageKey && !TASK_ONLY_STAGE_KEYS.has(stageKey));
+  return Boolean(stageKey && COMPANION_STAGE_KEYS.has(stageKey));
 }
 
 const VALID_ACCESS = new Set<StageWorkspaceAccess>([
@@ -37,13 +38,12 @@ export function normalizeStageWorkspacePolicy(
 }
 
 export function getStageWorkspacePolicy(
-  policies: Record<string, StageWorkspacePolicy> | undefined,
+  _policies: Record<string, StageWorkspacePolicy> | undefined,
   stageKey: string | undefined,
 ): StageWorkspacePolicy {
-  if (stageKey && !stageSupportsCompanionWorkspace(stageKey)) {
-    return { access: "task-only", defaultMode: "task" };
-  }
-  return normalizeStageWorkspacePolicy(stageKey ? policies?.[stageKey] : undefined);
+  return stageSupportsCompanionWorkspace(stageKey)
+    ? { access: "companions-only", defaultMode: "companions" }
+    : { access: "task-only", defaultMode: "task" };
 }
 
 export function resolveStageWorkspaceMode(
@@ -63,17 +63,9 @@ export function updateStageWorkspacePolicy(
   stageKey: string,
   patch: Partial<StageWorkspacePolicy>,
 ): Record<string, StageWorkspacePolicy> {
-  if (!stageSupportsCompanionWorkspace(stageKey)) {
-    return {
-      ...(policies ?? {}),
-      [stageKey]: { access: "task-only", defaultMode: "task" },
-    };
-  }
+  void patch;
   return {
     ...(policies ?? {}),
-    [stageKey]: normalizeStageWorkspacePolicy({
-      ...getStageWorkspacePolicy(policies, stageKey),
-      ...patch,
-    }),
+    [stageKey]: getStageWorkspacePolicy(undefined, stageKey),
   };
 }

@@ -558,7 +558,7 @@ function normalizePblDetailMetadata(
     ...(parentActivityId ? { parentActivityId } : {}),
     ...(detailKind ? { detailKind } : {}),
     ...(targetDurationSec !== undefined ? { targetDurationSec } : {}),
-    ...(stageCompanionIds?.length ? { companionIds: stageCompanionIds } : {}),
+    companionIds: stageCompanionIds?.length ? stageCompanionIds : undefined,
     ttsPolicy: isStudentKnowledge ? outline.ttsPolicy ?? 'target-duration' : 'none',
   };
 }

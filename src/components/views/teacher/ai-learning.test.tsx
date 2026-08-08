@@ -36,10 +36,12 @@ describe("AiLearningTeacherView", () => {
   it("shows evidence-based metrics and removes duplicate status cards", () => {
     render(<AiLearningTeacherView course={course} />);
     expect(screen.getByText("容忍时长偏差")).toBeTruthy();
-    expect(screen.getByText("重复学习学生")).toBeTruthy();
     expect(screen.getByText("未解决风险")).toBeTruthy();
-    expect(screen.getByText("学生学习证据与资源响应")).toBeTruthy();
+    expect(screen.getByText("学生学习情况")).toBeTruthy();
     expect(screen.getByText("先决知识证据")).toBeTruthy();
+    expect(screen.queryByText("重复学习学生")).toBeNull();
+    expect(screen.queryByText("用学习证据决定何时现场介入")).toBeNull();
+    expect(screen.queryByText("本阶段不控制伴学 Agent；风险用于教师巡视、个别辅导和全班补充教学。")).toBeNull();
     expect(screen.queryByText("AI 课堂状态")).toBeNull();
     expect(screen.queryByText("有学习记录的学生")).toBeNull();
   });

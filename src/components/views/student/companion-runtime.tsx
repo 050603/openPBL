@@ -18,6 +18,11 @@ import {
   isCompanionMicroLessonStage,
 } from "@/lib/adaptive-learning";
 import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
+import {
+  canRequestCompanionSupport,
+  isReadyMadeDeliverableRequest,
+} from "@/lib/learning-evidence/ai-policy";
+import { isLearningEvidenceStructurallyComplete } from "@/lib/learning-evidence/readiness";
 
 export type CompanionChatMessage = {
   role: "user" | "assistant";
@@ -114,29 +119,6 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
 
   const syncQueueLength = useCallback(() => setQueueLength(queueRef.current.length), []);
 
-  const speakBrowserOne = useCallback((item: TTSQueueItem, speed: number, onStart: () => void, onDone: () => void) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      onStart();
-      onDone();
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(item.text);
-    utterance.lang = "zh-CN";
-    utterance.rate = speed || 1;
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      onDone();
-    };
-    utterance.onend = finish;
-    utterance.onerror = finish;
-    utterance.onstart = onStart;
-    window.speechSynthesis.speak(utterance);
-    window.setTimeout(onStart, 80);
-  }, []);
-
   const prepareServerAudio = useCallback(async (
     item: Pick<TTSQueueItem, "text" | "companionId" | "seq">,
     providerId: string,
@@ -173,6 +155,12 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
     }
   }, [agentVoiceOverrides, ttsProvidersConfig, ttsVoice]);
 
+  const playSilentOne = useCallback((item: TTSQueueItem, onStart: () => void, onDone: () => void) => {
+    onStart();
+    const readingMs = Math.min(10_000, Math.max(2_400, item.text.length * 115 / Math.max(.6, item.speed)));
+    silentTimerRef.current = window.setTimeout(onDone, readingMs);
+  }, []);
+
   const playPreparedServerOne = useCallback(async (item: TTSQueueItem, audioUrl: string, onStart: () => void, onDone: () => void) => {
     try {
       const audio = new Audio(audioUrl);
@@ -190,9 +178,9 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
       await audio.play();
       onStart();
     } catch {
-      speakBrowserOne(item, item.speed, onStart, onDone);
+      playSilentOne(item, onStart, onDone);
     }
-  }, [speakBrowserOne]);
+  }, [playSilentOne]);
 
   const playNext = useCallback(() => {
     if (isPlayingRef.current) return;
@@ -233,19 +221,17 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
       }, SPEECH_BUBBLE_HOLD_MS);
     };
     if (next.providerId === "silent") {
-      onStart();
-      const readingMs = Math.min(10_000, Math.max(2_400, next.text.length * 115 / Math.max(.6, next.speed)));
-      silentTimerRef.current = window.setTimeout(onDone, readingMs);
+      playSilentOne(next, onStart, onDone);
     } else if (next.providerId === "browser-native-tts") {
-      speakBrowserOne(next, next.speed, onStart, onDone);
+      playSilentOne(next, onStart, onDone);
     } else {
       void (next.preparedAudio ?? prepareServerAudio(next, next.providerId, next.speed)).then((audioUrl) => {
         if (activeSequenceRef.current !== next.seq) return;
         if (audioUrl) void playPreparedServerOne(next, audioUrl, onStart, onDone);
-        else speakBrowserOne(next, next.speed, onStart, onDone);
+        else playSilentOne(next, onStart, onDone);
       });
     }
-  }, [playPreparedServerOne, prepareServerAudio, speakBrowserOne, syncQueueLength]);
+  }, [playPreparedServerOne, playSilentOne, prepareServerAudio, syncQueueLength]);
 
   useEffect(() => { playNextRef.current = playNext; }, [playNext]);
 
@@ -253,10 +239,12 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
     const clean = text.replace(/<[^>]+>/g, "").trim();
     if (!clean) return null;
     sequenceRef.current += 1;
-    const providerId = enabledRef.current ? (ttsProviderId || "browser-native-tts") : "silent";
+    const providerId = enabledRef.current && ttsProviderId
+      ? ttsProviderId
+      : "silent";
     const speed = ttsSpeed || 1;
     const item: TTSQueueItem = { text: clean, companionId, seq: sequenceRef.current, providerId, speed };
-    if (providerId !== "browser-native-tts" && providerId !== "silent") {
+    if (providerId !== "silent") {
       item.preparedAudio = prepareServerAudio(item, providerId, speed);
     }
     return item;
@@ -301,7 +289,7 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
   return { enabled, speaking, busy, enqueue, prepare, enqueuePrepared, stop, toggle, currentTTS, preparingCompanionId, queueLength };
 }
 
-type CompanionRuntimeContextValue = {
+export type CompanionRuntimeContextValue = {
   stageKey: string;
   contextLabel: string;
   stageEnabled: boolean;
@@ -317,6 +305,7 @@ type CompanionRuntimeContextValue = {
   unreadCount: number;
   selectedCompanionId: AiCompanionId | null;
   setSelectedCompanionId: (id: AiCompanionId | null) => void;
+  setAutoInterventionsPaused: (paused: boolean) => void;
   isActive: boolean;
   send: (text?: string, options?: CompanionSendOptions) => Promise<boolean>;
   stop: () => void;
@@ -398,6 +387,10 @@ export function CompanionRuntimeProvider({
   const lastActivityAtRef = useRef(0);
   const noProgressTriggeredRef = useRef(false);
   const lastProactiveAtRef = useRef<number | undefined>(undefined);
+  const autoInterventionsPausedRef = useRef(false);
+  const setAutoInterventionsPaused = useCallback((paused: boolean) => {
+    autoInterventionsPausedRef.current = paused;
+  }, []);
 
   useEffect(() => { courseRef.current = course; }, [course]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -611,7 +604,64 @@ export function CompanionRuntimeProvider({
 
   const send = useCallback(async (text?: string, options?: CompanionSendOptions): Promise<boolean> => {
     const message = (text ?? input).trim();
-    if (!message || phaseRef.current !== "idle" || ttsBusy || !stageEnabled || !available.length) return false;
+    const isTrigger = Boolean(options?.trigger);
+    if (!message) {
+      if (!isTrigger) setError("请先写下你想和伴学伙伴讨论的问题。");
+      return false;
+    }
+    if (!stageEnabled) {
+      if (!isTrigger) setError("当前阶段暂未开放伴学对话。");
+      return false;
+    }
+    if (!available.length) {
+      if (!isTrigger) setError("当前阶段没有可用的伴学伙伴，请联系教师检查课程设置。");
+      return false;
+    }
+    if (isTrigger) {
+      if (phaseRef.current !== "idle" || ttsBusy) return false;
+    } else if (abortRef.current || phaseRef.current === "director") {
+      setError("上一条消息仍在处理中，请稍候或先停止本轮回答。");
+      return false;
+    } else if (phaseRef.current !== "idle" || ttsBusy) {
+      // A student message takes priority over narration. Stop the current
+      // reading, keep the completed answer in history, and start a new turn.
+      stopTTS();
+      setCurrentSpeaker(null);
+      setStreamingText("");
+      phaseRef.current = "idle";
+      setPhase("idle");
+    }
+    if (options?.trigger && autoInterventionsPausedRef.current) return false;
+    if (
+      !options?.trigger
+      && session.studentId
+      && isReadyMadeDeliverableRequest(message)
+    ) {
+      const access = canRequestCompanionSupport(
+        courseRef.current,
+        session.studentId,
+        stageKey,
+        "ideation",
+      );
+      if (!access.allowed) {
+        setError(
+          "系统不能先替你生成可直接提交的完整方案或作品。请先在阶段任务中提交自己的想法、草稿或测试结果。",
+        );
+        return false;
+      }
+    }
+    if (!options?.trigger && session.studentId && options?.preferredCompanionId) {
+      const access = canRequestCompanionSupport(
+        courseRef.current,
+        session.studentId,
+        stageKey,
+        options.preferredCompanionId,
+      );
+      if (!access.allowed) {
+        setError(access.reason ?? "请先提交你自己的种子产物。");
+        return false;
+      }
+    }
     if (options?.trigger) {
       const now = Date.now();
       if (ttsSpeaking || ttsQueueLength > 0) return false;
@@ -619,7 +669,6 @@ export function CompanionRuntimeProvider({
       lastProactiveAtRef.current = now;
     }
 
-    const isTrigger = Boolean(options?.trigger);
     if (!isTrigger) {
       setMessages((current) => appendMessage(current, { role: "user", content: message, ts: new Date().toISOString() }));
       setInput("");
@@ -660,13 +709,25 @@ export function CompanionRuntimeProvider({
       .filter((item) => item.stageKey === stageKey && item.status === "open")
       .map((item) => `${item.action}：${item.instruction}`)
       .join("；") || "暂无额外教师介入";
-    const studentWork = (courseRef.current.submissions ?? [])
-      .filter((item) => item.studentId === session.studentId)
-      .slice(-3)
-      .map((item) => item.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+    const studentWork = (courseRef.current.learningEvidence ?? [])
+      .filter((item) =>
+        item.studentId === session.studentId
+        && item.stageKey === stageKey
+        && item.countsTowardReadiness)
+      .slice(-6)
+      .map((item) => `${item.title}：${item.summary}`.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .join("\n---\n");
-    const companionIds = available.map((companion) => companion.id);
+    const companionIds = available
+      .map((companion) => companion.id)
+      .filter((companionId) =>
+        !session.studentId
+        || canRequestCompanionSupport(
+          courseRef.current,
+          session.studentId,
+          stageKey,
+          companionId,
+        ).allowed);
     let queuedSpeech = false;
 
     try {
@@ -693,8 +754,17 @@ export function CompanionRuntimeProvider({
         signal: controller.signal,
       });
       if (!response.ok) {
-        const body = await response.json().catch(() => ({ error: "UNKNOWN" }));
-        throw new Error(body.error ?? `API error ${response.status}`);
+        const rawBody = await response.text().catch(() => "");
+        let body: { message?: string; error?: string } = {};
+        try {
+          body = rawBody ? JSON.parse(rawBody) as typeof body : {};
+        } catch {
+          // Some infrastructure-level 500 responses do not contain JSON.
+        }
+        const fallback = response.status >= 500
+          ? "伴学服务暂时出错，请稍后重试；你的输入仍会保留。"
+          : `伴学请求未完成（${response.status}），请重新发送。`;
+        throw new Error(body.message ?? body.error ?? fallback);
       }
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
@@ -703,6 +773,7 @@ export function CompanionRuntimeProvider({
       let allReplies = "";
       let lastCompanionId: AiCompanionId | undefined;
       let completed = false;
+      let streamError: string | null = null;
       const workspacePatches: CompletedCompanionRound["workspacePatches"] = [];
       const processEvent = (event: SSEEvent) => {
         switch (event.type) {
@@ -752,6 +823,7 @@ export function CompanionRuntimeProvider({
             completed = true;
             break;
           case "error":
+            streamError = event.message;
             setError(event.message);
             break;
         }
@@ -770,23 +842,41 @@ export function CompanionRuntimeProvider({
         }
       }
 
+      if (streamError) throw new Error(streamError);
+      if (!completed) throw new Error("伴学回答意外中断，请重新发送。");
+      if (!allReplies.trim()) throw new Error("伴学伙伴没有返回有效内容，请重新发送。");
+
       if (allReplies && lastCompanionId) {
         const companion = getCompanion(lastCompanionId);
-        session.upsertAiSupport({
-          stageKey,
-          targetType: "student",
-          targetId: session.studentId ?? courseRef.current.id,
-          studentId: session.studentId,
-          studentName: session.studentName,
-          kind: stageKey === "showcase" ? "showcase-coach" : stageKey === "reflection" ? "reflection-evidence" : stageKey === "make" ? "artifact-diagnosis" : "idea-check",
-          trigger: `${companion.role}伴学回应`,
-          inputSummary: message,
-          diagnosis: allReplies,
-          suggestions: [allReplies],
-          evidence: [`学生请求：${message}`, `回应伙伴：${speakerIdsRef.current.map((id) => getCompanion(id).role).join("、")}`],
-          status: "draft",
-          source: "llm",
-        });
+        if (session.studentId) {
+          const access = canRequestCompanionSupport(
+            courseRef.current,
+            session.studentId,
+            stageKey,
+            lastCompanionId,
+          );
+          session.upsertAiContribution({
+            id: options?.taskId
+              ? `ai-contribution-${options.taskId}`
+              : `ai-contribution-${Date.now().toString(36)}`,
+            courseId: courseRef.current.id,
+            studentId: session.studentId,
+            stageKey,
+            companionId: lastCompanionId,
+            impact: access.highImpact ? "high" : "low",
+            request: message,
+            suggestion: allReplies,
+            sourceEvidenceIds: access.seedEvidenceIds,
+            proposedChange: workspacePatches.length
+              ? workspacePatches.map((patch) => patch.title).filter(Boolean).join("；")
+              : undefined,
+            status:
+              access.highImpact || workspacePatches.length
+                ? "pending-decision"
+                : "decided",
+            createdAt: new Date().toISOString(),
+          });
+        }
         if (session.studentId) {
           session.addCompanionProcessRecord({
             courseId: courseRef.current.id,
@@ -952,14 +1042,23 @@ export function CompanionRuntimeProvider({
     const recentQuestions = messages.filter((message) => message.role === "user").slice(-4);
     if (recentQuestions.length < 4) return;
     const firstQuestionAt = Date.parse(recentQuestions[0].ts);
-    const hasNewArtifact = (course.submissions ?? []).some((submission) => submission.studentId === session.studentId && Date.parse(submission.updatedAt) > firstQuestionAt);
+    const hasNewArtifact = (course.learningEvidence ?? []).some((evidence) =>
+      evidence.studentId === session.studentId
+      && evidence.stageKey === stageKey
+      && evidence.source === "student"
+      && evidence.countsTowardReadiness
+      && Date.parse(evidence.updatedAt) > firstQuestionAt
+      && isLearningEvidenceStructurallyComplete(
+        evidence,
+        course.artifactSnapshots ?? [],
+      ));
     if (hasNewArtifact) return;
     noProgressTriggeredRef.current = true;
     void runRoundRef.current("连续四轮讨论还没有形成新的产物变化。请先由记记收束当前讨论，再给出一个最小可执行动作。", {
       trigger: { kind: "no-progress", reason: "连续四轮对话无产物进展", preferredCompanionId: "recorder" },
       preferredCompanionId: "recorder",
     });
-  }, [course.submissions, messages, phase, session.studentId, stageEnabled]);
+  }, [course.artifactSnapshots, course.learningEvidence, messages, phase, session.studentId, stageEnabled, stageKey]);
 
   const value: CompanionRuntimeContextValue = {
     stageKey,
@@ -977,7 +1076,10 @@ export function CompanionRuntimeProvider({
     unreadCount,
     selectedCompanionId,
     setSelectedCompanionId,
-    isActive: phase !== "idle" || tts.busy,
+    setAutoInterventionsPaused,
+    // Narration is presentation, not generation. Students may start a new
+    // turn while an earlier answer is being read; send() stops that narration.
+    isActive: phase === "director",
     send,
     stop,
     markRead: () => setUnreadCount(0),

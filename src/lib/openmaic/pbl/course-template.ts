@@ -3,7 +3,14 @@ import type { PblCourseConfig } from "@/lib/pbl-course-config";
 import type { SceneOutline } from "@openmaic/lib/types/generation";
 import { COMPANION_STAGE_KEYS, buildStagePolicyPrompt, resolveCompanionIds } from "@/lib/companion/stage-policy";
 
-export const PBL_STAGE_KEYS = COMPANION_STAGE_KEYS;
+export const PBL_STAGE_KEYS = [
+  "launch",
+  "ai-learning",
+  "proposal",
+  "make",
+  "showcase",
+  "reflection",
+] as const;
 
 export type PblStageKey = (typeof PBL_STAGE_KEYS)[number];
 export type PblSceneAudience = "student" | "teacher";
@@ -52,14 +59,14 @@ export const PBL_STAGE_DEFINITIONS: PblStageDefinition[] = [
   {
     key: "showcase",
     label: "成果汇报与评价",
-    responsibility: "学生表达作品与证据，教师评价成果和表达，AI 汇总过程证据。",
+    responsibility: "学生在成果工作台提交和展示作品，教师评价成果与现场表达。",
     allowedAudience: "teacher",
     teacherResourceRequired: true,
   },
   {
     key: "reflection",
     label: "学习反思",
-    responsibility: "学生反思成长和 AI 使用，教师主持迁移，记记整理可追溯证据。",
+    responsibility: "学生在反思工作台回顾项目过程、总结成长并形成后续行动。",
     allowedAudience: "teacher",
   },
 ];
@@ -225,6 +232,9 @@ export function formatPblSceneContext(
   const companions = stageKey
     ? resolveCompanionIds(stageKey, configuredCompanions)
     : configuredCompanions;
+  const usesCompanionWorkspace = Boolean(
+    stageKey && COMPANION_STAGE_KEYS.includes(stageKey as (typeof COMPANION_STAGE_KEYS)[number]),
+  );
   const companionDetails = companions.map((id) => {
     const companion = getCompanion(id as Parameters<typeof getCompanion>[0]);
     return `${companion.name}（${id}）：${companion.instruction}`;
@@ -246,8 +256,8 @@ export function formatPblSceneContext(
       ? `要求的资源类型：${outline.resourceTypes.join("、")}`
       : "",
     `本阶段分工：${stage?.responsibility || "遵守课程的显式阶段标注。"}`,
-    `伴学角色：${companions.length ? companions.join("、") : "按当前场景需要选择，不新增角色。"}`,
-    companionDetails.length ? `伴学职责：${companionDetails.join("；")}` : "",
+    usesCompanionWorkspace ? `伴学角色：${companions.join("、")}` : "",
+    usesCompanionWorkspace && companionDetails.length ? `伴学职责：${companionDetails.join("；")}` : "",
     stageKey ? `阶段伴学服务契约：\n${buildStagePolicyPrompt(stageKey)}` : "",
     `本阶段过程证据：${evidence.length ? evidence.join("、") : "按课程配置记录自然产生的过程证据。"}`,
     outline.segmentCount && outline.segmentCount > 1

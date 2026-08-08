@@ -1,6 +1,9 @@
 import type {
   ActivityRecord,
   AiSupportRecord,
+  AiAssessmentSuggestion,
+  AiContribution,
+  ArtifactSnapshot,
   ClassConfig,
   ClassroomSubmission,
   CompanionConfirmation,
@@ -21,20 +24,20 @@ import type {
   RubricScore,
   Stage,
   Student,
+  StudentAiDecision,
   TeacherFeedback,
   TeamContribution,
   TeacherAgentDirective,
   WhiteboardNode,
   WorkPlanItem,
+  LearningEvidence,
+  LearningSignal,
 } from "./types";
-import {
-  isProjectLaunchTodo,
-  projectLaunchProgress,
-} from "@/lib/project-launch-readiness";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
 import { DEFAULT_STAGES } from "./types";
-import { getStageWorkspacePolicy, normalizeStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
+import { getStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import { OPERATIONAL_SIGNAL_RETENTION_DAYS } from "@/lib/learning-evidence/types";
 import {
   completeClassroomTiming,
   createClassroomTimingState,
@@ -131,6 +134,13 @@ export type SessionAction =
   | { type: "UPSERT_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmation: CompanionConfirmation } }
   | { type: "RESOLVE_COMPANION_CONFIRMATION"; payload: { courseId: string; confirmationId: string; status: CompanionConfirmation["status"]; resolvedAt: string; studentId?: string } }
   | { type: "ADD_COMPANION_PROCESS_RECORD"; payload: { courseId: string; record: CompanionProcessRecord } }
+  | { type: "REQUEST_TEACHER_HELP"; payload: { courseId: string; signal: LearningSignal } }
+  | { type: "UPSERT_LEARNING_EVIDENCE"; payload: { courseId: string; evidence: LearningEvidence } }
+  | { type: "REVIEW_LEARNING_EVIDENCE"; payload: { courseId: string; evidenceId: string; status: "teacher-confirmed" | "needs-revision"; feedback?: string; reviewedAt: string } }
+  | { type: "UPSERT_ARTIFACT_SNAPSHOT"; payload: { courseId: string; snapshot: ArtifactSnapshot } }
+  | { type: "UPSERT_AI_CONTRIBUTION"; payload: { courseId: string; contribution: AiContribution } }
+  | { type: "RECORD_STUDENT_AI_DECISION"; payload: { courseId: string; decision: StudentAiDecision } }
+  | { type: "UPSERT_AI_ASSESSMENT_SUGGESTION"; payload: { courseId: string; suggestion: AiAssessmentSuggestion } }
   | { type: "SET_UI_STATE"; payload: { courseId: string; patch: Partial<CourseUiState> } };
 
 export function initialSessionState(): SessionState {
@@ -551,9 +561,15 @@ export function applySessionAction(
       }));
     }
     case "SET_PRESENTING_GROUP":
-      return updateCourse(state, action.payload.courseId, {
-        presentingGroupId: action.payload.groupId,
-        updatedAt: touchedAt,
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (course) => {
+        const project = course.groups?.find((group) => group.id === action.payload.groupId);
+        return {
+          presentingGroupId: action.payload.groupId,
+          activityLog: addActivity(
+            course.activityLog,
+            activity("教师", "切换当前个人汇报", project?.name ?? action.payload.groupId, touchedAt),
+          ),
+        };
       });
     case "UPSERT_ANNOUNCEMENT": {
       const { courseId, announcement } = action.payload;
@@ -588,25 +604,7 @@ export function applySessionAction(
           else completedBy.delete(action.payload.studentId);
           return { ...todo, completedBy: Array.from(completedBy) };
         });
-        const launchProgress = projectLaunchProgress(
-          todos.filter(isProjectLaunchTodo),
-          action.payload.studentId,
-        );
-        return {
-          todos,
-          students: c.students.map((student) =>
-            student.id === action.payload.studentId
-              ? {
-                  ...student,
-                  stageProgress: {
-                    ...student.stageProgress,
-                    launch: launchProgress,
-                    "project-launch": launchProgress,
-                  },
-                }
-              : student,
-          ),
-        };
+        return { todos };
       });
     case "MARK_RESOURCE_DOWNLOADED": {
       const { courseId, resourceId, studentId, studentName } = action.payload;
@@ -775,6 +773,55 @@ export function applySessionAction(
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         companionProcessRecords: [action.payload.record, ...(c.companionProcessRecords ?? [])].slice(0, 160),
       }));
+    case "REQUEST_TEACHER_HELP":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        learningSignals: upsertById(c.learningSignals ?? [], action.payload.signal),
+      }));
+    case "UPSERT_LEARNING_EVIDENCE":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        learningEvidence: upsertById(c.learningEvidence ?? [], action.payload.evidence),
+      }));
+    case "REVIEW_LEARNING_EVIDENCE":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        learningEvidence: (c.learningEvidence ?? []).map((item) =>
+          item.id === action.payload.evidenceId
+            ? {
+                ...item,
+                status: action.payload.status,
+                teacherFeedback: action.payload.feedback?.trim() || undefined,
+                confirmedAt:
+                  action.payload.status === "teacher-confirmed"
+                    ? action.payload.reviewedAt
+                    : undefined,
+                updatedAt: action.payload.reviewedAt,
+              }
+            : item,
+        ),
+      }));
+    case "UPSERT_ARTIFACT_SNAPSHOT":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        artifactSnapshots: upsertById(c.artifactSnapshots ?? [], action.payload.snapshot),
+      }));
+    case "UPSERT_AI_CONTRIBUTION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        aiContributions: upsertById(c.aiContributions ?? [], action.payload.contribution),
+      }));
+    case "RECORD_STUDENT_AI_DECISION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        studentAiDecisions: upsertById(c.studentAiDecisions ?? [], action.payload.decision),
+        aiContributions: (c.aiContributions ?? []).map((item) =>
+          item.id === action.payload.decision.contributionId
+            ? { ...item, status: "decided" as const }
+            : item,
+        ),
+      }));
+    case "UPSERT_AI_ASSESSMENT_SUGGESTION":
+      return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
+        aiAssessmentSuggestions: upsertById(
+          c.aiAssessmentSuggestions ?? [],
+          action.payload.suggestion,
+        ),
+      }));
     case "SET_UI_STATE":
       return updateCourseRecord(state, action.payload.courseId, touchedAt, (c) => ({
         uiState: { ...(c.uiState ?? {}), ...action.payload.patch },
@@ -875,20 +922,22 @@ function activity(actor: string, action: string, detail: string | undefined, cre
 
 export function normalizeCourse(course: Course): Course {
   const previousStageKey = course.stages?.[course.currentStageIndex]?.key;
-  const migratedStageKey = previousStageKey === "group" || previousStageKey === "review"
-    ? "proposal"
-    : previousStageKey;
   const stages = DEFAULT_STAGES.map((stage) => ({ ...stage }));
-  const migratedStageIndex = Math.max(0, stages.findIndex((stage) => stage.key === migratedStageKey));
-  const legacyGroups = course.groups ?? [];
+  const currentStageIndex = Math.max(
+    0,
+    stages.findIndex((stage) => stage.key === previousStageKey),
+  );
+  const existingPersonalProjects = course.groups ?? [];
   const personalProjects = (course.students ?? []).map((student) => {
-    const exactProject = legacyGroups.find((project) => project.id === `grp-${student.id}`)
-      ?? legacyGroups.find((project) => project.members.length === 1 && project.members[0]?.studentId === student.id);
-    const inheritedProject = exactProject
-      ?? legacyGroups.find((project) => project.members.some((member) => member.studentId === student.id));
+    const exactProject = existingPersonalProjects.find(
+      (project) =>
+        project.id === `grp-${student.id}`
+        && project.members.length === 1
+        && project.members[0]?.studentId === student.id,
+    );
     const now = course.updatedAt || new Date().toISOString();
     return {
-      ...(inheritedProject ?? {
+      ...(exactProject ?? {
         id: `grp-${student.id}`,
         topic: "待确定选题方向",
         goal: "",
@@ -897,30 +946,22 @@ export function normalizeCourse(course: Course): Course {
         createdAt: now,
         updatedAt: now,
       }),
-      id: exactProject?.id ?? `grp-${student.id}`,
+      id: `grp-${student.id}`,
       name: `${student.name}的个人项目`,
       members: [{ studentId: student.id, name: student.name, role: "项目负责人" }],
     };
   });
-  const migrateStageKey = (stageKey: string) => stageKey === "group" || stageKey === "review"
-    ? "proposal"
-    : stageKey === "workspace"
-      ? "make"
-      : stageKey;
-  const migratedWorkspacePolicies = Object.fromEntries(
-    Object.entries(course.stageWorkspacePolicies ?? {}).map(([stageKey, policy]) => [
-      migrateStageKey(stageKey),
-      normalizeStageWorkspacePolicy(policy),
-    ]),
-  );
-  return {
+  const normalized: Course = {
     ...course,
     pblConfig: normalizePblCourseConfig(course.pblConfig),
     stageWorkspacePolicies: Object.fromEntries(
-      stages.map((stage) => [stage.key, getStageWorkspacePolicy(migratedWorkspacePolicies, stage.key)]),
+      stages.map((stage) => [
+        stage.key,
+        getStageWorkspacePolicy(course.stageWorkspacePolicies, stage.key),
+      ]),
     ),
     stages,
-    currentStageIndex: migratedStageIndex,
+    currentStageIndex,
     classConfig: course.classConfig
       ? { ...course.classConfig, groupMode: "solo", perGroup: 1, crossClass: false }
       : course.classConfig,
@@ -950,13 +991,21 @@ export function normalizeCourse(course: Course): Course {
     resolvedInterventionSignalIds: course.resolvedInterventionSignalIds ?? [],
     stageTransitions: course.stageTransitions ?? [],
     evaluations: course.evaluations ?? [],
-    learningEvents: course.learningEvents ?? [],
+    learningEvents: (course.learningEvents ?? []).filter((item) =>
+      isWithinOperationalRetention(item.occurredAt)),
     companionThreads: course.companionThreads ?? [],
     companionTasks: course.companionTasks ?? [],
     companionConfirmations: course.companionConfirmations ?? [],
     companionProcessRecords: course.companionProcessRecords ?? [],
-    learningSignals: course.learningSignals ?? [],
-    classCommonIssues: course.classCommonIssues ?? [],
+    learningSignals: (course.learningSignals ?? []).filter((item) =>
+      isWithinOperationalRetention(item.lastDetectedAt)),
+    learningEvidence: course.learningEvidence ?? [],
+    artifactSnapshots: course.artifactSnapshots ?? [],
+    aiContributions: course.aiContributions ?? [],
+    studentAiDecisions: course.studentAiDecisions ?? [],
+    aiAssessmentSuggestions: course.aiAssessmentSuggestions ?? [],
+    classCommonIssues: (course.classCommonIssues ?? []).filter((item) =>
+      isWithinOperationalRetention(item.lastDetectedAt)),
     teacherAgentDirectives: course.teacherAgentDirectives ?? [],
     offlineInterventions: course.offlineInterventions ?? [],
     dynamicFacilitationScaffolds: course.dynamicFacilitationScaffolds ?? [],
@@ -966,15 +1015,8 @@ export function normalizeCourse(course: Course): Course {
     },
     content: {
       ...course.content,
-      lessonOutline: (course.content.lessonOutline ?? []).map((section) => ({ ...section, stageKey: migrateStageKey(section.stageKey) })),
-      teachingOutline: course.content.teachingOutline?.map((section) => ({
-        ...section,
-        stageKey: migrateStageKey(section.stageKey),
-        // Collapse the removed legacy tag into ordinary classroom activity.
-        openMaicUse: section.openMaicUse === "student-ai-learning"
-          ? "student-ai-learning"
-          : "none",
-      })),
+      lessonOutline: course.content.lessonOutline ?? [],
+      teachingOutline: course.content.teachingOutline,
       evaluationPlan: {
         ...course.content.evaluationPlan,
         flows: DEFAULT_EVALUATION_FLOWS.map((flow) => ({
@@ -984,6 +1026,14 @@ export function normalizeCourse(course: Course): Course {
       },
     },
   };
+  return normalized;
+}
+
+function isWithinOperationalRetention(value: string): boolean {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp
+    <= OPERATIONAL_SIGNAL_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 }
 
 /** Heartbeat timeout in ms. Students whose lastSeenAt is older than this are

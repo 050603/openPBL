@@ -7,7 +7,6 @@ const context: CompanionContextSnapshot = {
   stageLabel: "方案构思与校准",
   studentId: "student-1",
   studentName: "小明",
-  currentProgress: 40,
   sections: {
     course: "AI 校园",
     project: "校园用电提醒器",
