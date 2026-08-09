@@ -4,8 +4,32 @@
 import type { GenerateInput } from "./types";
 import {
   deriveTeachingConstraints,
-  formatTeachingConstraintsForPrompt,
 } from "@/lib/openmaic/pedagogy/teaching-constraints";
+import { JSON_TEACHER_PROMPT_CONTRACT } from "@/lib/prompt-quality/policy";
+
+const GRADE_BAND_LABELS: Record<string, string> = {
+  primary: "小学",
+  "middle-school": "初中",
+  "high-school": "高中",
+  vocational: "职业教育",
+  "higher-education": "高等教育",
+  general: "未明确学段",
+};
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  introductory: "入门难度",
+  standard: "标准难度",
+  advanced: "进阶难度",
+};
+
+const KNOWLEDGE_LEVEL_LABELS: Record<string, string> = {
+  foundation: "基础层",
+  core: "核心层",
+  application: "应用层",
+  extension: "拓展层",
+};
+
+const USER_FACING_LANGUAGE_RULE = "语言硬约束：JSON 的键名和枚举值可以按结构要求使用英文代码；除此之外，所有面向教师或学生阅读的标题、说明、依据、假设、目标、活动和评价文字必须使用自然、准确的简体中文。不得在自然语言中复述 stageKey、difficulty、level、priorKnowledge、learningNeeds 等内部字段名，也不得用 launch、ai-learning、proposal、make、showcase、reflection、foundation、core、application、extension、introductory、standard、advanced 等代码代替中文概念。";
 
 const TEACHING_OUTLINE_ROUTING_RULES = `
 Hard routing rules for the new PBL classroom:
@@ -16,7 +40,51 @@ Hard routing rules for the new PBL classroom:
 `;
 
 const SYSTEM_PREAMBLE = `你是一名资深的 PBL（项目式学习）课程设计专家，擅长将学科课程转化为以驱动问题为核心的项目式学习课程。
-请始终以严格 JSON 形式返回结果，不要包含任何额外说明文字。`;
+请始终以严格 JSON 形式返回结果，不要包含任何额外说明文字。
+${USER_FACING_LANGUAGE_RULE}
+${JSON_TEACHER_PROMPT_CONTRACT}`;
+
+function chineseCourseScopeRule(hours: number): string {
+  if (hours <= 1) return "围绕一个连贯机制安排精细知识点、一次引导应用和一个可验证的小型成果。";
+  if (hours <= 2) return "建立清晰的先修链，比较至少两个实例或方法，安排引导练习并完成一个有边界、有证据的应用成果。";
+  if (hours <= 3) return "覆盖基础、机制解释、方法比较、引导应用和一次修订，深度必须符合学生学段。";
+  if (hours <= 4) return "形成从基础到应用的完整进阶，包含证据收集、测试和至少一次有意义的修订。";
+  return "形成完整的项目式学习过程，包含持续探究、多轮证据、测试、反馈和迭代，避免重复与表面化填充。";
+}
+
+function inferredFoundationLabel(gradeBand: string): string {
+  if (gradeBand === "primary") return "仅假设学生具备具体生活经验，不预设正式学科术语基础。";
+  if (gradeBand === "middle-school") return "仅假设学生具备本学段基础学科知识，不预设专业或大学层次知识。";
+  if (gradeBand === "high-school") return "仅假设学生具备高中通识与学科基础，不预设未明确列出的大学专业知识。";
+  if (gradeBand === "vocational") return "可假设学生具备一定实践经验，但不预设未明确列出的专业术语。";
+  if (gradeBand === "higher-education") return "可假设学生具备一般学术学习能力，但不预设课程边界之外的专业概念。";
+  return "仅假设一般理解能力和教师明确填写的已有基础。";
+}
+
+function formatChineseTeachingConstraints(input: GenerateInput): string {
+  const constraints = deriveTeachingConstraints({
+    grade: input.grade,
+    subject: input.subject,
+    topic: input.name,
+    hours: input.hours,
+    learnerProfile: input.learnerProfile,
+    learningObjectives: input.learningObjectives,
+  });
+  const priorKnowledge = input.learnerProfile?.priorKnowledge?.trim()
+    || inferredFoundationLabel(constraints.gradeBand);
+  return [
+    "学生画像与教学边界（必须遵守）：",
+    `学段：${constraints.grade}（${GRADE_BAND_LABELS[constraints.gradeBand] ?? "未明确学段"}）`,
+    `课程容量：${constraints.courseHours} 课时，共 ${constraints.totalMinutes} 分钟`,
+    `内容范围：${chineseCourseScopeRule(constraints.courseHours)}`,
+    `已有知识基础：${priorKnowledge}`,
+    `学习支持需求：${constraints.learningNeeds.join("；") || "未填写，按学段采用保守、分步的学习支架"}`,
+    `熟悉情境：${constraints.familiarContexts.join("；") || "未填写，优先使用学生日常可理解的情境"}`,
+    "术语规则：专业术语首次出现时必须用通俗中文解释，并连接到学生已经熟悉的概念或实例。",
+    "深度规则：从具体例子逐步过渡到抽象解释，只引入完成课程目标所必需的深度。",
+    "评价规则：只评价已确认目标和知识点；题目干扰项应对应真实误区，解析必须说明判断依据。",
+  ].join("\n");
+}
 
 const SCHEMA_HINT = `
 返回 JSON 形如：
@@ -64,9 +132,23 @@ const SCHEMA_HINT = `
 }`;
 
 function personalProjectConfigText(input: GenerateInput): string {
-  return input.pblConfig
-    ? JSON.stringify(input.pblConfig, null, 2)
-    : "（未配置个人项目 PBL 参数）";
+  if (!input.pblConfig) return "（未配置个人项目 PBL 参数）";
+  const stageLabels = new Map(input.stages.map((stage) => [stage.key, stage.label]));
+  return JSON.stringify({
+    项目形式: "学生独立完成个人项目",
+    课程难度: DIFFICULTY_LABELS[input.pblConfig.difficultyLevel] ?? "标准难度",
+    项目成果: {
+      作品: input.pblConfig.outcome.artifact,
+      表达: input.pblConfig.outcome.presentation,
+      反思: input.pblConfig.outcome.reflection,
+    },
+    过程证据: input.pblConfig.evidenceRequirements.map((item) => ({
+      名称: item.label,
+      说明: item.description,
+      涉及阶段: item.stageKeys.map((key) => stageLabels.get(key) ?? "相关课程阶段"),
+    })),
+    探究问题: input.pblConfig.inquiryQuestions,
+  }, null, 2);
 }
 
 export function buildAuthoritativeCourseBasisPrompt(input: GenerateInput): string {
@@ -81,16 +163,16 @@ export function buildAuthoritativeCourseBasisPrompt(input: GenerateInput): strin
   return [
     "教师确认的课程基础约束（最高优先级）：",
     `课程名称：${input.name}`,
-    `学科与学段：${input.subject} / ${input.grade} (${constraints.gradeBand})`,
+    `学科与学段：${input.subject} / ${input.grade}（${GRADE_BAND_LABELS[constraints.gradeBand] ?? "未明确学段"}）`,
     `课程容量：${constraints.courseHours} 课时，共 ${constraints.totalMinutes} 分钟`,
     `知识点数量范围：${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max}`,
     `课程目标：${constraints.learningObjectives.length ? constraints.learningObjectives.join("；") : "未单独填写，需保守限定在课程名称与说明范围内"}`,
     `课程说明：${input.summary || "未填写"}`,
-    `学生已有基础：${constraints.learnerFoundation}`,
+    `学生已有基础：${input.learnerProfile?.priorKnowledge?.trim() || inferredFoundationLabel(constraints.gradeBand)}`,
     `学习特点与支架需要：${constraints.learningNeeds.join("；") || "按学段采用保守支架"}`,
     `熟悉情境：${constraints.familiarContexts.join("；") || "按学段选择日常可理解情境"}`,
-    `内容容量规则：${constraints.scopeRule}`,
-    formatTeachingConstraintsForPrompt(constraints),
+    `内容容量规则：${chineseCourseScopeRule(constraints.courseHours)}`,
+    formatChineseTeachingConstraints(input),
     "硬约束：后续知识、活动与评价必须服务于已确认课程目标；不得把认知边界之外的概念变成隐藏前置知识或评价目标；内容深度、练习数量和成果复杂度必须与总课时匹配。",
   ].join("\n");
 }
@@ -101,7 +183,7 @@ export function buildFullCoursePrompt(input: GenerateInput): {
 } {
   const constraints = deriveTeachingConstraints({ grade: input.grade, hours: input.hours });
   const stageList = input.stages
-    .map((s) => `- ${s.key}（${s.label}）：${s.description}`)
+    .map((s) => `- ${s.label}：${s.description}`)
     .join("\n");
   const user = `请基于以下课程信息，生成完整的 PBL 课程结构（包含 PBL 大纲、知识点、AI 授知章节大纲、评价方案）：
 
@@ -152,7 +234,10 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
   return { system: SYSTEM_PREAMBLE, user };
 }
 
-export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: { pblOutline?: string }): {
+export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: {
+  pblOutline?: string;
+  teacherRequiredKnowledgePoints?: string[];
+}): {
   system: string;
   user: string;
 } {
@@ -160,6 +245,9 @@ export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: { pblO
   const stageList = input.stages
     .map((s) => `- ${s.key}（${s.label}）：${s.description}`)
     .join("\n");
+  const teacherRequiredKnowledgePoints = (context?.teacherRequiredKnowledgePoints ?? [])
+    .map((point) => point.trim())
+    .filter(Boolean);
   const user = `请基于以下课程信息，生成本课知识点与知识图谱。知识点要比普通条目更精细，能够支撑后续 OpenMAIC AI 授知内容生成。
 
 课程名称：${input.name}
@@ -169,16 +257,20 @@ export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: { pblO
 个人项目配置：${personalProjectConfigText(input)}
 ${buildAuthoritativeCourseBasisPrompt(input)}
 已确认 PBL 大纲：${context?.pblOutline || "（尚未生成，请根据课程信息推断）"}
+教师指定、必须保留的知识点：${teacherRequiredKnowledgePoints.length > 0 ? JSON.stringify(teacherRequiredKnowledgePoints) : "（无额外指定）"}
 
 课程阶段：
 ${stageList}
 
 要求：
-1. 输出 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个知识点，粒度要具体到概念、方法、模型、工具或判断标准；短课时优先保留直接服务课程目标的 foundation/core，长课时才扩展 application/extension。
-2. 每个知识点包含 id、name、description、keyInfo、level、relatedIds；level 必须为 foundation、core、application 或 extension。
-3. knowledgeGraph.nodes 与 knowledgePoints 一一对应，节点 level 只能为 foundation/core/application/extension。
-4. knowledgeGraph.edges 至少 ${Math.max(1, constraints.recommendedKnowledgePointRange.min - 1)} 条，source/target 必须引用节点 id，label 用短语说明关系。
-5. 必须清晰体现先修关系、概念支撑关系和在 PBL 项目中的应用关系。
+1. 输出 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个知识点；如果教师指定的知识点较多，可以突破上限但不得遗漏。粒度要具体到概念、方法、模型、工具或判断标准，严格控制在 ${input.grade}、${input.hours} 课时可教可学的范围内。
+2. 教师指定知识点是硬约束：每一项都必须以完全相同的 name 出现在 knowledgePoints 中。可以补充 description、keyInfo、层级和相关知识，但不得删除、合并、偷换概念或改名。
+3. 每个知识点包含唯一 id、唯一 name、完整 description、可直接用于教学的 keyInfo、level、relatedIds；level 必须为 foundation、core、application 或 extension。
+4. knowledgeGraph.nodes 必须与 knowledgePoints 按 id 一一对应，不得多节点、少节点或使用另一个名称。所有节点都必须进入同一个连通图，不能出现孤立节点。
+5. knowledgeGraph.edges 至少达到“节点数 - 1”；source/target 必须引用节点 id，不得自环、重复或形成有向循环。教学顺序沿 foundation → core → application → extension 推进。
+6. 每条边都必须能读成科学、明确的命题。label 使用“是…的前提”“支撑”“用于”“对比”“迁移到”等具体短语，禁止只写“关联”“相关”“关系”。不要把时间先后误写成知识先修，也不要虚构因果关系。
+7. 关系设计至少覆盖：必要的先修、核心概念之间的支撑，以及核心知识在 PBL 成果中的应用；只有确有必要时才加入对比或迁移关系。
+8. 输出前自行检查：事实与术语准确；教师指定项全部保留；节点与知识点一一对应；图连通；无自环、重复边和环路；每条关系的方向与措辞均成立。仅输出检查后的 JSON，不要输出检查过程。
 
 仅返回 JSON：{
   "knowledgePoints": [{ "id": "kp-1", "name": "string", "description": "string", "keyInfo": "string", "level": "foundation", "relatedIds": ["kp-2"] }],
@@ -198,24 +290,53 @@ export function buildModuleTimingPlanPrompt(
   user: string;
 } {
   const totalMinutes = Math.max(0, Math.round(input.hours * 60));
+  const pointRecords = Array.isArray(context?.knowledgePoints)
+    ? context.knowledgePoints.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const point = item as { id?: unknown; name?: unknown; level?: unknown; description?: unknown };
+        if (typeof point.name !== "string" || !point.name.trim()) return [];
+        return [{
+          id: typeof point.id === "string" ? point.id : "",
+          name: point.name.trim(),
+          level: typeof point.level === "string"
+            ? KNOWLEDGE_LEVEL_LABELS[point.level] ?? "未标注层级"
+            : "未标注层级",
+          description: typeof point.description === "string" ? point.description.trim() : "",
+        }];
+      })
+    : [];
+  const pointNames = new Map(pointRecords.map((point) => [point.id, point.name]));
+  const graphRecord = context?.knowledgeGraph && typeof context.knowledgeGraph === "object"
+    ? context.knowledgeGraph as { edges?: unknown }
+    : undefined;
+  const knowledgeRelations = Array.isArray(graphRecord?.edges)
+    ? graphRecord.edges.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const edge = item as { source?: unknown; target?: unknown; label?: unknown };
+        const source = typeof edge.source === "string" ? pointNames.get(edge.source) : undefined;
+        const target = typeof edge.target === "string" ? pointNames.get(edge.target) : undefined;
+        if (!source || !target) return [];
+        return [`${source}—${typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : "支撑"}→${target}`];
+      })
+    : [];
   const courseEvidence = {
-    course: {
-      name: input.name,
-      subject: input.subject,
-      grade: input.grade,
-      totalMinutes,
-      summary: input.summary,
-      drivingQuestion: input.drivingQuestion,
-      learningObjectives: input.learningObjectives ?? [],
-      difficulty: input.pblConfig?.difficultyLevel ?? "standard",
+    课程信息: {
+      课程名称: input.name,
+      学科: input.subject,
+      年级: input.grade,
+      课程总时长: `${totalMinutes} 分钟`,
+      课程说明: input.summary,
+      驱动问题: input.drivingQuestion,
+      学习目标: input.learningObjectives ?? [],
+      课程难度: DIFFICULTY_LABELS[input.pblConfig?.difficultyLevel ?? "standard"] ?? "标准难度",
     },
-    learnerProfile: {
-      priorKnowledge: input.learnerProfile?.priorKnowledge ?? "",
-      learningNeeds: input.learnerProfile?.learningNeeds ?? "",
-      familiarContexts: input.learnerProfile?.familiarContexts ?? "",
+    学情信息: {
+      已有知识基础: input.learnerProfile?.priorKnowledge?.trim() || "未填写，不得据此断言学生没有先验知识",
+      学习支持需求: input.learnerProfile?.learningNeeds?.trim() || "未填写，按年级采用保守支架",
+      熟悉情境: input.learnerProfile?.familiarContexts?.trim() || "未填写，优先使用日常可理解情境",
     },
-    knowledgePoints: context?.knowledgePoints ?? [],
-    knowledgeGraph: context?.knowledgeGraph ?? null,
+    知识点: pointRecords.map(({ name, level, description }) => ({ 名称: name, 教学层级: level, 说明: description })),
+    知识关系: knowledgeRelations,
   };
   const user = `请为一节个人项目式学习课程分析时间安排。你负责教学判断和解释，系统会负责总时长守恒与边界校验。
 
@@ -224,12 +345,14 @@ ${JSON.stringify(courseEvidence, null, 2)}
 
 必须针对性分析以下因素：
 1. 年级和已有基础决定导入、讲解、操作与反思所需支架。
-2. knowledgePoints 的层级、数量以及 knowledgeGraph 的先修依赖决定知识建构时间。
+2. 知识点的层级、数量以及知识图谱的先修依赖决定知识建构时间。
 3. 学习目标、难度和成果复杂度决定方案比较、制作迭代、展示评价所需时间。
-4. learningNeeds 为空时必须在 assumptions 中声明保守假设，不得假装已知学情。
+4. 学习支持需求未填写时，必须在 assumptions 中用中文声明保守假设，不得写成“无学习需求”或假装已知学情。
 5. 六个阶段必须且只能是 launch、ai-learning、proposal、make、showcase、reflection。
 6. 六个阶段的 durationMin 应合计 ${totalMinutes} 分钟；每阶段至少 1 分钟；make 通常是最长阶段，如需例外必须在 rationale 中说明。
 7. 每个 rationale 必须引用本课程的具体内容、知识结构或学情，不得只写通用比例。
+8. rationale、evidence、assumptions 是教师直接阅读的文字，只能使用简体中文阶段名称和教学术语；stageKey 和 confidence 是仅有的英文结构枚举。知识点必须引用名称，不得引用 kp-1 一类内部 ID。
+9. ${USER_FACING_LANGUAGE_RULE}
 
 仅返回 JSON：
 {
@@ -248,7 +371,7 @@ ${JSON.stringify(courseEvidence, null, 2)}
   }
 }`;
   return {
-    system: "你是一名课程时间设计专家。只返回严格 JSON，不输出 Markdown 或额外说明。",
+    system: `你是一名课程时间设计专家。只返回严格 JSON，不输出 Markdown 或额外说明。${USER_FACING_LANGUAGE_RULE}\n${JSON_TEACHER_PROMPT_CONTRACT}`,
     user,
   };
 }

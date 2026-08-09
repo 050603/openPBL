@@ -36,6 +36,7 @@ export type LlmCallRequest = {
     Pick<
       CourseContent,
       | "pblOutline"
+      | "teacherRequiredKnowledgePoints"
       | "knowledgePoints"
       | "knowledgeGraph"
       | "projectMainline"

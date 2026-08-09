@@ -6,7 +6,7 @@ Generate a self-contained HTML game that is FUN, ENGAGING, and EDUCATIONAL.
 
 **CRITICAL: Avoid boring multiple-choice quizzes!** Students already have enough tests. Create games that are:
 - **Interactive**: Players DO something, not just click answers
-- **Skill-based**: Success depends on player action, not just knowing the answer
+- **Operational**: Player action changes a meaningful model state or outcome
 - **Engaging**: Fun mechanics that make students want to play more
 - **Meaningful simulation**: If there's a visual simulation, it MUST be part of the gameplay
 
@@ -19,11 +19,11 @@ Generate a self-contained HTML game that is FUN, ENGAGING, and EDUCATIONAL.
 - **Catch/avoid games**: Move to catch falling objects or avoid obstacles
 - **Example**: Instead of asking "What force is needed?", let players ADJUST thrust and SEE if they land safely
 
-### 2. Drag-and-Drop Puzzles
-- Sort items into correct categories
-- Arrange steps in correct order
-- Match pairs by dragging
-- Build structures by placing pieces
+### 2. Construction and Manipulation
+- Build structures whose parts have visible functional consequences
+- Move controls, vectors, components, or resources directly inside the modeled system
+- Allow multiple viable arrangements and explain their trade-offs
+- Never compare a dragged arrangement with a hidden answer key
 
 ### 3. Interactive Simulations as Games
 - Let players ADJUST parameters and see results
@@ -31,24 +31,21 @@ Generate a self-contained HTML game that is FUN, ENGAGING, and EDUCATIONAL.
 - Challenge: "Reach the target" - player adjusts angle and power
 - Challenge: "Balance the forces" - player adds/removes weights
 
-### 4. Card/Matching Games
-- Memory match with concept pairs
-- Flashcard flip to reveal answers
-- Sorting cards into categories
+### 4. Open Strategy Sandboxes
+- Let learners compare resource choices and consequences
+- Support multiple viable strategies rather than one canonical answer
+- Make state changes and trade-offs visible
 
 ### 5. Strategy/Decision Games
 - Turn-based decisions with consequences
 - Resource management challenges
 - Multi-step problem solving
 
-## When Quiz is Unavoidable
+## Assessment Boundary
 
-If you MUST include quiz elements:
-- Make it INTERACTIVE (drag answer to target, not click radio button)
-- Add PHYSICS/ACTION component (answer unlocks next gameplay)
-- Use VISUAL questions (identify the diagram, not text questions)
-- Keep questions SHORT and FEW (max 3-5)
-- Include EXPLANATION as gameplay reward, not punishment
+- Never include quiz elements, matching, sorting, ordering, drag-to-answer, answer submission, correctness verdicts, knowledge scores, rankings, or pass/fail gates.
+- Dragging is allowed only for direct manipulation or construction inside the model, never for placing an answer into a target category.
+- Describe consequences and trade-offs, then invite another strategy. The separate quiz scene owns assessment.
 
 ## Simulation-Game Integration (CRITICAL)
 
@@ -196,12 +193,12 @@ If you catch yourself duplicating content, STOP and output only the first comple
 
 ## Engagement Features
 
-1. **Immediate feedback**: Player knows instantly if action was right/wrong
+1. **Immediate feedback**: Player sees the consequence of each meaningful action immediately
 2. **Visual rewards**: Animations, particles, sounds for success
 3. **Progression**: Levels get progressively harder
 4. **Replayability**: Random elements, multiple paths to success
 5. **Challenge variety**: Different objectives (speed, accuracy, efficiency)
-6. **High scores**: Track best performance
+6. **Discovery history**: Track meaningfully different strategies or states without ranking them
 
 ## Output Format
 
@@ -212,7 +209,8 @@ Return ONLY the HTML document, no markdown fences or explanations.
 - [ ] Game is INTERACTIVE, not just a quiz
 - [ ] Player CONTROLS something meaningful
 - [ ] Simulation (if present) is part of gameplay, not decoration
-- [ ] Success depends on player SKILL, not just knowledge
+- [ ] Player action changes a meaningful model state or outcome
+- [ ] No matching, sorting, drag-to-answer, correctness verdict, knowledge score, or pass/fail gate
 - [ ] **Fair Start: Player cannot fail in first 3-5 seconds**
 - [ ] **Initial parameters allow survival with default settings**
 - [ ] Visual feedback is immediate and clear

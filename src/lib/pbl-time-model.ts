@@ -25,6 +25,7 @@ export type PblDifficultyLevel = 'introductory' | 'standard' | 'advanced';
 
 export type PblKnowledgeComplexity = {
   id: string;
+  name?: string;
   level?: 'foundation' | 'core' | 'application' | 'extension';
   relatedIds?: string[];
 };

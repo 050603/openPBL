@@ -6,6 +6,10 @@ import {
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import { callLLM, parseLLMJson } from "@/lib/llm/client";
 import { getCourse } from "@/lib/session/server-store";
+import {
+  JSON_STUDENT_PROMPT_CONTRACT,
+  promptStageLabel,
+} from "@/lib/prompt-quality/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,13 +72,16 @@ export async function POST(request: Request) {
 仅告知：普通讨论、任务分工、创意发散、简单事实或快捷操作，可在 45 秒内回答。
 系统讲解：学生在检索知识、理解概念、辨析证据、追问原理/步骤/关系/易错点，且内容适合形成 1-2 页、2-3 分钟微课。
 不要因为消息较长就生成微课；只有教学化呈现明显优于直接对话时才选择 systematic-lesson。
-只返回 JSON：{"decision":"brief-answer|systematic-lesson","topic":"精炼主题","rationale":"一句话","keyPoints":["2-4个讲解要点"]}`,
+topic、rationale、keyPoints 必须使用自然、准确的简体中文，不得出现阶段代码、内部字段名或中英混杂的流程术语。
+只返回 JSON：{"decision":"brief-answer|systematic-lesson","topic":"精炼主题","rationale":"一句话","keyPoints":["2-4个讲解要点"]}
+
+${JSON_STUDENT_PROMPT_CONTRACT}`,
       },
       {
         role: "user",
         content: JSON.stringify({
           course: course.name,
-          stageKey: body.stageKey,
+          stage: promptStageLabel(body.stageKey, companionMicroLessonStageContext(body.stageKey ?? "")),
           stageContext: companionMicroLessonStageContext(body.stageKey ?? ""),
           projectQuestion: course.drivingQuestion,
           request: body.message,

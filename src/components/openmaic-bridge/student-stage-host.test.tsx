@@ -49,6 +49,7 @@ const settingsMock = vi.hoisted(() => ({
 
 const renderedStage = vi.hoisted(() => ({
   props: null as null | {
+    autoplaySceneId?: string;
     onPlaybackStateChange?: (state: {
       engineMode: "idle" | "playing" | "paused" | "live";
       snapshot: { sceneIndex: number; actionIndex: number; consumedDiscussions: string[]; sceneId?: string };
@@ -70,7 +71,10 @@ vi.mock("@openmaic/lib/edit/slide-schema", () => ({ migrateScene: (scene: unknow
 vi.mock("@openmaic/lib/logger", () => ({ createLogger: () => ({ info: vi.fn(), error: vi.fn() }) }));
 vi.mock("@openmaic/lib/store", () => ({
   useStageStore: Object.assign(() => undefined, {
-    getState: () => stageMock.state,
+    getState: () => ({
+      ...stageMock.state,
+      setCurrentSceneId: (sceneId: string) => stageMock.setState({ currentSceneId: sceneId }),
+    }),
     setState: stageMock.setState,
     subscribe: stageMock.subscribe,
   }),
@@ -248,6 +252,95 @@ describe("StudentStageHost reporting modes", () => {
       "adaptive:run-1:resource-1",
       "scene-1",
     ]);
+    expect(renderedStage.props?.autoplaySceneId).toBe("adaptive:run-1:resource-1");
+  });
+
+  it("autoplays an anchored adaptive segment and then resumes the original successor", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("resource-classroom")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            classroom: {
+              stage: { id: "resource-classroom", title: "Adaptive resource" },
+              scenes: [{ id: "resource-1", title: "Extension", actions: [] }],
+            },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/openmaic/classroom")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            classroom: {
+              stage: { id: "classroom-1", title: "AI classroom" },
+              scenes: [
+                { id: "quiz-1", title: "Checkpoint", actions: [] },
+                { id: "scene-2", title: "Original successor", actions: [] },
+              ],
+            },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/openmaic/progress")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { progress: {} } }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    render(
+      <StudentStageHost
+        adaptiveInsertions={[{
+          id: "run-after-quiz",
+          classroomId: "resource-classroom",
+          placement: "after-current",
+          anchorSceneId: "quiz-1",
+        }]}
+        backHref="/student"
+        classroomId="classroom-1"
+        courseId="course-1"
+        studentId="student-1"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(stageMock.state.currentSceneId).toBe("adaptive:run-after-quiz:resource-1");
+      expect(renderedStage.props?.autoplaySceneId).toBe("adaptive:run-after-quiz:resource-1");
+    });
+    expect(stageMock.state.scenes.map((scene) => scene.id)).toEqual([
+      "quiz-1",
+      "adaptive:run-after-quiz:resource-1",
+      "scene-2",
+    ]);
+    expect(stageMock.state.scenes[1]).toMatchObject({
+      openpblAdaptiveReturnSceneId: "scene-2",
+    });
+
+    await act(async () => {
+      renderedStage.props?.onPlaybackStateChange?.({
+        engineMode: "idle",
+        snapshot: {
+          sceneIndex: 1,
+          actionIndex: 1,
+          consumedDiscussions: [],
+          sceneId: "adaptive:run-after-quiz:resource-1",
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(stageMock.state.currentSceneId).toBe("scene-2");
+      expect(renderedStage.props?.autoplaySceneId).toBe("scene-2");
+    });
   });
 
   it("teacher preview never reads or writes student progress or telemetry", async () => {

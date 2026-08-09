@@ -620,7 +620,7 @@ export function ShowcaseTeacherView({
                       AI 过程评价
                     </h3>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-stone-500">
-                      基于学习证据给出建议，缺证据维度记 0 分；教师确认后才计入最终分。
+                      缺失证据按 0 分处理，教师确认后计入成绩。
                     </p>
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-xs font-bold ${

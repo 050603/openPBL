@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
   ChevronDown,
+  Clock3,
   GripVertical,
   Loader2,
   Minimize2,
@@ -51,19 +52,31 @@ interface OutlinesEditorProps {
   hideFooter?: boolean;
   /** Remove the OpenMAIC-style container (rounded glass card). */
   bare?: boolean;
+  /** Let the host page own vertical scrolling instead of creating an inner viewport. */
+  naturalFlow?: boolean;
+  /** Visually separate student-facing pages from teacher-only resources. */
+  distinguishAudience?: boolean;
+  /** Render a stage-aware course-script workspace instead of the generic outline list. */
+  scriptWorkspace?: boolean;
   /** Optional first-level activity catalog for editing second-level ownership. */
   parentActivities?: Array<{ id: string; title: string }>;
   /** Optional confirmed knowledge catalog for editing detail references. */
   knowledgePoints?: Array<{ id: string; name: string }>;
+  /** A directory selection that should be scrolled into view and briefly emphasized. */
+  focusRequest?: { id: string; nonce: number } | null;
 }
 
 const SCENE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive', 'pbl'];
+
+const SETTINGS_CONTROL_CLASS = 'inline-flex h-8 min-w-[96px] items-center justify-between gap-2 rounded-[6px] border border-stone-300 bg-white px-2.5 text-xs font-semibold text-stone-700 transition-colors hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pbl-teacher)]/20 data-[state=open]:border-[var(--pbl-teacher-border)] data-[state=open]:bg-[var(--pbl-teacher-soft)]/45';
+const EDITOR_POPOVER_CLASS = 'z-[70] rounded-[12px] border border-stone-200 bg-white text-stone-800 shadow-[0_22px_64px_rgba(28,25,23,0.16),0_2px_8px_rgba(28,25,23,0.06)]';
 
 const TYPE_THEME: Record<
   SceneType,
   {
     chip: string;
     chipHover: string;
+    controlBorder: string;
     accent: string;
     dot: string;
   }
@@ -71,24 +84,28 @@ const TYPE_THEME: Record<
   slide: {
     chip: 'bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]',
     chipHover: 'hover:bg-[var(--pbl-teacher-border)]/40',
+    controlBorder: 'border-[var(--pbl-teacher-border)]',
     accent: 'bg-[var(--pbl-teacher)]',
     dot: 'bg-[var(--pbl-teacher)]',
   },
   quiz: {
     chip: 'bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]',
     chipHover: 'hover:bg-[var(--pbl-ai-border)]/40',
+    controlBorder: 'border-[var(--pbl-ai-border)]',
     accent: 'bg-[var(--pbl-ai)]',
     dot: 'bg-[var(--pbl-ai)]',
   },
   interactive: {
     chip: 'bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]',
     chipHover: 'hover:bg-[var(--pbl-success-border)]/40',
+    controlBorder: 'border-[var(--pbl-success-border)]',
     accent: 'bg-[var(--pbl-success)]',
     dot: 'bg-[var(--pbl-success)]',
   },
   pbl: {
     chip: 'bg-[var(--pbl-accent-soft)] text-[var(--pbl-accent)]',
     chipHover: 'hover:bg-[var(--pbl-accent-border)]/40',
+    controlBorder: 'border-[var(--pbl-accent-border)]',
     accent: 'bg-[var(--pbl-accent)]',
     dot: 'bg-[var(--pbl-accent)]',
   },
@@ -131,8 +148,12 @@ export function OutlinesEditor({
   hideHeader = false,
   hideFooter = false,
   bare = false,
+  naturalFlow = false,
+  distinguishAudience = false,
+  scriptWorkspace = false,
   parentActivities,
   knowledgePoints,
+  focusRequest,
 }: OutlinesEditorProps) {
   const { t } = useI18n();
   const sceneTypeLabel = useSceneTypeLabel();
@@ -173,6 +194,30 @@ export function OutlinesEditor({
       node.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [isStreaming, lastOutlineId]);
+
+  useEffect(() => {
+    if (!scriptWorkspace || !focusRequest) return;
+    const node = document.getElementById(`outline-scene-${focusRequest.id}`);
+    if (!node) return;
+
+    node.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    const animation = node.animate?.(
+      [
+        { transform: 'translateY(0)', borderColor: '#d6d3d1', boxShadow: '0 0 0 0 rgba(52, 74, 106, 0)' },
+        { transform: 'translateY(-5px)', borderColor: '#344a6a', boxShadow: '0 0 0 5px rgba(52, 74, 106, 0.18)' },
+        { transform: 'translateY(0)', borderColor: '#a8b3c1', boxShadow: '0 0 0 1px rgba(52, 74, 106, 0.04)' },
+        { transform: 'translateY(-4px)', borderColor: '#344a6a', boxShadow: '0 0 0 5px rgba(52, 74, 106, 0.16)' },
+        { transform: 'translateY(0)', borderColor: '#a8b3c1', boxShadow: '0 0 0 1px rgba(52, 74, 106, 0.04)' },
+        { transform: 'translateY(-4px)', borderColor: '#344a6a', boxShadow: '0 0 0 5px rgba(52, 74, 106, 0.14)' },
+        { transform: 'translateY(0)', borderColor: '#a8b3c1', boxShadow: '0 0 0 1px rgba(52, 74, 106, 0.04)' },
+        { transform: 'translateY(-3px)', borderColor: '#344a6a', boxShadow: '0 0 0 4px rgba(52, 74, 106, 0.12)' },
+        { transform: 'translateY(0)', borderColor: '#d6d3d1', boxShadow: '0 0 0 0 rgba(52, 74, 106, 0)' },
+      ],
+      { duration: 3000, easing: 'ease-in-out' },
+    );
+
+    return () => animation?.cancel();
+  }, [focusRequest, scriptWorkspace]);
 
   // 监听用户滚动：靠近底部时恢复自动跟随，离开底部时暂停
   useEffect(() => {
@@ -229,7 +274,7 @@ export function OutlinesEditor({
     onChange(normalizeOrder(outlines.filter((_, i) => i !== index)));
   };
 
-  const insertOutlineAt = (atIndex: number) => {
+  const insertOutlineAt = (atIndex: number, owner?: SceneOutline) => {
     if (editingDisabled) return;
     const newOutline: SceneOutline = {
       id: nanoid(8),
@@ -238,6 +283,13 @@ export function OutlinesEditor({
       description: '',
       keyPoints: [],
       order: atIndex + 1,
+      ...(owner ? {
+        stageKey: owner.stageKey,
+        stageLabel: owner.stageLabel,
+        audience: owner.audience,
+        generationPurpose: owner.generationPurpose,
+        parentActivityId: owner.parentActivityId,
+      } : {}),
     };
     const next = [...outlines];
     next.splice(atIndex, 0, newOutline);
@@ -337,12 +389,16 @@ export function OutlinesEditor({
       )}
 
       {/* Scene list */}
-      <div className="relative max-h-[64vh] overflow-y-auto px-3 pb-2 md:px-6">
+      <div className={cn(
+        "relative px-3 pb-2 md:px-6",
+        !naturalFlow && "max-h-[64vh] overflow-y-auto",
+        scriptWorkspace && "bg-white px-5 pb-6 md:px-5",
+      )}>
         {outlines.length === 0 ? (
           <EmptyState isStreaming={isStreaming} disabled={editingDisabled} onAdd={addOutline} />
         ) : (
           <ol className="flex flex-col py-1">
-            {!isStreaming && (
+            {!scriptWorkspace && !isStreaming && (
               <InsertDivider
                 onClick={() => insertOutlineAt(0)}
                 disabled={editingDisabled}
@@ -353,9 +409,26 @@ export function OutlinesEditor({
               {outlines.map((outline, index) => {
                 const isLast = outline.id === lastOutlineId;
                 const isStreamingTip = isStreaming && isLast;
+                const previousOutline = outlines[index - 1];
+                const parentChanged = !previousOutline
+                  || previousOutline.parentActivityId !== outline.parentActivityId;
+                const parentTitle = parentActivities?.find((item) => item.id === outline.parentActivityId)?.title;
 
                 return (
                   <Fragment key={outline.id}>
+                    {scriptWorkspace && parentChanged ? (
+                      <li className="mt-6 flex items-center gap-3 rounded-[8px] border border-stone-200 bg-white px-3 py-3 first:mt-3">
+                        <span className="grid size-7 shrink-0 place-items-center rounded-[6px] bg-stone-800 text-[10px] font-bold tabular-nums text-white">{String((parentActivities?.findIndex((item) => item.id === outline.parentActivityId) ?? -1) + 1).padStart(2, '0')}</span>
+                        <span className="truncate text-sm font-bold text-stone-900">{parentTitle || outline.stageLabel || '补充内容'}</span>
+                      </li>
+                    ) : null}
+                    {scriptWorkspace && parentChanged && !isStreaming ? (
+                      <InsertDivider
+                        onClick={() => insertOutlineAt(index, outline)}
+                        disabled={editingDisabled}
+                        position="stage-start"
+                      />
+                    ) : null}
                     <SceneRow
                       index={index}
                       outline={outline}
@@ -367,7 +440,8 @@ export function OutlinesEditor({
                       canMoveUp={index > 0}
                       canMoveDown={index < outlines.length - 1}
                       sceneTypeLabel={sceneTypeLabel}
-                      parentActivities={parentActivities}
+                      distinguishAudience={distinguishAudience}
+                      scriptWorkspace={scriptWorkspace}
                       knowledgePoints={knowledgePoints}
                       disabled={editingDisabled}
                       isStreamingTip={isStreamingTip}
@@ -392,9 +466,15 @@ export function OutlinesEditor({
                     />
                     {!isStreaming && (
                       <InsertDivider
-                        onClick={() => insertOutlineAt(index + 1)}
+                        onClick={() => insertOutlineAt(index + 1, scriptWorkspace ? outline : undefined)}
                         disabled={editingDisabled}
-                        position={isLast ? 'edge' : 'between'}
+                        position={scriptWorkspace
+                          ? outlines[index + 1]?.parentActivityId === outline.parentActivityId
+                            ? 'between'
+                            : 'stage-end'
+                          : isLast
+                            ? 'edge'
+                            : 'between'}
                       />
                     )}
                   </Fragment>
@@ -494,7 +574,8 @@ interface SceneRowProps {
   canMoveUp: boolean;
   canMoveDown: boolean;
   sceneTypeLabel: (type: SceneType) => string;
-  parentActivities?: Array<{ id: string; title: string }>;
+  distinguishAudience: boolean;
+  scriptWorkspace: boolean;
   knowledgePoints?: Array<{ id: string; name: string }>;
   disabled: boolean;
   isStreamingTip: boolean;
@@ -517,7 +598,8 @@ function SceneRow({
   canMoveUp,
   canMoveDown,
   sceneTypeLabel,
-  parentActivities,
+  distinguishAudience,
+  scriptWorkspace,
   knowledgePoints,
   disabled,
   isStreamingTip,
@@ -530,6 +612,7 @@ function SceneRow({
 }: SceneRowProps) {
   const { t } = useI18n();
   const theme = TYPE_THEME[outline.type] ?? TYPE_THEME.slide;
+  const isTeacherResource = outline.audience === 'teacher';
   const pageTargetSec = Math.max(
     0,
     Math.round(outline.targetDurationSec ?? outline.estimatedDuration ?? 0),
@@ -537,6 +620,7 @@ function SceneRow({
   const [keyPointDraft, setKeyPointDraft] = useState('');
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
+  const dragHandleArmedRef = useRef(false);
 
   // Auto-resize textareas to content for the typography-first feel.
   useAutoResize(titleRef, outline.title);
@@ -576,6 +660,20 @@ function SceneRow({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8, scale: 0.98 }}
       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+      draggable={!disabled}
+      onDragStartCapture={(event) => {
+        if (!dragHandleArmedRef.current) {
+          event.preventDefault();
+          return;
+        }
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', outline.id);
+        onDragStart();
+      }}
+      onDragEndCapture={() => {
+        dragHandleArmedRef.current = false;
+        onDragEnd();
+      }}
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
@@ -586,29 +684,40 @@ function SceneRow({
         const sourceId = event.dataTransfer.getData('text/plain');
         if (sourceId) onDrop(sourceId);
       }}
+      role={scriptWorkspace ? 'article' : undefined}
+      aria-label={scriptWorkspace ? `第 ${index + 1} 页：${outline.title || '未命名页面'}` : undefined}
       className={cn(
         'group/scene relative rounded-[var(--radius-sm)] px-3 py-3 transition-colors md:px-4',
-        'hover:bg-stone-50/80',
-        'focus-within:bg-stone-50',
+        scriptWorkspace
+          ? 'overflow-hidden rounded-[10px] border border-stone-200 bg-white p-0 hover:border-stone-300 focus-within:border-[var(--pbl-teacher-border)] md:p-0'
+          : distinguishAudience
+          ? isTeacherResource
+            ? 'border-l-2 border-violet-400 bg-violet-50/45 hover:bg-violet-50/70 focus-within:bg-violet-50/70'
+            : 'border-l-2 border-sky-400 bg-sky-50/45 hover:bg-sky-50/75 focus-within:bg-sky-50/75'
+          : 'hover:bg-stone-50/80 focus-within:bg-stone-50',
         isDragging && 'opacity-40',
         isDragTarget && 'bg-[var(--pbl-teacher-soft)] ring-1 ring-[var(--pbl-teacher-border)]',
       )}
     >
-      <div className="flex items-start gap-2.5">
+      <div className={cn(scriptWorkspace && 'flex flex-col')}>
+      <div className={cn(
+        'flex items-start gap-2.5',
+        scriptWorkspace && 'min-w-0 gap-3 p-4 md:p-5',
+      )}>
         {/* Left rail: drag handle + number, baseline-aligned with title */}
         <div className="flex shrink-0 items-center gap-0.5 pt-1">
           <button
             type="button"
-            draggable={!disabled}
+            data-drag-handle
             title={t('generation.dragSceneHint')}
             aria-label={t('generation.dragSceneHint')}
             aria-keyshortcuts="Control+ArrowUp Control+ArrowDown Meta+ArrowUp Meta+ArrowDown"
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = 'move';
-              event.dataTransfer.setData('text/plain', outline.id);
-              onDragStart();
+            onPointerDown={() => {
+              dragHandleArmedRef.current = true;
             }}
-            onDragEnd={onDragEnd}
+            onPointerUp={() => {
+              dragHandleArmedRef.current = false;
+            }}
             onKeyDown={(event) => {
               if (disabled) return;
               // Keyboard reorder: Cmd/Ctrl + ArrowUp / ArrowDown. Plain arrows
@@ -639,8 +748,11 @@ function SceneRow({
           <span
             className={cn(
               'relative flex size-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums transition-colors',
-              'bg-stone-100 text-stone-500',
-              'group-hover/scene:bg-stone-200',
+              scriptWorkspace
+                ? isTeacherResource
+                  ? 'bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]'
+                  : 'bg-sky-100 text-sky-700'
+                : 'bg-stone-100 text-stone-500 group-hover/scene:bg-stone-200',
             )}
           >
             {index + 1}
@@ -656,7 +768,7 @@ function SceneRow({
         </div>
 
         {/* Body */}
-        <div className="min-w-0 flex-1 space-y-1.5">
+        <div className={cn('min-w-0 flex-1 space-y-1.5', scriptWorkspace && 'space-y-3')}>
           {/* Title row */}
           <div className="flex items-start justify-between gap-2">
             {!disabled && !outline.title.trim() && (
@@ -679,10 +791,49 @@ function SceneRow({
                 disabled && 'cursor-default',
               )}
             />
-            <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+            {scriptWorkspace ? (
+              <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                <span className={cn(
+                  'rounded-full px-2.5 py-1 text-[10px] font-bold',
+                  isTeacherResource
+                    ? 'bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]'
+                    : 'bg-sky-100 text-sky-800',
+                )}>
+                  {isTeacherResource ? '教师资源' : '学生页面'}
+                </span>
+                {!disabled ? <DeleteSceneButton onConfirm={onRemove} /> : null}
+              </div>
+            ) : null}
+            {!scriptWorkspace ? <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+              <label className="inline-flex h-7 items-center gap-1 rounded-full border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/55 px-2 text-[10px] font-semibold text-[var(--pbl-teacher)]" title="目标时长">
+                <Clock3 className="size-3" aria-hidden />
+                <input
+                  aria-label="目标时长（分钟）"
+                  className="w-7 border-0 bg-transparent p-0 text-right font-bold tabular-nums outline-none"
+                  disabled={disabled}
+                  min={0}
+                  onChange={(event) => {
+                    const minutes = Math.max(0, Number(event.target.value) || 0);
+                    onUpdate({ targetDurationSec: minutes * 60, estimatedDuration: minutes * 60 });
+                  }}
+                  type="number"
+                  value={Math.max(0, Math.round(pageTargetSec / 60))}
+                />
+                <span>分钟</span>
+              </label>
+              {distinguishAudience ? (
+                <span className={cn(
+                  'rounded-full px-2 py-1 text-[10px] font-bold',
+                  isTeacherResource
+                    ? 'bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]'
+                    : 'bg-sky-100 text-sky-800',
+                )}>
+                  {isTeacherResource ? '教师资源' : '学生页面'}
+                </span>
+              ) : null}
               {outline.segmentCount && outline.segmentCount > 1 && (
                 <span className="rounded-full bg-[var(--pbl-teacher-soft)] px-2 py-1 text-[11px] font-medium tabular-nums text-[var(--pbl-teacher)]">
-                  第 {outline.segmentIndex ?? 1}/{outline.segmentCount} 页 · 约 {pageTargetSec} 秒
+                  第 {outline.segmentIndex ?? 1}/{outline.segmentCount} 页
                 </span>
               )}
               {/* Cascading control: type-specific config (left) joined to the type selector (right) */}
@@ -710,7 +861,7 @@ function SceneRow({
                 />
               </div>
               {!disabled && <DeleteSceneButton onConfirm={onRemove} />}
-            </div>
+            </div> : null}
           </div>
 
           {/* Description */}
@@ -728,49 +879,6 @@ function SceneRow({
               disabled && 'cursor-default',
             )}
           />
-
-          {parentActivities && parentActivities.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-              <label className="inline-flex items-center gap-1.5 text-stone-500">
-                <span>父级活动</span>
-                <select
-                  value={outline.parentActivityId ?? ''}
-                  onChange={(event) =>
-                    onUpdate({
-                      parentActivityId: event.target.value || undefined,
-                      ...(outline.audience === 'teacher' && event.target.value
-                        ? { activityId: event.target.value }
-                        : {}),
-                    })
-                  }
-                  disabled={disabled}
-                  className="max-w-[15rem] rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700"
-                >
-                  <option value="">请选择一级活动</option>
-                  {parentActivities.map((activity) => (
-                    <option key={activity.id} value={activity.id}>
-                      {activity.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="inline-flex items-center gap-1.5 text-stone-500">
-                <span>目标时长</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={Math.max(0, Math.round((outline.targetDurationSec ?? outline.estimatedDuration ?? 0) / 60))}
-                  onChange={(event) => {
-                    const minutes = Math.max(0, Number(event.target.value) || 0);
-                    onUpdate({ targetDurationSec: minutes * 60, estimatedDuration: minutes * 60 });
-                  }}
-                  disabled={disabled}
-                  className="w-16 rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1 text-right tabular-nums text-stone-700"
-                />
-                <span>分钟</span>
-              </label>
-            </div>
-          )}
 
           {knowledgePoints && knowledgePoints.length > 0 && outline.stageKey === 'ai-learning' && (
             <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
@@ -808,10 +916,12 @@ function SceneRow({
                         <Plus className="size-3" />
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" sideOffset={4} className="w-56 p-2">
-                      <div className="space-y-1">
-                        <p className="px-1 text-xs font-medium text-stone-500">添加知识点</p>
-                        <div className="max-h-48 overflow-y-auto">
+                    <PopoverContent align="start" sideOffset={8} className={cn(EDITOR_POPOVER_CLASS, "w-72 overflow-hidden p-0")}>
+                      <div>
+                        <div className="border-b border-stone-100 bg-white px-4 py-3.5">
+                          <p className="text-sm font-bold text-stone-900">添加知识点</p>
+                        </div>
+                        <div className="max-h-56 space-y-1 overflow-y-auto p-2">
                           {knowledgePoints
                             .filter(
                               (point) => !(outline.knowledgePointIds ?? []).includes(point.id),
@@ -828,7 +938,7 @@ function SceneRow({
                                     ],
                                   })
                                 }
-                                className="flex w-full items-center rounded-[var(--radius-xs)] px-2 py-1.5 text-xs text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-800"
+                                className="flex min-h-10 w-full items-center rounded-[8px] border border-transparent bg-white px-3 text-left text-xs font-semibold text-stone-700 transition-colors hover:border-sky-200 hover:bg-sky-50 hover:text-sky-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
                               >
                                 {point.name}
                               </button>
@@ -842,47 +952,124 @@ function SceneRow({
           )}
 
           {/* Key points */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <AnimatePresence initial={false}>
-              {(outline.keyPoints ?? []).filter(Boolean).map((point, idx) => (
-                <motion.span
-                  key={`${outline.id}-kp-${idx}-${point}`}
-                  layout
-                  initial={{ opacity: 0, scale: 0.85 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.85 }}
-                  transition={{ duration: 0.15 }}
-                  className={cn(
-                    'group/chip inline-flex max-w-[18rem] items-center gap-1 rounded-full px-2.5 py-1 text-xs',
-                    'bg-stone-100 text-stone-700',
-                  )}
-                >
-                  <span className="whitespace-normal break-words" title={point}>
-                    {point}
-                  </span>
-                  {!disabled && (
-                    <button
-                      type="button"
-                      onClick={() => removeKeyPoint(idx)}
-                      aria-label={t('generation.removeKeyPoint')}
-                      className="ml-0.5 inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-300 hover:text-stone-700 group-hover/chip:text-stone-500"
+          {scriptWorkspace ? (
+            <div className="pt-1">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold text-stone-500">内容要点</span>
+                <span className="text-[10px] tabular-nums text-stone-400">{(outline.keyPoints ?? []).filter(Boolean).length} 项</span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <AnimatePresence initial={false}>
+                  {(outline.keyPoints ?? []).filter(Boolean).map((point, idx) => (
+                    <motion.div
+                      key={`${outline.id}-kp-${idx}-${point}`}
+                      layout
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.15 }}
+                      className="group/chip flex min-h-[48px] items-center gap-2 rounded-[8px] bg-stone-50 px-2.5 py-2 text-xs leading-5 text-stone-700 transition-colors hover:bg-stone-100/80"
                     >
-                      <X className="size-2.5" />
-                    </button>
-                  )}
-                </motion.span>
-              ))}
-            </AnimatePresence>
-            {!disabled && (
-              <KeyPointInput
-                value={keyPointDraft}
-                onChange={setKeyPointDraft}
-                onKeyDown={handleKeyPointKeyDown}
-                placeholder={t('generation.addKeyPoint')}
-              />
-            )}
-          </div>
+                      <span className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-white text-[10px] font-bold tabular-nums text-stone-400 shadow-sm">
+                        {String(idx + 1).padStart(2, '0')}
+                      </span>
+                      <span className="line-clamp-2 min-w-0 flex-1 break-words" title={point}>{point}</span>
+                      {!disabled ? (
+                        <button
+                          type="button"
+                          onClick={() => removeKeyPoint(idx)}
+                          aria-label={t('generation.removeKeyPoint')}
+                          className="grid size-6 shrink-0 place-items-center rounded-[6px] text-stone-300 transition-colors hover:bg-white hover:text-[var(--pbl-danger)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pbl-danger)]/20 group-hover/chip:text-stone-500"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      ) : null}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                {!disabled ? (
+                  <div className="sm:col-span-2">
+                    <KeyPointInput
+                      value={keyPointDraft}
+                      onChange={setKeyPointDraft}
+                      onKeyDown={handleKeyPointKeyDown}
+                      placeholder={t('generation.addKeyPoint')}
+                      fullWidth
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <AnimatePresence initial={false}>
+                {(outline.keyPoints ?? []).filter(Boolean).map((point, idx) => (
+                  <motion.span key={`${outline.id}-kp-${idx}-${point}`} layout className="group/chip inline-flex max-w-[18rem] items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-700">
+                    <span className="whitespace-normal break-words" title={point}>{point}</span>
+                    {!disabled ? <button type="button" onClick={() => removeKeyPoint(idx)} aria-label={t('generation.removeKeyPoint')} className="ml-0.5 inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-stone-400 hover:bg-stone-300 hover:text-stone-700"><X className="size-2.5" /></button> : null}
+                  </motion.span>
+                ))}
+              </AnimatePresence>
+              {!disabled ? <KeyPointInput value={keyPointDraft} onChange={setKeyPointDraft} onKeyDown={handleKeyPointKeyDown} placeholder={t('generation.addKeyPoint')} /> : null}
+            </div>
+          )}
         </div>
+      </div>
+      {scriptWorkspace ? (
+        <aside className="mx-4 mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[9px] bg-stone-50/90 px-3.5 py-2.5 md:mx-5 md:mb-5" aria-label={`第 ${index + 1} 页设置`}>
+          <label className="flex items-center gap-2 text-[11px] font-semibold text-stone-500">
+            <span>时长</span>
+            <span className={cn(SETTINGS_CONTROL_CLASS, 'h-7 min-w-[88px] hover:bg-white focus-within:border-[var(--pbl-teacher)] focus-within:ring-2 focus-within:ring-[var(--pbl-teacher)]/20')}>
+              <Clock3 className="size-3.5 text-stone-400" aria-hidden />
+              <input
+                aria-label="目标时长（分钟）"
+                className="w-7 border-0 bg-white p-0 text-right text-xs font-bold tabular-nums outline-none"
+                disabled={disabled}
+                min={0}
+                onChange={(event) => {
+                  const minutes = Math.max(0, Number(event.target.value) || 0);
+                  onUpdate({ targetDurationSec: minutes * 60, estimatedDuration: minutes * 60 });
+                }}
+                type="number"
+                value={Math.max(0, Math.round(pageTargetSec / 60))}
+              />
+              <span className="font-normal text-stone-400">分钟</span>
+            </span>
+          </label>
+
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-stone-500">
+            <span>组件</span>
+            <TypePill
+              type={outline.type}
+              onChange={(type) => onReplace(changeOutlineType(outline, type))}
+              disabled={disabled}
+              label={sceneTypeLabel(outline.type)}
+              theme={theme}
+              connected={false}
+              settingsStyle
+            />
+          </div>
+
+          {!disabled && outline.type === 'quiz' ? (
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-stone-500">
+              <span>题目</span>
+              <QuizConfigDisclosure outline={outline} onUpdate={onUpdate} theme={theme} settingsStyle />
+            </div>
+          ) : null}
+          {!disabled && outline.type === 'interactive' ? (
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-stone-500">
+              <span>互动</span>
+              <InteractiveConfigDisclosure outline={outline} onUpdate={onUpdate} theme={theme} settingsStyle />
+            </div>
+          ) : null}
+          {!disabled && outline.type === 'pbl' ? (
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-stone-500">
+              <span>项目</span>
+              <PblConfigDisclosure outline={outline} onUpdate={onUpdate} theme={theme} settingsStyle />
+            </div>
+          ) : null}
+        </aside>
+      ) : null}
       </div>
     </motion.li>
   );
@@ -938,6 +1125,7 @@ function TypePill({
   label,
   theme,
   connected = false,
+  settingsStyle = false,
 }: {
   type: SceneType;
   onChange: (type: SceneType) => void;
@@ -946,6 +1134,7 @@ function TypePill({
   theme: (typeof TYPE_THEME)[SceneType];
   /** When part of a cascading group, drop own rounding so the wrapper clips it. */
   connected?: boolean;
+  settingsStyle?: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -954,9 +1143,12 @@ function TypePill({
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition-colors',
-            connected ? 'rounded-none' : 'rounded-full',
+            settingsStyle
+              ? SETTINGS_CONTROL_CLASS
+              : 'inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition-colors',
+            !settingsStyle && (connected ? 'rounded-none' : 'rounded-full'),
             theme.chip,
+            settingsStyle && theme.controlBorder,
             !disabled && theme.chipHover,
             disabled && 'cursor-default',
           )}
@@ -965,14 +1157,14 @@ function TypePill({
           {!disabled && <ChevronDown className="size-3 opacity-70" />}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[140px]">
+      <DropdownMenuContent align="end" sideOffset={8} className={cn(EDITOR_POPOVER_CLASS, "min-w-[184px] p-2")}>
         {SCENE_TYPES.map((option) => {
           const optionTheme = TYPE_THEME[option];
           return (
             <DropdownMenuItem
               key={option}
               onClick={() => onChange(option)}
-              className="flex items-center justify-between gap-2"
+              className="flex min-h-10 items-center justify-between gap-2 rounded-[8px] px-3 text-xs font-semibold text-stone-700 focus:bg-stone-100 focus:text-stone-950"
             >
               <span className="flex items-center gap-2">
                 <span className={cn('size-2 rounded-full', optionTheme.accent)} />
@@ -1008,7 +1200,7 @@ function DeleteSceneButton({ onConfirm }: { onConfirm: () => void }) {
           <Trash2 className="size-3.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={4} className="w-56 p-3">
+      <PopoverContent align="end" sideOffset={8} className={cn(EDITOR_POPOVER_CLASS, "w-60 p-4")}>
         <p className="text-sm font-medium text-stone-800">{t('generation.deleteSceneConfirm')}</p>
         <p className="mt-1 text-xs text-stone-500">
           {t('generation.deleteSceneConfirmDesc')}
@@ -1093,15 +1285,20 @@ function InsertDivider({
 }: {
   onClick: () => void;
   disabled: boolean;
-  /** Edge dividers (before first / after last) keep a faint hint to invite adding. */
-  position?: 'between' | 'edge';
+  /** Stage dividers belong inside a fixed stage; edge dividers frame generic lists. */
+  position?: 'between' | 'edge' | 'stage-start' | 'stage-end';
 }) {
   const { t } = useI18n();
   const isEdge = position === 'edge';
+  const isStageStart = position === 'stage-start';
+  const isStageDivider = isStageStart || position === 'stage-end';
   return (
     <li
       role="presentation"
-      className="relative z-10 flex h-7 items-center justify-center px-3 md:px-4"
+      className={cn(
+        'relative z-10 flex items-center justify-center px-3 md:px-4',
+        isStageDivider ? 'h-10' : 'h-7',
+      )}
     >
       <button
         type="button"
@@ -1110,10 +1307,12 @@ function InsertDivider({
         aria-label={t('generation.insertSceneHere')}
         className={cn(
           'group/insert relative flex h-full w-full items-center justify-center transition-opacity',
-          // Edges show a barely-there hint by default; hover/focus brings it to full
-          isEdge
+          // Script-workspace add affordances keep the plus hidden until hover/focus.
+          isStageDivider || position === 'between'
+            ? 'opacity-100'
+            : isEdge
             ? 'opacity-25 hover:opacity-100 focus-visible:opacity-100'
-            : 'opacity-0 hover:opacity-100 focus-visible:opacity-100',
+            : 'opacity-100',
           'focus-visible:outline-none',
           disabled && 'pointer-events-none opacity-20',
         )}
@@ -1122,19 +1321,23 @@ function InsertDivider({
           aria-hidden
           className={cn(
             'absolute top-1/2 h-px -translate-y-1/2 transition-colors',
-            // Edge: short, neutral line; between: longer, teacher-colored line
-            isEdge
+            // The resting line preserves spacing without showing an add icon.
+            isStageDivider
+              ? 'inset-x-10 bg-stone-100 group-hover/insert:bg-[var(--pbl-teacher-border)]'
+              : isEdge
               ? 'inset-x-16 bg-stone-300 group-hover/insert:bg-[var(--pbl-teacher)]/60'
-              : 'inset-x-8 bg-[var(--pbl-teacher-border)] group-hover/insert:bg-[var(--pbl-teacher)]/60',
+              : 'inset-x-8 bg-stone-100 group-hover/insert:bg-[var(--pbl-teacher-border)]',
           )}
         />
         <span
           className={cn(
             'relative flex items-center justify-center rounded-full text-white transition-all',
-            // Edge: smaller, neutral, no shadow until hover; between: full teacher-colored badge
-            isEdge
+            // In the script workspace, the plus only appears on hover or keyboard focus.
+            isStageDivider || position === 'between'
+              ? 'size-5 scale-75 border border-[var(--pbl-teacher-border)] bg-white text-[var(--pbl-teacher)] opacity-0 group-hover/insert:scale-100 group-hover/insert:opacity-100 group-focus-visible/insert:scale-100 group-focus-visible/insert:opacity-100 group-hover/insert:bg-[var(--pbl-teacher)] group-hover/insert:text-white'
+              : isEdge
               ? 'size-4 bg-stone-400 group-hover/insert:size-5 group-hover/insert:bg-[var(--pbl-teacher)] group-hover/insert:shadow-md group-hover/insert:shadow-[var(--pbl-teacher)]/30'
-              : 'size-5 bg-[var(--pbl-teacher)] shadow-md shadow-[var(--pbl-teacher)]/30 group-hover/insert:scale-110',
+              : 'size-5 bg-[var(--pbl-teacher)] shadow-md shadow-[var(--pbl-teacher)]/30',
           )}
         >
           <Plus className={cn('transition-all', isEdge ? 'size-2.5' : 'size-3')} />
@@ -1149,11 +1352,13 @@ function KeyPointInput({
   onChange,
   onKeyDown,
   placeholder,
+  fullWidth = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   placeholder: string;
+  fullWidth?: boolean;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const width = Math.max(100, Math.min(280, value.length * 8 + 40));
@@ -1162,7 +1367,7 @@ function KeyPointInput({
   // who type a partial value then click away — that text becomes a chip they
   // didn't ask for. Only Enter / comma should commit (handled by onKeyDown).
   return (
-    <div className="inline-flex items-center gap-1">
+    <div className={cn('inline-flex items-center gap-1', fullWidth && 'w-full')}>
       <input
         ref={ref}
         type="text"
@@ -1170,12 +1375,14 @@ function KeyPointInput({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
-        style={{ width }}
+        style={fullWidth ? undefined : { width }}
         className={cn(
-          'inline-block rounded-full bg-transparent px-2.5 py-1 text-xs',
+          fullWidth
+            ? 'h-9 w-full rounded-[8px] border border-dashed border-stone-300 bg-white px-3 text-xs'
+            : 'inline-block rounded-full bg-transparent px-2.5 py-1 text-xs',
           'text-stone-700 placeholder:text-stone-400',
-          'border border-dashed border-transparent transition-colors',
-          'hover:border-stone-300 focus:border-[var(--pbl-teacher-border)] focus:bg-[var(--pbl-teacher-soft)]',
+          !fullWidth && 'border border-dashed border-transparent',
+          'transition-colors hover:border-stone-300 focus:border-[var(--pbl-teacher-border)] focus:bg-[var(--pbl-teacher-soft)]/35',
           'focus:outline-none focus:ring-0',
         )}
       />
@@ -1185,7 +1392,8 @@ function KeyPointInput({
 
 // Left segment of the cascading type control: a themed pill chunk that joins the
 // TypePill on its right via a hairline divider (the wrapper clips the corners).
-function cascadeSegmentClass(theme: (typeof TYPE_THEME)[SceneType]) {
+function cascadeSegmentClass(theme: (typeof TYPE_THEME)[SceneType], settingsStyle = false) {
+  if (settingsStyle) return cn(SETTINGS_CONTROL_CLASS, theme.chip, theme.chipHover, theme.controlBorder);
   return cn(
     'inline-flex items-center gap-1 border-r border-black/[0.07] px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider transition-colors dark:border-white/10',
     theme.chip,
@@ -1197,10 +1405,12 @@ function QuizConfigDisclosure({
   outline,
   onUpdate,
   theme,
+  settingsStyle = false,
 }: {
   outline: SceneOutline;
   onUpdate: (updates: Partial<SceneOutline>) => void;
   theme: (typeof TYPE_THEME)[SceneType];
+  settingsStyle?: boolean;
 }) {
   const { t } = useI18n();
   const config = outline.quizConfig ?? {
@@ -1223,14 +1433,18 @@ function QuizConfigDisclosure({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cascadeSegmentClass(theme)}>
+        <button type="button" className={cascadeSegmentClass(theme, settingsStyle)}>
           <span className="max-w-[8rem] truncate">
             {t('generation.quizConfigSummary', { count: config.questionCount ?? 3 })}
           </span>
           <ChevronDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-64 space-y-2.5 p-3">
+      <PopoverContent align="end" sideOffset={8} className={cn(EDITOR_POPOVER_CLASS, "w-72 overflow-hidden p-0")}>
+        <div className="border-b border-stone-100 bg-white px-4 py-3.5">
+          <p className="text-sm font-bold text-stone-900">测验设置</p>
+        </div>
+        <div className="space-y-4 p-4">
         {/* Count: label left, stepper right */}
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs font-medium text-stone-500">
@@ -1288,11 +1502,11 @@ function QuizConfigDisclosure({
                     updateConfig({ questionTypes: next });
                   }}
                   className={cn(
-                    'flex-1 rounded-[var(--radius-xs)] px-2 py-1.5 text-xs font-medium transition-all',
+                    'min-h-9 flex-1 rounded-[6px] px-2 py-1.5 text-xs font-medium transition-all',
                     'border',
                     selected
                       ? 'border-[var(--pbl-ai-border)] bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]'
-                      : 'border-stone-200 bg-transparent text-stone-500 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700',
+                      : 'border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:bg-stone-100 hover:text-stone-700',
                     isOnlySelected && 'cursor-not-allowed opacity-90',
                   )}
                 >
@@ -1301,6 +1515,7 @@ function QuizConfigDisclosure({
               );
             })}
           </div>
+        </div>
         </div>
       </PopoverContent>
     </Popover>
@@ -1319,10 +1534,12 @@ function InteractiveConfigDisclosure({
   outline,
   onUpdate,
   theme,
+  settingsStyle = false,
 }: {
   outline: SceneOutline;
   onUpdate: (updates: Partial<SceneOutline>) => void;
   theme: (typeof TYPE_THEME)[SceneType];
+  settingsStyle?: boolean;
 }) {
   const { t } = useI18n();
   const widgetType = outline.widgetType ?? 'simulation';
@@ -1352,12 +1569,16 @@ function InteractiveConfigDisclosure({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cascadeSegmentClass(theme)}>
+        <button type="button" className={cascadeSegmentClass(theme, settingsStyle)}>
           <span className="max-w-[8rem] truncate">{t(currentLabel)}</span>
           <ChevronDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-64 space-y-2.5 p-3">
+      <PopoverContent align="end" sideOffset={8} className={cn(EDITOR_POPOVER_CLASS, "w-72 overflow-hidden p-0")}>
+        <div className="border-b border-stone-100 bg-white px-4 py-3.5">
+          <p className="text-sm font-bold text-stone-900">互动组件设置</p>
+        </div>
+        <div className="space-y-4 p-4">
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-stone-500">
             {t('generation.interactiveWidgetKind')}
@@ -1372,10 +1593,10 @@ function InteractiveConfigDisclosure({
                   aria-pressed={selected}
                   onClick={() => setWidgetType(value)}
                   className={cn(
-                    'rounded-[var(--radius-xs)] border px-2 py-1.5 text-xs font-medium transition-all',
+                    'min-h-9 rounded-[6px] border bg-white px-2.5 py-1.5 text-xs font-medium transition-all',
                     selected
                       ? 'border-[var(--pbl-success-border)] bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]'
-                      : 'border-stone-200 bg-transparent text-stone-500 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700',
+                      : 'border-stone-200 text-stone-500 hover:border-stone-300 hover:bg-stone-100 hover:text-stone-700',
                   )}
                 >
                   {t(labelKey)}
@@ -1394,10 +1615,11 @@ function InteractiveConfigDisclosure({
             onChange={(event) => setConcept(event.target.value)}
             placeholder={t('generation.interactiveConceptPlaceholder')}
             className={cn(
-              'w-full rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'h-9 w-full rounded-[6px] border border-stone-300 bg-white px-2.5 text-xs text-stone-700',
               'focus:border-[var(--pbl-success-border)] focus:outline-none focus:ring-0',
             )}
           />
+        </div>
         </div>
       </PopoverContent>
     </Popover>
@@ -1408,10 +1630,12 @@ function PblConfigDisclosure({
   outline,
   onUpdate,
   theme,
+  settingsStyle = false,
 }: {
   outline: SceneOutline;
   onUpdate: (updates: Partial<SceneOutline>) => void;
   theme: (typeof TYPE_THEME)[SceneType];
+  settingsStyle?: boolean;
 }) {
   const { t } = useI18n();
   const [skillDraft, setSkillDraft] = useState('');
@@ -1468,7 +1692,7 @@ function PblConfigDisclosure({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cascadeSegmentClass(theme)}>
+        <button type="button" className={cascadeSegmentClass(theme, settingsStyle)}>
           <span className="max-w-[8rem] truncate">
             {scenarioRoleplay
               ? t('generation.pblSubtypeScenario')
@@ -1477,12 +1701,16 @@ function PblConfigDisclosure({
           <ChevronDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-72 space-y-2.5 p-3">
+      <PopoverContent align="end" sideOffset={8} className={cn(EDITOR_POPOVER_CLASS, "w-80 overflow-hidden p-0")}>
+        <div className="border-b border-stone-100 bg-white px-4 py-3.5">
+          <p className="text-sm font-bold text-stone-900">项目设置</p>
+        </div>
+        <div className="max-h-[min(70vh,560px)] space-y-4 overflow-y-auto p-4">
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-stone-500">
             {t('generation.pblSubtype')}
           </span>
-          <div className="grid grid-cols-2 overflow-hidden rounded-[var(--radius-xs)] border border-stone-200 bg-stone-50 p-0.5">
+          <div className="grid grid-cols-2 overflow-hidden rounded-[6px] border border-stone-300 bg-stone-100 p-0.5">
             {[
               { value: false, label: t('generation.pblSubtypeProject') },
               { value: true, label: t('generation.pblSubtypeScenario') },
@@ -1495,7 +1723,7 @@ function PblConfigDisclosure({
                   aria-pressed={active}
                   onClick={() => updateSubtype(option.value)}
                   className={cn(
-                    'rounded-[var(--radius-xs)] px-2 py-1 text-xs font-medium transition-colors',
+                    'min-h-8 rounded-[5px] px-2 text-xs font-medium transition-colors',
                     active
                       ? 'bg-white text-stone-800 shadow-sm'
                       : 'text-stone-500 hover:text-stone-700',
@@ -1517,7 +1745,7 @@ function PblConfigDisclosure({
             onChange={(event) => updateConfig({ projectTopic: event.target.value })}
             placeholder={t('generation.pblProjectTopicPlaceholder')}
             className={cn(
-              'w-full rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'h-9 w-full rounded-[6px] border border-stone-300 bg-white px-2.5 text-xs text-stone-700',
               'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
             )}
           />
@@ -1532,7 +1760,7 @@ function PblConfigDisclosure({
             placeholder={t('generation.pblProjectDescriptionPlaceholder')}
             rows={2}
             className={cn(
-              'w-full resize-none rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'w-full resize-none rounded-[6px] border border-stone-300 bg-white px-2.5 py-2 text-xs text-stone-700',
               'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
             )}
           />
@@ -1548,7 +1776,7 @@ function PblConfigDisclosure({
               placeholder={t('generation.pblScenarioBriefPlaceholder')}
               rows={2}
               className={cn(
-                'w-full resize-none rounded-[var(--radius-xs)] border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+                'w-full resize-none rounded-[6px] border border-stone-300 bg-white px-2.5 py-2 text-xs text-stone-700',
                 'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
               )}
             />
@@ -1591,10 +1819,11 @@ function PblConfigDisclosure({
             onBlur={addSkill}
             placeholder={t('generation.pblAddSkill')}
             className={cn(
-              'w-full rounded-[var(--radius-xs)] border border-dashed border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-700',
+              'h-9 w-full rounded-[6px] border border-dashed border-stone-300 bg-white px-2.5 text-xs text-stone-700',
               'focus:border-[var(--pbl-accent-border)] focus:outline-none focus:ring-0',
             )}
           />
+        </div>
         </div>
       </PopoverContent>
     </Popover>

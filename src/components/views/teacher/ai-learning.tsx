@@ -399,7 +399,6 @@ function AdaptiveTriggerAuditDialog({
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-cyan-800">Adaptive trigger audit</p>
             <h3 className="mt-1 text-xl font-black text-stone-950">{student.name} · 自适应触发审计</h3>
-            <p className="mt-1 text-sm text-stone-500">逐个检查插入位置、知识证据、内容去重与剩余时间，解释为什么选中或没有选中资源。</p>
           </div>
           <button aria-label="关闭触发审计" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-stone-500 hover:bg-stone-100" onClick={onClose} type="button"><X size={18} /></button>
         </header>

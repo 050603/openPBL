@@ -77,11 +77,11 @@ export const PREPARATION_FLOW_STEPS: readonly PreparationFlowStep[] = [
   {
     key: "adaptiveLearning",
     phase: "适配",
-    label: "个性化资源",
-    shortLabel: "资源编排",
-    description: "用先决知识前测和模块测验驱动已审核额外资源的连续编排。",
+    label: "个性化学习路径",
+    shortLabel: "个性化路径",
+    description: "在完整主课路径中标明诊断补缺与达标拓展的插入位置和触发条件。",
     upstream: "已确认的主课程页面与知识节点",
-    output: "答题证据清晰、时间可控的个性化学习路径",
+    output: "主课主线清晰、插入点明确、可逐项审核的个性化学习路径",
   },
 ] as const;
 

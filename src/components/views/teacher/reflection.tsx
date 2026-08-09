@@ -419,7 +419,7 @@ export function ReflectionTeacherView({
               })}
             </ul>
           ) : (
-            <EmptyState text="尚无教师提交的展示阶段评分，不使用进度数据代替成绩。" />
+            <EmptyState text="暂无展示阶段评分" />
           )}
         </Card>
 
@@ -468,9 +468,6 @@ export function ReflectionTeacherView({
               <ClipboardCheck className="text-[var(--pbl-warning)]" size={20} />
               AI 过程性评价草案
             </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">
-              根据当前课程记录生成，完成后请教师核对。
-            </p>
           </div>
           <PrimaryButton
             className="h-9 px-3 text-sm"
@@ -590,9 +587,6 @@ export function ReflectionTeacherView({
               <Wand2 className="text-[var(--pbl-teacher)]" size={20} />
               课程总结演示
             </h2>
-            <p className="mt-1 text-sm leading-6 text-stone-500">
-              将已有课程信息、真实评价与反思组织成演示结构和教师讲稿；这不是可下载的 PPT 文件。
-            </p>
           </div>
           <div className="flex items-center gap-2">
             {summaryDeck ? (

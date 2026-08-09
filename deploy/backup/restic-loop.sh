@@ -8,7 +8,7 @@ export RESTIC_PASSWORD_FILE=/run/secrets/restic_password
 restic snapshots >/dev/null 2>&1 || restic init
 
 while :; do
-  if restic backup /data/uploads /data/whiteboards \
+  if restic backup /data/uploads /data/whiteboards /data/classrooms \
     --tag openpbl-production \
     --exclude-caches; then
     restic forget --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune

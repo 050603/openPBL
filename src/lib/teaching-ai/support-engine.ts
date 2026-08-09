@@ -12,9 +12,13 @@ import { throwIfAborted } from "@/lib/openmaic/generation/generation-retry";
 import { buildStagePolicyPrompt } from "@/lib/companion/stage-policy";
 import {
   deriveTeachingConstraints,
-  formatTeachingConstraintsForPrompt,
+  formatTeachingConstraintsForChinesePrompt,
   type LearnerProfileInput,
 } from "@/lib/openmaic/pedagogy/teaching-constraints";
+import {
+  JSON_TEACHER_PROMPT_CONTRACT,
+  promptStageLabel,
+} from "@/lib/prompt-quality/policy";
 import { isLearningEvidenceStructurallyComplete } from "@/lib/learning-evidence/readiness";
 import {
   learningEvidenceKindLabel,
@@ -166,7 +170,9 @@ function isUsableDrivingQuestion(value: string): boolean {
 const SYSTEM_PREAMBLE = `你是一名资深的 PBL（项目式学习）教学支架专家，擅长基于学生当前的项目进度给出具体、可执行、可验证的改进建议。
 请始终以严格 JSON 形式返回结果，不要包含任何额外说明文字。
 所有建议必须基于学生实际填写的内容，避免空话套话，每条建议应能被学生立即执行并验证。
-学生是个人项目的唯一负责人。不得代替学生完成最终作品；优先提问、提示、比较选项和反馈，不替学生作最终决定，并要求学生说明采纳或拒绝建议的理由。`;
+学生是个人项目的唯一负责人。不得代替学生完成最终作品；优先提问、提示、比较选项和反馈，不替学生作最终决定，并要求学生说明采纳或拒绝建议的理由。
+
+${JSON_TEACHER_PROMPT_CONTRACT}`;
 
 function stageSystemPrompt(stageKey: string): string {
   return `${SYSTEM_PREAMBLE}\n\n${buildStagePolicyPrompt(stageKey)}`;
@@ -430,7 +436,7 @@ export async function buildReflectionEvidencePrompts(input: {
 学生姓名：${student?.name ?? studentId}
 个人项目：${group?.name ?? "（项目空间待同步）"}
 选题：${group?.topic ?? "（无）"}
-阶段进度：反思=${stageProgress}%；AI授知进度=${JSON.stringify(aiLearningProgress ?? {})}
+阶段进度：学习反思与迁移=${stageProgress}%；AI 授知=${formatAiLearningProgress(aiLearningProgress)}
 AI 支架记录：${supports.length} 条
   - 已采纳：${supports.filter((s) => s.status === "student-applied").length} 条
   - 未采纳：${supports.filter((s) => s.status !== "student-applied" && s.status !== "dismissed").length} 条
@@ -438,25 +444,25 @@ AI 支架记录：${supports.length} 条
   - 证据类：${uploads.filter((u) => u.category === "evidence").length} 个
 
 前序阶段提交成果：
-${submissions.map((s) => `- [${s.stageKey}] ${s.title}：${plainText(s.content).slice(0, 1000)}（${s.updatedAt}）`).join("\n") || "（无）"}
+${submissions.map((s) => `- [${learningStageLabel(s.stageKey, course.stages)}] ${s.title}：${plainText(s.content).slice(0, 1000)}（${s.updatedAt}）`).join("\n") || "（无）"}
 
 教师反馈：
-${teacherFeedback.map((f) => `- [${f.stageKey}/${f.kind}] ${plainText(f.content).slice(0, 700)}${f.evidence?.length ? `；证据：${f.evidence.join("；")}` : ""}`).join("\n") || "（无）"}
+${teacherFeedback.map((f) => `- [${learningStageLabel(f.stageKey, course.stages)}] ${plainText(f.content).slice(0, 700)}${f.evidence?.length ? `；证据：${f.evidence.join("；")}` : ""}`).join("\n") || "（无）"}
 
 评分记录（必须区分教师评分、AI评分和最终评分）：
 ${rubricScores.map((s) => `- 教师总分=${s.teacherTotal ?? "无"}；AI总分=${s.aiTotal ?? "无"}；最终分=${s.finalTotal ?? "无"}；记录总分=${s.total}；教师维度=${JSON.stringify(s.dimensionScores)}；AI维度=${JSON.stringify(s.aiDimensionScores ?? {})}；AI过程总结=${plainText(s.aiProcessSummary ?? "无")}；AI过程证据=${(s.aiProcessEvidence ?? []).join("、") || "无"}；教师评语=${plainText(s.comment)}`).join("\n") || "（无）"}
 
 AI/教师评价记录：
-${evaluations.map((e) => `- [${e.sourceRole}/${e.stageKey}] 分数=${e.score ?? "无"}；${plainText(e.comment)}；证据=${e.evidence.join("；")}`).join("\n") || "（无）"}
+${evaluations.map((e) => `- [${evaluationSourceLabel(e.sourceRole)}/${learningStageLabel(e.stageKey, course.stages)}] 分数=${e.score ?? "未记录"}；${plainText(e.comment)}；证据=${e.evidence.join("；") || "未记录"}`).join("\n") || "（无）"}
 
 学生已有反思：
 ${reflections.map((r) => `- 正文：${plainText(r.content).slice(0, 1200)}；改进计划：${plainText(r.improvementPlan ?? "")}`).join("\n") || "（无）"}
 
 学生过程事件：
-${learningEvents.map((event) => `- [${event.stageKey}/${event.type}] ${event.progressMarker ?? ""}；${JSON.stringify(event.metadata ?? {})}（${event.occurredAt}）`).join("\n") || "（无）"}
+${learningEvents.map((event) => `- [${learningStageLabel(event.stageKey, course.stages)}] ${event.content?.sceneTitle || event.content?.activityTitle || event.progressMarker || "产生一条学习活动记录"}${event.durationMs ? `；持续约 ${Math.max(1, Math.round(event.durationMs / 60000))} 分钟` : ""}（${event.occurredAt}）`).join("\n") || "（无）"}
 
 最近的 AI 支架记录：
-${supports.slice(0, 6).map((s) => `- [${s.kind}] ${s.trigger}：${s.diagnosis}；建议=${s.suggestions.join("；")}；依据=${s.evidence.join("；")}；采纳=${s.adoption?.decision ?? "未记录"}`).join("\n") || "（无）"}
+${supports.slice(0, 6).map((s) => `- ${s.trigger}：${s.diagnosis}；建议=${s.suggestions.join("；")}；依据=${s.evidence.join("；")}；采纳情况=${supportAdoptionLabel(s.adoption?.decision)}`).join("\n") || "（无）"}
 
 要求：
 1. diagnosis：1-2 句话指出该学生反思应聚焦的证据类型
@@ -532,7 +538,7 @@ export async function buildTeacherInterventionSignals(
 
 课程名称：${course.name}
 驱动问题：${course.drivingQuestion || "（无）"}
-当前阶段：${stageKey}
+当前阶段：${promptStageLabel(stageKey, learningStageLabel(stageKey, course.stages))}
 
 个人项目列表：
 ${course.groups.map((g) => {
@@ -662,12 +668,7 @@ export async function generateProjectSkeleton(input: {
 课程简介：${input.summary || "（无）"}
 教师初步想法：${input.initialDrivingQuestion || "（无，请基于课程名称与简介推断）"}
 
-${(targetPart === "courseHours"
-    ? formatTeachingConstraintsForPrompt(teachingConstraints)
-        .split("\n")
-        .filter((line) => !line.startsWith("Course capacity:") && !line.startsWith("Recommended knowledge-point range:") && !line.startsWith("Scope rule:"))
-        .join("\n")
-    : formatTeachingConstraintsForPrompt(teachingConstraints))}
+${formatTeachingConstraintsForChinesePrompt(teachingConstraints)}
 
 必须把以上学生画像、课程目标与课时容量视为硬约束：不得假定学生掌握未列出的前置知识，不得把一个短课时课程扩张成完整学期内容，也不得用少量重复活动填充长课时。
 
@@ -1198,6 +1199,35 @@ function focusLabel(focus: ArtifactFocus): string {
 
 function plainText(value: string): string {
   return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function formatAiLearningProgress(progress?: NonNullable<Course["aiLearningProgress"]>[string]): string {
+  if (!progress) return "未记录";
+  const mastery = {
+    "not-started": "尚未开始",
+    "in-progress": "学习中",
+    completed: "已完成",
+    mastered: "已掌握",
+  }[progress.masteryLevel];
+  const total = Math.max(0, progress.totalScenes);
+  const completed = Math.min(total, progress.completedScenes.length);
+  return `${mastery}，已完成 ${completed}/${total} 个学习场景${typeof progress.quizScore === "number" ? `，测验得分 ${progress.quizScore}` : ""}`;
+}
+
+function evaluationSourceLabel(source: "ai" | "teacher" | "peer" | "self"): string {
+  return {
+    ai: "AI 过程评价",
+    teacher: "教师评价",
+    peer: "同伴评价",
+    self: "学生自评",
+  }[source];
+}
+
+function supportAdoptionLabel(decision?: "adopted" | "adopted-after-edit" | "rejected"): string {
+  if (decision === "adopted") return "已采纳";
+  if (decision === "adopted-after-edit") return "修改后采纳";
+  if (decision === "rejected") return "未采纳";
+  return "未记录";
 }
 
 function riskWeight(value: TeacherInterventionSignal["riskLevel"]): number {

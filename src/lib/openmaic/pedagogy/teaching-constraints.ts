@@ -216,3 +216,41 @@ export function formatTeachingConstraintsForPrompt(constraints?: TeachingConstra
     'Hard rule: A concept outside the confirmed boundary may appear only as a brief analogy or context. It must be explained before use and must never become a hidden prerequisite, assessment target, or tangential extension.',
   ].filter(Boolean).join('\n');
 }
+
+export function formatTeachingConstraintsForChinesePrompt(constraints?: TeachingConstraints): string {
+  if (!constraints) return '';
+  const foundation = constraints.learnerFoundation && !/^(Assume|No explicit)/i.test(constraints.learnerFoundation)
+    ? constraints.learnerFoundation
+    : constraints.gradeBand === 'primary'
+      ? '具有具体生活经验，但不预设掌握正式学科术语'
+      : constraints.gradeBand === 'middle-school'
+        ? '具有本学段基础知识，但不预设专业或大学层次背景'
+        : constraints.gradeBand === 'high-school'
+          ? '具有高中通识与学科基础，但不预设未明确列出的大学专业知识'
+          : '只预设一般学习能力和已明确给出的前置知识';
+  const supportLevel = constraints.supportLevel === 'high-scaffold'
+    ? '高支架：先给具体例子，再逐步抽象，并设置理解检查'
+    : constraints.supportLevel === 'independent'
+      ? '自主探究：允许多步推理，但仍须说明假设和知识边界'
+      : '平衡支架：提供必要示例、步骤提示和自主应用空间';
+  const allowed = constraints.allowedKnowledgePoints.length
+    ? constraints.allowedKnowledgePoints.map((point) => `- ${point.name}`).join('\n')
+    : '未提供明确知识点清单，只能围绕课程主题与课程目标组织内容。';
+  return [
+    '学生画像与教学边界（必须遵守）',
+    `学段：${constraints.grade}`,
+    `学科与主题：${constraints.subject} / ${constraints.topic}`,
+    `课程容量：${constraints.courseHours} 课时，共 ${constraints.totalMinutes} 分钟`,
+    `建议知识点数量：${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个`,
+    `学习支架：${supportLevel}`,
+    `可假定的已有基础：${foundation}`,
+    constraints.learningNeeds.length ? `已知学习需要：${constraints.learningNeeds.join('；')}` : '学习需要：未填写，不得据此推断学生不存在学习困难。',
+    constraints.familiarContexts.length ? `熟悉情境：${constraints.familiarContexts.join('；')}` : '熟悉情境：未填写，选择案例时使用本学段常见生活情境。',
+    constraints.learningObjectives.length ? `课程目标：${constraints.learningObjectives.join('；')}` : '课程目标：未填写，只能依据课程主题给出候选，不得宣称目标已确定。',
+    '已确认的知识边界：',
+    allowed,
+    '术语与深度：专业术语首次出现时必须用中文准确解释；先从具体例子进入机制，再进行有限应用，不得把未列出的专业知识当作前置条件。',
+    '内容组织：按“激活已有经验—具体示例—解释机制—引导应用—独立检查—简要归纳”推进，不得仅为填满课时而增加难度或重复内容。',
+    '评价边界：只评价当前课程目标和已确认知识点；空值表示未知或未填写，不表示学生不会、内容不存在或任务已经完成。',
+  ].filter(Boolean).join('\n');
+}

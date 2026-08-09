@@ -117,9 +117,6 @@ export default function TeacherHomePage() {
               <h1 className="mt-4 text-[clamp(28px,3.6vw,40px)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
                 欢迎回来，<span className="pbl-display-gradient">{session.user.name}</span>
               </h1>
-              <p className="mt-3 max-w-xl text-[14px] leading-6 text-[var(--pbl-text-muted)] md:text-[15px]">
-                教师与 AI 协同管理课堂、AI 授课、AI 伴学——在这里推进六阶段 PBL 闭环。
-              </p>
 
               {/* 主操作按钮组 */}
               <div className="mt-5 flex flex-wrap items-center gap-2.5">

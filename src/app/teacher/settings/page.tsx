@@ -956,7 +956,6 @@ export default function TeacherSettingsPage() {
         </Link>
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-stone-900">AI 服务设置</h1>
-          <p className="mt-0.5 text-sm text-stone-500">配置大模型、语音、图像、视频、搜索和 PDF 解析服务</p>
         </div>
       </div>
 
@@ -1012,7 +1011,6 @@ export default function TeacherSettingsPage() {
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-xl font-bold text-stone-900">{tabCopy.title}</h2>
-                  <p className="mt-1 text-sm text-stone-500">{tabCopy.description}</p>
                 </div>
                 <div className="relative w-full md:w-[320px]">
                   <Search

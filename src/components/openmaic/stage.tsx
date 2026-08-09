@@ -34,6 +34,7 @@ import type { PlaybackSyncState, StageExperience } from '@openmaic/components/st
 export function Stage({
   onRetryOutline,
   experience = 'student-course',
+  autoplaySceneId,
   playbackState,
   onPlaybackStateChange,
   interactionState,
@@ -42,6 +43,8 @@ export function Stage({
 }: {
   onRetryOutline?: (outlineId: string) => Promise<void>;
   experience?: StageExperience;
+  /** Starts this scene as soon as its playback engine is ready. */
+  autoplaySceneId?: string;
   playbackState?: PlaybackSyncState;
   onPlaybackStateChange?: (state: Omit<PlaybackSyncState, 'version'>) => void;
   /**
@@ -171,6 +174,7 @@ export function Stage({
               canEnterProMode={isEditable}
               onEnterProMode={toggleHandler}
               experience={experience}
+              autoplaySceneId={autoplaySceneId}
               playbackState={playbackState}
               onPlaybackStateChange={onPlaybackStateChange}
               interactionState={interactionState}

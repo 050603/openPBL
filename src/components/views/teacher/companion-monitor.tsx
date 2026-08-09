@@ -66,7 +66,7 @@ function recommendedTeacherAction(
 ): string {
   if (status === "awaiting-calibration") return "核查学生证据，并确认范围或方案";
   if (status === "needs-revision") return "查看修订证据，决定是否补充反馈";
-  if (status === "not-started") return "确认学生已找到当前任务，必要时现场启动";
+  if (status === "not-started") return "未开始";
   if (status === "working") return "围绕首个证据缺口提供最小支架";
   return "保持观察，让学生继续自主推进";
 }
@@ -206,9 +206,6 @@ export function CompanionMonitor({
             <ClipboardCheck className="text-[var(--pbl-teacher)]" size={20} />
             方案校准行动台
           </h3>
-          <p className="mt-1 text-sm leading-6 text-stone-500">
-            先处理学习信号和待核查证据，再确认方案是否具备进入实践的条件。
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Pill tone={waitingCount ? "amber" : "gray"}>待校准 {waitingCount}</Pill>

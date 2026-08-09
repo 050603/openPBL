@@ -201,7 +201,7 @@ export function AdaptiveAiLearningRuntime({
     let simulatedState = state;
     let budget = remainingAdaptiveBudgetSec(simulatedState);
     const queue: QueuedResource[] = [];
-    for (const branch of plan.branches.filter((item) => item.trigger?.placement === "before-main-course")) {
+    for (const branch of plan.branches.filter((item) => item.enabled !== false && item.trigger?.placement === "before-main-course")) {
       const result = evaluateAdaptiveBranchDecision({
         plan,
         state: simulatedState,

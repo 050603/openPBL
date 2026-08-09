@@ -1,5 +1,6 @@
 import { callLLM } from "@/lib/llm/client";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
+import { TEACHER_FACING_PROMPT_CONTRACT } from "@/lib/prompt-quality/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +27,11 @@ export async function POST(request: Request) {
   let content: string;
   try {
     content = await callLLM([
-      { role: "system", content: "你是教师课堂主持助手。只能依据给定的真实学生证据填充主持支架；每个判断必须标注证据 ID，不得编造学生表现，不得替教师作最终价值判断。" },
-      { role: "user", content: `课程：${course.name}\n支架：${scaffold.title}\n结构：${JSON.stringify(scaffold.sections)}\n真实证据：\n${evidence.join("\n")}\n请生成教师可审阅的主持草稿。` },
+      { role: "system", content: `你是教师课堂主持助手。只能依据给定的真实学生证据填充主持支架；每个判断必须标注证据 ID，不得编造学生表现，不得替教师作最终价值判断。
+输出必须沿用给定支架的章节顺序，每一节包含“主持目标、可直接使用的引导语、对应证据、需要教师确认的判断”四部分。直接证据与基于证据的推断必须明确区分；证据不足时写“证据不足，需教师现场确认”，不得补写。
+
+${TEACHER_FACING_PROMPT_CONTRACT}` },
+      { role: "user", content: `课程：${course.name}\n主持支架：${scaffold.title}\n章节结构（仅用于确定顺序和范围，不得复述内部字段名）：${JSON.stringify(scaffold.sections)}\n真实证据：\n${evidence.join("\n")}\n请生成教师可审阅、可在课堂直接使用的主持草稿。` },
     ], { abortSignal: request.signal });
   } catch (error) {
     if (request.signal.aborted || (error instanceof Error && error.name === "AbortError")) {

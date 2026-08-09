@@ -44,6 +44,8 @@ Infer the course language from all available signals and produce:
 - **Science / academic terms** with standard translations: use the teaching language's translation.
 - **Emerging tech terms** (AI/ML): show bilingually.
 - **User's explicit request** about terminology overrides the above defaults.
+- **Internal metadata is not teaching language**: scene types, schema keys, IDs, enum values, difficulty codes, and workflow labels may appear only in their designated structured fields. Never copy them into learner-visible titles, descriptions, key points, explanations, or assessment text.
+- **Missing information remains unknown**: an omitted prerequisite, learning need, or audience detail does not mean it is absent. Use conservative defaults without claiming the user explicitly supplied them.
 
 ### Course Title
 

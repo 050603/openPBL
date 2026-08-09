@@ -721,6 +721,10 @@ export type AdaptivePreparedBranchResource = {
 
 export type AdaptiveBranchOutline = {
   id: string;
+  /** Whether this resource participates in the current course path. */
+  enabled?: boolean;
+  /** Original generated placement used by the teacher's auto-assign action. */
+  defaultTrigger?: AdaptiveBranchTrigger;
   kind: AdaptiveBranchKind;
   title: string;
   objective: string;
@@ -977,6 +981,8 @@ export type Course = {
 
 export type CourseContent = {
   pblOutline: string;
+  /** 教师在生成知识图谱前指定、要求模型完整保留的知识点。 */
+  teacherRequiredKnowledgePoints?: string[];
   knowledgePoints: KnowledgePoint[];
   knowledgeGraph?: KnowledgeGraph;
   /** Deterministic six-module timeline regenerated from the final teacher allocation. */

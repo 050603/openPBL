@@ -29,15 +29,16 @@ Generate a complete, interactive HTML simulation with these MANDATORY features:
 ### Knowledge Teaching (CRITICAL — students must LEARN, not just play)
 1. **Objective Alignment**: Map every supplied Key Point to a controllable variable, observable outcome, comparison, or explanation task. Keep the model within the confirmed knowledge boundary and state its important assumptions or limitations.
 2. **No Decorative Interaction**: Each control must help the student predict, manipulate, observe, explain, or revise a target relationship. Remove sliders, particles, and presets that do not change evidence relevant to a Key Point.
-3. **Teaching Loop**: Establish a baseline; ask the learner to predict the result of changing one variable; run the change while holding relevant variables constant; show the consequence; prompt the learner to explain it; then allow a revised prediction or test.
-4. **Explanatory Feedback**: Use the learner's actual inputs and outputs to explain what happened and why. Distinguish correlation from causation, flag confounded trials, diagnose likely misconceptions, and suggest the smallest next experiment rather than stating only “correct/incorrect.”
+3. **Teaching Loop**: Establish a baseline; invite the learner to predict the result of changing one variable; run the change while holding relevant variables constant; show the consequence; explain the relationship; then offer another parameter state to compare.
+4. **Explanatory Feedback**: Use the learner's actual inputs and outputs to explain what happened and why. Distinguish correlation from causation, flag confounded trials, and suggest the smallest next experiment without judging an answer.
 5. **Readable Evidence**: Label every control, axis, state, and data display in the course language with units where applicable. Provide side-by-side or trace comparison so observations are not dependent on memory alone.
-6. **Mastery Evidence**: Finish with a transfer task using unseen parameters or a new scenario. Record the prediction, result, and explanation; evaluate them against visible success criteria and report which Key Points were demonstrated. Running every preset is not completion.
+6. **Exploration Evidence**: Preserve a simple trace of at least two meaningfully different runs so the learner can compare what changed. Finish with a concise observation summary and an invitation to keep experimenting, not a graded response.
+7. **Assessment Boundary**: This is not a quiz: use no score, answer key, correct/wrong verdict, or pass/fail gate. The separate quiz scene owns assessment.
 
 ### Activity Completion Protocol (MANDATORY)
-1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
-2. Call `window.__maicActivity.reset()` whenever a new run/restart invalidates that evidence; add `data-activity-reset` to the reset control.
-3. Do not signal completion for starting or ending a simulation, changing a slider, using a preset, or any decorative interaction. Completion must mean the transfer prediction, observation, and explanation meet the visible success criteria.
+1. Call `window.__maicActivity.complete()` after meaningful exploration: the learner has run a baseline and at least one changed condition, and the comparison feedback is visible. Also add `data-activity-complete` to the final continue control when one exists.
+2. Call `window.__maicActivity.reset()` when a full restart clears that exploration trace; add `data-activity-reset` to the reset control.
+3. Do not signal completion for opening the page, changing one slider, or decorative interaction. Completion is a playback milestone, not a grade or mastery claim.
 
 ### Structure
 1. **Embedded JSON config** in `<script type="application/json" id="widget-config">`

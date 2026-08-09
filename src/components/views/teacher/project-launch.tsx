@@ -11,7 +11,6 @@ import {
   Sparkles,
   Megaphone,
   Send,
-  Target,
   Trash2,
   Users,
   Plus,
@@ -215,14 +214,6 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <Field title="主驱动问题" text={course.drivingQuestion} />
             <Field title="项目目标" text={course.summary} />
-            <div className="rounded-[8px] border border-blue-100 bg-blue-50/60 p-3 md:col-span-2 xl:col-span-1 2xl:col-span-2">
-              <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
-                <Target size={16} /> 重点关注
-              </div>
-              <p className="mt-1 text-[13px] leading-6 text-stone-700">
-                学生需要理解真实情境、驱动问题、个人成果要求与评价标准。每名学生独立承担完整项目，AI 伴学小组提供认知支持。
-              </p>
-            </div>
           </div>
         </Card>
 
@@ -247,7 +238,6 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
             <h2 className="mt-1 flex items-center gap-2 text-lg font-bold text-stone-900">
               <Lightbulb className="text-amber-500" size={22} /> 启发问题与学生选题
             </h2>
-            <p className="mt-1 text-sm text-stone-500">课堂中新增的问题会同步到学生端；已有学生选择不会被覆盖。</p>
           </div>
           <Pill tone={selectedCount === joined && joined > 0 ? "green" : "blue"}>
             已选择 {selectedCount}/{joined}
@@ -291,7 +281,6 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 
           <div className="rounded-[9px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/35 p-3.5">
             <h3 className="font-bold text-stone-900">课堂中增加问题</h3>
-            <p className="mt-1 text-xs leading-5 text-stone-500">适合根据课堂讨论即时增加新的真实情境或研究切入点。</p>
             <TextArea
               className="mt-3 min-h-20 bg-white"
               onChange={(event) => setNewInquiryQuestion(event.target.value)}

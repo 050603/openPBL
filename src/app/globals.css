@@ -1312,3 +1312,27 @@ select {
 .pbl-shine-card:hover::after {
   left: 150%;
 }
+@keyframes resource-block-arrival {
+  0% {
+    opacity: 0;
+    transform: translate3d(180px, -8px, 0) scale(0.94);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(-5px, 0, 0) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.resource-block-arrival {
+  animation: resource-block-arrival 680ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resource-block-arrival {
+    animation: none;
+  }
+}

@@ -33,15 +33,16 @@ Generate a complete, interactive 3D visualization using Three.js with these MAND
 ### Knowledge Teaching (CRITICAL — students must LEARN, not just look)
 1. **Objective Alignment**: Map every supplied Key Point to a specific object, spatial relation, viewpoint, comparison, or explanation task. Use accurate scale/shape conventions and disclose purposeful distortions; do not add impressive but irrelevant objects.
 2. **No Decorative Interaction**: Orbiting, zooming, and animation count only when they help the learner predict, inspect, compare, explain, or revise a target spatial idea. Free camera movement alone is not a learning activity.
-3. **Teaching Loop**: Begin from an orientation view; ask the learner to predict a hidden relation or appearance; move to a purposeful viewpoint or let the learner manipulate one parameter; highlight the evidence; then ask for an explanation before showing the model explanation.
-4. **Explanatory Feedback**: Every instructional object needs a readable label and explanation of its role. Use the selected object, camera view, and learner choice to explain what is visible and why; diagnose common scale, orientation, or structure misconceptions.
+3. **Teaching Loop**: Begin from an orientation view; invite the learner to anticipate a relation or appearance; move to a purposeful viewpoint or let the learner manipulate one parameter; highlight the evidence; then explain the observed contrast.
+4. **Explanatory Feedback**: Every instructional object needs a readable label and explanation of its role. Use the selected object, camera view, and learner choice to explain what is visible and why without judging an answer.
 5. **Guided Attention**: A guided tour must stop only at instructionally necessary viewpoints, state what to inspect and why it matters, and visually isolate the current evidence. Keep labels legible and prevent occlusion on desktop and mobile.
-6. **Mastery Evidence**: End with a transfer task using a new viewpoint, object, or comparison. Record the learner's prediction/selection and explanation, check them against visible success criteria, and report which Key Points were demonstrated; completing the tour is not mastery.
+6. **Exploration Evidence**: Preserve the learner's inspected objects or viewpoints and finish with a visual comparison summary. Let the learner freely revisit the model; do not require a correct selection or explanation submission.
+7. **Assessment Boundary**: This is not a quiz: use no score, answer key, matching, correctness verdict, ranking, or pass/fail gate.
 
 ### Activity Completion Protocol (MANDATORY)
-1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
-2. Call `window.__maicActivity.reset()` whenever a new attempt/restart invalidates that evidence; add `data-activity-reset` to the reset control.
-3. Do not signal completion for orbiting, zooming, selecting an object, completing a tour, or any decorative interaction. Completion must mean the transfer task's prediction and explanation meet the visible success criteria.
+1. Call `window.__maicActivity.complete()` after meaningful exploration: the learner has inspected the required objects or viewpoints and the comparison summary is visible. Also add `data-activity-complete` to the final continue control when one exists.
+2. Call `window.__maicActivity.reset()` when a full reset clears the inspection history; add `data-activity-reset` to the reset control.
+3. Do not signal completion for orbiting, zooming once, selecting one object, or decorative interaction. Completion is a playback milestone, not a grade or mastery claim.
 
 ### Scene Setup
 1. **Three.js from CDN** using importmap for ES modules

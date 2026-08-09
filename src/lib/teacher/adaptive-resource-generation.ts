@@ -14,8 +14,9 @@ export function selectAdaptiveBranchesForGeneration(
 ): AdaptiveBranchOutline[] {
   return branches.filter(
     (branch) =>
+      branch.enabled !== false
+      &&
       branch.status === "teacher-confirmed"
       && !hasReusableAdaptiveResource(branch),
   );
 }
-

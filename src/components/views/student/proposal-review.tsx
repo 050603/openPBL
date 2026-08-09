@@ -148,12 +148,10 @@ export function ProposalReviewView({ course, embedded = false }: { course: Cours
     <header className="border-b border-[var(--pbl-border)] pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-[var(--pbl-student)]">方案构思与校准</p>
-          <h1 className="font-editorial mt-1 text-2xl font-semibold">先写出你的想法，再借助 AI 多角色反馈完善</h1>
+          <h1 className="font-editorial text-2xl font-semibold">方案构思与校准</h1>
         </div>
         <Pill tone={project?.teacherApproval?.status === "approved" ? "green" : project?.teacherApproval?.status === "revision" ? "orange" : "gray"}>{project?.teacherApproval?.status === "approved" ? "教师已确认" : project?.teacherApproval?.status === "revision" ? "需要修订" : "等待教师校准"}</Pill>
       </div>
-      <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--pbl-text-muted)]">用一段话写下你的项目想法，AI 伴学小组会从知识、启发、质疑、方案等角度帮你完善。最终方向和关键判断由你决定。</p>
     </header>
     {myFeedback.length ? <FeedbackLanes feedback={myFeedback} /> : null}
 

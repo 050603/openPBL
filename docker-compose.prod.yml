@@ -11,6 +11,7 @@ x-app: &app
     ENABLE_WEBSOCKET: "true"
     WEBSOCKET_PORT: "3001"
     ENABLE_TLDRAW_SYNC: "true"
+    COURSE_GENERATION_BACKGROUND_ENABLED: "true"
     TLDRAW_SYNC_PORT: "3002"
     TRUST_PROXY_HEADERS: "true"
     UPLOAD_DIR: /app/.openpbl-data/uploads
@@ -25,6 +26,7 @@ x-app: &app
   volumes:
     - uploads:/app/.openpbl-data/uploads
     - whiteboards:/app/.openpbl-data/whiteboards
+    - classrooms:/app/data/classrooms
   expose:
     - "3000"
     - "3001"
@@ -370,6 +372,7 @@ services:
     volumes:
       - uploads:/data/uploads:ro
       - whiteboards:/data/whiteboards:ro
+      - classrooms:/data/classrooms:ro
       - backup-status:/status
       - ./deploy/backup/restic-loop.sh:/usr/local/bin/openpbl-restic-loop:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/openpbl-restic-loop"]
@@ -446,6 +449,7 @@ volumes:
   pgbackrest-spool:
   uploads:
   whiteboards:
+  classrooms:
   letsencrypt:
   acme-webroot:
   nginx-logs:

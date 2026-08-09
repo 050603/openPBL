@@ -10,6 +10,7 @@ import { callLLM } from '@openmaic/lib/ai/llm';
 import { createLogger } from '@openmaic/lib/logger';
 import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
+import { buildPromptQualityContract } from '@/lib/prompt-quality/policy';
 const log = createLogger('Quiz Grade');
 
 interface GradeRequest {
@@ -52,13 +53,25 @@ export async function POST(req: NextRequest) {
 
     const isZh = language === 'zh-CN';
 
+    const qualityContract = buildPromptQualityContract({
+      mode: 'json',
+      audience: 'student',
+      language: isZh ? 'zh-CN' : 'inherit',
+    });
     const systemPrompt = isZh
       ? `你是一位专业的教育评估专家。请根据题目和学生答案进行评分并给出简短评语。
+评分只能依据题目、满分、明确给出的评分要点和学生答案。没有提供评分要点时，应按答案的准确性、相关性、完整性和推理质量谨慎评分，不得猜测学生未写出的思路。
+评语先指出一项有证据支持的表现，再给出一项最重要、可执行的改进建议；答案为空时应明确说明未作答。
 必须以如下 JSON 格式回复（不要包含其他内容）：
-{"score": <0到${points}的整数>, "comment": "<一两句评语>"}`
+{"score": <0到${points}的整数>, "comment": "<一两句评语>"}
+
+${qualityContract}`
       : `You are a professional educational assessor. Grade the student's answer and provide brief feedback.
+Base the score only on the question, maximum score, supplied grading guidance, and the student's actual answer. Do not infer reasoning that was not written. Give one evidence-based strength and one actionable improvement; explicitly identify an empty answer as unanswered.
 You must reply in the following JSON format only (no other content):
-{"score": <integer from 0 to ${points}>, "comment": "<one or two sentences of feedback>"}`;
+{"score": <integer from 0 to ${points}>, "comment": "<one or two sentences of feedback>"}
+
+${qualityContract}`;
 
     const userPrompt = isZh
       ? `题目：${question}

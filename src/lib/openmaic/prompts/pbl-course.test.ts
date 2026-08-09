@@ -66,6 +66,8 @@ describe("PBL course prompt", () => {
     expect(interactive?.user).toContain("mandatory explanation-practice cadence");
     expect(interactive?.user).toContain("one or at most two closely related semantic pages");
     expect(interactive?.user).toContain("A `quiz` is an assessment and does NOT satisfy");
+    expect(interactive?.user).toContain("Interactions are ungraded exploration or operation spaces");
+    expect(interactive?.user).toContain("matching, sorting, ordering, drag-to-answer");
     expect(interactive?.user).toContain("PPT/script-only");
     expect(interactive?.user).toContain("Decorative clicking");
   });

@@ -18,5 +18,7 @@ describe('interactive action learner-agency contract', () => {
     expect(system).toContain('The learner must perform every click');
     expect(system).toContain('Never use `widget_setState`');
     expect(system).toContain('must never substitute for the learner action');
+    expect(system).toContain('Do not narrate the interaction as a test');
+    expect(system).toContain('scores, correctness verdicts');
   });
 });

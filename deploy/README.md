@@ -7,10 +7,16 @@ loopback and is reached through an SSH tunnel.
 1. Install Docker Engine with the Compose plugin on Ubuntu 24.04.
 2. Copy `.deploy.env.example` to `.deploy.env`, fill immutable image tags,
    and create the files documented in `secrets.example/README.md`.
+   Keep the existing `PROVIDER_ENCRYPTION_KEY` when migrating an installation;
+   replacing it makes stored Provider credentials unreadable.
 3. Export `LETSENCRYPT_EMAIL` and run `deploy/bootstrap-certificate.sh`.
 4. Start the first slot:
 
    `docker compose --env-file deploy/.deploy.env -f docker-compose.prod.yml --profile blue --profile certificate --profile observability --profile backup up -d`
+
+   The production stack enables durable course generation. It requires the
+   long-lived app process, PostgreSQL, and the shared `classrooms` volume at
+   `/app/data/classrooms`. Do not remove named volumes during upgrades.
 
 5. Initialize the first teacher once with the migrator image:
 

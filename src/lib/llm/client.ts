@@ -32,6 +32,10 @@ import type {
 import { getActiveAiSettings } from "./settings";
 import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
 import {
+  assessKnowledgeGraphQuality,
+  normalizeKnowledgePointName,
+} from "@/lib/knowledge-graph-quality";
+import {
   applyConfirmedPblTimingPlan,
   assessPblTeachingOutlineStructure,
   createPblTimingSkeleton,
@@ -44,6 +48,8 @@ import {
   rescalePblDetailDurations,
   type PblModelTimingRecommendation,
 } from "@/lib/pbl-time-model";
+import { localizeGeneratedNarrative } from "./generated-language";
+export { localizeGeneratedNarrative } from "./generated-language";
 
 function env(name: string): string | undefined {
   if (typeof process !== "undefined" && process.env) return process.env[name];
@@ -353,14 +359,14 @@ function requireText(value: unknown, scope: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${scope}失败：AI 返回结构不完整，请检查模型输出后重试。`);
   }
-  return value.trim();
+  return localizeGeneratedNarrative(value.trim());
 }
 
 function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error("知识图谱生成失败：AI 未返回知识点。");
   }
-  return raw.map((item, index) => {
+  const points = raw.map<CourseContent["knowledgePoints"][number]>((item, index) => {
     const point = item && typeof item === "object"
       ? item as {
           id?: string;
@@ -374,8 +380,8 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
     return {
       id: typeof point.id === "string" && point.id.trim() ? point.id.trim() : `kp-${index + 1}`,
       name: requireText(point.name, "知识点"),
-      description: typeof point.description === "string" ? point.description.trim() : "",
-      keyInfo: typeof point.keyInfo === "string" && point.keyInfo.trim() ? point.keyInfo.trim() : undefined,
+      description: typeof point.description === "string" ? localizeGeneratedNarrative(point.description.trim()) : "",
+      keyInfo: typeof point.keyInfo === "string" && point.keyInfo.trim() ? localizeGeneratedNarrative(point.keyInfo.trim()) : undefined,
       relatedIds: Array.isArray(point.relatedIds)
         ? point.relatedIds.filter((id): id is string => typeof id === "string")
         : undefined,
@@ -388,6 +394,13 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
           : undefined,
     };
   });
+  if (new Set(points.map((point) => point.id)).size !== points.length) {
+    throw new Error("知识图谱生成失败：知识点 ID 存在重复。");
+  }
+  if (new Set(points.map((point) => normalizeKnowledgePointName(point.name))).size !== points.length) {
+    throw new Error("知识图谱生成失败：知识点名称存在重复或同义重复。");
+  }
+  return points;
 }
 
 function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["knowledgePoints"]): KnowledgeGraph {
@@ -395,48 +408,48 @@ function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["k
   if (!Array.isArray(obj.nodes) || obj.nodes.length === 0) {
     throw new Error("知识图谱生成失败：AI 未返回图谱节点。");
   }
+  const rawNodes = obj.nodes;
+  const rawNodesById = new Map(rawNodes.map((node) => [node.id, node]));
+  if (rawNodes.length !== knowledgePoints.length || knowledgePoints.some((point) => !rawNodesById.has(point.id))) {
+    throw new Error("知识图谱生成失败：知识点与图谱节点没有按 ID 一一对应。");
+  }
 
-  const nodes: KnowledgeGraph["nodes"] = obj.nodes.map((node, index) => ({
-    id: typeof node.id === "string" && node.id ? node.id : knowledgePoints[index]?.id ?? `kp-${index + 1}`,
-    label:
-      typeof node.label === "string" && node.label.trim()
-        ? node.label.trim()
-        : knowledgePoints[index]?.name ?? requireText(undefined, "知识图谱节点"),
-    description:
-      typeof node.description === "string" && node.description.trim()
-        ? node.description.trim()
-        : knowledgePoints[index]?.description ?? "",
-    keyInfo:
-      typeof node.keyInfo === "string" && node.keyInfo.trim()
-        ? node.keyInfo.trim()
-        : knowledgePoints[index]?.keyInfo,
-    level:
+  const nodes: KnowledgeGraph["nodes"] = knowledgePoints.map((point) => {
+    const node = rawNodesById.get(point.id)!;
+    const nodeLevel =
       node.level === "foundation" ||
       node.level === "core" ||
       node.level === "application" ||
       node.level === "extension"
         ? node.level
-        : index < 2
-          ? "foundation"
-          : index < Math.max(4, Math.ceil(knowledgePoints.length * 0.6))
-            ? "core"
-            : "application",
-    relatedLessonIds: Array.isArray(node.relatedLessonIds)
-      ? node.relatedLessonIds.filter((id): id is string => typeof id === "string")
-      : undefined,
-  }));
+        : undefined;
+    return {
+      id: point.id,
+      label: point.name,
+      description: point.description || (typeof node.description === "string" ? localizeGeneratedNarrative(node.description.trim()) : ""),
+      keyInfo: point.keyInfo || (typeof node.keyInfo === "string" ? localizeGeneratedNarrative(node.keyInfo.trim()) : undefined),
+      level: point.level ?? nodeLevel,
+      relatedLessonIds: Array.isArray(node.relatedLessonIds)
+        ? node.relatedLessonIds.filter((id): id is string => typeof id === "string")
+        : undefined,
+    };
+  });
 
   const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = Array.isArray(obj.edges)
-    ? obj.edges
-        .map((edge, index) => ({
+  const candidateEdges = Array.isArray(obj.edges)
+    ? obj.edges.map((edge, index) => ({
           id: typeof edge.id === "string" && edge.id ? edge.id : `edge-${index + 1}`,
           source: typeof edge.source === "string" ? edge.source : "",
           target: typeof edge.target === "string" ? edge.target : "",
-          label: typeof edge.label === "string" && edge.label.trim() ? edge.label.trim() : "关联",
+          label: typeof edge.label === "string" && edge.label.trim() ? localizeGeneratedNarrative(edge.label.trim()) : "关联",
         }))
-        .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target)
     : [];
+  const edges = candidateEdges.filter(
+    (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target,
+  );
+  if (edges.length !== candidateEdges.length) {
+    throw new Error("知识图谱生成失败：关系包含无效节点引用或自环。");
+  }
 
   return { nodes, edges };
 }
@@ -450,6 +463,25 @@ function applyGraphLevels(
     ...point,
     level: point.level ?? levels.get(point.id),
   }));
+}
+
+export function normalizeKnowledgeGraphOutput(
+  rawKnowledgePoints: unknown,
+  rawKnowledgeGraph: unknown,
+  teacherRequiredKnowledgePoints: readonly string[] = [],
+): { knowledgePoints: CourseContent["knowledgePoints"]; knowledgeGraph: KnowledgeGraph } {
+  const parsedKnowledgePoints = validateKnowledgePoints(rawKnowledgePoints);
+  const knowledgeGraph = normalizeKnowledgeGraph(rawKnowledgeGraph, parsedKnowledgePoints);
+  const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
+  const quality = assessKnowledgeGraphQuality(
+    knowledgeGraph,
+    knowledgePoints,
+    teacherRequiredKnowledgePoints,
+  );
+  if (!quality.ok) {
+    throw new Error(`知识图谱生成失败：${quality.issues.slice(0, 3).join("；")}。`);
+  }
+  return { knowledgePoints, knowledgeGraph };
 }
 
 function validateLessonOutline(
@@ -473,10 +505,10 @@ function validateLessonOutline(
       stageKey,
       title: requireText(section.title, "AI 授知大纲"),
       objectives: Array.isArray(section.objectives)
-        ? section.objectives.map((objective) => String(objective)).filter(Boolean)
+        ? section.objectives.map((objective) => localizeGeneratedNarrative(String(objective))).filter(Boolean)
         : [],
       activities: Array.isArray(section.activities)
-        ? section.activities.map((activity) => String(activity)).filter(Boolean)
+        ? section.activities.map((activity) => localizeGeneratedNarrative(String(activity))).filter(Boolean)
         : [],
       durationMin: Number.isFinite(Number(section.durationMin)) ? Math.max(1, Number(section.durationMin)) : 1,
       parentActivityId:
@@ -715,7 +747,7 @@ export function normalizePblTimingRecommendationResponse(
     return [{
       stageKey,
       durationMin,
-      ...(rationale ? { rationale } : {}),
+      ...(rationale ? { rationale: localizeGeneratedNarrative(rationale, context?.knowledgePoints ?? []) } : {}),
     }];
   });
   if (allocations.length === 0) {
@@ -727,8 +759,10 @@ export function normalizePblTimingRecommendationResponse(
   const confidenceValue = firstText(recommendationRecord, ["confidence", "置信度"])?.toLowerCase();
   const recommendation: PblModelTimingRecommendation = {
     allocations,
-    evidence: textListFromUnknown(firstValue(recommendationRecord, ["evidence", "basis", "依据"])),
-    assumptions: textListFromUnknown(firstValue(recommendationRecord, ["assumptions", "假设"])),
+    evidence: textListFromUnknown(firstValue(recommendationRecord, ["evidence", "basis", "依据"]))
+      .map((item) => localizeGeneratedNarrative(item, context?.knowledgePoints ?? [])),
+    assumptions: textListFromUnknown(firstValue(recommendationRecord, ["assumptions", "假设"]))
+      .map((item) => localizeGeneratedNarrative(item, context?.knowledgePoints ?? [])),
     confidence:
       confidenceValue === "low" || confidenceValue === "high"
         ? confidenceValue
@@ -886,7 +920,7 @@ export function normalizeTeachingOutlineResponse(
     const missingFields: string[] = [];
     const read = (keys: ReadonlyArray<string>, label: string): string => {
       const value = firstText(section, keys, roleRecords);
-      if (value) return value;
+      if (value) return localizeGeneratedNarrative(value, context?.knowledgePoints ?? []);
       missingFields.push(label);
       return "";
     };
@@ -953,7 +987,8 @@ export function normalizeTeachingOutlineResponse(
       1,
       Math.round(toFiniteNumber(firstValue(section, ["durationMin", "durationMinutes", "duration", "minutes", "时长"]), 1)),
     );
-    const notes = firstText(section, ["notes", "note", "remarks", "备注"]);
+    const notesValue = firstText(section, ["notes", "note", "remarks", "备注"]);
+    const notes = notesValue ? localizeGeneratedNarrative(notesValue, context?.knowledgePoints ?? []) : undefined;
     const normalizationNote = missingFields.length > 0
       ? `AI 输出缺少字段（${missingFields.join("、")}），系统已补全，请教师核查。`
       : undefined;
@@ -1050,7 +1085,13 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
         ? dimension.id.trim()
         : `ev-${index + 1}`;
 
-    return { id, name, weight, description, responsibleRole };
+    return {
+      id,
+      name: localizeGeneratedNarrative(name),
+      weight,
+      description: localizeGeneratedNarrative(description),
+      responsibleRole,
+    };
   });
 
   // Normalize weights: ensure each role group sums to 100
@@ -1059,7 +1100,7 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
   const overallRubric =
     pickString(plan, ["overallRubric", "rubric", "整体评价", "评价说明"]) ?? "";
 
-  return { dimensions: normalized, overallRubric };
+  return { dimensions: normalized, overallRubric: localizeGeneratedNarrative(overallRubric) };
 }
 
 /** Try multiple keys on a record and return the first non-empty string value. */
@@ -1131,9 +1172,10 @@ function normalizeDimensionWeights(
 
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {
   const data = json && typeof json === "object" ? json as Partial<CourseContent> : {};
-  const parsedKnowledgePoints = validateKnowledgePoints(data.knowledgePoints);
-  const knowledgeGraph = normalizeKnowledgeGraph(data.knowledgeGraph, parsedKnowledgePoints);
-  const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
+  const { knowledgePoints, knowledgeGraph } = normalizeKnowledgeGraphOutput(
+    data.knowledgePoints,
+    data.knowledgeGraph,
+  );
   const teachingOutline = data.teachingOutline
     ? validateTeachingOutline(data.teachingOutline, input, { knowledgePoints, knowledgeGraph })
     : [];
@@ -1263,7 +1305,7 @@ export async function generateCourseContent(
         ...emptyCourseContent(),
         pblOutline:
           typeof jsonRecord?.pblOutline === "string"
-            ? jsonRecord.pblOutline.trim()
+            ? localizeGeneratedNarrative(jsonRecord.pblOutline.trim(), request.context?.knowledgePoints ?? [])
             : "",
         teachingOutline: normalizeTeachingOutlineResponse(
           json,
@@ -1275,9 +1317,11 @@ export async function generateCourseContent(
     };
   }
   if (action === "knowledgeGraph") {
-    const parsedKnowledgePoints = validateKnowledgePoints((json as { knowledgePoints?: unknown }).knowledgePoints);
-    const knowledgeGraph = normalizeKnowledgeGraph((json as { knowledgeGraph?: unknown }).knowledgeGraph, parsedKnowledgePoints);
-    const knowledgePoints = applyGraphLevels(parsedKnowledgePoints, knowledgeGraph);
+    const { knowledgePoints, knowledgeGraph } = normalizeKnowledgeGraphOutput(
+      (json as { knowledgePoints?: unknown }).knowledgePoints,
+      (json as { knowledgeGraph?: unknown }).knowledgeGraph,
+      request.context?.teacherRequiredKnowledgePoints,
+    );
     return {
       content: {
         ...emptyCourseContent(),

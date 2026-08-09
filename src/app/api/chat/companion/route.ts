@@ -14,6 +14,7 @@ import { buildCompanionContext, type CompanionContextSnapshot } from "@/lib/comp
 import { appendCompanionMessages, companionMessage, getCompanionThread } from "@/lib/companion/server-store";
 import { sanitizeCompanionResponse } from "@/lib/companion/response";
 import { buildStageBoundaryInstruction } from "@/lib/companion/stage-policy";
+import { JSON_STUDENT_PROMPT_CONTRACT, promptStageLabel } from "@/lib/prompt-quality/policy";
 import { buildWorkspaceEditInstruction, extractWorkspacePatch, type CompanionWorkspacePatch } from "@/lib/companion/workspace-operation";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type { CompanionTriggerKind } from "@/lib/session/types";
@@ -116,6 +117,7 @@ function buildDirectorPrompt(input: {
   message: string;
   history: ChatMessage[];
   companions: { id: AiCompanionId; name: string; role: string; description: string; canQuestion: boolean }[];
+  stageKey: string;
   stageLabel: string;
   trigger?: CompanionTriggerKind;
   preferredCompanionId?: AiCompanionId;
@@ -134,7 +136,7 @@ function buildDirectorPrompt(input: {
 ${companionList}
 
 规则：
-1. 根据学生的问题和当前阶段（${input.stageLabel}）选择角色。主动介入只能选 1 个角色；学生主动提问时默认也选 1 个，只有学生明确要求多角色或多个角度时才可选 2 个
+1. 根据学生的问题和当前阶段（${promptStageLabel(input.stageKey, input.stageLabel)}）选择角色。主动介入只能选 1 个角色；学生主动提问时默认也选 1 个，只有学生明确要求多角色或多个角度时才可选 2 个
 2. 优先选择能提供不同视角的角色组合（如：一个陈述知识+一个质疑检验）
 3. 如果学生明确要求某个角色，必须包含该角色
 4. 避免为了热闹而派人；若选 2 个角色，两者必须围绕同一个核心问题分工，第二个角色不能开启新的任务
@@ -142,7 +144,10 @@ ${companionList}
 6. cueUser 为 true 表示需要学生继续输入，false 表示本轮讨论结束
 7. 功能矩阵约束：只有"问问"(critic)可以提问，其他角色只提供陈述性内容和解决方案
 8. 如果学生需要知识解释，优先派"知知"(knowledge)；如果需要方案，优先派"策策"(planner)
-9. 这些角色是课堂上的伴学伙伴，说话风格应像同学之间的交流，自然、口语化`;
+9. 这些角色是课堂上的伴学伙伴，说话风格应像同学之间的交流，自然、口语化
+10. speakers 中只允许出现当前可选角色列表里的 id；不得因为缺少信息而虚构角色或扩大任务。
+
+${JSON_STUDENT_PROMPT_CONTRACT}`;
 
   const user = `本轮来源：${input.trigger ? `系统主动介入（${input.trigger}）` : "学生主动请求"}
 学生最新消息：${input.message}
@@ -433,6 +438,7 @@ export async function POST(req: NextRequest) {
         message: body.message,
         history: authoritativeHistory,
         companions: availableCompanions,
+        stageKey: body.stageKey,
         stageLabel: body.stageLabel,
         trigger: body.trigger?.kind,
         preferredCompanionId: body.preferredCompanionId,
