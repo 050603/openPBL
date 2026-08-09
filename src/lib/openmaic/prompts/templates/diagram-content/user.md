@@ -21,15 +21,16 @@ Generate a complete HTML diagram with:
 ### Knowledge Teaching (CRITICAL — students must LEARN, not just view)
 1. **Objective Alignment**: Map every supplied Key Point to a node, connection, or comparison and state what the learner should be able to explain. Do not add decorative nodes that are outside the confirmed content.
 2. **No Decorative Interaction**: Clicking and revealing are useful only when they make the student predict, inspect, compare, explain, or revise a relationship. Do not treat uncovering every node as proof of learning.
-3. **Teaching Loop**: Reveal prerequisites before dependent ideas; before each important connection, ask the student to predict the relationship; after reveal, show the visual evidence and a concise why-explanation; then ask the learner to restate or apply the relationship.
-4. **Explanatory Feedback**: Each node needs an educational `details` field, and each edge needs a precise relation plus its reason or condition. When the learner chooses a wrong path or relation, identify the misconception and point back to the relevant visual evidence.
+3. **Teaching Loop**: Reveal prerequisites before dependent ideas; before each important connection, invite the student to predict and observe the relationship; after reveal, show the visual evidence and a concise why-explanation; then let the learner inspect a related path or comparison.
+4. **Explanatory Feedback**: Each node needs an educational `details` field, and each edge needs a precise relation plus its reason or condition. Explain the currently selected path from visual evidence without labeling the learner right or wrong.
 5. **Cognitive Load**: Keep the current focus visually dominant, group related nodes, and progressively disclose secondary detail. A visible Key Points panel may support orientation but must not replace the guided reasoning task.
-6. **Mastery Evidence**: End with a short transfer task in which the learner predicts a missing node/edge, diagnoses a new case, or reconstructs part of the diagram. Check the response against visible success criteria and report which Key Points were demonstrated.
+6. **Exploration Evidence**: Let the learner open and compare at least two meaningful paths, then show a compact relationship summary based on what they inspected. Do not require reconstruction against a hidden canonical arrangement.
+7. **Assessment Boundary**: This is not a quiz: use no score, answer key, matching, sorting, ordering, drag-to-answer, correctness verdict, or pass/fail gate.
 
 ### Activity Completion Protocol (MANDATORY)
-1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
-2. Call `window.__maicActivity.reset()` whenever a new attempt/restart invalidates that evidence; add `data-activity-reset` to the reset control.
-3. Do not signal completion for opening the page, revealing a node, advancing a guided tour, or any decorative interaction. Completion must mean the transfer task's visible success criteria have been checked.
+1. Call `window.__maicActivity.complete()` after meaningful exploration: the learner has inspected the required relationships and the comparison summary is visible. Also add `data-activity-complete` to the final continue control when one exists.
+2. Call `window.__maicActivity.reset()` when a restart clears the inspected-path state; add `data-activity-reset` to the reset control.
+3. Do not signal completion for opening the page, revealing one node, or decorative interaction. Completion is a playback milestone, not a grade or mastery claim.
 
 ### Visual Structure
 1. **SVG nodes** with icons, labels, and click-to-show details

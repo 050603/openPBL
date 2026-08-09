@@ -54,6 +54,7 @@ services:
       # owned by nextjs (uid 1001); this volume preserves uploads across
       # container rebuilds.
       - .openpbl-data:/app/.openpbl-data
+      - classrooms:/app/data/classrooms
 
   postgres:
     image: postgres:16-alpine
@@ -107,3 +108,5 @@ services:
 volumes:
   pgdata:
     name: openpbl-pgdata
+  classrooms:
+    name: openpbl-classrooms

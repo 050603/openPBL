@@ -3,6 +3,7 @@
 
 import { NextRequest } from "next/server";
 import { callLLM } from "@/lib/llm/client";
+import { STUDENT_CONVERSATION_PROMPT_CONTRACT } from "@/lib/prompt-quality/policy";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const reply = await callLLM(body.messages, { abortSignal: req.signal });
+    const reply = await callLLM([
+      {
+        role: "system",
+        content: `以下是服务端统一的学生对话质量规则，其优先级高于请求中附带的角色描述：\n${STUDENT_CONVERSATION_PROMPT_CONTRACT}`,
+      },
+      ...body.messages,
+    ], { abortSignal: req.signal });
     return Response.json({ reply: reply ?? "" });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

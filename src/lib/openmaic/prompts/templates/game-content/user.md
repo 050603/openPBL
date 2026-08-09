@@ -12,7 +12,7 @@ Create an educational GAME widget for: {{title}}
 
 {{keyPoints}}
 
-## Scoring Configuration
+## Legacy Scoring Configuration (do not expose as a knowledge grade)
 
 {{scoring}}
 
@@ -27,31 +27,30 @@ Create an educational GAME widget for: {{title}}
 Generate a FUN, INTERACTIVE HTML game with these MANDATORY features:
 
 ### Knowledge Teaching (CRITICAL — students must LEARN, not just play)
-1. **Objective Alignment**: Map every supplied Key Point to a decision, rule, variable, or strategy that the player must use. State the learning objective and success evidence before play; never add unrelated trivia for variety.
-2. **No Decorative Interaction**: The winning strategy must require the student to predict, apply, observe, explain, or revise the target knowledge. Speed, random rewards, points, and animations may increase engagement but must not allow success without understanding.
-3. **Teaching Loop**: Use a brief worked round, ask for a prediction or plan, let the learner act, make the consequence visible, then pause for a concise explanation and a chance to revise. Increase difficulty by requiring deeper application, not faster clicking.
-4. **Explanatory Feedback**: After meaningful actions and all success/failure states, explain what happened and why using the player's actual choice and the relevant Key Point. Diagnose likely misconceptions and give a targeted hint instead of only adding or subtracting score.
-5. **Fair Assessment**: Separate knowledge errors from motor/timing errors. If dexterity is not itself an objective, provide forgiving controls and do not let reaction speed determine the learning result.
-6. **Mastery Evidence**: End with a transfer challenge that changes the context or parameters. Record the player's strategy and explanation, evaluate them against visible success criteria, and show which Key Points were demonstrated; game completion alone is not mastery.
+1. **Objective Alignment**: Map every supplied Key Point to a decision, rule, variable, or strategy that the player can explore. State the learning objective before play; never add unrelated trivia for variety.
+2. **No Decorative Interaction**: The mechanic must let the student predict, apply, observe, or revise the target knowledge. Random rewards and animations may increase engagement but cannot replace a meaningful model consequence.
+3. **Teaching Loop**: Use a brief demonstration, invite a plan, let the learner act, make the consequence visible, then explain it and offer another route or parameter state to try.
+4. **Explanatory Feedback**: After meaningful actions, explain what happened and why using the player's actual control state and the relevant Key Point. Give a targeted next experiment rather than an answer verdict.
+5. **Open Operation**: Prefer forgiving controls, multiple viable strategies, sandbox replay, construction, tuning, timing, or simulation. Do not use a single canonical knowledge answer as the win condition.
+6. **Exploration Evidence**: Preserve meaningful attempts or strategies and finish with a comparison of their consequences. Game completion is a playback milestone, not proof of mastery.
+7. **Assessment Boundary**: This is not a quiz: use no score, answer key, matching, sorting, ordering, drag-to-answer, correctness verdict, ranking, or pass/fail gate. Ignore legacy scoring input except for optional neutral progress visualization.
 
 ### Activity Completion Protocol (MANDATORY)
-1. Call `window.__maicActivity.complete()` exactly when the learner has produced the required mastery evidence and the feedback is visible. Also add `data-activity-complete` to the final completion control when one exists.
-2. Call `window.__maicActivity.reset()` whenever a replay/restart invalidates that evidence; add `data-activity-reset` to the reset control.
-3. Do not signal completion for starting the game, winning by score alone, finishing an animation, or any decorative interaction. Completion must mean the transfer challenge and explanation meet the visible success criteria.
+1. Call `window.__maicActivity.complete()` after meaningful exploration: the learner has tried the core mechanic in at least two meaningful states and the consequence comparison is visible. Also add `data-activity-complete` to the final continue control when one exists.
+2. Call `window.__maicActivity.reset()` when a full restart clears the attempt history; add `data-activity-reset` to the reset control.
+3. Do not signal completion for starting the game, one click, finishing an animation, or decorative interaction. Completion is not a grade or mastery claim.
 
 ### Game Design (CRITICAL - NOT A QUIZ!)
 1. **Interactive gameplay**: Player MUST control something meaningful (NOT just click answers)
-2. **Real game mechanics**: Timing, aiming, dragging, balancing, catching, or building
-3. **Skill-based success**: Outcome depends on player action, not just correct answer
+2. **Real game mechanics**: Tuning, aiming, balancing, navigating, constructing, controlling, or experimenting
+3. **Skill-based operation**: The learner's controls visibly change the modeled outcome
 4. **Engaging feedback**: Animations, sounds, visual effects for actions
 
 ### Preferred Game Types (in order of preference)
 1. **Physics/Action**: Control parameters to achieve a goal (land safely, hit target, balance)
-2. **Timing/Aim**: Click at right moment or adjust aim to succeed
-3. **Drag-and-drop**: Sort, arrange, or build by dragging elements
-4. **Simulation game**: Let player experiment with variables to find solution
-5. **Card/Match**: Memory or matching games
-6. **Quiz**: ONLY as last resort - make it visually interesting
+2. **Construction**: Assemble a working model where parts have functional consequences and multiple viable layouts
+3. **Strategy sandbox**: Compare decisions and resource trade-offs without one answer key
+4. **Simulation game**: Let the player experiment with variables and compare outcomes
 
 ### Simulation Integration (if game has visual simulation)
 - Simulation MUST be interactive (player controls something)
@@ -60,12 +59,12 @@ Generate a FUN, INTERACTIVE HTML game with these MANDATORY features:
 - Example: Don't ask "What thrust?" → LET PLAYER ADJUST thrust and see result!
 
 ### Game Elements
-1. **Clear objective**: "Land safely", "Hit the target", "Sort correctly"
+1. **Clear objective**: "Explore stable flight", "Compare trajectories", "Build a working system"
 2. **Player controls**: Sliders, buttons, drag areas, or click targets
-3. **Real-time feedback**: Score, progress bar, visual indicators
-4. **Levels or challenges**: Progressive difficulty
-5. **Achievement system**: Unlockable badges for accomplishments
-6. **Replay value**: Random elements or multiple solutions
+3. **Real-time feedback**: State traces, progress cues, and consequence indicators
+4. **Scenarios**: Progressively richer parameter combinations
+5. **Discovery markers**: Optional badges for trying meaningfully different strategies, never for right answers
+6. **Replay value**: Multiple routes, parameters, or solutions
 
 ### Visual Design
 1. Attractive theme matching the subject
@@ -81,7 +80,7 @@ Generate a FUN, INTERACTIVE HTML game with these MANDATORY features:
 5. Embedded `<script type="application/json" id="widget-config">`
 6. `requestAnimationFrame` for smooth animations
 7. Touch-friendly controls (min 44px touch targets)
-8. localStorage for progress/high scores
+8. localStorage for explored scenarios and learner-created configurations, without scores or rankings
 9. Pause functionality
 
 ### Output

@@ -117,6 +117,10 @@ export interface ClassroomGenerationProgress {
   totalScenes?: number;
 }
 
+export function completedSceneGenerationProgress(completed: number, total: number): number {
+  return Math.min(90, 30 + Math.floor((completed / Math.max(total, 1)) * 60));
+}
+
 export interface GenerateClassroomResult {
   id: string;
   stage: Stage;
@@ -775,6 +779,7 @@ export async function generateClassroom(
   log.info('Stage 2: Generating scene content and actions...');
   const sceneConcurrency = getClassroomSceneConcurrency();
   log.info(`Generating scenes with bounded concurrency: ${sceneConcurrency}`);
+  let generatedSceneDrafts = 0;
 
   // Each worker keeps content -> actions (and the bounded timing correction)
   // sequential. Only independent scenes run concurrently; drafts are
@@ -912,6 +917,14 @@ export async function generateClassroom(
       }
 
       log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
+      generatedSceneDrafts += 1;
+      await reportProgress({
+        step: 'generating_scenes',
+        progress: completedSceneGenerationProgress(generatedSceneDrafts, outlines.length),
+        message: `Generated ${generatedSceneDrafts}/${outlines.length} scenes`,
+        scenesGenerated: generatedSceneDrafts,
+        totalScenes: outlines.length,
+      });
       return { outline: safeOutline, content, actions, index };
     },
     { shouldContinue: () => !options.signal?.aborted },
@@ -939,14 +952,6 @@ export async function generateClassroom(
     }
 
     generatedScenes += 1;
-    const progressEnd = 30 + Math.floor(((draft.index + 1) / Math.max(outlines.length, 1)) * 60);
-    await reportProgress({
-      step: 'generating_scenes',
-      progress: Math.min(progressEnd, 90),
-      message: `Generated ${generatedScenes}/${outlines.length} scenes`,
-      scenesGenerated: generatedScenes,
-      totalScenes: outlines.length,
-    });
   }
 
   assertCompleteSceneGeneration({

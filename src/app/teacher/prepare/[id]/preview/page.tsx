@@ -79,9 +79,10 @@ export default function PreviewCoursePage() {
     });
   });
   const adaptivePlan = course.content.adaptiveLearningPlan;
+  const activeAdaptiveBranches = adaptivePlan?.branches.filter((branch) => branch.enabled !== false) ?? [];
   const missingAdaptiveResources =
     adaptivePlan?.enabled
-      ? adaptivePlan.branches.filter((branch) =>
+      ? activeAdaptiveBranches.filter((branch) =>
           branch.status !== "teacher-confirmed"
           || branch.preparedResource?.status !== "ready"
           || !branch.preparedResource.classroomId,
@@ -89,9 +90,9 @@ export default function PreviewCoursePage() {
       : [];
   const adaptiveResourcePoolReady =
     !adaptivePlan?.enabled
+    || activeAdaptiveBranches.length === 0
     || (
       adaptivePlan.status === "teacher-confirmed"
-      && adaptivePlan.branches.length > 0
       && missingAdaptiveResources.length === 0
     );
   const publishChecks = [
@@ -161,9 +162,6 @@ export default function PreviewCoursePage() {
         </Link>
         <div>
           <h1 className="font-editorial text-3xl font-semibold">课程设计稿</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {course.name} · 完整预览后可发布或开始授课
-          </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {isPublished ? <Pill tone="green">已发布</Pill> : <Pill tone="amber">未发布</Pill>}

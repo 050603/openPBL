@@ -127,8 +127,8 @@ COPY deploy/container-entrypoint.sh /usr/local/bin/openpbl-entrypoint
 # Persistent upload directory — mount a volume here in docker-compose so
 # uploaded files survive container restarts.
 RUN chmod 0555 /usr/local/bin/openpbl-entrypoint && \
-    mkdir -p .openpbl-data/uploads .openpbl-data/whiteboards && \
-    chown -R nextjs:nodejs .openpbl-data
+    mkdir -p .openpbl-data/uploads .openpbl-data/whiteboards data/classrooms && \
+    chown -R nextjs:nodejs .openpbl-data data
 
 # Graceful shutdown: SIGTERM triggers the instrumentation.ts handler which
 # drains in-flight requests, closes the WebSocket server, disconnects Prisma,

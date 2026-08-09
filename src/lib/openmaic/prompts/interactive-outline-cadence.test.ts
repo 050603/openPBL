@@ -16,6 +16,9 @@ describe('generic interactive outline cadence', () => {
     expect(combined).toContain('mandatory explanation-practice cadence');
     expect(combined).toContain('one or at most two closely related');
     expect(combined).toContain('quiz does not count as the required interaction');
+    expect(combined).toContain('Interactions are ungraded learning environments');
+    expect(combined).toContain('matching, sorting, ordering, or drag-to-answer');
+    expect(combined).toContain('correctness judgment belongs in a `quiz` scene');
     expect(combined).toContain('not a fixed widget percentage');
     expect(combined).not.toContain('Minimum 2 scenes');
     expect(combined).not.toContain('70% interactive scenes');

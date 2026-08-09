@@ -315,8 +315,32 @@ export function normalizeAdaptiveLearningPlan(
           : prerequisite
             ? "只回顾主课开始前必须具备、且主课未完整讲授的先决知识。"
             : "使用主课未出现的新案例或新问题进行迁移，不复述定义与原例题。";
+        const trigger = {
+          placement: prerequisite ? "before-main-course" as const : "after-module" as const,
+          afterSceneId: typeof rawTrigger.afterSceneId === "string" ? rawTrigger.afterSceneId : undefined,
+          beforeSceneId: typeof rawTrigger.beforeSceneId === "string" ? rawTrigger.beforeSceneId : fallbackTrigger?.beforeSceneId,
+          assessmentSceneIds: Array.isArray(rawTrigger.assessmentSceneIds)
+            ? unique(rawTrigger.assessmentSceneIds.filter((id): id is string => typeof id === "string"))
+            : fallbackTrigger?.assessmentSceneIds ?? [],
+          linkedQuestionIds: Array.isArray(rawTrigger.linkedQuestionIds)
+            ? unique(rawTrigger.linkedQuestionIds.filter((id): id is string => typeof id === "string"))
+            : [],
+          answerRule: "score-at-least" as const,
+          evidenceRule: prerequisite ? "pretest-gap" as const : "module-mastery" as const,
+          scoreThreshold: typeof rawTrigger.scoreThreshold === "number"
+            ? Math.max(0, Math.min(100, Math.round(rawTrigger.scoreThreshold)))
+            : fallback.thresholds.enrichmentMasteryMin,
+          minimumRemainingSec: typeof rawTrigger.minimumRemainingSec === "number"
+            ? Math.max(90, Math.min(600, Math.round(rawTrigger.minimumRemainingSec)))
+            : 150,
+        };
+        const defaultTrigger = branch.defaultTrigger && typeof branch.defaultTrigger === "object"
+          ? { ...trigger, ...(branch.defaultTrigger as AdaptiveBranchOutline["defaultTrigger"]) }
+          : fallbackBranch?.defaultTrigger ?? trigger;
         return [{
           id: typeof branch.id === "string" ? branch.id : `resource-generated-${index + 1}`,
+          enabled: branch.enabled !== false,
+          defaultTrigger,
           kind,
           title: branch.title.trim(),
           objective: branch.objective.trim(),
@@ -350,25 +374,7 @@ export function normalizeAdaptiveLearningPlan(
                 };
               })()
             : undefined,
-          trigger: {
-            placement: prerequisite ? "before-main-course" : "after-module",
-            afterSceneId: typeof rawTrigger.afterSceneId === "string" ? rawTrigger.afterSceneId : undefined,
-            beforeSceneId: typeof rawTrigger.beforeSceneId === "string" ? rawTrigger.beforeSceneId : fallbackTrigger?.beforeSceneId,
-            assessmentSceneIds: Array.isArray(rawTrigger.assessmentSceneIds)
-              ? unique(rawTrigger.assessmentSceneIds.filter((id): id is string => typeof id === "string"))
-              : fallbackTrigger?.assessmentSceneIds ?? [],
-            linkedQuestionIds: Array.isArray(rawTrigger.linkedQuestionIds)
-              ? unique(rawTrigger.linkedQuestionIds.filter((id): id is string => typeof id === "string"))
-              : [],
-            answerRule: "score-at-least",
-            evidenceRule: prerequisite ? "pretest-gap" : "module-mastery",
-            scoreThreshold: typeof rawTrigger.scoreThreshold === "number"
-              ? Math.max(0, Math.min(100, Math.round(rawTrigger.scoreThreshold)))
-              : fallback.thresholds.enrichmentMasteryMin,
-            minimumRemainingSec: typeof rawTrigger.minimumRemainingSec === "number"
-              ? Math.max(90, Math.min(600, Math.round(rawTrigger.minimumRemainingSec)))
-              : 150,
-          },
+          trigger,
           status: "draft",
         }];
       }).slice(0, 30)
@@ -469,6 +475,7 @@ export function evaluateAdaptiveBranchDecision(input: {
   const weakIds = new Set(state.pretestWeakKnowledgePointIds ?? []);
   const reachedSceneIds = new Set(input.reachedSceneIds ?? []);
   const relevantBranches = plan.branches.filter((branch) => {
+    if (branch.enabled === false) return false;
     if (branch.trigger?.placement !== (phase === "pre-course" ? "before-main-course" : "after-module")) return false;
     if (candidateIds.has(branch.id)) return true;
     if (phase === "pre-course") {
@@ -649,9 +656,10 @@ export function eligibleAdaptiveBranches(
   plan: AdaptiveLearningPlan,
   state?: Pick<StudentAdaptiveLearningState, "pretestWeakKnowledgePointIds">,
 ): AdaptiveBranchOutline[] {
-  if (!state) return plan.branches;
+  const activeBranches = plan.branches.filter((branch) => branch.enabled !== false);
+  if (!state) return activeBranches;
   const weak = new Set(state.pretestWeakKnowledgePointIds ?? []);
-  return plan.branches.filter((branch) =>
+  return activeBranches.filter((branch) =>
     branch.kind !== "prerequisite"
     || branch.prerequisiteKnowledgePointIds.some((id) => weak.has(id)),
   );

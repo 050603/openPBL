@@ -142,7 +142,6 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
               <h2 className="flex items-center gap-2 text-lg font-bold">
                 <Users className="text-blue-700" size={20} /> 课堂态势图
               </h2>
-              <p className="mt-1 text-xs text-stone-500">用空间位置呈现小组成熟度、风险和协作规模，列表保留为精确管理入口。</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="relative">
@@ -312,7 +311,6 @@ export function GroupTeacherView({ course, onSelectGroup }: { course: Course; on
                   </span>
                 ) : null}
               </h2>
-              <p className="mt-1 text-xs text-stone-500">按风险等级聚合，只展示需要教师介入的小组，避免逐卡查找。</p>
             </div>
             <button
               className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-sm)] border border-stone-200 px-3 text-sm font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50"

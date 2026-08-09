@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  BookOpenCheck,
   CircleAlert,
+  Clock3,
   Image as ImageIcon,
   Lightbulb,
   Search,
@@ -46,7 +48,7 @@ import {
   type CourseGenerationProgressStep,
 } from "@/components/teacher/course-generation-stage";
 import {
-  currentGenerationProgress,
+  estimateCourseGenerationSeconds,
   mapAdaptiveGenerationProgress,
   mapPrimaryGenerationProgress,
 } from "@/lib/teacher/course-generation-progress";
@@ -86,6 +88,23 @@ type SseEvent =
       stage: { id: string; name: string };
     }
   | { type: "error"; error?: string; details?: string };
+
+type BackgroundGenerationJob = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: number;
+  message: string;
+  estimatedRemainingSeconds: number | null;
+  events: CourseGenerationProgressStep[];
+  result: GenResult | null;
+  error: string | null;
+  startedAt: string | null;
+};
+
+type BackgroundGenerationResponse = {
+  backgroundEnabled: boolean;
+  job: BackgroundGenerationJob | null;
+};
 
 const SCENE_OUTLINE_TYPES = new Set(["slide", "quiz", "interactive", "pbl"]);
 function normalizeSceneOutline(outline: unknown, index: number): SceneOutline {
@@ -223,6 +242,7 @@ function lessonSectionToSceneOutline(
 
 export default function GenerateCoursePage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const session = useSession();
   const { user, updateCourse } = session;
   const course = useCourse(params?.id);
@@ -239,6 +259,9 @@ export default function GenerateCoursePage() {
   const [error, setError] = useState<string | null>(null);
   const [steps, setSteps] = useState<CourseGenerationProgressStep[]>([]);
   const [generationRun, setGenerationRun] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [backgroundEnabled, setBackgroundEnabled] = useState<boolean | null>(null);
+  const [backgroundRemainingSeconds, setBackgroundRemainingSeconds] = useState<number | null>(null);
   const startedRef = useRef(false);
   // 生成选项开关（Phase 2.6-2.8：media/TTS/WebSearch 阶段）
   const [enableWebSearch, setEnableWebSearch] = useState(false);
@@ -246,7 +269,7 @@ export default function GenerateCoursePage() {
   const [enableVideoGeneration, setEnableVideoGeneration] = useState(false);
   const [enableTTS, setEnableTTS] = useState(true);
   // 互动模式：从备课阶段读取，不在生成页面修改
-  const interactiveMode = course?.content.interactiveMode ?? false;
+  const interactiveMode = course?.content.interactiveMode ?? true;
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
@@ -255,13 +278,85 @@ export default function GenerateCoursePage() {
     course?.content.adaptiveLearningPlan?.enabled &&
     course.content.adaptiveLearningPlan.status === "teacher-confirmed"
       ? course.content.adaptiveLearningPlan.branches.filter(
-          (branch) => branch.status === "teacher-confirmed",
+          (branch) => branch.enabled !== false && branch.status === "teacher-confirmed",
         ).length
       : 0;
-  const generationProgress = currentGenerationProgress(
-    steps.map((step) => step.progress),
-    status === "success",
-  );
+  const estimatedTotalSeconds = estimateCourseGenerationSeconds({
+    sceneCount: buildConfirmedSceneOutlines().length,
+    adaptiveBranchCount,
+    enableWebSearch,
+    enableImageGeneration,
+    enableVideoGeneration,
+    enableTTS,
+  });
+  const applyBackgroundJob = useCallback((job: BackgroundGenerationJob) => {
+    startedRef.current = true;
+    setStarted(true);
+    setSteps(Array.isArray(job.events) ? job.events : []);
+    setBackgroundRemainingSeconds(job.estimatedRemainingSeconds);
+    if (job.startedAt) {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - new Date(job.startedAt).getTime()) / 1_000)));
+    }
+    if (job.status === "completed" && job.result) {
+      setResult(job.result);
+      setStatus("success");
+      router.replace(`/teacher/prepare/${course?.id}/preview?classroomId=${job.result.id}`);
+    } else if (job.status === "failed") {
+      setStatus("error");
+      setError(job.error || "课程生成未完成，请重新尝试。");
+    } else {
+      setStatus("loading");
+      setError(null);
+    }
+  }, [course?.id, router]);
+  useEffect(() => {
+    if (!started || status !== "loading") return;
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((current) => current + 1);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [started, status]);
+
+  useEffect(() => {
+    if (!hydrated || !course?.id) return;
+    let cancelled = false;
+    const syncJob = async () => {
+      try {
+        const response = await fetch(`/api/courses/${course.id}/generation`, { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json() as BackgroundGenerationResponse;
+        if (cancelled) return;
+        setBackgroundEnabled(payload.backgroundEnabled);
+        if (!payload.job) return;
+        applyBackgroundJob(payload.job);
+      } catch {
+        if (!cancelled) setBackgroundEnabled(false);
+      }
+    };
+    void syncJob();
+    return () => { cancelled = true; };
+  }, [applyBackgroundJob, hydrated, course?.id]);
+
+  useEffect(() => {
+    if (!backgroundEnabled || !started || status !== "loading" || !course?.id) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/courses/${course.id}/generation`, { cache: "no-store" });
+        if (!response.ok || cancelled) return;
+        const payload = await response.json() as BackgroundGenerationResponse;
+        if (!cancelled && payload.job) applyBackgroundJob(payload.job);
+      } catch {
+        // A temporary network interruption must not change the durable job.
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 2_000);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [applyBackgroundJob, backgroundEnabled, started, status, course?.id]);
   function buildRequirement(): string {
     return course
       ? buildPblCourseRequirement(course, course.content, buildConfirmedSceneOutlines())
@@ -280,12 +375,40 @@ export default function GenerateCoursePage() {
     );
   }
 
+  function buildGenerationRequest() {
+    if (!course) return null;
+    return {
+      requirement: buildRequirement(),
+      pblProfile: course.pblConfig,
+      moduleTimingPlan: course.content.moduleTimingPlan,
+      pblTeachingActivities: buildTeacherActivityRequirements(course.content),
+      pblActivityCatalog: buildPblActivityCatalog(course.content),
+      knowledgePoints: course.content.knowledgePoints,
+      teachingConstraints: buildCourseTeachingConstraints(course, course.content),
+      courseId: course.id,
+      courseTitle: course.name,
+      sceneOutlines: buildConfirmedSceneOutlines(),
+      adaptiveBranchCount,
+      enableWebSearch,
+      enableImageGeneration,
+      enableVideoGeneration,
+      enableTTS,
+      interactiveMode,
+      ttsProviderId,
+      ttsModelId,
+      ttsVoice: ttsVoiceId,
+      ttsSpeed,
+      ttsLanguage: "zh-CN",
+      agentMode: "default",
+    };
+  }
+
   async function prepareAdaptiveBranches(): Promise<AdaptiveLearningPlan | undefined> {
     const plan = course?.content.adaptiveLearningPlan;
     if (!course || !plan?.enabled || plan.status !== "teacher-confirmed") return plan;
     const activeCourse = course;
     const confirmedBranches = plan.branches.filter(
-      (branch) => branch.status === "teacher-confirmed",
+      (branch) => branch.enabled !== false && branch.status === "teacher-confirmed",
     );
     const branches = selectAdaptiveBranchesForGeneration(confirmedBranches);
     if (!branches.length) {
@@ -429,6 +552,7 @@ export default function GenerateCoursePage() {
       return;
     }
     setStatus("loading");
+    setElapsedSeconds(0);
     setGenerationRun((current) => current + 1);
     setResult(null);
     setError(null);
@@ -450,32 +574,29 @@ export default function GenerateCoursePage() {
 
     try {
       const sceneOutlines = buildConfirmedSceneOutlines();
+      const generationRequest = buildGenerationRequest();
+      if (!generationRequest) throw new Error("未找到课程生成配置");
+
+      if (backgroundEnabled !== false) {
+        const backgroundResponse = await fetch(`/api/courses/${course.id}/generation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(generationRequest),
+        });
+        if (backgroundResponse.ok) {
+          const payload = await backgroundResponse.json() as BackgroundGenerationResponse;
+          setBackgroundEnabled(payload.backgroundEnabled);
+          if (payload.backgroundEnabled && payload.job) {
+            applyBackgroundJob(payload.job);
+            return;
+          }
+        }
+      }
+
       const res = await fetch("/api/openmaic/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requirement: buildRequirement(),
-          pblProfile: course.pblConfig,
-          moduleTimingPlan: course.content.moduleTimingPlan,
-          pblTeachingActivities: buildTeacherActivityRequirements(course.content),
-          pblActivityCatalog: buildPblActivityCatalog(course.content),
-          knowledgePoints: course.content.knowledgePoints,
-          teachingConstraints: buildCourseTeachingConstraints(course, course.content),
-          courseId: course.id,
-          courseTitle: course.name,
-          sceneOutlines,
-          enableWebSearch,
-          enableImageGeneration,
-          enableVideoGeneration,
-          enableTTS,
-          interactiveMode,
-          ttsProviderId,
-          ttsModelId,
-          ttsVoice: ttsVoiceId,
-          ttsSpeed,
-          ttsLanguage: "zh-CN",
-          agentMode: "default",
-        }),
+        body: JSON.stringify(generationRequest),
       });
 
       // 参数验证失败等：HTTP 4xx + JSON 错误响应
@@ -699,31 +820,58 @@ export default function GenerateCoursePage() {
       }
     >
       <ServerProvidersInit />
-      <div className="mb-5 flex items-center gap-3">
+      <div className="relative mb-6 overflow-hidden rounded-[16px] border border-stone-200 bg-[radial-gradient(circle_at_92%_0%,rgba(254,215,170,0.38),transparent_32%),linear-gradient(120deg,#fff_0%,#fffdf8_100%)] px-4 py-4 shadow-[0_10px_32px_rgba(87,74,58,0.06)] sm:px-5">
+        <div aria-hidden className="absolute bottom-0 left-16 right-0 h-px bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
+        <div className="flex items-center gap-3">
         <Link
-          className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
+          aria-label="返回备课阶段"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 shadow-sm transition hover:-translate-x-0.5 hover:border-[var(--pbl-teacher)] hover:text-[var(--pbl-teacher)] motion-reduce:transform-none"
           href={`/teacher/prepare/${course.id}/verify`}
         >
           <ArrowLeft size={17} />
         </Link>
-        <div>
-          <h1 className="text-[28px] font-bold">生成课程</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {course.name} · 正在依据课程大纲生成课程内容
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--pbl-accent)]">
+            <BookOpenCheck size={14} />
+            课程生成 · 第 2 步
+          </div>
+          <h1 className="mt-1 font-editorial text-[26px] font-semibold tracking-[-0.02em] text-stone-950 sm:text-[30px]">
+            {!started
+              ? "课程生成设置"
+              : status === "success"
+                ? "课程生成完成"
+                : status === "error"
+                  ? "课程生成需要您的处理"
+                  : "课程生成中"}
+          </h1>
+          <p className="mt-1 truncate text-sm text-stone-500">
+            {course.name} · {!started
+              ? "确认资源选项后即可开始生成"
+              : status === "success"
+                ? "可以进入预览并做发布前检查"
+                : status === "error"
+                  ? "请根据下方提示处理后重新生成"
+                  : "正在生成并保存课程内容"}
           </p>
+        </div>
+        <span className="hidden rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-stone-500 shadow-sm sm:block">
+          {!started
+            ? "生成前确认"
+            : status === "success"
+              ? "生成完成"
+              : status === "error"
+                ? "需要处理"
+                : <span className="inline-flex items-center gap-1.5 tabular-nums"><Clock3 size={13} />已用时 {formatGenerationDuration(elapsedSeconds)}</span>}
+        </span>
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         {!started ? (
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <h2 className="font-editorial text-2xl font-semibold">将生成的课程内容</h2>
             </div>
-            <p className="mb-4 text-sm leading-7 text-stone-500">
-              系统将按已确认的课程结构生成学习内容，并在完成后分别整理普通课堂活动资源、学生内容与评价材料。
-            </p>
-
             <GenerationCoverage coverage={pblCoverage} />
 
             <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
@@ -770,7 +918,10 @@ export default function GenerateCoursePage() {
         ) : (
           <CourseGenerationStage
             adaptiveBranchCount={adaptiveBranchCount}
+            elapsedSeconds={elapsedSeconds}
             error={error}
+            estimatedRemainingSeconds={backgroundRemainingSeconds}
+            estimatedTotalSeconds={estimatedTotalSeconds}
             key={generationRun}
             result={result}
             status={status}
@@ -802,7 +953,11 @@ export default function GenerateCoursePage() {
               <CircleAlert className="text-[var(--pbl-warning)]" size={18} /> 提示
             </h2>
             <p className="mt-3 text-sm leading-7 text-[var(--pbl-text-muted)]">
-              生成过程会实时显示进度，最长约需 5 分钟。如需切换 AI 模型，请前往「设置」页面配置。
+              {started && status === "loading"
+                ? backgroundEnabled
+                  ? "您可以先返回其他页面处理工作，课程将在后台继续生成；完成后再次进入将自动打开课程预览。"
+                  : "课程生成期间请勿离开或关闭此页面。系统会根据实际生成速度动态估算剩余时间。"
+                : "开始后，系统会根据本次任务的实际生成速度动态估算剩余时间。"}
             </p>
           </Card>
         </aside>
@@ -842,10 +997,16 @@ export default function GenerateCoursePage() {
               ? "生成课程内容"
               : status === "error"
                 ? "重新生成课程"
-                : `正在生成 · ${generationProgress}%`}
+                : "课程生成中"}
           </Button>
         )}
       </FlowActionBar>
     </DashboardShell>
   );
+}
+
+function formatGenerationDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

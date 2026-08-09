@@ -13,6 +13,7 @@ import {
   type PblTimeModelContext,
 } from "@/lib/pbl-time-model";
 import { cn } from "@/lib/utils";
+import { localizeGeneratedNarrative } from "@/lib/llm/generated-language";
 
 function moduleLabel(kind: PblTimeActivityKind, fallback?: string): string {
   return PBL_MODULE_DEFINITIONS.find((definition) => definition.kind === kind)?.label
@@ -206,9 +207,19 @@ export function PblModuleTimingPanel({
     moduleActivities.some((activity) => classifyPblActivityKind(activity) === definition.kind),
   );
   const canConfirm = !readOnly
+    && !planConfirmed
     && hasAllCanonicalModules
     && allocationDelta === 0
     && Boolean(onConfirm);
+  const visibleKnowledgePoints = timeContext?.knowledgePoints?.flatMap((point) =>
+    point.id && point.name ? [{ id: point.id, name: point.name }] : [],
+  ) ?? [];
+  const visibleEvidence = displayPlan.evidence?.map((item) =>
+    localizeGeneratedNarrative(item, visibleKnowledgePoints),
+  );
+  const visibleAssumptions = displayPlan.assumptions?.map((item) =>
+    localizeGeneratedNarrative(item, visibleKnowledgePoints),
+  );
 
   if (!hasModules) {
     return (
@@ -233,9 +244,6 @@ export function PblModuleTimingPanel({
               <Gauge size={17} />
               <p className="text-xs font-bold uppercase tracking-[0.12em]">课程模块时间安排</p>
             </div>
-            <p className="mt-1 text-sm leading-6 text-stone-600">
-              AI 根据课程信息给出模块时间建议，教师调整并确认后，系统才会生成 PBL 项目主线和后续课程大纲。
-            </p>
           </div>
           <div className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold",
@@ -279,8 +287,8 @@ export function PblModuleTimingPanel({
             <div className="rounded-[6px] border border-white/80 bg-white/70 px-3 py-2">
               <p className="font-bold text-stone-700">本次建议实际使用的依据</p>
               <p className="mt-1 leading-5 text-stone-500">
-                {displayPlan.evidence?.length
-                  ? displayPlan.evidence.join("；")
+                {visibleEvidence?.length
+                  ? visibleEvidence.join("；")
                   : "模型未返回可核验依据，请教师重点复核。"}
               </p>
             </div>
@@ -292,8 +300,8 @@ export function PblModuleTimingPanel({
             )}>
               <p className="font-bold text-stone-700">假设与边界</p>
               <p className="mt-1 leading-5 text-stone-500">
-                {displayPlan.assumptions?.length
-                  ? displayPlan.assumptions.join("；")
+                {visibleAssumptions?.length
+                  ? visibleAssumptions.join("；")
                   : "未声明额外假设。"}
               </p>
             </div>
@@ -305,9 +313,6 @@ export function PblModuleTimingPanel({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--pbl-teacher)]">六模块分配</p>
-            <p className="mt-1 text-xs leading-5 text-stone-500">
-              建议会随课程难度、年级和知识点结构变化；确认后以教师当前填写的分钟数为唯一准则。
-            </p>
           </div>
           {!readOnly && onApplyRecommendation ? (
             <button
@@ -411,7 +416,7 @@ export function PblModuleTimingPanel({
                 </div>
                 {stageRationale ? (
                   <p className="mt-2 border-t border-stone-100 pt-2 text-[11px] leading-5 text-stone-500">
-                    {stageRationale}
+                    {localizeGeneratedNarrative(stageRationale, visibleKnowledgePoints)}
                   </p>
                 ) : null}
               </div>
@@ -433,16 +438,19 @@ export function PblModuleTimingPanel({
           <div className="mt-4 flex justify-end border-t border-stone-100 pt-4">
             <button
               type="button"
-              disabled={!canConfirm}
+              disabled={planConfirmed || !canConfirm}
               onClick={onConfirm}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-[6px] px-4 py-2 text-sm font-semibold transition",
-                canConfirm
+                planConfirmed
+                  ? "cursor-default border border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : canConfirm
                   ? "bg-[var(--pbl-teacher)] text-white hover:opacity-90"
                   : "cursor-not-allowed bg-stone-100 text-stone-400",
               )}
             >
-              <CheckCircle2 size={15} /> 确认时间并生成项目主线
+              <CheckCircle2 size={15} />
+              {planConfirmed ? "时间已确认 · 项目主线已生成" : "确认时间并生成项目主线"}
             </button>
           </div>
         ) : null}

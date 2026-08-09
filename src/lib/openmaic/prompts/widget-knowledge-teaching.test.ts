@@ -10,7 +10,7 @@ const widgetPromptIds = [
 ] as const;
 
 describe('widget knowledge-teaching contract', () => {
-  it.each(widgetPromptIds)('%s requires a complete, non-decorative teaching loop', (promptId) => {
+  it.each(widgetPromptIds)('%s requires a complete, non-decorative exploration loop', (promptId) => {
     const prompt = buildPrompt(promptId, {
       title: '测试主题',
       description: '测试描述',
@@ -21,9 +21,12 @@ describe('widget knowledge-teaching contract', () => {
     expect(user).toContain('Objective Alignment');
     expect(user).toContain('No Decorative Interaction');
     expect(user).toContain('Explanatory Feedback');
-    expect(user).toContain('Mastery Evidence');
+    expect(user).toContain('Exploration Evidence');
     expect(user).toContain('predict');
-    expect(user).toContain('transfer');
+    expect(user).toContain('observe');
+    expect(user).toContain('not a quiz');
+    expect(user).toContain('no score');
+    expect(user).not.toContain('correct/incorrect');
   });
 
   it.each(widgetPromptIds)('%s reports meaningful activity completion to playback', (promptId) => {
@@ -38,7 +41,7 @@ describe('widget knowledge-teaching contract', () => {
     expect(user).toContain('window.__maicActivity.complete()');
     expect(user).toContain('window.__maicActivity.reset()');
     expect(user).toContain('data-activity-complete');
-    expect(user).toContain('mastery evidence');
+    expect(user).toContain('meaningful exploration');
     expect(user).toContain('Do not signal completion');
   });
 });

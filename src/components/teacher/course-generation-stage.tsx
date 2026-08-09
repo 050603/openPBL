@@ -1,15 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
+  BookOpen,
   Check,
-  CircleAlert,
-  Clock3,
-  FileStack,
-  Sparkles,
+  Circle,
+  FileText,
+  Hourglass,
+  Image as ImageIcon,
+  LoaderCircle,
+  MessageSquareMore,
+  Mic2,
+  Presentation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { currentGenerationProgress } from "@/lib/teacher/course-generation-progress";
+import {
+  currentGenerationProgress,
+  estimateCourseGenerationRemainingSeconds,
+} from "@/lib/teacher/course-generation-progress";
+import { CourseBuildAnimation } from "@/components/teacher/course-build-animation";
 
 export type CourseGenerationProgressStep = {
   step: string;
@@ -37,14 +46,47 @@ type Props = {
   error: string | null;
   result: GenerationResultSummary | null;
   adaptiveBranchCount: number;
+  elapsedSeconds?: number;
+  estimatedTotalSeconds?: number;
+  estimatedRemainingSeconds?: number | null;
 };
 
 const BASE_PHASES = [
-  { label: "解析课程蓝图", detail: "读取六阶段目标与教学约束", threshold: 8 },
-  { label: "编排学习场景", detail: "建立知识、活动与评价的顺序", threshold: 28 },
-  { label: "生成课件与互动", detail: "制作场景、讲稿和互动内容", threshold: 54 },
-  { label: "合成媒体素材", detail: "处理配图、语音与可选媒体", threshold: 82 },
-  { label: "整理课堂资源", detail: "分流学生内容与教师支架", threshold: 86 },
+  { label: "理解课程设计", detail: "读取目标、课时与六阶段安排", threshold: 8 },
+  { label: "规划课堂结构", detail: "安排知识、活动与评价顺序", threshold: 28 },
+  { label: "制作教学内容", detail: "生成课件、讲稿与互动内容", threshold: 54 },
+  { label: "补充媒体素材", detail: "处理配图、语音与可选媒体", threshold: 82 },
+  { label: "整理师生资源", detail: "区分学生内容与教师支架", threshold: 86 },
+] as const;
+
+const STEP_LABELS: Record<string, string> = {
+  initializing: "正在读取课程设置",
+  researching: "正在梳理课程资料",
+  generating_outlines: "正在规划课堂结构",
+  generating_scenes: "正在制作教学内容",
+  generating_media: "正在补充配图与媒体",
+  generating_tts: "正在合成讲解语音",
+  persisting: "正在整理并保存课程",
+  completed: "主课程内容已经就绪",
+};
+
+const STEP_DETAILS: Record<string, string> = {
+  initializing: "系统正在确认课程目标、课时安排和生成选项。",
+  researching: "系统正在围绕课程主题整理可用于教学的背景资料。",
+  generating_outlines: "系统正在把已确认的大纲拆分为具体的课堂页面。",
+  generating_scenes: "系统正在逐页制作课件、讲稿、活动和知识检查。",
+  generating_media: "系统正在为适合视觉表达的页面准备媒体素材。",
+  generating_tts: "系统正在为学生学习内容准备同步讲解语音。",
+  persisting: "系统正在检查内容关系，并将结果安全写入课程。",
+  completed: "课程主体已经生成，正在完成最后的整理工作。",
+};
+
+const CONTENT_STREAM = [
+  { label: "课件", Icon: Presentation, threshold: 31 },
+  { label: "讲稿", Icon: FileText, threshold: 43 },
+  { label: "互动", Icon: MessageSquareMore, threshold: 58 },
+  { label: "配图", Icon: ImageIcon, threshold: 72 },
+  { label: "语音", Icon: Mic2, threshold: 82 },
 ] as const;
 
 export function CourseGenerationStage({
@@ -53,30 +95,23 @@ export function CourseGenerationStage({
   error,
   result,
   adaptiveBranchCount,
+  elapsedSeconds = 0,
+  estimatedTotalSeconds = 15 * 60,
+  estimatedRemainingSeconds,
 }: Props) {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  useEffect(() => {
-    if (status !== "loading") return;
-    const timer = window.setInterval(() => {
-      setElapsedSeconds((current) => current + 1);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [status]);
-
   const phases = useMemo(
     () => [
       ...BASE_PHASES,
       ...(adaptiveBranchCount > 0
         ? [{
-            label: "生成自适应资源",
-            detail: `${adaptiveBranchCount} 个教师确认分支随主课预生成`,
+            label: "准备分层学习资源",
+            detail: `${adaptiveBranchCount} 个已确认分支与主课同步生成`,
             threshold: 98,
           }]
         : []),
       {
-        label: "校验并保存",
-        detail: "检查覆盖关系并写入课程",
+        label: "检查并保存",
+        detail: "检查课程完整性并保存结果",
         threshold: 100,
       },
     ],
@@ -89,349 +124,358 @@ export function CourseGenerationStage({
     steps.map((step) => step.progress),
     status === "success",
   );
-  const isQuiet = status === "loading" &&
-    latest !== undefined &&
-    elapsedSeconds > 45;
-  const circumference = 2 * Math.PI * 52;
-  const offset = circumference * (1 - progress / 100);
-
+  const currentUpdate = describeProgress(latest);
+  const isQuiet = status === "loading" && latest !== undefined && elapsedSeconds > 45;
+  const remainingTime = status === "loading"
+    ? formatEstimatedRemainingTime(
+        estimatedRemainingSeconds ?? estimateCourseGenerationRemainingSeconds({
+          elapsedSeconds,
+          estimatedTotalSeconds,
+          progress,
+        }),
+      )
+    : null;
   return (
     <section
       aria-live="polite"
-      className="overflow-hidden rounded-[20px] border border-[#23443c] bg-[#10231f] text-[#f6f0df] shadow-[0_28px_80px_rgba(16,35,31,0.2)]"
+      className="generation-paper relative overflow-hidden rounded-[18px] border border-[var(--pbl-border)] bg-white shadow-[0_20px_55px_rgba(74,58,42,0.09)]"
     >
-      <div className="generation-atmosphere relative overflow-hidden px-5 py-6 sm:px-7 sm:py-7">
-        <div aria-hidden className="generation-grid absolute inset-0 opacity-25" />
-        <div aria-hidden className="generation-glow generation-glow-a" />
-        <div aria-hidden className="generation-glow generation-glow-b" />
+      <div aria-hidden className="generation-paper-lines absolute inset-0 opacity-55" />
+      <div aria-hidden className="generation-ambient generation-ambient-blue" />
+      <div aria-hidden className="generation-ambient generation-ambient-amber" />
 
-        <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[#d8b66b]">
-              <Sparkles size={14} />
-              OpenPBL 课程编排台
+      <div className="relative">
+        <div className="border-b border-[var(--pbl-border)] px-5 py-6 sm:px-7 sm:py-8">
+          <div className="grid items-center gap-7 md:grid-cols-[minmax(340px,0.95fr)_minmax(280px,1.05fr)]">
+            <CourseBuildAnimation running={status === "loading"} />
+
+            <div className="min-w-0 rounded-[12px] border border-stone-200 bg-white/82 p-4 shadow-[0_8px_24px_rgba(87,74,58,0.055)] backdrop-blur-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-2 pt-1 text-xs font-bold text-stone-500">
+                  <BookOpen className="text-[var(--pbl-teacher)]" size={15} />
+                  现在正在做
+                </div>
+                <div
+                  aria-label={`生成进度 ${progress}%`}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={progress}
+                  className="shrink-0 rounded-[9px] border border-blue-100 bg-blue-50/70 px-2.5 py-1.5 text-right"
+                  role="progressbar"
+                >
+                  <span className="font-editorial text-xl font-semibold leading-none tabular-nums text-stone-950">{progress}</span>
+                  <span className="ml-0.5 text-[11px] font-bold text-[var(--pbl-teacher)]">%</span>
+                  <span className="ml-1.5 text-[9px] font-bold text-stone-400">进度</span>
+                </div>
+              </div>
+              <div key={`${status}-${currentUpdate.label}`} className="generation-task-enter mt-2 min-h-8 font-editorial text-xl font-semibold text-stone-950 sm:text-2xl">
+                {status === "success"
+                  ? "全部内容已检查并保存"
+                  : status === "error"
+                    ? "等待您重新尝试"
+                    : currentUpdate.label}
+              </div>
+              <p key={`${status}-${currentUpdate.detail}`} className="generation-task-enter generation-task-enter-delay mt-2 min-h-12 text-sm leading-6 text-stone-600">
+                {status === "success" && result
+                  ? completionSummary(result)
+                  : status === "error"
+                    ? error ?? "请检查模型设置后重新生成。"
+                    : currentUpdate.detail}
+              </p>
+
+              {status === "loading" ? (
+                <div aria-label="正在生成的内容类型" className="mt-4 flex flex-wrap gap-2">
+                  {CONTENT_STREAM.map(({ label, Icon, threshold }, index) => {
+                    const complete = progress >= threshold;
+                    const previousThreshold = index === 0 ? 0 : CONTENT_STREAM[index - 1].threshold;
+                    const active = progress >= previousThreshold && progress < threshold;
+                    return (
+                      <span
+                        className={cn(
+                          "generation-content-chip inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold",
+                          complete && "border-[var(--pbl-success-border)] bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
+                          active && "border-blue-200 bg-blue-50 text-[var(--pbl-teacher)]",
+                          !complete && !active && "border-stone-200 bg-white text-stone-400",
+                        )}
+                        key={label}
+                        style={{ animationDelay: `${index * 100}ms` }}
+                      >
+                        <Icon size={12} />
+                        {label}
+                        {complete ? <Check size={10} strokeWidth={3} /> : active ? <span className="generation-chip-dot" /> : null}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {status === "loading" ? (
+                <div className="mt-4 flex items-center gap-2 border-t border-stone-100 pt-3 text-xs font-semibold text-stone-500">
+                  <Hourglass className="text-[var(--pbl-accent)]" size={14} />
+                  {remainingTime}
+                </div>
+              ) : null}
             </div>
-            <h2 className="mt-2 font-editorial text-2xl font-semibold tracking-[-0.02em] sm:text-[30px]">
-              {status === "success"
-                ? "课程已完成编排"
-                : status === "error"
-                  ? "生成暂时中断"
-                  : "正在把课程蓝图变成课堂"}
-            </h2>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/15 px-3 py-1.5 text-xs tabular-nums text-[#d8ded5]">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                status === "loading" && "generation-heartbeat bg-[#7fd7b5]",
-                status === "success" && "bg-[#7fd7b5]",
-                status === "error" && "bg-[#f29a83]",
-              )}
-            />
-            <Clock3 size={13} />
-            {formatDuration(elapsedSeconds)}
-          </div>
+          {isQuiet ? (
+            <p className="mt-5 text-center text-xs font-semibold text-stone-500">当前步骤内容较多，系统仍在继续处理。</p>
+          ) : null}
         </div>
 
-        <div className="relative z-10 mt-7 grid items-center gap-7 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="generation-orbit relative mx-auto grid h-[205px] w-[205px] place-items-center">
-            <span aria-hidden className="generation-orbit-ring generation-orbit-ring-a" />
-            <span aria-hidden className="generation-orbit-ring generation-orbit-ring-b" />
-            <span aria-hidden className="generation-node generation-node-a" />
-            <span aria-hidden className="generation-node generation-node-b" />
-            <span aria-hidden className="generation-node generation-node-c" />
-            <svg
-              aria-label={`生成进度 ${progress}%`}
-              className="-rotate-90"
-              height="152"
-              role="img"
-              viewBox="0 0 120 120"
-              width="152"
-            >
-              <circle
-                cx="60"
-                cy="60"
-                fill="rgba(246,240,223,0.035)"
-                r="52"
-                stroke="rgba(246,240,223,0.11)"
-                strokeWidth="5"
-              />
-              <circle
-                className="generation-progress-ring"
-                cx="60"
-                cy="60"
-                fill="none"
-                r="52"
-                stroke={status === "error" ? "#f29a83" : "#d8b66b"}
-                strokeDasharray={circumference}
-                strokeDashoffset={offset}
-                strokeLinecap="round"
-                strokeWidth="5"
-              />
-            </svg>
-            <div className="absolute inset-0 grid place-items-center text-center">
-              {status === "success" ? (
-                <Check className="text-[#7fd7b5]" size={34} strokeWidth={1.8} />
-              ) : status === "error" ? (
-                <CircleAlert className="text-[#f29a83]" size={32} strokeWidth={1.8} />
-              ) : (
-                <div>
-                  <span className="font-editorial text-[42px] font-semibold leading-none tabular-nums">
-                    {progress}
-                  </span>
-                  <span className="ml-0.5 text-sm text-[#aebbb4]">%</span>
-                  <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#d8b66b]">
-                    真实进度
-                  </div>
-                </div>
-              )}
+        <div className="bg-[var(--pbl-surface-soft)]/45 px-5 py-6 sm:px-7">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-stone-900">课程生成步骤</p>
             </div>
+            <span className="rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[11px] font-bold text-stone-500">
+              {phases.filter((phase) => status === "success" || progress >= phase.threshold).length}/{phases.length} 已完成
+            </span>
           </div>
 
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#93a69d]">
-              <FileStack size={15} />
-              当前任务
-            </div>
-            <div className="mt-2 min-h-9 font-editorial text-xl font-semibold text-[#fffaf0] sm:text-2xl">
-              {status === "success"
-                ? "全部内容已校验并保存"
-                : status === "error"
-                  ? "等待重新生成"
-                  : latest?.step ?? "正在建立生成任务"}
-            </div>
-            <p className="mt-2 min-h-12 max-w-2xl text-sm leading-6 text-[#b8c5bf]">
-              {status === "success" && result
-                ? `已完成 ${result.scenesCount} 个场景，学生与教师资源已经整理完毕。`
-                : status === "error"
-                  ? error ?? "请检查模型配置后重试。"
-                  : latest?.message ?? "正在连接生成服务，收到首个阶段结果后会在这里持续更新。"}
-            </p>
-
-            <div className="mt-5">
-              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-[#91a39a]">
-                <span>{isQuiet ? "当前步骤计算量较大，仍在等待模型返回" : "进度会随服务端结果更新"}</span>
-                <span className="tabular-nums">{steps.length} 条事件</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-black/25 ring-1 ring-white/5">
-                <div
+          <ol className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {phases.map((phase, index) => {
+              const previousThreshold = index === 0 ? 0 : phases[index - 1].threshold;
+              const complete = status === "success" || progress >= phase.threshold;
+              const active = status === "loading" && progress >= previousThreshold && progress < phase.threshold;
+              return (
+                <li
                   className={cn(
-                    "generation-progress-bar h-full rounded-full",
-                    status === "error" && "generation-progress-bar-error",
+                    "relative grid min-h-[76px] grid-cols-[30px_minmax(0,1fr)] gap-3 overflow-hidden rounded-[10px] border bg-white px-3 py-3",
+                    complete && "border-[var(--pbl-success-border)] bg-[var(--pbl-success-soft)]/55",
+                    active && "generation-phase-active border-[var(--pbl-accent-border)] shadow-[0_8px_22px_rgba(194,65,12,0.08)]",
+                    !complete && !active && "border-stone-200/80",
                   )}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          </div>
+                  key={phase.label}
+                >
+                  <span
+                    className={cn(
+                      "relative z-10 mt-0.5 grid h-7 w-7 place-items-center rounded-full border bg-white",
+                      complete && "border-[var(--pbl-success)] bg-[var(--pbl-success)] text-white",
+                      active && "generation-active-step border-[var(--pbl-accent)] bg-[var(--pbl-accent-soft)] text-[var(--pbl-accent)]",
+                      !complete && !active && "border-stone-300 text-stone-300",
+                    )}
+                  >
+                    {complete ? <Check size={13} strokeWidth={3} /> : active ? <LoaderCircle size={13} /> : <Circle fill="currentColor" size={6} />}
+                  </span>
+                  <span>
+                    <span className={cn("block text-sm font-bold", !complete && !active ? "text-stone-400" : "text-stone-900")}>
+                      {phase.label}
+                    </span>
+                    <span className={cn("mt-0.5 block text-[11px] leading-4", active ? "text-[var(--pbl-accent)]" : "text-stone-500")}>
+                      {active ? `进行中 · ${phase.detail}` : phase.detail}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       </div>
 
-      <div className="border-t border-white/8 bg-[#f6f0df] px-5 py-5 text-[#1d2b27] sm:px-7">
-        <ol className="grid gap-x-5 gap-y-3 md:grid-cols-2">
-          {phases.map((phase, index) => {
-            const previousThreshold = index === 0 ? 0 : phases[index - 1].threshold;
-            const complete = status === "success" || progress >= phase.threshold;
-            const active = status === "loading" &&
-              progress >= previousThreshold &&
-              progress < phase.threshold;
-            return (
-              <li
-                className={cn(
-                  "grid grid-cols-[30px_minmax(0,1fr)] gap-3 rounded-[12px] border px-3 py-3 transition",
-                  complete && "border-[#9dcbb9] bg-[#e5f0e9]",
-                  active && "border-[#d8b66b] bg-[#fffaf0] shadow-[0_8px_24px_rgba(48,58,48,0.08)]",
-                  !complete && !active && "border-transparent text-[#8b948f]",
-                )}
-                key={phase.label}
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 grid h-[26px] w-[26px] place-items-center rounded-full border text-[11px] font-bold",
-                    complete && "border-[#3e8069] bg-[#3e8069] text-white",
-                    active && "generation-active-step border-[#b18a3d] bg-[#f3e1b7] text-[#76591f]",
-                    !complete && !active && "border-[#c8cdc9] text-[#89928d]",
-                  )}
-                >
-                  {complete ? <Check size={13} /> : index + 1}
-                </span>
-                <span>
-                  <span className="block text-sm font-bold">{phase.label}</span>
-                  <span className="mt-0.5 block text-[11px] leading-4 opacity-75">
-                    {phase.detail}
-                  </span>
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-
+      <div className="relative border-t border-[var(--pbl-border)] bg-white px-5 py-4 sm:px-7">
         {steps.length > 0 ? (
-          <details className="mt-4 border-t border-[#d9d5c9] pt-4">
-            <summary className="cursor-pointer text-xs font-bold text-[#64716b]">
-              查看详细生成日志
+          <details>
+            <summary className="cursor-pointer text-xs font-bold text-stone-600 marker:text-stone-400">
+              查看最近进展（{steps.length} 条）
             </summary>
-            <ol className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-2 text-xs">
-              {steps.map((step, index) => (
-                <li
-                  className="grid grid-cols-[42px_minmax(0,1fr)] gap-3 border-b border-[#dfdbcf] pb-2 last:border-0"
-                  key={`${step.ts}-${index}`}
-                >
-                  <span className="font-bold tabular-nums text-[#3e8069]">
-                    {step.progress}%
-                  </span>
-                  <span>
-                    <span className="font-bold">{step.step}</span>
-                    <span className="ml-2 text-[#6f7974]">{step.message}</span>
-                  </span>
-                </li>
-              ))}
+            <ol className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-2 text-xs">
+              {steps.map((step, index) => {
+                const update = describeProgress(step);
+                return (
+                  <li className="grid grid-cols-[42px_minmax(0,1fr)] gap-3 rounded-[8px] bg-[var(--pbl-surface-soft)] px-3 py-2.5" key={`${step.ts}-${index}`}>
+                    <span className="font-bold tabular-nums text-[var(--pbl-teacher)]">{step.progress}%</span>
+                    <span>
+                      <span className="font-bold text-stone-800">{update.label}</span>
+                      <span className="ml-2 text-stone-500">{update.detail}</span>
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           </details>
-        ) : null}
+        ) : (
+          <p className="text-xs text-stone-500">正在连接生成服务，收到进展后会显示在这里。</p>
+        )}
 
         {status === "success" && result?.qualityReport &&
-        (result.qualityReport.corrections.length > 0 ||
-          result.qualityReport.warnings.length > 0) ? (
-          <details className="mt-4 rounded-[12px] border border-[#d8b66b]/50 bg-[#fff8e8] px-4 py-3">
-            <summary className="cursor-pointer text-sm font-bold">
-              质量检查：自动修复 {result.qualityReport.corrections.length} 项，
-              仍有 {result.qualityReport.warnings.length} 项建议复核
+        (result.qualityReport.corrections.length > 0 || result.qualityReport.warnings.length > 0) ? (
+          <details className="mt-4 rounded-[10px] border border-[var(--pbl-warning-border)] bg-[var(--pbl-warning-soft)] px-4 py-3">
+            <summary className="cursor-pointer text-sm font-bold text-stone-800">
+              内容检查：已自动完善 {result.qualityReport.corrections.length} 项，另有 {result.qualityReport.warnings.length} 项建议复核
             </summary>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-[#65716b]">
-              {result.qualityReport.corrections.map((item) => (
-                <li key={`fix-${item}`}>已修复：{item}</li>
-              ))}
-              {result.qualityReport.warnings.map((item) => (
-                <li key={`warn-${item}`}>建议：{item}</li>
-              ))}
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-stone-600">
+              {result.qualityReport.corrections.map((item) => <li key={`fix-${item}`}>已完善：{item}</li>)}
+              {result.qualityReport.warnings.map((item) => <li key={`warn-${item}`}>建议复核：{item}</li>)}
             </ul>
           </details>
         ) : null}
 
         {failedSteps.length > 0 ? (
-          <div className="mt-4 rounded-[12px] border border-[#d38b73]/45 bg-[#fff0eb] px-4 py-3 text-sm text-[#744438]">
-            <div className="font-bold">
-              {failedSteps.length} 项自适应资源需要在发布前复核
-            </div>
-            <p className="mt-1 text-xs leading-5 opacity-80">
-              主课程已保留；失败的分支不会在学生课堂中临时生成。请展开详细日志查看原因并重新生成。
-            </p>
+          <div className="mt-4 rounded-[10px] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] px-4 py-3 text-sm text-[var(--pbl-danger)]">
+            <div className="font-bold">{failedSteps.length} 项分层学习资源需要在发布前复核</div>
+            <p className="mt-1 text-xs leading-5 text-stone-600">主课程已经保留；失败的分支不会临时出现在学生课堂中。</p>
           </div>
         ) : null}
       </div>
 
       <style>{`
-        .generation-atmosphere {
-          background:
-            radial-gradient(circle at 72% 18%, rgba(127, 215, 181, 0.12), transparent 30%),
-            linear-gradient(135deg, #10231f 0%, #17342d 58%, #10231f 100%);
+        .generation-paper {
+          background: radial-gradient(circle at 92% 4%, rgba(254, 215, 170, .32), transparent 24%), #fff;
         }
-        .generation-grid {
-          background-image:
-            linear-gradient(rgba(246, 240, 223, 0.055) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(246, 240, 223, 0.055) 1px, transparent 1px);
-          background-size: 28px 28px;
-          mask-image: linear-gradient(to right, black, transparent 85%);
+        .generation-paper-lines {
+          background-image: linear-gradient(rgba(231, 229, 228, .42) 1px, transparent 1px);
+          background-size: 100% 30px;
+          mask-image: linear-gradient(to bottom, black, transparent 72%);
         }
-        .generation-glow {
+        .generation-ambient {
           position: absolute;
-          width: 220px;
-          height: 220px;
+          width: 280px;
+          height: 280px;
           border-radius: 999px;
           filter: blur(70px);
-          opacity: 0.16;
+          pointer-events: none;
+          opacity: .11;
+          animation: generation-drift 9s ease-in-out infinite alternate;
         }
-        .generation-glow-a {
-          right: -50px;
-          top: -90px;
-          background: #7fd7b5;
+        .generation-ambient-blue {
+          left: -150px;
+          top: 22%;
+          background: #60a5fa;
         }
-        .generation-glow-b {
-          bottom: -130px;
-          left: 30%;
-          background: #d8b66b;
+        .generation-ambient-amber {
+          right: -150px;
+          top: -110px;
+          background: #fb923c;
+          animation-delay: -4s;
+          animation-direction: alternate-reverse;
         }
-        .generation-orbit-ring {
-          position: absolute;
-          inset: 10px;
-          border: 1px dashed rgba(216, 182, 107, 0.28);
+        .generation-task-enter {
+          animation: generation-task-in 520ms cubic-bezier(.22,1,.36,1) both;
+        }
+        .generation-task-enter-delay { animation-delay: 70ms; }
+        .generation-content-chip {
+          animation: generation-chip-in 460ms cubic-bezier(.22,1,.36,1) both;
+          transition: border-color 350ms ease, background-color 350ms ease, color 350ms ease, transform 350ms ease;
+        }
+        .generation-content-chip:hover { transform: translateY(-2px); }
+        .generation-chip-dot {
+          width: 5px;
+          height: 5px;
           border-radius: 999px;
+          background: currentColor;
+          animation: generation-chip-pulse 1.15s ease-in-out infinite;
         }
-        .generation-orbit-ring-a {
-          animation: generation-spin 18s linear infinite;
-        }
-        .generation-orbit-ring-b {
-          inset: 25px;
-          border-style: solid;
-          border-color: rgba(127, 215, 181, 0.14);
-          animation: generation-spin 13s linear infinite reverse;
-        }
-        .generation-node {
-          position: absolute;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #d8b66b;
-          box-shadow: 0 0 18px rgba(216, 182, 107, 0.7);
-        }
-        .generation-node-a { left: 18px; top: 83px; }
-        .generation-node-b { right: 33px; top: 37px; background: #7fd7b5; }
-        .generation-node-c { bottom: 27px; right: 48px; width: 5px; height: 5px; }
-        .generation-progress-ring,
-        .generation-progress-bar {
-          transition: stroke-dashoffset 700ms cubic-bezier(0.22, 1, 0.36, 1),
-            width 700ms cubic-bezier(0.22, 1, 0.36, 1);
-        }
-        .generation-progress-bar {
-          position: relative;
-          overflow: hidden;
-          background: linear-gradient(90deg, #b38b3d, #e5cb88 56%, #7fd7b5);
-        }
-        .generation-progress-bar::after {
+        .generation-phase-active::after {
           content: "";
           position: absolute;
-          inset: 0;
-          transform: translateX(-100%);
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
-          animation: generation-sheen 2.4s ease-in-out infinite;
+          left: -42%;
+          top: 0;
+          width: 42%;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, var(--pbl-accent), transparent);
+          animation: generation-phase-beam 2s ease-in-out infinite;
         }
-        .generation-progress-bar-error {
-          background: #f29a83;
+        .generation-active-step { animation: generation-pulse 1.8s ease-in-out infinite; }
+        .generation-active-step svg { animation: generation-spin 2s linear infinite; }
+        @keyframes generation-spin { to { transform: rotate(360deg); } }
+        @keyframes generation-drift {
+          from { transform: translate3d(0, -10px, 0) scale(.9); opacity: .07; }
+          to { transform: translate3d(38px, 28px, 0) scale(1.13); opacity: .15; }
         }
-        .generation-heartbeat,
-        .generation-active-step {
-          animation: generation-pulse 1.8s ease-in-out infinite;
+        @keyframes generation-task-in {
+          from { opacity: 0; transform: translateY(9px); filter: blur(4px); }
+          to { opacity: 1; transform: translateY(0); filter: blur(0); }
         }
-        @keyframes generation-spin {
-          to { transform: rotate(360deg); }
+        @keyframes generation-chip-in {
+          from { opacity: 0; transform: translateY(7px) scale(.94); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        @keyframes generation-sheen {
-          60%, 100% { transform: translateX(120%); }
+        @keyframes generation-chip-pulse {
+          0%, 100% { opacity: .35; transform: scale(.7); }
+          50% { opacity: 1; transform: scale(1.25); box-shadow: 0 0 0 4px rgba(29,78,216,.08); }
         }
+        @keyframes generation-phase-beam { to { left: 100%; } }
         @keyframes generation-pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(127, 215, 181, .25); }
-          50% { box-shadow: 0 0 0 7px rgba(127, 215, 181, 0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(194, 65, 12, .18); }
+          50% { box-shadow: 0 0 0 7px rgba(194, 65, 12, 0); }
         }
         @media (prefers-reduced-motion: reduce) {
-          .generation-orbit-ring,
-          .generation-progress-bar::after,
-          .generation-heartbeat,
-          .generation-active-step {
-            animation: none;
-          }
-          .generation-progress-ring,
-          .generation-progress-bar {
-            transition: none;
-          }
+          .generation-active-step,
+          .generation-active-step svg,
+          .generation-ambient,
+          .generation-task-enter,
+          .generation-content-chip,
+          .generation-chip-dot,
+          .generation-phase-active::after { animation: none; }
         }
       `}</style>
     </section>
   );
 }
 
-function formatDuration(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+function describeProgress(step?: CourseGenerationProgressStep): { label: string; detail: string } {
+  if (!step) {
+    return {
+      label: "正在建立生成任务",
+      detail: "系统正在连接生成服务，稍后会持续显示每一步的实际进展。",
+    };
+  }
+
+  const label = STEP_LABELS[step.step] ?? (containsChinese(step.step) ? step.step : "正在处理课程内容");
+  const localizedMessage = localizeProgressMessage(step.message);
+  return {
+    label,
+    detail: localizedMessage ?? STEP_DETAILS[step.step] ?? "系统正在继续处理这一部分，请稍候。",
+  };
+}
+
+function localizeProgressMessage(message: string): string | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  const sceneStart = trimmed.match(/^Generating scene\s+(\d+)\/(\d+):\s*(.+)$/i);
+  if (sceneStart) return `正在制作第 ${sceneStart[1]}/${sceneStart[2]} 个课堂页面：${sceneStart[3]}`;
+  const sceneDone = trimmed.match(/^Generated\s+(\d+)\/(\d+)\s+scenes?$/i);
+  if (sceneDone) return `已经完成 ${sceneDone[1]}/${sceneDone[2]} 个课堂页面。`;
+  const outlineDone = trimmed.match(/^Generated\s+(\d+)\s+scene outlines?$/i);
+  if (outlineDone) return `已经规划好 ${outlineDone[1]} 个课堂页面。`;
+
+  const exactTranslations: Record<string, string> = {
+    "Initializing classroom generation": "正在确认课程设置和生成选项。",
+    "Researching topic": "正在围绕课程主题梳理教学资料。",
+    "Generating scene outlines": "正在把课程大纲拆分为课堂页面。",
+    "Persisting classroom content": "正在检查并保存全部课程内容。",
+    "Classroom content ready; media continues in background": "课程主体已经就绪，媒体素材会继续完成处理。",
+  };
+  if (exactTranslations[trimmed]) return exactTranslations[trimmed];
+
+  if (containsChinese(trimmed) && !hasLongEnglishPhrase(trimmed)) return trimmed;
+  return null;
+}
+
+function containsChinese(value: string): boolean {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function hasLongEnglishPhrase(value: string): boolean {
+  return /[a-z]{4,}(?:\s+[a-z]{3,}){2,}/i.test(value);
+}
+
+function completionSummary(result: GenerationResultSummary): string {
+  const breakdown = [
+    result.studentSceneCount !== undefined ? `${result.studentSceneCount} 个学生页面` : null,
+    result.teacherSceneCount !== undefined ? `${result.teacherSceneCount} 份教师资源` : null,
+  ].filter(Boolean);
+  return `已完成 ${result.scenesCount} 个课堂场景${breakdown.length ? `，其中包括${breakdown.join("和")}` : ""}。`;
+}
+
+function formatEstimatedRemainingTime(remainingSeconds: number): string {
+  const minutes = Math.max(1, Math.ceil(remainingSeconds / 60));
+  if (minutes <= 2) return "预计还需约 1–2 分钟";
+  if (minutes < 10) {
+    const lower = Math.max(2, Math.floor(minutes / 2) * 2);
+    return `预计还需约 ${lower}–${lower + 2} 分钟`;
+  }
+  const lower = Math.max(10, Math.floor(minutes / 5) * 5);
+  return `预计还需约 ${lower}–${lower + 5} 分钟`;
 }

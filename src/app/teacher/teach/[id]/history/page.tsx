@@ -89,7 +89,7 @@ export default async function CourseHistoryPage({
         variant="bare"
         currentCourse={{ id: course.id, name: course.name, status: course.status }}
       >
-        <HistoryHeader courseId={courseId} courseName={course.name} />
+        <HistoryHeader courseId={courseId} />
         <Card>
           <div className="py-12 text-center">
             <History className="mx-auto text-stone-300" size={48} />
@@ -125,7 +125,7 @@ export default async function CourseHistoryPage({
       variant="bare"
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
     >
-      <HistoryHeader courseId={courseId} courseName={course.name} />
+      <HistoryHeader courseId={courseId} />
 
       {sessions.length === 0 ? (
         <Card>
@@ -340,7 +340,7 @@ export default async function CourseHistoryPage({
   );
 }
 
-function HistoryHeader({ courseId, courseName }: { courseId: string; courseName: string }) {
+function HistoryHeader({ courseId }: { courseId: string }) {
   return (
     <div className="mb-5 flex items-center gap-3">
       <Link
@@ -351,9 +351,6 @@ function HistoryHeader({ courseId, courseName }: { courseId: string; courseName:
       </Link>
       <div>
         <h1 className="text-[28px] font-bold">历史开课记录</h1>
-        <p className="mt-1 text-sm text-stone-500">
-          {courseName} · 查看历次开课的学生、提交、反馈与评价(只读)
-        </p>
       </div>
     </div>
   );

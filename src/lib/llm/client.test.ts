@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import type { GenerateInput } from "./types";
 import {
+  localizeGeneratedNarrative,
+  normalizeKnowledgeGraphOutput,
   normalizePblTimingRecommendationResponse,
   normalizeTeachingOutlineResponse,
 } from "./client";
@@ -230,9 +232,12 @@ describe("module timing recommendation", () => {
       },
     ).user;
 
-    expect(prompt).toContain("priorKnowledge");
-    expect(prompt).toContain("learningNeeds");
-    expect(prompt).toContain("knowledgeGraph");
+    expect(prompt).toContain("已有知识基础");
+    expect(prompt).toContain("学习支持需求");
+    expect(prompt).toContain("知识关系");
+    expect(prompt).toContain("标准难度");
+    expect(prompt).not.toContain('"priorKnowledge"');
+    expect(prompt).not.toContain('"learningNeeds"');
     expect(prompt).toContain("rationale");
     expect(prompt).toContain("confidence");
     expect(prompt).toContain("六个阶段");
@@ -275,6 +280,50 @@ describe("module timing recommendation", () => {
       result.moduleTimingPlan.allocations.map((item) => item.durationMin),
     );
   });
+
+  it("localizes leaked internal vocabulary and knowledge ids in teacher-facing reasons", () => {
+    const result = normalizePblTimingRecommendationResponse(
+      {
+        moduleTimingRecommendation: {
+          allocations: [
+            { stageKey: "launch", durationMin: 10, rationale: "课程难度standard，priorKnowledge与learningNeeds均为空。" },
+            { stageKey: "ai-learning", durationMin: 20, rationale: "foundation（kp-1）到core（kp-2）的依赖链要求ai-learning阶段系统学习。" },
+            { stageKey: "proposal", durationMin: 10, rationale: "proposal阶段比较实例。" },
+            { stageKey: "make", durationMin: 40, rationale: "make阶段完成制作。" },
+            { stageKey: "showcase", durationMin: 15, rationale: "showcase阶段展示分类理由。" },
+            { stageKey: "reflection", durationMin: 5, rationale: "reflection阶段反思迁移。" },
+          ],
+          evidence: ["knowledgeGraph从foundation（kp-1）到application（kp-2）递进。"],
+          assumptions: ["learningNeeds为空，采用standard支架。"],
+          confidence: "medium",
+        },
+      },
+      { ...input, hours: 100 / 60, pblConfig: DEFAULT_PBL_COURSE_CONFIG },
+      {
+        knowledgePoints: [
+          { id: "kp-1", name: "训练数据", description: "模型学习所用样本", level: "foundation" },
+          { id: "kp-2", name: "分类规则", description: "依据特征进行判断", level: "application" },
+        ],
+      },
+      "2026-08-09T00:00:00.000Z",
+    );
+
+    const visibleText = [
+      ...Object.values(result.moduleTimingPlan.rationaleByStage ?? {}),
+      ...(result.moduleTimingPlan.evidence ?? []),
+      ...(result.moduleTimingPlan.assumptions ?? []),
+    ].join("\n");
+    expect(visibleText).toContain("标准难度");
+    expect(visibleText).toContain("已有知识基础与学习支持需求均为空");
+    expect(visibleText).toContain("基础层（训练数据）到核心层（分类规则）");
+    expect(visibleText).toContain("AI 授知阶段");
+    expect(visibleText).not.toMatch(/priorKnowledge|learningNeeds|knowledgeGraph|foundation|core|application|standard|ai-learning|proposal|make|showcase|reflection|kp-\d+/i);
+  });
+
+  it("keeps structural enum values unchanged while localizing narrative text", () => {
+    expect(localizeGeneratedNarrative("proposal阶段使用kp-1", [{ id: "kp-1", name: "方案比较" }]))
+      .toBe("方案构思与校准阶段使用方案比较");
+  });
 });
 
 describe("buildTeachingOutlinePrompt", () => {
@@ -304,11 +353,49 @@ describe("buildTeachingOutlinePrompt", () => {
 
     for (const prompt of prompts) {
       expect(prompt).toContain("教师确认的课程基础约束（最高优先级）");
-      expect(prompt).toContain("八年级 (middle-school)");
+      expect(prompt).toContain("八年级（初中）");
       expect(prompt).toContain("60 分钟");
       expect(prompt).toContain("运用证据比较并修订方案");
       expect(prompt).toContain("理解分类与简单统计图");
     }
     expect(prompts[0]).toContain("知识点数量范围：5-8");
+  });
+
+  it("treats teacher-specified knowledge points as non-optional graph constraints", () => {
+    const prompt = buildKnowledgeGraphPrompt(input, {
+      teacherRequiredKnowledgePoints: ["训练数据", "模型偏差"],
+    }).user;
+
+    expect(prompt).toContain('["训练数据","模型偏差"]');
+    expect(prompt).toContain("完全相同的 name");
+    expect(prompt).toContain("不得删除、合并、偷换概念或改名");
+    expect(prompt).toContain("不得自环、重复或形成有向循环");
+  });
+});
+
+describe("normalizeKnowledgeGraphOutput", () => {
+  it("keeps graph nodes aligned with knowledge points and accepts a sound progression", () => {
+    const knowledgePoints = [
+      { id: "kp-1", name: "训练数据", description: "模型学习所用样本", keyInfo: "样本需要覆盖真实情况", level: "foundation" },
+      { id: "kp-2", name: "分类规则", description: "依据特征进行判断", keyInfo: "规则需要可解释", level: "core" },
+    ];
+    const result = normalizeKnowledgeGraphOutput(knowledgePoints, {
+      nodes: knowledgePoints.map((point) => ({ ...point, label: point.name })),
+      edges: [{ id: "edge-1", source: "kp-1", target: "kp-2", label: "是构建的前提" }],
+    }, ["训练数据"]);
+
+    expect(result.knowledgeGraph.nodes.map((node) => node.id)).toEqual(["kp-1", "kp-2"]);
+    expect(result.knowledgeGraph.nodes.map((node) => node.label)).toEqual(["训练数据", "分类规则"]);
+  });
+
+  it("rejects a generated graph that drops a teacher-required point", () => {
+    const knowledgePoints = [
+      { id: "kp-1", name: "分类规则", description: "依据特征进行判断", keyInfo: "规则需要可解释", level: "core" },
+    ];
+
+    expect(() => normalizeKnowledgeGraphOutput(knowledgePoints, {
+      nodes: [{ ...knowledgePoints[0], label: "分类规则" }],
+      edges: [],
+    }, ["模型偏差"])).toThrow("教师指定知识点未被保留");
   });
 });

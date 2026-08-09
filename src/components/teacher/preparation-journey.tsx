@@ -45,9 +45,6 @@ export function PreparationJourney({
             <h2 className="font-editorial mt-1 text-xl font-semibold text-stone-950">
               {current.label}
             </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-600">
-              {current.description}
-            </p>
           </div>
         </div>
         <div className="rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs font-semibold tabular-nums text-stone-600">

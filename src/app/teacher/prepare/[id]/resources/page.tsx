@@ -68,9 +68,6 @@ export default function TeacherResourcesPage() {
           </Link>
           <div>
             <h1 className="text-[28px] font-bold">教师授课资源</h1>
-            <p className="mt-1 text-sm text-stone-500">
-              {course.name} · 按阶段生成的 PPT、互动演示与讲稿
-            </p>
           </div>
         </div>
 

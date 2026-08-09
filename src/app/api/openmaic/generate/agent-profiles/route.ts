@@ -13,6 +13,7 @@ import { apiError, apiSuccess } from '@openmaic/lib/server/api-response';
 import { resolveModelFromRequest } from '@openmaic/lib/server/resolve-model';
 import { AGENT_COLOR_PALETTE } from '@openmaic/lib/constants/agent-defaults';
 import { normalizeVoiceDesign } from '@openmaic/lib/audio/voice-design';
+import { buildPromptQualityContract } from '@/lib/prompt-quality/policy';
 
 const log = createLogger('Agent Profiles API');
 
@@ -86,7 +87,10 @@ export async function POST(req: NextRequest) {
           .join('\n')
       : null;
 
-    const systemPrompt = `You are an expert instructional designer. Generate agent profiles for a multi-agent classroom simulation. Decide the appropriate number of agents (typically 3-5) based on the course content and complexity. Return ONLY valid JSON, no markdown or explanation.`;
+    const systemPrompt = `You are an expert instructional designer. Generate agent profiles for a multi-agent classroom simulation. Decide the appropriate number of agents (typically 3-5) based on the course content and complexity. Return ONLY valid JSON, no markdown or explanation.
+Treat role values, avatar paths, voice IDs, colors, priorities, and schema keys as internal metadata. Never copy those codes into learner-visible agent names, personas, or voice descriptions. Do not infer demographic or personality claims from an avatar filename alone.
+
+${buildPromptQualityContract({ mode: 'json', audience: 'student', language: 'inherit' })}`;
 
     // Build voice list for prompt (if available)
     const voiceListStr =

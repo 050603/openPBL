@@ -4,6 +4,10 @@ import {
   getCompanionStagePolicy,
   stageRoleGuidance,
 } from "./companion/stage-policy";
+import {
+  promptStageLabel,
+  STUDENT_CONVERSATION_PROMPT_CONTRACT,
+} from "./prompt-quality/policy";
 
 export type AiCompanionId = "knowledge" | "ideation" | "critic" | "planner" | "reviewer" | "recorder";
 
@@ -154,6 +158,7 @@ export function buildCompanionSystemPrompt(input: {
     stageKey,
   } = input;
   const policy = getCompanionStagePolicy(stageKey);
+  const visibleStageLabel = promptStageLabel(stageKey, stageLabel || policy.label);
   const peerContext = input.peerResponses?.length
     ? input.peerResponses.map((response, index) => `${index + 1}. ${response}`).join("\n")
     : "本轮还没有其他伙伴发言";
@@ -163,7 +168,7 @@ export function buildCompanionSystemPrompt(input: {
 
   return [
     `你是"${companion.role}"${companion.name}，是这节课上的一名伴学伙伴。你和几个同学一起在课堂旁听，随时帮忙。`,
-    `当前课程：${courseName}。驱动问题：${drivingQuestion || "尚未填写"}。学生处于"${stageLabel || policy.label}"阶段。`,
+    `当前课程：${courseName}。驱动问题：${drivingQuestion || "尚未填写"}。学生处于“${visibleStageLabel}”阶段。`,
     `你的职责：${companion.instruction}`,
     `你在本阶段的具体职责：${stageRoleGuidance(stageKey, companion.id)}`,
     buildStagePolicyPrompt(stageKey),
@@ -197,5 +202,6 @@ export function buildCompanionSystemPrompt(input: {
     `通用规则：不直接代替学生完成最终作品；不替学生作最终决定；学生始终是项目负责人并负责判断、核验、修改和最终提交。鼓励学生基于建议自主决策，并要求学生说明采纳或拒绝建议的理由。不要空泛鼓励，不说"很好""加油"后就结束。`,
     `回复结构：先用一句话说明当前唯一需要解决的问题，必要时补充一句简短原因或操作提示，最后只给一个学生现在就能完成的动作。其他问题等学生完成后再处理。`,
     `回复要求：50-110 字，口语化、具体且可执行；不得在一轮中布置两个及以上任务，不得重复学生已经知道的信息。`,
+    STUDENT_CONVERSATION_PROMPT_CONTRACT,
  ].join("\n");
 }

@@ -68,6 +68,8 @@ interface PlaybackChromeRootProps {
   /** Retained for Stage API compatibility; edit transitions remain owned by Stage. */
   readonly onEnterProMode?: () => void;
   readonly experience?: StageExperience;
+  /** One-shot request to start the matching scene after an external queue switch. */
+  readonly autoplaySceneId?: string;
   readonly playbackState?: PlaybackSyncState;
   readonly onPlaybackStateChange?: (state: Omit<PlaybackSyncState, 'version'>) => void;
   /**
@@ -93,6 +95,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
   function PlaybackChromeRoot({
     onRetryOutline,
     experience = 'student-course',
+    autoplaySceneId,
     playbackState,
     onPlaybackStateChange,
     interactionState,
@@ -253,6 +256,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const sceneEpochRef = useRef(0);
     // When true, the next engine init will auto-start playback (for auto-play scene advance)
     const autoStartRef = useRef(false);
+    const handledAutoplaySceneIdRef = useRef<string | null>(null);
     const completedActivitySceneIdsRef = useRef(new Set<string>());
     // Discussion buffer-level pause state (distinct from soft-pause which aborts SSE)
     const [isDiscussionPaused, setIsDiscussionPaused] = useState(false);
@@ -688,11 +692,13 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           // Auto-play: advance to next scene after a short pause
           const { autoPlayLecture } = useSettingsStore.getState();
           if (autoPlayLecture) {
+            const completedSceneId = currentScene?.id;
             setTimeout(() => {
               const stageState = useStageStore.getState();
               if (!useSettingsStore.getState().autoPlayLecture) return;
               const allScenes = stageState.scenes;
               const curId = stageState.currentSceneId;
+              if (!completedSceneId || curId !== completedSceneId) return;
               const idx = allScenes.findIndex((s) => s.id === curId);
               if (idx >= 0 && idx < allScenes.length - 1) {
                 const currentScene = allScenes[idx];
@@ -742,6 +748,26 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when scene changes, functions are stable refs
     }, [currentScene, isTeacherResource]);
+
+    useEffect(() => {
+      if (
+        !autoplaySceneId ||
+        currentScene?.id !== autoplaySceneId ||
+        handledAutoplaySceneIdRef.current === autoplaySceneId
+      ) return;
+      const engine = engineRef.current;
+      if (!engine) return;
+      handledAutoplaySceneIdRef.current = autoplaySceneId;
+      setPlaybackCompleted(false);
+      void (async () => {
+        if (chatAreaRef.current) {
+          const sessionId = await chatAreaRef.current.startLecture(currentScene.id);
+          lectureSessionIdRef.current = sessionId;
+          lectureActionCounterRef.current = 0;
+        }
+        engine.start();
+      })();
+    }, [autoplaySceneId, currentScene]);
 
     useEffect(() => {
       if (!isProjectedReadonly || !playbackState || !engineRef.current) return;

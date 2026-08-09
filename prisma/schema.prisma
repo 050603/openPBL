@@ -102,9 +102,40 @@ model Course {
   todoCompletions              TodoCompletion[]
   announcementReplies          AnnouncementReply[]
   resourceDownloads            ResourceDownload[]
+  generationJob                CourseGenerationJob?
 
   @@index([status])
   @@index([updatedAt])
+}
+
+// Durable, idempotent course-generation state. There is intentionally only
+// one row per course so revisiting the page resumes the existing job.
+model CourseGenerationJob {
+  id                        String    @id @default(uuid())
+  courseId                  String    @unique
+  course                    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  requestedBy               String?
+  status                    String    @default("queued") // queued | running | completed | failed
+  step                      String    @default("queued")
+  progress                  Int       @default(0)
+  message                   String    @default("课程生成任务已创建") @db.Text
+  scenesGenerated           Int       @default(0)
+  totalScenes               Int       @default(0)
+  estimatedRemainingSeconds Int?
+  request                   Json
+  result                    Json?
+  events                    Json      @default("[]")
+  error                     String?   @db.Text
+  attempt                   Int       @default(0)
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  lastHeartbeatAt           DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  version                   Int       @default(1)
+
+  @@index([status, createdAt])
+  @@index([lastHeartbeatAt])
 }
 
 // ============================================================================

@@ -141,6 +141,7 @@ type AdaptiveScene = Scene & {
   openpblAdaptiveInsertionId?: string;
   openpblAdaptiveLastScene?: boolean;
   openpblAdaptiveClassroomId?: string;
+  openpblAdaptiveReturnSceneId?: string;
 };
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -279,6 +280,7 @@ export function StudentStageHost({
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
   const [activeMediaClassroomId, setActiveMediaClassroomId] = useState(classroomId);
+  const [autoplaySceneId, setAutoplaySceneId] = useState<string>();
 
   // 已完成的场景 ID 集合（在内存中维护，避免重复上报）
   const completedRef = useRef<Set<string>>(new Set());
@@ -550,19 +552,26 @@ export function StudentStageHost({
       if (cancelled) return;
       const storeState = useStageStore.getState();
       const nextScenes = [...storeState.scenes];
-      let activatedSceneId: string | undefined;
-      for (const item of prepared) {
+      const activatedSceneId = prepared[0]?.scenes[0]?.id;
+      // Insert from the end so multiple resources sharing one anchor keep
+      // their declared order and form one continuous return chain.
+      for (const item of [...prepared].reverse()) {
         const insertionIndex = resolveAdaptiveInsertionIndex(
           nextScenes,
           storeState.currentSceneId,
           item.insertion,
         );
+        const returnSceneId = nextScenes[insertionIndex]?.id;
+        const lastInsertedScene = item.scenes.at(-1) as AdaptiveScene | undefined;
+        if (lastInsertedScene && returnSceneId) {
+          lastInsertedScene.openpblAdaptiveReturnSceneId = returnSceneId;
+        }
         nextScenes.splice(insertionIndex, 0, ...item.scenes);
-        activatedSceneId ??= item.scenes[0]?.id;
       }
       prepared.forEach(({ insertion }) =>
         insertedAdaptiveIdsRef.current.add(insertion.id),
       );
+      if (activatedSceneId) setAutoplaySceneId(activatedSceneId);
       useStageStore.setState({
         scenes: nextScenes,
         currentSceneId: activatedSceneId ?? storeState.currentSceneId,
@@ -673,8 +682,11 @@ export function StudentStageHost({
       const adaptiveScene = scene as AdaptiveScene;
       if (adaptiveScene.openpblAdaptiveLastScene) {
         const sceneIndex = storeState.scenes.findIndex((item) => item.id === scene.id);
-        const nextScene = storeState.scenes[sceneIndex + 1];
+        const nextScene = adaptiveScene.openpblAdaptiveReturnSceneId
+          ? storeState.scenes.find((item) => item.id === adaptiveScene.openpblAdaptiveReturnSceneId)
+          : storeState.scenes[sceneIndex + 1];
         if (nextScene) {
+          setAutoplaySceneId(nextScene.id);
           queueMicrotask(() => useStageStore.getState().setCurrentSceneId(nextScene.id));
         }
       }
@@ -820,6 +832,7 @@ export function StudentStageHost({
             ) : (
               <TeachingKnowledgeGraphProvider graph={knowledgeGraph} points={knowledgePoints}>
                 <Stage
+                  autoplaySceneId={autoplaySceneId}
                   experience="student-course"
                   onPlaybackStateChange={handlePlaybackStateChange}
                   sidebarCollapsed={sidebarCollapsed}

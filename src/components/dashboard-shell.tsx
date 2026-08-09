@@ -320,7 +320,6 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
     <div>
       <div className="mb-3 pr-8">
         <div className="text-base font-bold text-[var(--pbl-text-strong)]">课堂切换</div>
-        <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">选择要进入的课堂或项目页面。</p>
       </div>
       <div className="max-h-[360px] space-y-1.5 overflow-auto pr-1">
         {courses.map((item) => {
@@ -361,7 +360,6 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
     <div>
       <div className="mb-3 pr-8">
         <div className="text-base font-bold text-[var(--pbl-text-strong)]">通知中心</div>
-        <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">课堂最近活动与反馈会显示在这里。</p>
       </div>
       {items.length ? (
         <div className="space-y-1.5">
@@ -377,7 +375,7 @@ function NotificationMenu({ items }: { items: { id: string; actor: string; actio
         </div>
       ) : (
         <div className="pbl-dot-grid rounded-[var(--radius-sm)] border border-dashed border-[var(--pbl-border-strong)] bg-[var(--pbl-surface-soft)]/40 py-8 text-center text-[13px] text-[var(--pbl-text-muted)]">
-          暂无通知，课堂活动会在这里出现。
+          暂无通知
         </div>
       )}
     </div>

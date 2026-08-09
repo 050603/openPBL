@@ -114,7 +114,6 @@ export default function TeachSetupPage() {
         </Link>
         <div>
           <h1 className="text-[28px] font-bold">班级配置</h1>
-          <p className="mt-1 text-sm text-stone-500">{course.name} · 确认个人项目课堂人数，开始上课</p>
         </div>
       </div>
 
@@ -122,7 +121,6 @@ export default function TeachSetupPage() {
         <div className="space-y-5">
           <Card>
             <h2 className="text-xl font-bold">课堂协作方式</h2>
-            <p className="mt-1 text-sm text-stone-500">新课堂模式固定采用个人项目制，学生独立完成完整项目</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-[8px] border border-blue-300 bg-blue-50 p-4"><div className="flex items-center gap-2 font-bold text-blue-800"><Users size={19} />每名学生独立完成项目</div><p className="mt-2 text-sm leading-6 text-stone-600">学生承担构思、决策、制作、汇报与反思，不再进行真实学生分组。</p></div>
               <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />方案与实践支持</div><p className="mt-2 text-sm leading-6 text-stone-600">方案构思和项目实践阶段会自动提供适合当前任务的伴学支持，无需教师额外配置。</p></div>

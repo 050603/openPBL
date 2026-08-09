@@ -24,6 +24,18 @@ export async function register(): Promise<void> {
   // Side-effect import: triggers collectDefaultMetrics() exactly once.
   await import("@/lib/observability/metrics");
 
+  const { isBackgroundCourseGenerationEnabled } = await import(
+    "@/lib/course-generation/capability"
+  );
+  if (isBackgroundCourseGenerationEnabled()) {
+    const { startCourseGenerationWorker, stopCourseGenerationWorker } = await import(
+      "@/lib/course-generation/job-runner"
+    );
+    const { registerShutdownHook } = await import("@/lib/runtime/lifecycle");
+    await startCourseGenerationWorker();
+    registerShutdownHook("course-generation-worker", stopCourseGenerationWorker);
+  }
+
   if (process.env.ENABLE_WEBSOCKET === "true") {
     const { initializeEventBus } = await import("@/lib/realtime/event-bus");
     const { startWebSocketServer } = await import("@/lib/realtime/websocket-server");

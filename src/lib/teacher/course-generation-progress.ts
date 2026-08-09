@@ -2,6 +2,55 @@ export const PRIMARY_GENERATION_PROGRESS_MAX = 82;
 export const ADAPTIVE_GENERATION_PROGRESS_START = 86;
 export const ADAPTIVE_GENERATION_PROGRESS_END = 98;
 
+export type CourseGenerationWorkload = {
+  sceneCount: number;
+  adaptiveBranchCount: number;
+  enableWebSearch: boolean;
+  enableImageGeneration: boolean;
+  enableVideoGeneration: boolean;
+  enableTTS: boolean;
+};
+
+const MINIMUM_COURSE_GENERATION_SECONDS = 5 * 60;
+const MAXIMUM_ESTIMATE_SECONDS = 60 * 60;
+
+export function estimateCourseGenerationSeconds(
+  workload: CourseGenerationWorkload,
+): number {
+  const sceneCount = Math.max(6, Math.round(workload.sceneCount));
+  const estimate =
+    2 * 60 +
+    sceneCount * 35 +
+    workload.adaptiveBranchCount * 90 +
+    (workload.enableWebSearch ? 45 : 0);
+  return Math.min(
+    MAXIMUM_ESTIMATE_SECONDS,
+    Math.max(MINIMUM_COURSE_GENERATION_SECONDS, estimate),
+  );
+}
+
+export function estimateCourseGenerationRemainingSeconds({
+  elapsedSeconds,
+  estimatedTotalSeconds,
+  progress,
+}: {
+  elapsedSeconds: number;
+  estimatedTotalSeconds: number;
+  progress: number;
+}): number {
+  const safeElapsed = Math.max(0, elapsedSeconds);
+  const safeProgress = Math.max(0, Math.min(99, progress));
+  const observedTotalSeconds =
+    safeProgress >= 5 && safeElapsed >= 30
+      ? safeElapsed / (safeProgress / 100)
+      : 0;
+  const calibratedTotalSeconds = Math.min(
+    MAXIMUM_ESTIMATE_SECONDS,
+    Math.max(estimatedTotalSeconds, observedTotalSeconds),
+  );
+  return Math.max(60, Math.round(calibratedTotalSeconds - safeElapsed));
+}
+
 export function mapPrimaryGenerationProgress(progress: number): number {
   return Math.min(
     PRIMARY_GENERATION_PROGRESS_MAX,

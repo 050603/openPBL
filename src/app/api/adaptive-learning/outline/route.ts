@@ -7,6 +7,7 @@ import {
 import { getCourse } from "@/lib/session/server-store";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import type { KnowledgePoint, OpenMaicSceneOutlineSnapshot } from "@/lib/session/types";
+import { JSON_TEACHER_PROMPT_CONTRACT } from "@/lib/prompt-quality/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,7 +94,10 @@ export async function POST(request: Request) {
 7. 必须逐页审查 mainScenes。noveltyStatement 要明确说明相对主课新增了什么；mainCourseOverlapSceneIds 列出主题可能重叠、生成时必须避开的主课页。若主课已回顾某个先决知识，prerequisite 应针对前测暴露的具体误解设计诊断案例和新课连接，不得重复主课的完整讲解。
 8. generationGuidance 必须明确新案例类型、难度、讲解顺序、互动方式，以及不得复述的主课内容。
 9. 每个主课模块测验建议约 3 题；这里只绑定测验，不生成题目。
-10. 仅返回 JSON，不要 Markdown。`,
+10. title、introduction、prompt、rationale、objective、keyPoints、noveltyStatement 和 generationGuidance 等自然语言字段必须使用准确的简体中文；枚举代码和内部 ID 只能出现在 schema 指定字段中，不得混入这些自然语言字段。
+11. 仅返回 JSON，不要 Markdown。
+
+${JSON_TEACHER_PROMPT_CONTRACT}`,
       },
       {
         role: "user",

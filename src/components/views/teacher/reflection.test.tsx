@@ -78,7 +78,7 @@ describe("ReflectionTeacherView", () => {
     render(<ReflectionTeacherView course={makeCourse()} />);
 
     expect(
-      screen.getByText("尚无教师提交的展示阶段评分，不使用进度数据代替成绩。"),
+      screen.getByText("暂无展示阶段评分"),
     ).toBeTruthy();
     expect(screen.queryByText("设为优秀")).toBeNull();
     expect(screen.queryByText(/导出班级报告/)).toBeNull();

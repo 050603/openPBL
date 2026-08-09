@@ -158,8 +158,9 @@ describe("teaching AI support engine", () => {
 
     const messages = llmMock.callLLM.mock.calls[0]?.[0] as Array<{ content: string }>;
     const prompt = messages[1]?.content ?? "";
-    expect(prompt).toContain("high-school");
-    expect(prompt).toContain("2 hours / 120 minutes");
+    expect(prompt).toContain("学段：高二");
+    expect(prompt).toContain("课程容量：2 课时，共 120 分钟");
+    expect(prompt).not.toContain("high-school");
     expect(prompt).toContain("理解分类的直观含义");
     expect(prompt).toContain("比较两种文本分类方法");
   });

@@ -70,22 +70,44 @@ export function ProjectCoverImage({
   const displayImageUrl = course.coverImageUrl ?? imageUrl;
   if (displayImageUrl) {
     return (
-      <div className={cn("group relative overflow-hidden rounded-[var(--radius-sm)]", className)}>
+      <div
+        aria-busy={loading}
+        className={cn("group relative overflow-hidden rounded-[var(--radius-sm)] bg-stone-200", className)}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={displayImageUrl}
           alt={course.name || "项目封面"}
-          className="h-full w-full object-cover"
+          className={cn(
+            "h-full w-full object-cover transition duration-700 ease-out",
+            loading && "scale-[1.035] blur-[7px] saturate-50",
+          )}
         />
+        {loading ? (
+          <div
+            aria-live="polite"
+            className="absolute inset-0 grid place-items-center overflow-hidden bg-stone-950/28 text-white"
+          >
+            <div className="absolute inset-y-0 -left-1/2 w-1/2 animate-[pulse_1.7s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent blur-xl" />
+            <div className="relative flex items-center gap-2 rounded-full border border-white/25 bg-black/35 px-4 py-2 text-xs font-semibold shadow-lg backdrop-blur-md">
+              <Loader2 className="animate-spin" size={15} />
+              正在重新生成
+            </div>
+          </div>
+        ) : null}
         {allowGenerate ? (
           <button
-            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/40 text-white opacity-0 transition hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
+            className={cn(
+              "absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/40 text-white transition hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100 disabled:cursor-wait",
+              loading ? "opacity-100" : "opacity-0",
+            )}
+            disabled={loading}
             onClick={() => void generate()}
             title="重新生成封面"
             aria-label="重新生成封面"
             type="button"
           >
-            <RefreshCw size={15} />
+            <RefreshCw className={loading ? "animate-spin" : ""} size={15} />
           </button>
         ) : null}
       </div>

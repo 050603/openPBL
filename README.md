@@ -4,7 +4,38 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 
 当前版本按“单台云服务器、2–3 名教师、50–80 名学生同时在线”的规模进行生产化设计。生产环境采用模块化单体架构，通过 Docker Compose 运行 Nginx、Next.js、PostgreSQL、Redis、实时服务、监控和备份组件。
 
-> 当前开发分支包含较大范围的架构、安全、数据一致性和 UI 改造。部署前请完成本文的生产检查，不要直接复用早期版本的数据库、环境变量或 Compose 启动方式。
+> 当前开发分支包含较大范围的架构、安全、数据一致性、课程生成和 UI 改造。部署前必须完成本文的“服务器迁移检查清单”，不要直接复用早期版本的数据库、环境变量、镜像或 Compose 启动方式。
+
+## 2026-08-10 版本迁移摘要
+
+自 README 上次修订（2026-07-28，`1694b9a`）以来，核心变化集中在以下方面：
+
+- **证据驱动课堂**：课程新增学习证据、作品快照、AI 贡献、学生 AI 决策和 AI 评价建议等数据契约；启动、方案、实践、汇报和反思阶段统一为可追踪的证据任务。
+- **课堂运行体验**：教师授课控制台、学生任务界面、AI 授知播放器和字幕系统重新设计；增加课程时间预算、语音时长校准、页面切换恢复和沉浸式伴学角色动作。
+- **备课与生成质量**：重构课程大纲、知识图谱、教学活动与六模块时间分配；加强中文生成契约、提示词质量检查、知识点覆盖和内容去重。
+- **持久后台生成**：生产环境中课程生成改为 PostgreSQL 持久任务。教师离开页面后任务继续运行，重新进入时续接同一个任务，完成后自动进入课程预览，避免重复生成。
+- **准确进度与剩余时间**：进度按已完成课堂页面持续推进，不再长时间停留在固定百分比；初始时间按页面和分层资源数量估算，随后按实际吞吐速度校准。
+- **分层学习资源**：教师确认的先决知识和额外学习资源与主课程一并生成、保存，并接入同一播放器。
+- **可靠性与安全**：增强课程版本冲突重试、在线状态、上传权限、教师注册、代码分块加载恢复和生产构建隔离。
+
+### 服务器迁移检查清单
+
+以下项目是本版本迁移的硬性条件：
+
+| 项目 | 必须确认的内容 |
+| --- | --- |
+| 数据库 | 先备份，再通过迁移镜像执行全部 Prisma migration；重点确认 `20260731163000_evidence_driven_classroom` 和 `20260809153000_course_generation_jobs` 已应用。 |
+| 镜像 | 应用镜像和 migrator 镜像必须来自同一 Git SHA；禁止混用旧 migrator、新应用或 `latest`。 |
+| 后台生成 | 使用长驻 Node.js/Docker 服务，生产设置 `COURSE_GENERATION_BACKGROUND_ENABLED=true`；不要部署到会在请求结束后冻结进程的纯 Serverless 运行时。 |
+| 生成课堂文件 | `/app/data/classrooms` 必须使用所有蓝绿应用实例共享的 `classrooms` 持久卷，其中包含课堂 JSON、图片、视频和语音。 |
+| 其他持久卷 | 同时保留 PostgreSQL、`uploads`、`whiteboards`、证书、监控和备份状态卷；不要在发布时执行 `down -v`。 |
+| Provider 密钥 | 必须保留原 `PROVIDER_ENCRYPTION_KEY`；更换后数据库中已有 Provider 凭据无法解密。 |
+| JWT 密钥 | 保留原 `JWT_SECRET` 可维持现有登录会话；更换会使所有教师和学生重新登录。 |
+| 公网地址 | `PUBLIC_BASE_URL` 必须是实际 HTTPS 地址，域名、证书和 Nginx 转发必须一致；后台媒体生成会使用该地址。 |
+| Redis | Redis 用于限流、在线状态、发布订阅和实时通知，可以重建，但不能作为课程、生成任务或课堂文件的唯一存储。 |
+| 备份 | pgBackRest 备份 PostgreSQL；Restic 必须覆盖 `uploads`、`whiteboards` 和 `classrooms` 三个文件卷，并执行恢复演练。 |
+
+生产 Compose 已包含 `classrooms` 共享卷及对应 Restic 备份挂载。蓝绿切换前，应分别检查新旧应用实例能读取同一课程的课堂文件。
 
 ## 最新版能力
 
@@ -25,6 +56,7 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 
 - 创建课程，设置学科、年级、课时、驱动问题和分组方式。
 - 通过 AI 生成课程结构、教学场景、课件、语音和配套资源。
+- 生产环境支持课程在后台持续生成；离开页面后仍可继续，返回时自动恢复进度或进入预览。
 - 预览、校验和编辑课程内容后发布课堂。
 - 管理项目启动、阶段推进、工作区开放策略和教师指令。
 - 实时查看学生在线状态、任务完成度、学习证据和异常信号。
@@ -47,6 +79,8 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 - 课程事件持久化到 PostgreSQL，并通过 Redis 和 WebSocket 即时分发；断线后可按事件游标补发。
 - 在线状态存放在 Redis，学生端定期续期，避免高频写入数据库。
 - 高频数据已正规化为关系表，包括成员关系、待办完成记录、公告回复和资源下载记录。
+- 课程生成任务保存在 PostgreSQL，每门课程只有一个当前任务；页面重进和网络重试不会创建重复课堂。
+- 学习证据、作品快照、AI 贡献、学生 AI 决策和 AI 评价建议作为课程规范数据保存。
 - 白板通过 `@tldraw/sync` / `sync-core` 进行房间同步，并持久化到独立卷。
 
 ### 安全与可观测性
@@ -68,14 +102,18 @@ flowchart LR
     B["教师端 / 学生端"] --> N["Nginx · HTTPS"]
     N --> A["Next.js 应用"]
     N --> W["WebSocket / tldraw 同步"]
+    A --> G["持久课程生成工作器"]
+    G --> P
     A --> P["PostgreSQL"]
     A --> R["Redis"]
     W --> R
     W --> V["白板持久卷"]
     A --> U["上传持久卷"]
+    G --> C["课堂与媒体持久卷"]
     P --> BK["pgBackRest / S3 兼容存储"]
     U --> RB["Restic / S3 兼容存储"]
     V --> RB
+    C --> RB
     A --> M["Prometheus / Grafana"]
 ```
 
@@ -89,24 +127,25 @@ flowchart LR
 | 数据 | PostgreSQL 16、Prisma 6、Redis 7 |
 | 实时协作 | WebSocket、Redis Pub/Sub、课程事件游标、tldraw sync |
 | AI | Vercel AI SDK、OpenAI/Anthropic/Google 适配器、兼容 OpenAI 的 Provider |
-| 内容 | OpenMAIC DSL/Importer/Renderer、TipTap、PptxGenJS |
+| 内容 | OpenMAIC DSL/Importer/Renderer、TipTap、PptxGenJS、持久课程生成任务 |
+| 文件存储 | Docker named volumes：上传、白板、生成课堂及其媒体 |
 | 验证 | Vitest、Playwright、k6、ESLint、TypeScript |
 | 运维 | Docker Compose、Nginx、Prometheus、Grafana、pgBackRest、Restic |
 | CI/CD | GitHub Actions、CodeQL、Trivy、SBOM、Cosign、GHCR |
 
 ## 当前验证状态
 
-截至 2026-07-27，本地低资源验证结果如下：
+截至 2026-08-10，当前工作区验证结果如下：
 
 - TypeScript 类型检查通过。
-- ESLint 以零错误、零警告通过。
-- Vitest 共 114 个测试文件、470 项测试通过。
-- Prisma Schema 校验和数据库迁移状态检查通过。
-- 生产依赖安全审计通过，官方 npm Registry 未报告已知漏洞。
+- Vitest 完整套件共 159 个测试文件、712 项测试通过。
+- 本次 README、Compose 和后台生成相关文件的定向 ESLint 检查通过。
+- 完整 `pnpm lint:ci` **尚未通过**：`src/components/views/student/evidence-task/make-task.tsx` 有 2 个 React Compiler memoization 依赖错误，`src/lib/learning-evidence/readiness.test.ts` 有 1 个未使用类型警告；发布前必须修复并重新执行。
+- Prisma Schema 校验通过；新增迁移已纳入迁移目录，服务器仍须执行 `migrate deploy` 和 `migrate status`。
+- 生产依赖安全审计和本地健康检查本次未重新执行，发布候选仍须运行对应命令。
 - Next.js 16.2.12 生产构建通过。
-- 本地开发服务启动成功，`/api/health/live` 返回 `200`。
 
-这些结果表示当前代码通过了本机静态检查、自动化测试、构建和基础启动验证，不等同于云端容量验收。`target`、`stress`、`soak`、故障恢复和备份恢复测试仍须在候选云服务器及独立压测机上执行。
+这些结果表示当前代码通过了类型检查、完整 Vitest 和生产构建，但由于完整 ESLint 仍有上述阻断项，当前工作区不能直接作为发布候选。修复后还需执行 Playwright、`target`、`stress`、`soak`、后台生成离页恢复、蓝绿切换和备份恢复测试。
 
 ## 目录结构
 
@@ -118,15 +157,19 @@ openPBL/
 │  └─ lib/
 │     ├─ auth/                # 登录、JWT、权限与密码
 │     ├─ courses/             # 课程 API 合约、动作与事件
+│     ├─ course-generation/   # 持久生成任务、能力判断与后台工作器
 │     ├─ db/                  # Prisma 客户端和数据仓储
+│     ├─ learning-evidence/   # 证据任务、就绪门槛与 AI 使用责任
 │     ├─ observability/       # 日志、指标和健康检查
 │     ├─ openmaic/            # AI 授课与 Provider 服务
+│     ├─ prompt-quality/      # 中文生成与结构化输出质量契约
 │     └─ session/             # 课堂领域类型和客户端状态
 ├─ prisma/                    # Schema 与数据库迁移
 ├─ packages/                  # 内置 OpenMAIC、PPTX 和公式工作区包
 ├─ tests/load/                # 可在独立测试机运行的 k6 压测套件
 ├─ e2e/                       # Playwright 核心流程测试
 ├─ deploy/                    # Nginx、监控、证书、备份和蓝绿发布
+├─ data/classrooms/           # 运行期生成课堂、图片、视频和语音（不提交）
 ├─ scripts/                   # 数据库、初始化、清理和本地版本脚本
 ├─ docker-compose.yml         # 本地/开发完整环境
 ├─ docker-compose.prod.yml    # 独立生产环境
@@ -189,6 +232,10 @@ PROVIDER_ENCRYPTION_KEY=replace-with-a-base64-encoded-32-byte-key
 INTERNAL_MONITOR_TOKEN=replace-with-at-least-32-characters
 TRUST_PROXY_HEADERS=false
 
+# 本机默认使用页面连接承载生成；只有明确测试后台工作器时才改为 true
+COURSE_GENERATION_BACKGROUND_ENABLED=false
+PARALLEL_SCENE_CONCURRENCY=4
+
 ENABLE_WEBSOCKET=true
 WEBSOCKET_PORT=3001
 NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:3001
@@ -213,11 +260,21 @@ OPENPBL_LLM_MODEL=your-model
 
 未配置 LLM 时可以使用示例内容继续验证非 AI 流程，但真实课程生成、AI 对话、联网搜索或 TTS 需要相应 Provider。
 
+`PARALLEL_SCENE_CONCURRENCY` 支持 `1–5`，默认 `4`。提高并发会缩短课程生成时间，但会同时增加模型请求、限流压力和失败重试量；迁移到新服务器后应先保持默认值，再根据 Provider 配额和实际监控调整。
+
+本机 `next dev` 默认关闭持久后台生成，生成期间页面会提示不要离开。生产 Compose 默认开启；若要在本机测试完整离页恢复，必须先配置 PostgreSQL，应用迁移后显式设置：
+
+```dotenv
+COURSE_GENERATION_BACKGROUND_ENABLED=true
+```
+
 ### 3. 启动 PostgreSQL 与 Redis
 
 ```bash
 docker compose --env-file .env.local up -d postgres redis
 ```
+
+Compose 还会将生成课堂保存到 `openpbl-classrooms` named volume。不要使用 `docker compose down -v` 清理环境，除非确认课程、上传、白板和数据库数据均可删除。
 
 本地演示仍保留无数据库 JSON 存储兼容模式，但它不适用于多人并发、生产部署或可靠恢复。正式开发和验证应使用 PostgreSQL。
 
@@ -308,6 +365,8 @@ pnpm dev
 | `GET /api/courses/:courseId/state` | 获取按角色裁剪的课程快照，支持 ETag |
 | `POST /api/courses/:courseId/actions` | 提交带 `requestId` 和可选版本号的课程动作 |
 | `GET /api/courses/:courseId/events?after=<cursor>` | 按游标补发断线期间事件 |
+| `GET /api/courses/:courseId/generation` | 获取后台生成能力、当前任务、进度、剩余时间和结果 |
+| `POST /api/courses/:courseId/generation` | 幂等创建或续接课程生成任务；失败任务可由教师明确重试 |
 | `PUT/DELETE /api/courses/:courseId/presence` | 在线续期与离线 |
 | `POST /api/uploads` | 受权文件上传 |
 | `GET /api/uploads/:id` | 受权文件下载 |
@@ -317,6 +376,18 @@ pnpm dev
 ## 生产部署
 
 生产配置是独立的 [docker-compose.prod.yml](docker-compose.prod.yml)，不能与开发 Compose 叠加使用。更完整的服务器步骤见 [deploy/README.md](deploy/README.md)。
+
+### 0. 冻结版本并备份现有系统
+
+迁移前记录当前 Git SHA、镜像 digest、数据库版本和正在使用的上游颜色，并暂停新课程生成。至少备份：
+
+- PostgreSQL 全量备份和可恢复的 WAL/pgBackRest 仓库；
+- 上传文件、白板和 `data/classrooms` 生成课堂目录；
+- `deploy/.deploy.env` 与 Docker Secret 文件的安全副本；
+- 当前 `PROVIDER_ENCRYPTION_KEY`、`JWT_SECRET` 和数据库连接凭据；
+- 若旧环境仍使用 `server-providers.yml` 或 `.openpbl-data/ai-settings.json`，保留副本并在迁移后核对 Provider 凭据是否已写入数据库。
+
+不要把生产 Secret、真实 Provider 配置或备份文件提交到 Git。
 
 ### 1. 准备服务器配置
 
@@ -337,6 +408,8 @@ chmod 700 deploy/secrets
 - S3 兼容备份地址、桶和区域
 
 应用和迁移镜像必须使用精确 Git SHA 标签或不可变 digest，不要使用 `latest`。
+
+生产 Compose 已固定启用 `COURSE_GENERATION_BACKGROUND_ENABLED=true`。如使用自定义编排，必须显式设置该变量，并保证进程长驻、具备 PostgreSQL 连接、可以写入共享的 `/app/data/classrooms`。如果暂时无法满足这些条件，应设置为 `false`，此时教师必须停留在生成页面。
 
 按照 [deploy/secrets.example/README.md](deploy/secrets.example/README.md) 创建所有 Secret 文件并设置为 `0600`，包括：
 
@@ -379,6 +452,31 @@ docker compose \
 
 迁移服务会先执行数据库迁移，成功后应用才启动。仅 Nginx 暴露 `80/443`；不要额外映射应用、数据库、Redis 或 tldraw 端口。
 
+首次启动前可先单独执行并检查迁移：
+
+```bash
+docker compose \
+  --env-file deploy/.deploy.env \
+  -f docker-compose.prod.yml \
+  run --rm migrate pnpm exec prisma migrate deploy
+
+docker compose \
+  --env-file deploy/.deploy.env \
+  -f docker-compose.prod.yml \
+  run --rm migrate pnpm exec prisma migrate status
+```
+
+状态输出必须包含以下四个迁移，且全部为已应用：
+
+```text
+20260723091606_init
+20260727090000_production_concurrency_security
+20260731163000_evidence_driven_classroom
+20260809153000_course_generation_jobs
+```
+
+启动后应检查 `postgres-data`、`uploads`、`whiteboards` 和 `classrooms` 均为 named volume，并确认应用用户可以写入 `/app/data/classrooms`。不要把该目录只留在容器可写层。
+
 ### 4. 初始化生产教师
 
 ```bash
@@ -402,6 +500,8 @@ unset OPENPBL_INITIAL_TEACHER_PASSWORD
 
 发布脚本使用匹配的应用和迁移镜像进行健康检查、上游切换及失败回滚。生产流水线位于 `.github/workflows/`，包含类型检查、测试、构建、依赖审计、CodeQL、Trivy、SBOM、镜像签名和人工批准部署。
 
+后台生成任务支持蓝绿环境并发启动：实例通过数据库条件更新竞争任务，同一任务只会被一个实例领取。旧实例关闭时会中止当前调用并将任务放回队列，新实例随后续接。切换完成后仍需人工验证一门正在生成的课程能够恢复，并检查没有创建重复任务。
+
 ## 健康检查、监控与备份
 
 | 地址 | 可见性 | 说明 |
@@ -413,7 +513,7 @@ unset OPENPBL_INITIAL_TEACHER_PASSWORD
 
 日志以 JSON 结构记录 `requestId`、`userId` 和 `courseId` 等上下文。监控覆盖 HTTP 延迟与错误率、WebSocket 连接、事件积压、数据库连接池、Redis、资源使用、证书和备份状态。
 
-数据库使用 pgBackRest 和 WAL 归档，上传与白板卷使用 Restic 增量备份。配置、备份执行和恢复演练见 [deploy/backup/README.md](deploy/backup/README.md)。生产目标为数据库 RPO 不超过 5 分钟、RTO 不超过 60 分钟，并应每月执行一次异地恢复演练。
+数据库使用 pgBackRest 和 WAL 归档，上传、白板和生成课堂卷使用 Restic 增量备份。生成任务状态位于 PostgreSQL，但课堂 JSON、图片、视频和音频位于 `classrooms` 文件卷；恢复时两者必须来自一致的备份时间点。配置、备份执行和恢复演练见 [deploy/backup/README.md](deploy/backup/README.md)。生产目标为数据库 RPO 不超过 5 分钟、RTO 不超过 60 分钟，并应每月执行一次异地恢复演练。
 
 ## 测试与质量检查
 
@@ -540,6 +640,38 @@ pnpm db:status
 - 生产环境：确认 `provider_encryption_key.txt` 是 32 字节随机值的 Base64 编码，且应用可读取 Docker Secret。
 - 不要提交真实的 `server-providers.yml`、`.env.local` 或 Secret 文件。
 
+### 教师离开页面后课程不再生成
+
+先请求 `GET /api/courses/:courseId/generation`，检查 `backgroundEnabled` 是否为 `true`，然后依次确认：
+
+1. 运行环境设置了 `COURSE_GENERATION_BACKGROUND_ENABLED=true`，并且不是会冻结后台进程的纯 Serverless 部署。
+2. `CourseGenerationJob` 表已经由 `20260809153000_course_generation_jobs` 创建。
+3. 应用启动日志中没有生产环境变量校验、Provider 初始化或课程生成工作器错误。
+4. PostgreSQL 中任务状态为 `queued`、`running`、`completed` 或 `failed`；不要直接插入第二条同课程任务。
+5. `/app/data/classrooms` 挂载了共享持久卷且可写，蓝绿实例读取的是同一个卷。
+6. `PUBLIC_BASE_URL` 是外部可访问的 HTTPS 地址，Nginx 支持长连接和媒体回调。
+
+本机开发环境默认返回 `backgroundEnabled=false`，这是预期行为；页面会改为提示教师不要离开。需要本机测试后台生成时，必须启用 PostgreSQL 并显式打开环境变量。
+
+### 生成进度长时间不变化或剩余时间不准确
+
+- 课堂页进度按“真正完成的页面数”更新，并发开始多个页面不会被误计为完成。
+- 初始估算基于页面数量、联网搜索和分层资源数量；完成页面后改用实际吞吐速度校准。
+- 检查 `PARALLEL_SCENE_CONCURRENCY` 是否在 `1–5`，以及 Provider 是否触发限流、重试或长时间推理。
+- 对约 14 个普通课堂页面，默认初始估算约 10 分钟；视频生成、Provider 排队或多个分层资源会明显延长时间。
+- 页面重新进入后应读取数据库任务进度，而不是重新 POST 旧的 `/api/openmaic/generate` 流式接口。
+
+### 蓝绿切换后课程可以看到，但课件或语音丢失
+
+这通常表示 PostgreSQL 已迁移，但 `classrooms` 文件卷没有共享或恢复。检查：
+
+```bash
+docker volume ls | grep openpbl
+docker compose --env-file deploy/.deploy.env -f docker-compose.prod.yml config
+```
+
+确认两个应用实例均挂载 `classrooms:/app/data/classrooms`，Restic 备份包含 `/data/classrooms`，并从一致时间点恢复数据库和文件卷。
+
 ### Windows 端口被占用
 
 检查 `3000`、`3001`、`5432` 和 `6379`。如只需避免 Next.js 的 `3000` 冲突，可运行：
@@ -558,6 +690,8 @@ pnpm dev:next
 - [本地双版本运行](VERSIONING.md)
 - [设计系统](DESIGN-SYSTEM.md)
 - [架构决策记录](docs/adr)
+- [持久课程生成设计](docs/plans/2026-08-09-durable-course-generation.md)
+- [提示词质量审计](docs/prompt-quality-audit.md)
 
 ## 许可证
 

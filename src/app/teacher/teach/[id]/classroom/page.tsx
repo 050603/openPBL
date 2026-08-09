@@ -846,7 +846,6 @@ export function TimerPanel({
       <div className="py-8 text-center">
         <Clock3 className="mx-auto text-stone-300" size={26} />
         <div className="mt-2 text-sm font-semibold text-stone-700">正在初始化课堂时间计划</div>
-        <p className="mt-1 text-xs text-stone-500">将使用备课时确认的六阶段时间大纲</p>
       </div>
     );
   }
@@ -878,7 +877,6 @@ export function TimerPanel({
             {paused ? "已暂停" : "实时运行"}
           </span>
         </div>
-        <p className="mt-0.5 text-[13px] text-stone-500">按备课时间大纲执行，并自动保留课堂偏差</p>
       </div>
       <div className={cn(
         "rounded-[var(--radius-sm)] border px-3 py-3 text-center",
