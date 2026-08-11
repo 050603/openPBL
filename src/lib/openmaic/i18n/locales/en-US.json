@@ -1607,6 +1607,19 @@
     "speed": "Speed",
     "language": "Language"
   },
+  "teachingTools": {
+    "checkTitle": "Understanding check",
+    "evidenceTitle": "Evidence board",
+    "answerPlaceholder": "Explain your thinking...",
+    "responseMessage": "Understanding check response\nQuestion: {{question}}\nMy answer: {{answer}}",
+    "submit": "Submit response",
+    "close": "Close",
+    "sourceStatus": {
+      "verified": "Verified source",
+      "student_provided": "Student-provided",
+      "needs_verification": "Needs verification"
+    }
+  },
   "accessCode": {
     "title": "Enter Access Code",
     "placeholder": "Access code",

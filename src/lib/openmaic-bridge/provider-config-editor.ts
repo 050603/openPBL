@@ -1,5 +1,5 @@
-// 閫傞厤灞傦細鍦?OpenMAIC 鍘熺敓 provider-config 涔嬪锛屾柊澧炲啓鍏ヨ兘鍔?// OpenMAIC 鍘熺敓 provider-config.ts 鍙涓嶅啓锛圷AML+env 鍙屾潵婧愶級
-// 鏁欏笀璁剧疆 UI 闇€瑕佸啓鍏?server-providers.yml锛屾湰妯″潡鎻愪緵璇ヨ兘鍔?
+// 为 OpenMAIC 原生只读 Provider 配置补充持久化写入能力。
+// 数据库不可用时，教师设置页会回退读写 server-providers.yml。
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import yaml from 'js-yaml';
@@ -28,7 +28,10 @@ export interface ProviderEntry {
   enabled?: boolean;
   priority?: number;
   /**
-   * 鏁欏笀鍦ㄨ缃〉鎸囧畾鐨勮 provider 榛樿妯″瀷 ID锛堟潵鑷?models 鍒楄〃涓殑鏌愪竴椤癸級銆?   * 褰撶敓鎴愯皟鐢ㄦ湭鎼哄甫 x-model 鏃讹紝resolveModel 浼氬洖閫€鍒版鍊笺€?   * 浠呯敤浜?LLM 娈碉紙providers锛夛紱鍏朵粬娈靛拷鐣ユ瀛楁銆?   */
+   * 教师在设置页指定的默认模型 ID，必须来自该 Provider 的 models 列表。
+   * 生成请求未携带 x-model 时，resolveModel 会回退到这个值。
+   * 仅用于 LLM providers；其他 Provider 分区会忽略此字段。
+   */
   defaultModel?: string;
   defaultVoice?: string;
   timingCalibrations?: TtsVoiceTimingCalibration[];
@@ -59,7 +62,7 @@ async function writeYaml(data: ServerProvidersYaml): Promise<void> {
   await mkdir(path.dirname(CONFIG_PATH), { recursive: true });
   const raw = yaml.dump(data, { lineWidth: 120, noRefs: true });
   await writeFile(CONFIG_PATH, raw, 'utf8');
-  // 娓呴櫎 OpenMAIC provider-config 妯″潡缂撳瓨锛堣瀹冧笅娆?getConfig() 鏃堕噸璇伙級
+  // 清除 OpenMAIC Provider 配置缓存，让下一次读取使用刚写入的值。
   invalidateProviderConfigCache();
 }
 
@@ -116,8 +119,7 @@ export async function mergeProviderTtsTimingCalibration(
   });
 }
 
-/**
- * 娓呴櫎 OpenMAIC provider-config 妯″潡绾х紦瀛樸€? * OpenMAIC 鐨?_configs Map 鏄鏈夊彉閲忥紝鎴戜滑鐢?require cache 澶辨晥鏉ュ己鍒堕噸杞姐€? */
+/** 清除 OpenMAIC 进程级 Provider 配置缓存。 */
 function invalidateProviderConfigCache(): void {
   clearServerProviderConfigCache();
 }
@@ -168,37 +170,37 @@ export async function saveProviderEntry(
     const sectionKey = section === 'web-search' ? 'web-search' : section;
     if (!data[sectionKey]) data[sectionKey] = {};
     const existing = data[sectionKey]![providerId] ?? {};
-  // 淇濈暀宸叉湁 apiKey锛氬墠绔繚瀛樻椂鑻ヨ緭鍏ユ涓虹┖浼氫紶 undefined/绌轰覆锛?  // 姝ゆ椂涓嶅簲瑕嗙洊宸插瓨鍌ㄧ殑 API key锛堜粎褰撲紶鍏ヤ簡鏂伴潪绌哄€兼椂鎵嶆洿鏂帮級
-  const apiKey = entry.apiKey || existing.apiKey || '';
+    // 空输入表示保留已存 API key；只有传入非空值时才替换。
+    const apiKey = entry.apiKey || existing.apiKey || '';
     data[sectionKey]![providerId] = {
       apiKey,
-    ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : existing.baseUrl ? { baseUrl: existing.baseUrl } : {}),
-    ...(entry.models && entry.models.length > 0
-      ? { models: entry.models }
-      : existing.models && existing.models.length > 0
-        ? { models: existing.models }
-        : {}),
-    ...(entry.enabled !== undefined ? { enabled: entry.enabled } : existing.enabled !== undefined ? { enabled: existing.enabled } : {}),
-    ...(typeof entry.priority === 'number'
-      ? { priority: entry.priority }
-      : typeof existing.priority === 'number'
-        ? { priority: existing.priority }
-        : {}),
-    ...(entry.defaultModel
-      ? { defaultModel: entry.defaultModel }
-      : existing.defaultModel
-        ? { defaultModel: existing.defaultModel }
-        : {}),
-    ...(entry.defaultVoice
-      ? { defaultVoice: entry.defaultVoice }
-      : existing.defaultVoice
-        ? { defaultVoice: existing.defaultVoice }
-        : {}),
-    ...(entry.timingCalibrations
-      ? { timingCalibrations: entry.timingCalibrations }
-      : existing.timingCalibrations
-        ? { timingCalibrations: existing.timingCalibrations }
-        : {}),
+      ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : existing.baseUrl ? { baseUrl: existing.baseUrl } : {}),
+      ...(entry.models && entry.models.length > 0
+        ? { models: entry.models }
+        : existing.models && existing.models.length > 0
+          ? { models: existing.models }
+          : {}),
+      ...(entry.enabled !== undefined ? { enabled: entry.enabled } : existing.enabled !== undefined ? { enabled: existing.enabled } : {}),
+      ...(typeof entry.priority === 'number'
+        ? { priority: entry.priority }
+        : typeof existing.priority === 'number'
+          ? { priority: existing.priority }
+          : {}),
+      ...(entry.defaultModel
+        ? { defaultModel: entry.defaultModel }
+        : existing.defaultModel
+          ? { defaultModel: existing.defaultModel }
+          : {}),
+      ...(entry.defaultVoice
+        ? { defaultVoice: entry.defaultVoice }
+        : existing.defaultVoice
+          ? { defaultVoice: existing.defaultVoice }
+          : {}),
+      ...(entry.timingCalibrations
+        ? { timingCalibrations: entry.timingCalibrations }
+        : existing.timingCalibrations
+          ? { timingCalibrations: existing.timingCalibrations }
+          : {}),
     };
     await writeYaml(data);
   });
@@ -328,12 +330,12 @@ function providerRowToEntry(row: {
 }
 
 /**
- * 浠?.openpbl-data/ai-settings.json 杩佺Щ鍒?server-providers.yml 鐨?providers.openai
- * 浠呭湪棣栨鍚姩鏃舵墽琛岋紙濡傛灉 server-providers.yml 涓?providers.openai.apiKey 涓虹┖浣?.openpbl-data 涓湁鍊硷級
+ * 把旧版 .openpbl-data/ai-settings.json 迁移到
+ * server-providers.yml 的 providers.openai，仅在 YAML 尚未配置密钥时执行。
  */
 export async function migrateLegacySettings(): Promise<void> {
   const openaiEntry = await readProviderEntryRaw('providers', 'openai');
-  if (openaiEntry?.apiKey) return; // 宸叉湁閰嶇疆锛屼笉杩佺Щ
+  if (openaiEntry?.apiKey) return;
 
   try {
     const legacyPath = path.join(process.cwd(), '.openpbl-data', 'ai-settings.json');
@@ -341,7 +343,7 @@ export async function migrateLegacySettings(): Promise<void> {
     const legacy = JSON.parse(raw) as { endpoint?: string; model?: string; apiKey?: string };
     if (!legacy.apiKey) return;
 
-    // 鎺ㄦ柇 baseUrl锛氬鏋?endpoint 鏄?https://api.openai.com/v1 灏辩敤榛樿锛涘惁鍒欑敤 endpoint
+    // 保留旧版自定义端点；官方 OpenAI 端点统一使用标准地址。
     const baseUrl =
       legacy.endpoint && legacy.endpoint !== 'https://api.openai.com/v1'
         ? legacy.endpoint
@@ -354,13 +356,11 @@ export async function migrateLegacySettings(): Promise<void> {
       models,
     });
   } catch {
-    // 鏃犻仐鐣欓厤缃紝鏃犻渶杩佺Щ
+    // 没有旧版配置时无需迁移。
   }
 }
 
-/**
- * 璇诲彇 provider entry锛堜笉瑙﹀彂杩佺Щ锛岄伩鍏嶅惊鐜緷璧栵級
- */
+/** 读取原始 Provider 配置，不触发迁移，避免循环依赖。 */
 async function readProviderEntryRaw(
   section: ProviderSection,
   providerId: string,
@@ -388,6 +388,6 @@ async function ensureMigratedInternal(): Promise<void> {
   try {
     await migrateLegacySettings();
   } catch {
-    // 闈欓粯澶辫触
+    // 旧配置迁移失败不应阻止当前配置读取。
   }
 }

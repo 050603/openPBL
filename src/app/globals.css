@@ -177,6 +177,13 @@ select {
   border-radius: var(--radius-xs);
 }
 
+/* The quick-course composer uses its rounded container as the focus surface. */
+.quick-course-brief:focus,
+.quick-course-brief:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 ::selection {
   background: var(--pbl-teacher-border);
   color: var(--pbl-text-strong);

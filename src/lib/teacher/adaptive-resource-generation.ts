@@ -1,5 +1,22 @@
 import type { AdaptiveBranchOutline } from "@/lib/session/types";
 
+export function adaptiveBranchGenerationSignature(
+  branch: AdaptiveBranchOutline,
+): string {
+  return JSON.stringify({
+    kind: branch.kind,
+    title: branch.title.trim(),
+    objective: branch.objective.trim(),
+    keyPoints: branch.keyPoints.map((item) => item.trim()),
+    anchorKnowledgePointIds: branch.anchorKnowledgePointIds,
+    prerequisiteKnowledgePointIds: branch.prerequisiteKnowledgePointIds,
+    noveltyStatement: branch.noveltyStatement.trim(),
+    sceneType: branch.sceneType,
+    targetDurationSec: branch.targetDurationSec,
+    generationGuidance: branch.generationGuidance?.trim() ?? "",
+  });
+}
+
 export function hasReusableAdaptiveResource(
   branch: AdaptiveBranchOutline,
 ): boolean {

@@ -1,0 +1,744 @@
+"use client";
+
+import {
+  ArrowRight,
+  BookOpenCheck,
+  BrainCircuit,
+  Check,
+  CheckCircle2,
+  Clock3,
+  GitBranch,
+  Layers3,
+  Network,
+  Route,
+  ShieldCheck,
+  Sparkles,
+  Square,
+} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CourseDesignGenerationArtifact } from "@/lib/session/types";
+import { cn } from "@/lib/utils";
+
+const ICONS: Record<CourseDesignGenerationArtifact["kind"], typeof Sparkles> = {
+  facts: BookOpenCheck,
+  graph: Network,
+  outcome: Layers3,
+  rubric: ShieldCheck,
+  timeline: GitBranch,
+  pages: BookOpenCheck,
+  branches: Route,
+  audit: CheckCircle2,
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  launch: "项目启动",
+  "ai-learning": "AI 授知",
+  proposal: "方案构思",
+  make: "项目实现",
+  showcase: "成果汇报",
+  reflection: "总结反思",
+};
+
+const MIN_CARD_DISPLAY_MS = 8_000;
+
+export function QuickGenerationStage({
+  activeArtifactId,
+  artifacts,
+  brief,
+  message,
+  progress,
+  remainingLabel,
+  startedAt,
+  paused,
+  reviewAvailable,
+  backgroundEnabled,
+  cancelling,
+  confirmCancel,
+  completed,
+  onCancel,
+  onOpenCourse,
+  onReview,
+}: {
+  activeArtifactId?: string;
+  artifacts: CourseDesignGenerationArtifact[];
+  brief: string;
+  message: string;
+  progress: number;
+  remainingLabel: string;
+  startedAt: string | null;
+  paused: boolean;
+  reviewAvailable: boolean;
+  backgroundEnabled: boolean | null;
+  cancelling: boolean;
+  confirmCancel: boolean;
+  completed: boolean;
+  onCancel: () => void;
+  onOpenCourse: () => void;
+  onReview: () => void;
+}) {
+  const reducedMotion = useReducedMotion();
+  const artifactIds = artifacts.map((item) => item.id).join("|");
+  const [activeIndex, setActiveIndex] = useState(() => artifacts.length - 1);
+  const [now, setNow] = useState(() => Date.now());
+  const cardShownAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    cardShownAt.current ??= Date.now();
+  }, []);
+
+  useEffect(() => {
+    if (!activeArtifactId) return;
+    const preferredIndex = artifacts.findIndex((item) => item.id === activeArtifactId);
+    if (preferredIndex < 0) return;
+    cardShownAt.current = Date.now();
+    queueMicrotask(() => setActiveIndex(preferredIndex));
+  }, [activeArtifactId, artifactIds, artifacts]);
+
+  useEffect(() => {
+    if (!artifacts.length) {
+      queueMicrotask(() => setActiveIndex(-1));
+      return;
+    }
+    if (activeIndex >= artifacts.length) {
+      queueMicrotask(() => setActiveIndex(artifacts.length - 1));
+    }
+  }, [activeIndex, artifactIds, artifacts.length]);
+
+  useEffect(() => {
+    if (!artifacts.length || activeIndex >= artifacts.length - 1) return;
+    if (activeArtifactId && artifacts[activeIndex]?.id === activeArtifactId) return;
+    const visibleFor = cardShownAt.current === null ? 0 : Date.now() - cardShownAt.current;
+    const delay = activeIndex < 0 || reducedMotion
+      ? 100
+      : Math.max(900, MIN_CARD_DISPLAY_MS - visibleFor);
+    const timer = window.setTimeout(() => {
+      cardShownAt.current = Date.now();
+      setActiveIndex((current) => Math.min(current + 1, artifacts.length - 1));
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [activeArtifactId, activeIndex, artifactIds, artifacts, artifacts.length, reducedMotion]);
+
+  useEffect(() => {
+    if (!startedAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+
+  const safeActiveIndex = artifacts.length > 0
+    ? Math.min(Math.max(activeIndex, 0), artifacts.length - 1)
+    : -1;
+  const current = artifacts[safeActiveIndex];
+  const displayed: CourseDesignGenerationArtifact = current ?? {
+    id: "teacher-brief",
+    kind: "facts",
+    eyebrow: "正在理解课程要求",
+    title: "拆解教师输入",
+    summary: message || "AI 正在识别课程主题、学习对象、课时边界与成果要求。",
+    accent: "blue",
+    items: [{ label: "教师要求", value: brief }],
+  };
+  const elapsedSeconds = startedAt
+    ? Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1_000))
+    : 0;
+  const previousArtifact = safeActiveIndex > 0 ? artifacts[safeActiveIndex - 1] : null;
+  const nextArtifact = safeActiveIndex >= 0 && safeActiveIndex < artifacts.length - 1 ? artifacts[safeActiveIndex + 1] : null;
+
+  return (
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-bg)] text-[var(--pbl-text-strong)]">
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_-20%,rgba(29,78,216,.09),transparent_68%)]" />
+        <motion.div className="absolute -top-28 left-[12%] h-72 w-[520px] rounded-full bg-[linear-gradient(100deg,rgba(59,130,246,.10),rgba(139,92,246,.05),transparent)] blur-[72px]" animate={reducedMotion ? undefined : { x: [-80, 180, -80], y: [0, 46, 0], scale: [1, 1.12, 1] }} transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }} />
+        <motion.div className="absolute -bottom-20 right-[8%] h-64 w-[460px] rounded-full bg-[linear-gradient(100deg,transparent,rgba(249,115,22,.08),rgba(59,130,246,.07))] blur-[78px]" animate={reducedMotion ? undefined : { x: [90, -140, 90], y: [20, -36, 20], scale: [1.05, .92, 1.05] }} transition={{ duration: 17, repeat: Infinity, ease: "easeInOut" }} />
+      </div>
+
+      <div className="relative flex min-h-full flex-col px-5 py-5 sm:px-8 sm:py-7">
+        <header className="mx-auto flex w-full max-w-[1120px] items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3 text-xs font-bold text-stone-600">
+            <span className="relative grid size-9 shrink-0 place-items-center rounded-[var(--radius-md)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
+              <BrainCircuit className="size-4" />
+              {!paused ? <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[var(--pbl-bg)] bg-emerald-500 motion-safe:animate-pulse" /> : null}
+            </span>
+            <span className="truncate">{paused ? "生成已暂停，等待大纲确认" : message || "正在生成课程"}</span>
+          </div>
+          {completed ? (
+            <button className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)]" onClick={onOpenCourse} type="button">
+              查看生成课程 <ArrowRight className="size-3.5" />
+            </button>
+          ) : (
+            <button
+              className={cn(
+                "inline-flex h-9 shrink-0 items-center gap-2 rounded-[var(--radius-xs)] border px-3.5 text-xs font-semibold transition",
+                confirmCancel ? "border-red-600 bg-red-600 text-white" : "border-[var(--pbl-border)] bg-white text-[var(--pbl-text-muted)] hover:border-red-200 hover:text-red-700",
+              )}
+              disabled={cancelling}
+              onClick={onCancel}
+              type="button"
+            >
+              <Square className="size-3" fill="currentColor" />
+              {cancelling ? "正在中断" : confirmCancel ? "确认中断" : "中断生成"}
+            </button>
+          )}
+        </header>
+
+        <main className="mx-auto grid w-full max-w-[1120px] flex-1 place-items-center py-7 sm:py-9">
+          <div className="w-full max-w-[820px]">
+            <div className="relative isolate mx-auto h-[min(520px,calc(100vh-250px))] min-h-[430px] [perspective:1800px]">
+              <motion.div
+                aria-hidden
+                animate={reducedMotion ? undefined : { opacity: [.42, .65, .42], scaleX: [.92, 1.04, .92] }}
+                className="absolute -bottom-7 left-[9%] right-[9%] h-20 rounded-[50%] bg-[radial-gradient(ellipse,rgba(30,64,175,.18),rgba(15,23,42,.06)_48%,transparent_72%)] blur-xl"
+                transition={{ duration: 5.8, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <motion.div
+                aria-hidden
+                animate={reducedMotion ? undefined : { opacity: [.72, .9, .72], x: [-14, 3, -14], y: [11, -5, 11], rotate: [-4.2, -2, -4.2], scale: [.94, .955, .94] }}
+                className="absolute -left-14 top-8 z-0 h-[calc(100%-50px)] w-[95%] overflow-hidden rounded-[var(--radius-xl)] border border-orange-200/80 bg-[linear-gradient(145deg,#fff7ed,#fff_72%)] shadow-[0_26px_58px_-42px_rgba(124,45,18,.46)]"
+                transition={{ duration: 6.2, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <span className="absolute inset-y-8 right-2 w-px bg-gradient-to-b from-transparent via-orange-200 to-transparent" />
+                <span className="absolute bottom-5 left-3 max-h-36 overflow-hidden text-[8px] font-semibold tracking-[.12em] text-[var(--pbl-accent)] [writing-mode:vertical-rl]">{compactSideTitle(previousArtifact?.title, "课程轮廓")}</span>
+              </motion.div>
+              <motion.div
+                aria-hidden
+                animate={reducedMotion ? undefined : { opacity: [.76, .94, .76], x: [1, 17, 1], y: [-9, 8, -9], rotate: [4, 1.6, 4], scale: [.945, .96, .945] }}
+                className="absolute -right-14 top-5 z-[1] h-[calc(100%-34px)] w-[95%] overflow-hidden rounded-[var(--radius-xl)] border border-blue-200/80 bg-[linear-gradient(145deg,#fff_28%,#eff6ff)] shadow-[0_28px_62px_-42px_rgba(30,64,175,.45)]"
+                transition={{ duration: 7.1, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <span className="absolute inset-y-8 left-2 w-px bg-gradient-to-b from-transparent via-blue-200 to-transparent" />
+                <span className="absolute right-3 top-5 max-h-36 overflow-hidden text-[8px] font-semibold tracking-[.12em] text-[var(--pbl-teacher)] [writing-mode:vertical-rl]">{compactSideTitle(nextArtifact?.title, "继续生成")}</span>
+              </motion.div>
+              <motion.div
+                animate={reducedMotion ? undefined : { rotateZ: [-.16, .14, -.16], y: [-5, 4, -5] }}
+                className="absolute inset-0 z-10"
+                transition={{ duration: 6.8, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <AnimatePresence initial={false} mode="sync">
+                  <motion.article
+                    animate={{ filter: "blur(0px)", opacity: 1, rotateY: 0, rotateZ: 0, scale: 1, x: 0 }}
+                    className="absolute inset-0 overflow-hidden rounded-[var(--radius-xl)] border border-stone-200/90 bg-[var(--pbl-surface)] p-5 shadow-[0_38px_86px_-40px_rgba(15,23,42,.38),0_17px_36px_-27px_rgba(37,99,235,.28),inset_0_1px_0_rgba(255,255,255,.98)] [transform-style:preserve-3d] sm:p-7"
+                    exit={{ filter: "blur(2px)", opacity: 0, rotateY: -24, rotateZ: -.8, scale: .965, x: -142 }}
+                    initial={reducedMotion ? false : { filter: "blur(2px)", opacity: 0, rotateY: 22, rotateZ: .8, scale: .965, x: 142 }}
+                    key={displayed.id}
+                    layoutId={displayed.kind === "pages" ? "quick-course-outline-surface" : undefined}
+                    transition={reducedMotion ? { duration: 0 } : { duration: .76, ease: [.22, 1, .36, 1] }}
+                  >
+                    <span aria-hidden className="absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
+                    {!paused && !completed ? <motion.span aria-hidden className="absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent" animate={{ x: [-120, 860] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }} /> : null}
+                    <ArtifactCard artifact={displayed} active={!paused && !completed} />
+                    {reviewAvailable && displayed.kind === "pages" ? (
+                      <button className="absolute bottom-5 left-5 z-20 inline-flex h-10 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)] sm:left-7" onClick={onReview} type="button">
+                        查看详细大纲 <ArrowRight className="size-3.5" />
+                      </button>
+                    ) : null}
+                  </motion.article>
+                </AnimatePresence>
+              </motion.div>
+            </div>
+
+            <div className="mx-auto mt-7 flex max-w-[760px] items-center gap-4">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--pbl-border)]">
+                <motion.div
+                  animate={{ width: `${progress}%` }}
+                  className="quick-progress-current relative h-full rounded-full bg-[linear-gradient(90deg,#1d4ed8_0%,#2563eb_48%,#60a5fa_58%,#2563eb_68%,#1d4ed8_100%)] [background-size:220%_100%]"
+                  data-testid="quick-generation-progress-flow"
+                  transition={{ duration: .7, ease: "easeOut" }}
+                >
+                  <span aria-hidden className="quick-progress-tip absolute -right-0.5 top-1/2 size-2 -translate-y-1/2 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(96,165,250,.75)]" />
+                </motion.div>
+              </div>
+              <span className="w-11 text-right text-xs font-black tabular-nums text-blue-800">{progress}%</span>
+            </div>
+            <div className="mx-auto mt-3 flex max-w-[760px] flex-wrap items-center justify-between gap-x-5 gap-y-2 text-[11px] font-semibold text-stone-500">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <span className="inline-flex items-center gap-1.5"><Clock3 className="size-3.5" />已用时 {formatElapsed(elapsedSeconds)}</span>
+                <span>{paused ? "预计剩余时间将在继续后更新" : remainingLabel}</span>
+              </div>
+              <span>{backgroundEnabled ? "可以离开，任务会继续生成" : "当前环境请保持页面打开"}</span>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <style>{`
+        @keyframes quick-progress-current { from { background-position: 100% 50% } to { background-position: 0% 50% } }
+        @keyframes quick-progress-tip { 0%, 100% { opacity: .45; transform: translateY(-50%) scale(.72) } 50% { opacity: 1; transform: translateY(-50%) scale(1) } }
+        .quick-progress-current { animation: quick-progress-current 3.6s ease-in-out infinite alternate; }
+        .quick-progress-tip { animation: quick-progress-tip 2.2s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .quick-progress-current, .quick-progress-tip { animation: none; } }
+      `}</style>
+    </div>
+  );
+}
+
+function ArtifactCard({ artifact, active }: { artifact: CourseDesignGenerationArtifact; active: boolean }) {
+  const Icon = ICONS[artifact.kind];
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const [hasOverflow, setHasOverflow] = useState(artifact.items.length > 3);
+  const [atBottom, setAtBottom] = useState(false);
+
+  useEffect(() => {
+    const area = scrollAreaRef.current;
+    if (!area) return;
+    const measure = () => {
+      const overflow = area.scrollHeight > area.clientHeight + 6;
+      setHasOverflow(overflow);
+      setAtBottom(!overflow || area.scrollTop + area.clientHeight >= area.scrollHeight - 8);
+    };
+    if (typeof ResizeObserver === "undefined") return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, [artifact.id, artifact.items.length]);
+
+  const showFade = hasOverflow && !atBottom;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col pb-10">
+      <div className="flex shrink-0 items-start justify-between gap-5 border-b border-[var(--pbl-border-soft)] pb-4">
+        <div className="min-w-0">
+          <p className={cn("text-[10px] font-semibold tracking-[.15em]", accentText(artifact.accent))}>{artifact.eyebrow}</p>
+          <h1 className="mt-2 line-clamp-2 font-editorial text-[26px] font-semibold leading-tight text-[var(--pbl-text-strong)] sm:text-[30px]">{artifact.title}</h1>
+          <p className="mt-1.5 line-clamp-2 max-w-[650px] text-[12px] leading-5 text-[var(--pbl-text-muted)]">{artifact.summary}</p>
+        </div>
+        <motion.span
+          animate={active ? { rotate: [0, -10, 8, 0], scale: [1, 1.13, 1] } : undefined}
+          className={cn("grid size-10 shrink-0 place-items-center rounded-[var(--radius-md)] border", accentSurface(artifact.accent))}
+          transition={{ duration: 3.2, repeat: Infinity, repeatDelay: .8, ease: "easeInOut" }}
+        ><Icon className="size-5" /></motion.span>
+      </div>
+
+      <div className="relative mt-4 min-h-0 flex-1">
+        <div
+          className="absolute inset-0 overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable]"
+          data-testid="quick-generation-card-scroll"
+          ref={scrollAreaRef}
+          onScroll={(event) => {
+            const target = event.currentTarget;
+            setAtBottom(target.scrollTop + target.clientHeight >= target.scrollHeight - 8);
+          }}
+        >
+          <ArtifactBody artifact={artifact} />
+        </div>
+        {showFade ? (
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-white/0 via-white/80 to-white" />
+        ) : null}
+      </div>
+      {active ? <span aria-hidden className="absolute bottom-0 left-0 h-1 w-full bg-gradient-to-r from-transparent via-blue-500/55 to-transparent motion-safe:animate-pulse" /> : null}
+    </div>
+  );
+}
+
+function ArtifactBody({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  if (artifact.id.startsWith("classroom-pages-")) return <PageProductionPreview artifact={artifact} />;
+  if (artifact.id === "classroom-media-assets") return <ResourceProductionPreview artifact={artifact} />;
+  if (artifact.id === "classroom-tts-assets") return <TtsProductionPreview artifact={artifact} />;
+  if (artifact.kind === "pages") return <OutlinePreview artifact={artifact} />;
+  if (artifact.kind === "timeline") return <TimelinePreview artifact={artifact} />;
+  if (artifact.kind === "rubric") return <RubricPreview artifact={artifact} />;
+  if (artifact.kind === "graph") return <GraphPreview artifact={artifact} />;
+  if (artifact.kind === "outcome") return <OutcomePreview artifact={artifact} />;
+  if (artifact.kind === "branches") return <BranchPreview artifact={artifact} />;
+  if (artifact.kind === "audit") return <AuditPreview artifact={artifact} />;
+  return <FactsPreview artifact={artifact} />;
+}
+
+function FactsPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const [lead, ...rest] = artifact.items;
+  return (
+    <div className="grid min-h-[250px] gap-6 sm:grid-cols-[1.05fr_.95fr] sm:items-stretch">
+      <motion.section className="relative flex flex-col justify-between overflow-hidden border-l-2 border-[var(--pbl-teacher)] bg-[linear-gradient(90deg,var(--pbl-teacher-soft),transparent_82%)] px-5 py-4" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}>
+        <motion.span aria-hidden className="absolute inset-y-0 w-24 -skew-x-12 bg-gradient-to-r from-transparent via-white/75 to-transparent" animate={{ x: [-140, 480] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.4, ease: "easeInOut" }} />
+        <div className="relative">
+          <p className="text-[9px] font-semibold tracking-[.14em] text-[var(--pbl-text-subtle)]">{lead?.label ?? "课程信息"}</p>
+          <p className="mt-3 font-editorial text-[24px] font-semibold leading-tight text-[var(--pbl-text-strong)]">{lead?.value ?? artifact.title}</p>
+        </div>
+        {lead?.meta ? <p className="relative mt-4 line-clamp-4 max-w-md text-[11px] leading-[18px] text-[var(--pbl-text-muted)]">{lead.meta}</p> : null}
+      </motion.section>
+      <dl className="flex flex-col divide-y divide-[var(--pbl-border)]">
+        {rest.map((item, index) => (
+          <motion.div className="grid flex-1 grid-cols-[74px_1fr] items-center gap-4 py-3" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .07 }} key={`${item.label}-${index}`}>
+            <dt className="text-[9px] font-semibold tracking-[.08em] text-[var(--pbl-text-subtle)]">{item.label}</dt>
+            <dd className="min-w-0"><p className="line-clamp-2 text-[12px] font-semibold leading-[18px] text-[var(--pbl-text)]">{item.value}</p>{item.meta ? <p className="mt-0.5 line-clamp-1 text-[9px] text-[var(--pbl-text-subtle)]">{item.meta}</p> : null}</dd>
+          </motion.div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function GraphPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  if (artifact.visualization?.knowledgeGraph) {
+    const levelOrder = ["foundation", "core", "application", "extension"] as const;
+    const levelLabel = { foundation: "基础", core: "核心", application: "应用", extension: "拓展" };
+    const pointById = new Map((artifact.visualization.knowledgePoints ?? []).map((point) => [point.id, point]));
+    const groups = levelOrder.map((level) => ({
+      level,
+      points: artifact.visualization!.knowledgeGraph!.nodes.filter((node) => (node.level ?? pointById.get(node.id)?.level ?? "core") === level),
+    })).filter((group) => group.points.length > 0);
+    return (
+      <div className="flex min-h-[250px] flex-col">
+        <div className="grid flex-1 divide-y divide-[var(--pbl-border)] sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+          {groups.map((group, groupIndex) => (
+            <motion.section className="relative px-4 py-3 first:pl-0 last:pr-0" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: groupIndex * .08 }} key={group.level}>
+              <div className="flex items-center gap-2">
+                <span className="grid size-5 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-[9px] font-bold text-[var(--pbl-teacher)]">{groupIndex + 1}</span>
+                <p className="text-[9px] font-semibold tracking-[.13em] text-[var(--pbl-text-subtle)]">{levelLabel[group.level]}</p>
+              </div>
+              <div className="mt-4 space-y-4">
+                {group.points.slice(0, 3).map((node) => {
+                  const point = pointById.get(node.id);
+                  return (
+                    <div className="border-l border-[var(--pbl-teacher-border)] pl-3" key={node.id}>
+                      <p className="text-[12px] font-semibold leading-[18px] text-[var(--pbl-text)]">{node.label}</p>
+                      {(node.description || point?.description) ? <p className="mt-1 line-clamp-2 text-[9px] leading-[15px] text-[var(--pbl-text-subtle)]">{node.description || point?.description}</p> : null}
+                    </div>
+                  );
+                })}
+              </div>
+              {groupIndex < groups.length - 1 ? <motion.span className="absolute -right-2.5 top-3.5 z-10 hidden bg-white sm:block" animate={{ x: [0, 5, 0], opacity: [.45, 1, .45] }} transition={{ delay: groupIndex * .3, duration: 1.8, repeat: Infinity }}><ArrowRight className="size-4 text-[var(--pbl-teacher-border)]" /></motion.span> : null}
+            </motion.section>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center gap-3 border-t border-[var(--pbl-border-soft)] pt-3 text-[9px] text-[var(--pbl-text-subtle)]">
+          <span className="font-semibold text-[var(--pbl-teacher)]">学习逻辑</span>
+          <span className="truncate">{artifact.visualization.knowledgeGraph.edges.slice(0, 4).map((edge) => edge.label).filter(Boolean).join(" · ") || `${artifact.visualization.knowledgeGraph.edges.length} 条知识关联`}</span>
+        </div>
+      </div>
+    );
+  }
+  if (artifact.id === "knowledge-relations") {
+    return (
+      <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">
+        {artifact.items.map((item, index) => {
+          const [source, target] = item.value.split("→").map((value) => value.trim());
+          return (
+            <motion.div className="grid grid-cols-[1fr_68px_1fr] items-center gap-3 py-3" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .07 }} key={`${item.value}-${index}`}>
+              <p className="text-right text-[11px] font-semibold text-[var(--pbl-text)]">{source}</p>
+              <div className="flex items-center gap-1"><span className="h-px flex-1 bg-[var(--pbl-ai-border)]" /><span className="text-[8px] text-[var(--pbl-ai)]">{item.label}</span><ArrowRight className="size-3 text-[var(--pbl-ai)]" /></div>
+              <p className="text-[11px] font-semibold text-[var(--pbl-text)]">{target}</p>
+            </motion.div>
+          );
+        })}
+      </div>
+    );
+  }
+  return (
+    <div className="grid min-h-[250px] content-center gap-x-7 gap-y-3 sm:grid-cols-2">
+      {artifact.items.map((item, index) => (
+        <motion.div className="grid grid-cols-[24px_1fr] gap-3 border-b border-[var(--pbl-border)] py-3" initial={{ opacity: 0, x: index % 2 ? 8 : -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .07 }} key={`${item.value}-${index}`}>
+          <span className="grid size-5 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-[8px] font-semibold text-[var(--pbl-teacher)]">{index + 1}</span><div><p className="text-[8px] text-[var(--pbl-text-subtle)]">{item.label}</p><p className="mt-1 line-clamp-2 text-[10px] font-semibold leading-[16px] text-[var(--pbl-text)]">{item.value}</p></div>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+function RubricPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const colors = ["#2563eb", "#f97316", "#16a34a", "#8b5cf6", "#0891b2", "#db2777", "#65a30d", "#d97706"];
+  const ruleRadius = 50;
+  const ruleCircumference = 2 * Math.PI * ruleRadius;
+  const evaluatorRadius = 62;
+  const evaluatorCircumference = 2 * Math.PI * evaluatorRadius;
+  const weightedItems = artifact.items.map((item, index) => ({
+    ...item,
+    color: colors[index % colors.length],
+    evaluator: resolveEvaluationRole(item, index),
+    weight: Number(item.label.match(/(\d+(?:\.\d+)?)\s*%/)?.[1] ?? 1),
+  }));
+  const totalWeight = weightedItems.reduce((total, item) => total + item.weight, 0) || 1;
+  const segments = weightedItems.reduce<Array<(typeof weightedItems)[number] & { angle: number; startAngle: number }>>((result, item) => {
+    const previous = result.at(-1);
+    const startAngle = previous ? previous.startAngle + previous.angle : 0;
+    const angle = (item.weight / totalWeight) * 360;
+    return [...result, { ...item, angle, startAngle }];
+  }, []);
+  const teacherWeight = weightedItems.filter((item) => item.evaluator === "teacher").reduce((total, item) => total + item.weight, 0);
+  const aiWeight = weightedItems.filter((item) => item.evaluator === "ai").reduce((total, item) => total + item.weight, 0);
+  const evaluatorSegments = [
+    { color: "#dbeafe", label: "教师评", startWeight: 0, weight: teacherWeight },
+    { color: "#ede9fe", label: "AI 评", startWeight: teacherWeight, weight: aiWeight },
+  ].filter((item) => item.weight > 0);
+
+  return (
+    <div className="grid min-h-[250px] gap-6 sm:grid-cols-[236px_1fr] sm:items-center">
+      <div className="relative mx-auto grid size-[226px] place-items-center" data-testid="rubric-evaluation-ring">
+        <motion.span aria-hidden animate={{ scale: [1, 1.055, 1], opacity: [.28, .5, .28] }} className="absolute inset-8 rounded-full bg-[radial-gradient(circle,rgba(59,130,246,.12),transparent_68%)] blur-lg" transition={{ duration: 4.8, repeat: Infinity, ease: "easeInOut" }} />
+        <svg aria-label="评价规则权重与评价主体" className="relative size-full overflow-visible" role="img" viewBox="0 0 180 180">
+          <circle cx="90" cy="90" fill="none" r={evaluatorRadius} stroke="#f1f5f9" strokeWidth="28" />
+          {evaluatorSegments.map((item, index) => {
+            const segmentLength = (item.weight / totalWeight) * evaluatorCircumference;
+            const offset = (item.startWeight / totalWeight) * evaluatorCircumference;
+            return (
+              <motion.circle
+                animate={{ strokeDashoffset: -offset }}
+                cx="90"
+                cy="90"
+                fill="none"
+                initial={{ strokeDashoffset: evaluatorCircumference - offset }}
+                key={item.label}
+                r={evaluatorRadius}
+                stroke={item.color}
+                strokeDasharray={`${segmentLength} ${Math.max(1, evaluatorCircumference - segmentLength)}`}
+                strokeLinecap="butt"
+                strokeWidth="28"
+                transform="rotate(-90 90 90)"
+                transition={{ delay: .08 + index * .12, duration: 1.05, ease: [.22, 1, .36, 1] }}
+              />
+            );
+          })}
+          <circle cx="90" cy="90" fill="none" r={ruleRadius} stroke="rgba(255,255,255,.9)" strokeWidth="19" />
+          {segments.map((item, index) => {
+            const segmentLength = (item.angle / 360) * ruleCircumference;
+            const offset = (item.startAngle / 360) * ruleCircumference;
+            return (
+              <motion.circle
+                animate={{ strokeDashoffset: -offset }}
+                cx="90"
+                cy="90"
+                fill="none"
+                initial={{ strokeDashoffset: ruleCircumference - offset }}
+                key={`${item.value}-weight`}
+                r={ruleRadius}
+                stroke={item.color}
+                strokeDasharray={`${Math.max(1, segmentLength - 3.5)} ${Math.max(1, ruleCircumference - segmentLength + 3.5)}`}
+                strokeLinecap="round"
+                strokeWidth="13"
+                transform="rotate(-90 90 90)"
+                transition={{ delay: .12 + index * .11, duration: .9, ease: "easeOut" }}
+              />
+            );
+          })}
+        </svg>
+        <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
+          <span className="text-[8px] font-semibold tracking-[.16em] text-[var(--pbl-text-subtle)]">评价规则</span>
+          <strong className="mt-1 font-editorial text-[28px] font-semibold leading-none text-[var(--pbl-text-strong)]">{artifact.items.length}</strong>
+          <span className="mt-1 text-[8px] text-[var(--pbl-text-subtle)]">项已对齐目标</span>
+        </div>
+        <div className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-4 whitespace-nowrap text-[8px] font-semibold text-[var(--pbl-text-muted)]">
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-5 rounded-full bg-blue-100 ring-1 ring-blue-200" />教师评 {Math.round((teacherWeight / totalWeight) * 100)}%</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-5 rounded-full bg-violet-100 ring-1 ring-violet-200" />AI 评 {Math.round((aiWeight / totalWeight) * 100)}%</span>
+        </div>
+      </div>
+      <div className="grid content-center divide-y divide-[var(--pbl-border-soft)] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        {segments.map((item, index) => (
+          <motion.div
+            animate={{ opacity: 1, x: 0, y: 0 }}
+            className="relative min-h-[92px] border-b border-[var(--pbl-border-soft)] px-3 py-2.5 sm:[&:nth-last-child(-n+2)]:border-b-0"
+            initial={{ opacity: 0, x: index % 2 ? 10 : -10, y: 5 }}
+            key={`${item.value}-rule`}
+            transition={{ delay: .28 + index * .08, duration: .42 }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                <p className="line-clamp-1 text-[11px] font-semibold text-[var(--pbl-text-strong)]">{item.value}</p>
+              </div>
+              <span className="shrink-0 text-[9px] font-bold tabular-nums" style={{ color: item.color }}>{item.weight}%</span>
+            </div>
+            {item.meta ? <p className="mt-2 line-clamp-2 pl-4 text-[9px] leading-[15px] text-[var(--pbl-text-muted)]">{item.meta}</p> : null}
+            <span className={cn("mt-2 ml-4 inline-flex items-center gap-1.5 text-[8px] font-semibold", item.evaluator === "ai" ? "text-violet-700" : "text-blue-700")}><i className={cn("h-1.5 w-3 rounded-full", item.evaluator === "ai" ? "bg-violet-100 ring-1 ring-violet-200" : "bg-blue-100 ring-1 ring-blue-200")} />{item.evaluator === "ai" ? "AI 评" : "教师评"}</span>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TimelinePreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const roleLayout = artifact.id === "teaching-roles";
+  if (!roleLayout) {
+    const durations = artifact.items.map((item) => Number(item.label.match(/(\d+)/)?.[1] ?? 1));
+    const total = durations.reduce((sum, value) => sum + value, 0) || 1;
+    return (
+      <div className="flex min-h-[250px] flex-col justify-center">
+        <div className="mb-3 flex items-baseline justify-between"><span className="text-[9px] font-semibold tracking-[.12em] text-[var(--pbl-text-subtle)]">课堂时间分配</span><span className="font-editorial text-2xl text-[var(--pbl-text-strong)]">{total} 分钟</span></div>
+        <div className="relative flex h-10 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--pbl-surface-soft)]">
+          {artifact.items.map((item, index) => (
+            <motion.div className={cn("relative flex min-w-[42px] items-center justify-center overflow-hidden border-r border-white/70 px-1.5 text-center text-[8px] font-semibold last:border-r-0", index % 3 === 0 ? "bg-orange-100 text-orange-900" : index % 3 === 1 ? "bg-blue-100 text-blue-900" : "bg-amber-50 text-amber-900")} initial={{ width: 0 }} animate={{ width: `${(durations[index] / total) * 100}%` }} transition={{ delay: index * .07, duration: .65 }} key={`${item.value}-${index}`}>
+              <span className="line-clamp-1">{item.value}</span>
+            </motion.div>
+          ))}
+          <motion.span aria-hidden className="absolute inset-y-0 w-8 -skew-x-12 bg-gradient-to-r from-transparent via-white/80 to-transparent" animate={{ x: [-60, 760] }} transition={{ duration: 3.4, repeat: Infinity, repeatDelay: 1, ease: "easeInOut" }} />
+        </div>
+        <div className="relative mt-7 grid grid-cols-3 gap-x-4 gap-y-4 sm:grid-cols-6">
+          <span aria-hidden className="absolute left-5 right-5 top-1.5 h-px bg-[var(--pbl-border)]" />
+          {artifact.items.map((item, index) => (
+            <motion.div className="relative pt-4 text-center" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .3 + index * .06 }} key={`${item.label}-${index}`}>
+              <span className={cn("absolute left-1/2 top-0 size-3 -translate-x-1/2 rounded-full border-[3px] border-white", index % 2 ? "bg-blue-600" : "bg-orange-500")} />
+              <p className="line-clamp-2 text-[10px] font-semibold leading-[15px] text-[var(--pbl-text)]">{item.value}</p><p className="mt-1 text-[8px] text-[var(--pbl-text-subtle)]">{item.label}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-[250px] divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">
+      <div className="hidden grid-cols-[92px_1fr_24px_1fr] gap-3 bg-[var(--pbl-surface-soft)] px-3 py-2 text-[8px] font-semibold tracking-[.12em] text-[var(--pbl-text-subtle)] sm:grid"><span>阶段</span><span>教师组织</span><span /><span>AI 协作</span></div>
+      {artifact.items.map((item, index) => (
+        <motion.div className="grid gap-2 px-3 py-3 sm:grid-cols-[92px_1fr_24px_1fr] sm:items-start sm:gap-3" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .06 }} key={`${item.label}-${index}`}>
+          <p className="text-[9px] font-semibold text-[var(--pbl-teacher)]"><span className="mr-2 text-[var(--pbl-text-subtle)]">{String(index + 1).padStart(2, "0")}</span>{item.label}</p>
+          <p className="line-clamp-2 text-[10px] font-medium leading-[16px] text-[var(--pbl-text)]">{item.value}</p>
+          <motion.span className="mt-0.5 hidden sm:block" animate={{ x: [0, 4, 0], opacity: [.45, 1, .45] }} transition={{ delay: index * .18, duration: 1.7, repeat: Infinity }}><ArrowRight className="size-3 text-[var(--pbl-teacher-border)]" /></motion.span>
+          <p className="line-clamp-2 text-[10px] leading-[16px] text-[var(--pbl-text-muted)]">{item.meta?.replace(/^AI：/, "")}</p>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+function OutcomePreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const [primary, ...evidence] = artifact.items;
+  return (
+    <div className="grid min-h-[250px] gap-7 sm:grid-cols-[.82fr_1.18fr] sm:items-stretch">
+      <motion.div className="relative flex flex-col justify-between overflow-hidden border-t-2 border-orange-500 bg-[linear-gradient(180deg,var(--pbl-accent-soft),transparent)] px-4 py-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+        <motion.span aria-hidden className="absolute -right-8 top-1/2 size-28 -translate-y-1/2 rounded-full border-[14px] border-orange-100/80" animate={{ rotate: 360, scale: [1, 1.1, 1] }} transition={{ rotate: { duration: 15, repeat: Infinity, ease: "linear" }, scale: { duration: 4, repeat: Infinity } }} />
+        <div className="relative"><p className="text-[9px] font-semibold tracking-[.14em] text-[var(--pbl-accent)]">核心产出</p><p className="mt-3 font-editorial text-[25px] font-semibold leading-tight text-[var(--pbl-text-strong)]">{primary?.value ?? artifact.title}</p></div>
+        <p className="relative mt-5 line-clamp-3 text-[10px] leading-[17px] text-[var(--pbl-text-muted)]">{primary?.meta ?? artifact.summary}</p>
+      </motion.div>
+      <div className="grid divide-y divide-[var(--pbl-border)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        {evidence.map((item, index) => (
+          <motion.div className="flex min-h-28 flex-col justify-between px-4 py-3 first:pl-0 last:pr-0" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .08 + index * .07 }} key={`${item.label}-${index}`}>
+            <p className="text-[9px] font-semibold tracking-[.1em] text-[var(--pbl-text-subtle)]">{item.label}</p>
+            <p className="mt-3 line-clamp-4 text-[11px] font-medium leading-[18px] text-[var(--pbl-text)]">{item.value}</p>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OutlinePreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const groups = useMemo(() => {
+    const ordered = new Map<string, CourseDesignGenerationArtifact["items"]>();
+    for (const item of artifact.items) ordered.set(item.label, [...(ordered.get(item.label) ?? []), item]);
+    return [...ordered.entries()];
+  }, [artifact.items]);
+  return (
+    <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">
+      {groups.map(([stage, items], groupIndex) => (
+        <section className="grid gap-2 py-3 sm:grid-cols-[104px_1fr]" key={stage}>
+          <div className="flex items-start justify-between gap-2 sm:block"><p className="text-[10px] font-semibold text-[var(--pbl-teacher)]">{STAGE_LABELS[stage] ?? stage}</p><span className="mt-1 text-[8px] text-[var(--pbl-text-subtle)]">{items.length} 项资源</span></div>
+          <div className="divide-y divide-[var(--pbl-border-soft)] border-l border-[var(--pbl-teacher-border)] pl-3">
+            {items.map((item, index) => (
+              <motion.div className="relative grid grid-cols-[1fr_auto] items-center gap-3 py-2" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min((groupIndex + index) * .04, .32) }} key={`${item.value}-${index}`}>
+                <span className="absolute -left-[15.5px] top-3.5 size-1.5 rounded-full bg-[var(--pbl-teacher)] ring-[3px] ring-white" />
+                <p className="line-clamp-1 text-[10px] font-medium text-[var(--pbl-text)]">{item.value}</p><p className="whitespace-nowrap text-[8px] text-[var(--pbl-text-subtle)]">{item.meta}</p>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function PageProductionPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const current = artifact.items.at(-1);
+  return (
+    <div className="grid min-h-[250px] gap-6 sm:grid-cols-[1fr_220px]">
+      <motion.div className="relative flex flex-col justify-between overflow-hidden border border-[var(--pbl-teacher-border)] bg-[linear-gradient(135deg,var(--pbl-teacher-soft),#fff_62%,var(--pbl-accent-soft))] p-5" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}>
+        <div className="flex items-center justify-between border-b border-blue-100 pb-3"><p className="text-[9px] font-semibold tracking-[.13em] text-[var(--pbl-teacher)]">{current?.label ?? "课堂页面"}</p><span className="inline-flex items-center gap-1 text-[8px] text-[var(--pbl-text-subtle)]"><span className="size-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />正在编排</span></div>
+        <div><h3 className="max-w-[520px] font-editorial text-[25px] font-semibold leading-tight text-[var(--pbl-text-strong)]">{current?.value ?? artifact.title}</h3><p className="mt-3 text-[10px] text-[var(--pbl-text-subtle)]">{current?.meta}</p></div>
+        <div className="grid grid-cols-[1.4fr_.9fr_.6fr] gap-2"><span className="h-0.5 bg-[var(--pbl-teacher)]" /><span className="h-0.5 bg-orange-400" /><span className="h-0.5 bg-[var(--pbl-border)]" /></div>
+      </motion.div>
+      <div className="flex flex-col justify-center divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">
+        {artifact.items.map((item, index) => (
+          <motion.div className={cn("grid grid-cols-[22px_1fr] gap-2 py-3", index === artifact.items.length - 1 && "text-[var(--pbl-teacher)]")} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .08 }} key={`${item.value}-${index}`}><span className={cn("grid size-5 place-items-center rounded-full text-[8px] font-semibold", index === artifact.items.length - 1 ? "bg-[var(--pbl-teacher)] text-white" : "bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-subtle)]")}>{index + 1}</span><div><p className="line-clamp-2 text-[10px] font-semibold leading-[15px] text-[var(--pbl-text)]">{item.value}</p><p className="mt-1 text-[8px] text-[var(--pbl-text-subtle)]">{item.label}</p></div></motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ResourceProductionPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  return (
+    <div className="grid min-h-[250px] gap-8 sm:grid-cols-2">
+      {artifact.items.map((item, index) => (
+        <motion.section className={cn("flex flex-col border-t-2 px-1 pt-3", index % 2 ? "border-orange-400" : "border-blue-500")} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .1 }} key={`${item.label}-${index}`}>
+          <div className="flex items-start gap-3"><span className={cn("relative grid size-9 shrink-0 place-items-center rounded-[var(--radius-md)] border", index % 2 ? "border-orange-200 bg-orange-50 text-orange-700" : "border-blue-200 bg-blue-50 text-blue-700")}><Layers3 className="size-4" /><motion.span aria-hidden className="absolute -bottom-1 -right-1 size-2 rounded-full bg-emerald-500 ring-2 ring-white" animate={{ opacity: [.35, 1, .35] }} transition={{ duration: 1.6, repeat: Infinity }} /></span><div><p className="text-[11px] font-semibold text-[var(--pbl-text)]">{item.label}</p><p className="mt-1 line-clamp-2 text-[9px] leading-[15px] text-[var(--pbl-text-subtle)]">{item.value}</p></div></div>
+          <div className={cn("relative mt-4 grid flex-1 grid-cols-[1.4fr_.8fr] grid-rows-2 gap-2 overflow-hidden bg-gradient-to-br p-2", index % 2 ? "from-orange-50 to-rose-50/30" : "from-blue-50 to-sky-50/30")}>
+            <span className="row-span-2 border border-white bg-white/80" />
+            <span className="border border-white bg-white/80" />
+            <span className="border border-white bg-white/80" />
+            <motion.span aria-hidden className="absolute inset-y-0 w-20 -skew-x-12 bg-gradient-to-r from-transparent via-white/80 to-transparent" animate={{ x: [-100, 420] }} transition={{ duration: 2.4 + index * .3, repeat: Infinity, repeatDelay: .7, ease: "easeInOut" }} />
+            <span className="absolute bottom-3 left-4 text-[8px] font-semibold text-[var(--pbl-text-subtle)]">{index % 2 ? "视频片段与页面绑定" : "配图候选正在校验"}</span>
+          </div>
+          <div className="mt-3 h-1 overflow-hidden rounded-full bg-[var(--pbl-border-soft)]"><motion.span className={cn("block h-full rounded-full", index % 2 ? "bg-orange-500" : "bg-[var(--pbl-teacher)]")} animate={{ x: ["-100%", "260%"] }} transition={{ duration: 1.9 + index * .2, repeat: Infinity, ease: "easeInOut" }} style={{ width: "38%" }} /></div>
+        </motion.section>
+      ))}
+    </div>
+  );
+}
+
+function TtsProductionPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  const bars = [18, 38, 62, 34, 74, 48, 28, 68, 88, 46, 72, 30, 58, 82, 40, 64, 24, 52, 78, 36, 66, 42, 84, 56];
+  return (
+    <div className="grid min-h-[250px] items-center gap-7 sm:grid-cols-[1.1fr_.9fr]">
+      <div className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[linear-gradient(135deg,#eff6ff,#f8f7ff_56%,#fff7ed)] px-5 py-6">
+        <motion.span aria-hidden className="absolute -left-16 top-1/2 h-20 w-28 -translate-y-1/2 rounded-full bg-blue-300/25 blur-2xl" animate={{ x: [0, 360, 0] }} transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }} />
+        <div className="relative flex h-24 items-center justify-center gap-1.5">
+          {bars.map((height, index) => <motion.span className="w-1 rounded-full bg-gradient-to-t from-blue-700 to-blue-300" animate={{ height: [`${height * .4}%`, `${height}%`, `${height * .55}%`] }} transition={{ duration: .9 + (index % 5) * .13, repeat: Infinity, ease: "easeInOut" }} key={index} />)}
+        </div>
+        <div className="relative mt-5 flex items-center justify-between text-[8px] font-semibold tracking-[.1em] text-[var(--pbl-teacher)]"><span>课堂讲稿</span><span>语音合成</span><span>页面音轨</span></div>
+      </div>
+      <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">
+        {artifact.items.map((item, index) => <motion.div className="grid grid-cols-[28px_1fr] gap-3 py-3" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .1 }} key={`${item.label}-${index}`}><span className="grid size-6 place-items-center rounded-full bg-[var(--pbl-teacher-soft)] text-[9px] font-semibold text-[var(--pbl-teacher)]">{index + 1}</span><div><p className="text-[10px] font-semibold text-[var(--pbl-text)]">{item.label}</p><p className="mt-1 line-clamp-2 text-[9px] leading-[15px] text-[var(--pbl-text-subtle)]">{item.value}</p></div></motion.div>)}
+      </div>
+    </div>
+  );
+}
+
+function BranchPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  return (
+    <div className="relative min-h-[250px] py-2 sm:pl-24">
+      <div className="absolute left-0 top-1/2 hidden -translate-y-1/2 items-center sm:flex"><span className="grid size-14 place-items-center rounded-full border border-[var(--pbl-ai-border)] bg-[var(--pbl-ai-soft)] text-center text-[9px] font-semibold leading-3 text-[var(--pbl-ai)]">学习<br />诊断</span><span className="h-px w-10 bg-[var(--pbl-ai-border)]" /></div>
+      <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+        {artifact.items.map((item, index) => (
+          <motion.div className={cn("relative min-h-24 border-l-2 py-2 pl-4", index % 2 ? "border-violet-300" : "border-blue-300")} initial={{ opacity: 0, x: -8, y: index % 2 ? 8 : 0 }} animate={{ opacity: 1, x: 0, y: index % 2 ? 12 : 0 }} transition={{ delay: index * .08 }} key={`${item.label}-${index}`}>
+            <span className="absolute -left-[5px] top-3 size-2 rounded-full bg-white ring-2 ring-[var(--pbl-ai)]" />
+            <p className="text-[8px] font-semibold tracking-[.1em] text-[var(--pbl-ai)]">{item.label}</p>
+            <p className="mt-2 text-[11px] font-semibold text-[var(--pbl-text)]">{item.value}</p>
+            {item.meta ? <p className="mt-1.5 line-clamp-2 text-[9px] leading-[15px] text-[var(--pbl-text-subtle)]">{item.meta}</p> : null}
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AuditPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+  return <div className="relative min-h-[250px] overflow-hidden border-y border-[var(--pbl-success-border)] bg-[linear-gradient(90deg,var(--pbl-success-soft),white_45%,var(--pbl-success-soft))] px-5 py-4"><motion.div aria-hidden className="absolute -right-10 -top-10 size-36 rounded-full border-[22px] border-emerald-200/30" animate={{ scale: [1, 1.08, 1], opacity: [.35, .7, .35] }} transition={{ duration: 4.5, repeat: Infinity }} /><div className="relative grid gap-x-7 sm:grid-cols-2">{artifact.items.map((item, index) => <motion.div className="flex items-start gap-3 border-b border-emerald-100 py-3" initial={{ opacity: 0, x: index % 2 ? 8 : -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * .07 }} key={`${item.label}-${index}`}><span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-700"><Check className="size-3.5" /></span><div><p className="text-[8px] font-semibold tracking-[.1em] text-emerald-700">{item.label}</p><p className="mt-1 line-clamp-3 text-[10px] font-medium leading-[16px] text-[var(--pbl-text)]">{item.value}</p></div></motion.div>)}</div></div>;
+}
+
+function resolveEvaluationRole(
+  item: CourseDesignGenerationArtifact["items"][number],
+  index: number,
+): "ai" | "teacher" {
+  if (item.evaluator) return item.evaluator;
+  if (/AI/i.test(item.label)) return "ai";
+  if (/教师/.test(item.label)) return "teacher";
+  return index % 2 === 0 ? "ai" : "teacher";
+}
+
+function formatElapsed(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes > 0 ? `${minutes} 分 ${remainder.toString().padStart(2, "0")} 秒` : `${remainder} 秒`;
+}
+
+function compactSideTitle(title: string | undefined, fallback: string): string {
+  const normalized = (title || fallback).replace(/\s+/g, " ").trim();
+  const characters = Array.from(normalized);
+  return characters.length > 11 ? `${characters.slice(0, 11).join("")}…` : normalized;
+}
+
+function accentText(accent: CourseDesignGenerationArtifact["accent"]): string {
+  return { orange: "text-orange-700", blue: "text-blue-700", violet: "text-violet-700", green: "text-emerald-700" }[accent];
+}
+
+function accentSurface(accent: CourseDesignGenerationArtifact["accent"]): string {
+  return { orange: "border-orange-200 bg-orange-50 text-orange-700", blue: "border-blue-200 bg-blue-50 text-blue-700", violet: "border-violet-200 bg-violet-50 text-violet-700", green: "border-emerald-200 bg-emerald-50 text-emerald-700" }[accent];
+}

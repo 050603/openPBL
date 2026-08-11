@@ -3,14 +3,13 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   List,
   Map,
   Network,
-  Loader2,
   RotateCw,
   Save,
   X,
@@ -29,6 +28,7 @@ import { ProjectCoverImage } from "@/components/visuals";
 import { generateProjectSkeleton, type ProjectSkeletonResult } from "@/lib/teaching-ai/client-api";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import type {
+  Course,
   CourseContent,
   KnowledgeGraph,
   LessonOutlineSection,
@@ -64,6 +64,7 @@ import {
   type PblTimeActivity,
 } from "@/lib/pbl-time-model";
 import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
+import { resolvePreparationGenerationMode } from "@/lib/courses/preparation-navigation";
 import {
   assessKnowledgeGraphQuality,
   normalizeKnowledgePointName,
@@ -88,13 +89,18 @@ import {
 } from "@/lib/teacher/course-basics-draft";
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
 import { AiGenerationOverlay, type AiTaskKind } from "@/components/ai-generation-overlay";
+import {
+  CourseGenerationGlyph,
+} from "@/components/course-workshop-animation";
 import { AdaptiveLearningPlanEditor } from "@/components/teacher/adaptive-learning-plan-editor";
 import { PreparationJourney } from "@/components/teacher/preparation-journey";
 import {
   PREPARATION_FLOW_STEPS,
   type PreparationStepKey,
 } from "@/lib/teacher/preparation-flow";
-import { confirmAdaptiveLearningPlan } from "@/lib/adaptive-learning";
+import { confirmAdaptiveLearningPlan, evaluateAdaptiveLearningPlanQuality } from "@/lib/adaptive-learning";
+import { FastCourseGenerator } from "@/components/teacher/fast-course-generator";
+import type { StageGenerationCardData } from "@/components/teacher/stage-generation-card-stack";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -298,6 +304,7 @@ const SECTION_LABEL: Record<Section, string> = {
 
 export default function VerifyCoursePage() {
   const params = useParams<{ id: string }>();
+  const pathname = usePathname();
   const router = useRouter();
   const { user, updateCourse } = useSession();
   const course = useCourse(params?.id);
@@ -455,6 +462,9 @@ export default function VerifyCoursePage() {
   }
 
   const [flowStepKey, setFlowStepKey] = useState<PreparationStepKey>("base");
+  const [generationMode, setGenerationMode] = useState<"quick" | "detailed">(
+    resolvePreparationGenerationMode(pathname),
+  );
   // 知识图谱视图状态
   const [kgViewMode, setKgViewMode] = useState<"graph" | "list">("graph");
   const [kgSelectedNode, setKgSelectedNode] = useState<string | null>(null);
@@ -462,6 +472,7 @@ export default function VerifyCoursePage() {
   const [requiredKnowledgePointDraft, setRequiredKnowledgePointDraft] = useState("");
   // OpenMAIC outline 流式生成状态
   const [outlineStreaming, setOutlineStreaming] = useState(false);
+  const [streamHasFirstOutline, setStreamHasFirstOutline] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // OpenMAIC SceneOutline[] 状态：OutlinesEditor 直接编辑此数组
   const [sceneOutlines, setSceneOutlines] = useState<SceneOutline[]>([]);
@@ -1118,6 +1129,7 @@ export default function VerifyCoursePage() {
     abortRef.current = controller;
 
     setOutlineStreaming(true);
+    setStreamHasFirstOutline(false);
     setError(undefined);
     setInfo(undefined);
     setBusy("lessonOutline");
@@ -1237,6 +1249,7 @@ export default function VerifyCoursePage() {
             const outline = normalizeSceneOutlineSnapshot(evt.data, collected.length);
             outline.order = collected.length;
             collected.push(outline);
+            setStreamHasFirstOutline(true);
             // 实时更新 OutlinesEditor
             setSceneOutlines([...collected]);
             // 同步到 content.lessonOutline
@@ -1246,6 +1259,7 @@ export default function VerifyCoursePage() {
             // 若流式未推送单条事件，从 done 批量加载
             const outlines = (evt.outlines as SceneOutline[]) ?? [];
             if (outlines.length > 0) {
+              setStreamHasFirstOutline(true);
               collected.splice(0, collected.length);
               for (let i = 0; i < outlines.length; i++) {
                 const outline = normalizeSceneOutlineSnapshot(outlines[i], i);
@@ -1476,6 +1490,25 @@ export default function VerifyCoursePage() {
       const message = "请进入个性化学习路径步骤生成方案，并确认是否启用学习证据编排。";
       setError(message);
       toast.error("个性化学习路径尚未建模", { description: message });
+      setFlowStepKey("adaptiveLearning");
+      return;
+    }
+    const adaptiveQuality = evaluateAdaptiveLearningPlanQuality(adaptivePlan, {
+      knowledgePoints: content?.knowledgePoints ?? [],
+      mainScenes: sceneOutlines.map((scene) => ({
+        id: scene.id,
+        title: scene.title,
+        type: scene.type,
+        order: scene.order,
+        stageKey: scene.stageKey,
+        audience: scene.audience,
+        knowledgePointIds: scene.knowledgePointIds,
+      })),
+    });
+    if (adaptivePlan.enabled && !adaptiveQuality.passed) {
+      const message = `个性化路径尚未达到课程级质量要求：${adaptiveQuality.issues.join("；")}。`;
+      setError(message);
+      toast.error("个性化路径尚未闭环", { description: message });
       setFlowStepKey("adaptiveLearning");
       return;
     }
@@ -1783,7 +1816,7 @@ export default function VerifyCoursePage() {
                 onClick={() => void generateSection("knowledgePoints")}
                 type="button"
               >
-                {busy === "knowledgePoints" ? <Loader2 className="animate-spin" size={15} /> : content?.knowledgePoints.length ? <RotateCw size={15} /> : <Network size={15} />}
+                {busy === "knowledgePoints" ? <CourseGenerationGlyph /> : content?.knowledgePoints.length ? <RotateCw size={15} /> : <Network size={15} />}
                 {busy === "knowledgePoints"
                   ? "正在编排知识图谱"
                   : content?.knowledgePoints.length
@@ -2595,17 +2628,26 @@ export default function VerifyCoursePage() {
     },
   ];
 
-  // AI 生成全屏加载动画：仅在非流式 generateSection 调用时显示。
-  // 流式生成（outlineStreaming）有 OutlinesEditor 自己的实时反馈，不遮罩。
+  // 主课脚本在首条流式内容出现前显示弹窗；首条内容就绪后关闭弹窗，
+  // 由页面内 OutlinesEditor 接管后续逐页反馈。
   const aiOverlayKind: AiTaskKind | null = (() => {
     if (!busy) return null;
-    if (busy === "lessonOutline" && outlineStreaming) return null;
+    if (busy === "lessonOutline" && outlineStreaming) {
+      return streamHasFirstOutline ? null : "sceneOutlines";
+    }
     if (busy === "knowledgePoints") return "knowledgeGraph";
     if (busy === "teachingOutline") return "teachingOutline";
     if (busy === "lessonOutline") return "lessonOutline";
     if (busy === "evaluationPlan") return "evaluationPlan";
     return "generic";
   })();
+  const aiOverlayCards = aiOverlayKind
+    ? createGenerationCards(aiOverlayKind, course, content, info)
+    : undefined;
+
+  function openDetailedMode() {
+    setGenerationMode("detailed");
+  }
 
   return (
     <DashboardShell
@@ -2619,6 +2661,10 @@ export default function VerifyCoursePage() {
         </div>
       }
     >
+      {generationMode === "quick" ? (
+        <FastCourseGenerator course={course} onOpenDetailed={openDetailedMode} />
+      ) : (
+      <>
       <PreparationJourney
         backHref="/teacher"
         completedKeys={completedPreparationKeys}
@@ -2724,7 +2770,7 @@ export default function VerifyCoursePage() {
                     onClick={() => void requestSkeleton("all")}
                     type="button"
                   >
-                    {skeletonLoading && activeSuggestionPart === "all" ? <Loader2 className="animate-spin" size={15} /> : <Sparkles size={15} />}
+                    {skeletonLoading && activeSuggestionPart === "all" ? <CourseGenerationGlyph /> : <Sparkles size={15} />}
                     {emptySkeletonParts.length > 0 ? `生成 ${emptySkeletonParts.length} 项空白内容` : "检查空白内容"}
                   </button>
                 </section>
@@ -2792,7 +2838,7 @@ export default function VerifyCoursePage() {
                           onClick={() => void requestSkeleton("learnerProfile")}
                           type="button"
                         >
-                          {skeletonLoading && activeSuggestionPart === "learnerProfile" ? <Loader2 className="animate-spin" size={12} /> : <Sparkles size={12} />}
+                          {skeletonLoading && activeSuggestionPart === "learnerProfile" ? <CourseGenerationGlyph /> : <Sparkles size={12} />}
                           生成学情建议
                         </button>
                       </div>
@@ -2923,6 +2969,7 @@ export default function VerifyCoursePage() {
         ) : flowStepKey === "adaptiveLearning" ? (
           <AdaptiveLearningPlanEditor
             courseId={course.id}
+            courseName={course.name}
             knowledgePoints={content?.knowledgePoints ?? []}
             mainScenes={sceneOutlines}
             onChange={(adaptiveLearningPlan) => {
@@ -2970,7 +3017,7 @@ export default function VerifyCoursePage() {
                   onClick={() => void generateLessonOutlineOpenMAIC()}
                   type="button"
                 >
-                  {outlineStreaming ? <Loader2 className="animate-spin" size={14} /> : sceneOutlines.length ? <RotateCw size={14} /> : <Zap size={14} />}
+                  {outlineStreaming ? <CourseGenerationGlyph /> : sceneOutlines.length ? <RotateCw size={14} /> : <Zap size={14} />}
                   {outlineStreaming ? "正在生成" : sceneOutlines.length ? "重新生成" : "AI 生成"}
                 </button>
               </div>
@@ -3009,7 +3056,7 @@ export default function VerifyCoursePage() {
                   onClick={() => void generateSection(key)}
                   type="button"
                 >
-                  {busy === key ? <Loader2 className="animate-spin" size={14} /> : <RotateCw size={14} />}
+                  {busy === key ? <CourseGenerationGlyph /> : <RotateCw size={14} />}
                   {key === "teachingOutline"
                     ? content?.moduleTimingPlan ? "重新规划时间" : "生成时间安排"
                     : isStepReady(key) ? "重新生成" : "生成"}
@@ -3066,9 +3113,79 @@ export default function VerifyCoursePage() {
             </PrimaryButton>
           )}
       </FlowActionBar>
-      <AiGenerationOverlay kind={aiOverlayKind} hint={info} />
+      <AiGenerationOverlay cards={aiOverlayCards} kind={aiOverlayKind} hint={info} />
+      </>
+      )}
     </DashboardShell>
   );
+}
+
+function createGenerationCards(
+  kind: AiTaskKind,
+  course: Course,
+  content: CourseContent | undefined,
+  hint: string | undefined,
+): StageGenerationCardData[] {
+  const objectives = course.learningObjectives?.filter(Boolean) ?? [];
+  const taskItems = kind === "knowledgeGraph"
+    ? (content?.teacherRequiredKnowledgePoints?.length
+        ? content.teacherRequiredKnowledgePoints
+        : objectives)
+    : kind === "teachingOutline"
+      ? (content?.knowledgePoints ?? []).map((item) => item.name)
+      : kind === "lessonOutline" || kind === "sceneOutlines"
+        ? (content?.teachingOutline ?? []).map((item) => item.title)
+        : kind === "evaluationPlan"
+          ? (content?.evaluationPlan.dimensions ?? []).map((item) => item.name)
+          : objectives;
+  const currentItems = taskItems.filter(Boolean).slice(0, 3);
+  const modeItems = [
+    content?.interactiveMode === false ? "普通生成模式" : "互动模式",
+    `${course.hours} 课时`,
+    `${course.stages.length} 个学习阶段`,
+  ];
+  return [
+    {
+      id: "course-context",
+      eyebrow: "本次课程",
+      title: course.name || "未命名课程",
+      detail: [course.subject, course.grade].filter(Boolean).join(" · ") || "正在读取课程基础信息",
+      items: modeItems,
+      accent: "orange",
+    },
+    {
+      id: "course-purpose",
+      eyebrow: "真实输入",
+      title: course.drivingQuestion || "课程目标与学习任务",
+      detail: course.summary || hint || "根据教师已经确认的课程数据组织生成内容。",
+      items: objectives.slice(0, 3),
+      accent: "blue",
+    },
+    {
+      id: "course-material",
+      eyebrow: "当前依据",
+      title: currentItems[0] || "正在整理课程材料",
+      detail: hint || "这些内容来自当前课程，而不是预设演示文案。",
+      items: currentItems,
+      accent: "violet",
+    },
+    {
+      id: "course-output",
+      eyebrow: "生成结果",
+      title: generationCardResultTitle(kind),
+      detail: "结果会保存为可审阅、可编辑的课程数据。",
+      items: ["结构完整", "内容可追溯", "支持教师修改"],
+      accent: "green",
+    },
+  ];
+}
+
+function generationCardResultTitle(kind: AiTaskKind): string {
+  if (kind === "knowledgeGraph") return "知识点与关联关系";
+  if (kind === "teachingOutline") return "六阶段课程架构";
+  if (kind === "lessonOutline" || kind === "sceneOutlines") return "课堂页面大纲";
+  if (kind === "evaluationPlan") return "评价维度与成功标准";
+  return "结构化课程内容";
 }
 
 function PreparationSectionHeading({

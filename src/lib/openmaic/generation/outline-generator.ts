@@ -32,6 +32,7 @@ import { createLogger } from '@openmaic/lib/logger';
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { resolveOutlinePromptPlan } from './outline-prompt-plan';
 import { applyInteractiveModePolicy } from './interactive-mode-policy';
+import { splitLongStudentSlides } from './student-slide-duration-policy';
 import { ensureAdaptiveCheckpointQuizzes } from './adaptive-checkpoint-policy';
 const log = createLogger('Generation');
 
@@ -216,16 +217,17 @@ export async function generateSceneOutlinesFromRequirements(
         promptPlan.interactiveMode,
       ),
     );
+    const durationSafeOutlines = splitLongStudentSlides(withAdaptiveCheckpoints);
     const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({
       id: activity.activityId,
       durationMin: activity.durationMin,
     }));
     const durationBalanced = parentActivities.length
       ? rescalePblDetailDurations<SceneOutline>(
-          withAdaptiveCheckpoints,
+          durationSafeOutlines,
           parentActivities,
         )
-      : withAdaptiveCheckpoints;
+      : durationSafeOutlines;
     const result = uniquifyMediaElementIds(
       normalizeSceneOutlinesForDuration(durationBalanced),
     );
@@ -440,14 +442,12 @@ export function enforcePblOutlineContract(
     });
   }
 
-  let withMetadata = normalized.map((outline) => {
+  const withMetadata = normalized.map((outline) => {
     const parentActivity = requirements.pblActivityCatalog?.find(
       (activity) =>
         activity.activityId === outline.parentActivityId ||
         activity.activityId === outline.activityId,
     );
-    const isStudentKnowledge =
-      outline.audience === 'student' && outline.stageKey === 'ai-learning';
     const withCatalogDefaults: SceneOutline = {
       ...outline,
       ...(parentActivity && !outline.parentActivityId
@@ -456,48 +456,96 @@ export function enforcePblOutlineContract(
       ...(parentActivity && outline.targetDurationSec === undefined
         ? { targetDurationSec: Math.max(60, parentActivity.durationMin * 60) }
         : {}),
-      ...(isStudentKnowledge &&
-      parentActivity &&
-      (!outline.knowledgePointIds || outline.knowledgePointIds.length === 0)
-        ? { knowledgePointIds: [...parentActivity.knowledgePointIds] }
-        : {}),
     };
     return normalizePblDetailMetadata(withCatalogDefaults, parentActivity?.activityId);
   });
   const requiredKnowledgePoints = requirements.knowledgePoints ?? [];
-  const requiredKnowledgeIds = new Set(requiredKnowledgePoints.map((point) => point.id).filter(Boolean));
-  const studentIndexes = withMetadata
-    .map((outline, index) => ({ outline, index }))
-    .filter(({ outline }) => outline.audience === 'student' && outline.stageKey === 'ai-learning');
-  const coveredKnowledgeIds = new Set(
-    studentIndexes.flatMap(({ outline }) => outline.knowledgePointIds ?? []),
+  const knowledgeNames = new Map(
+    requiredKnowledgePoints.map((point) => [point.id, point.name || point.id]),
   );
-  const missingKnowledgeIds = Array.from(requiredKnowledgeIds).filter(
-    (id) => !coveredKnowledgeIds.has(id),
-  );
-  if (missingKnowledgeIds.length > 0 && studentIndexes.length > 0) {
-    const targetIndex = studentIndexes[0].index;
-    const target = withMetadata[targetIndex];
-    const missingNames = requiredKnowledgePoints
-      .filter((point) => missingKnowledgeIds.includes(point.id))
-      .map((point) => point.name || point.id);
-    withMetadata = withMetadata.map((outline, index) =>
-      index === targetIndex
-        ? {
-            ...outline,
-            knowledgePointIds: Array.from(
-              new Set([...(outline.knowledgePointIds ?? []), ...missingKnowledgeIds]),
-            ),
-            keyPoints: Array.from(
-              new Set([...(outline.keyPoints ?? []), ...missingNames.map((name) => `知识点：${name}`)]),
-            ),
-            description: `${outline.description} 本场景还需覆盖：${missingNames.join('、')}。`,
-          }
-        : outline,
+  const activityCatalog = requirements.pblActivityCatalog ?? [];
+
+  if (activityCatalog.length > 0) {
+    for (const activity of activityCatalog) {
+      const allowedIds = new Set(activity.knowledgePointIds);
+      const candidates = withMetadata
+        .map((outline, index) => ({ outline, index }))
+        .filter(
+          ({ outline }) =>
+            outline.audience === 'student' &&
+            outline.stageKey === 'ai-learning' &&
+            outline.parentActivityId === activity.activityId,
+        );
+      if (candidates.length === 0) continue;
+
+      // Remove cross-activity assignments before measuring coverage. Every
+      // AI-learning page must stay inside its parent activity's knowledge set.
+      for (const { index } of candidates) {
+        const outline = withMetadata[index];
+        withMetadata[index] = {
+          ...outline,
+          knowledgePointIds: Array.from(
+            new Set((outline.knowledgePointIds ?? []).filter((id) => allowedIds.has(id))),
+          ),
+        };
+      }
+
+      const covered = new Set(
+        candidates.flatMap(({ index }) => withMetadata[index].knowledgePointIds ?? []),
+      );
+      const missing = activity.knowledgePointIds.filter((id) => !covered.has(id));
+
+      for (const knowledgeId of missing) {
+        const target =
+          [...candidates]
+            .filter(({ index }) => withMetadata[index].type !== 'quiz')
+            .sort(
+              (a, b) =>
+                (withMetadata[a.index].knowledgePointIds?.length ?? 0) -
+                (withMetadata[b.index].knowledgePointIds?.length ?? 0),
+            )[0] ?? candidates[0];
+        const outline = withMetadata[target.index];
+        const knowledgeName = knowledgeNames.get(knowledgeId) || knowledgeId;
+        withMetadata[target.index] = {
+          ...outline,
+          knowledgePointIds: [...(outline.knowledgePointIds ?? []), knowledgeId],
+          keyPoints: Array.from(
+            new Set([...(outline.keyPoints ?? []), `知识点：${knowledgeName}`]),
+          ),
+        };
+      }
+
+      if (missing.length > 0) {
+        log.warn(
+          `PBL knowledge coverage was incomplete; repaired ${missing.length} point(s) inside parent activity ${activity.activityId}`,
+        );
+      }
+    }
+  } else {
+    // Legacy requests may not carry a parent activity catalog. Keep their
+    // previous global-repair behavior without weakening the strict PBL path.
+    const requiredKnowledgeIds = new Set(
+      requiredKnowledgePoints.map((point) => point.id).filter(Boolean),
     );
-    log.warn(
-      `PBL knowledge coverage was incomplete; attached ${missingKnowledgeIds.length} missing points to ${target.title}`,
+    const studentIndexes = withMetadata
+      .map((outline, index) => ({ outline, index }))
+      .filter(({ outline }) => outline.audience === 'student' && outline.stageKey === 'ai-learning');
+    const coveredKnowledgeIds = new Set(
+      studentIndexes.flatMap(({ outline }) => outline.knowledgePointIds ?? []),
     );
+    const missingKnowledgeIds = Array.from(requiredKnowledgeIds).filter(
+      (id) => !coveredKnowledgeIds.has(id),
+    );
+    if (missingKnowledgeIds.length > 0 && studentIndexes.length > 0) {
+      const targetIndex = studentIndexes[0].index;
+      const target = withMetadata[targetIndex];
+      withMetadata[targetIndex] = {
+        ...target,
+        knowledgePointIds: Array.from(
+          new Set([...(target.knowledgePointIds ?? []), ...missingKnowledgeIds]),
+        ),
+      };
+    }
   }
   const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({
     id: activity.activityId,

@@ -9,9 +9,8 @@ import { useSession } from "@/lib/session/store";
  * Home-page student join card.
  *
  * Calls /api/auth/join to obtain a student JWT cookie, then redirects to the
- * classroom. When JWT is not configured (demo mode), the API returns
- * AUTH_NOT_CONFIGURED and we fall back to the legacy /student entry, which
- * uses local-only session state.
+ * classroom. When JWT is not configured, the API returns AUTH_NOT_CONFIGURED
+ * and the dedicated student entry can show the local compatibility flow.
  */
 export function HomeStudentJoin() {
   const router = useRouter();
@@ -35,7 +34,8 @@ export function HomeStudentJoin() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        // Demo mode: JWT not configured — fall back to /student local flow.
+        // JWT is not configured: let the dedicated student entry handle the
+        // local compatibility flow.
         if (data?.error === "AUTH_NOT_CONFIGURED") {
           router.push("/student");
           return;

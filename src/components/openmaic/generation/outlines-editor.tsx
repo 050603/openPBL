@@ -7,7 +7,6 @@ import {
   ChevronDown,
   Clock3,
   GripVertical,
-  Loader2,
   Minimize2,
   Minus,
   Plus,
@@ -31,6 +30,7 @@ import type { SceneOutline } from '@openmaic/lib/types/generation';
 import type { WidgetType } from '@openmaic/lib/types/widgets';
 import { changeOutlineType } from '@openmaic/lib/generation/outline-type';
 import { countBlockingOutlines, validateOutline } from '@openmaic/lib/edit/content-validation';
+import { CourseGenerationGlyph } from '@/components/course-workshop-animation';
 
 type SceneType = SceneOutline['type'];
 
@@ -537,12 +537,12 @@ export function OutlinesEditor({
           >
             {isLoading ? (
               <>
-                <Loader2 className="size-4 animate-spin" />
+                <CourseGenerationGlyph className="size-4" />
                 {t('generation.generatingInProgress')}
               </>
             ) : isStreaming ? (
               <>
-                <Loader2 className="size-4 animate-spin" />
+                <CourseGenerationGlyph className="size-4" />
                 {t('generation.outlineEditorWaitingConfirm')}
               </>
             ) : (
@@ -1098,7 +1098,7 @@ function EmptyState({
           transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
           className="text-[var(--pbl-teacher)]"
         >
-          <Loader2 className="size-6" />
+          <CourseGenerationGlyph className="size-6" />
         </motion.div>
         <p className="text-sm text-stone-500">
           {t('generation.outlineEditorStreamingWaiting')}
@@ -1250,7 +1250,7 @@ function StreamingPlaceholder({ nextIndex }: { nextIndex: number }) {
       <div className="flex shrink-0 items-center gap-0.5 pt-1">
         <span className="size-7" aria-hidden />
         <span className="flex size-7 items-center justify-center rounded-full bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
-          <Loader2 className="size-3.5 animate-spin" />
+          <CourseGenerationGlyph className="size-3.5" />
         </span>
       </div>
 

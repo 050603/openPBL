@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -42,7 +42,11 @@ import { requestCourseCoverImage } from "@/lib/course-cover";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
-import { selectAdaptiveBranchesForGeneration } from "@/lib/teacher/adaptive-resource-generation";
+import { buildAdaptiveResourceRequirement } from "@/lib/adaptive-learning";
+import {
+  adaptiveBranchGenerationSignature,
+  selectAdaptiveBranchesForGeneration,
+} from "@/lib/teacher/adaptive-resource-generation";
 import {
   CourseGenerationStage,
   type CourseGenerationProgressStep,
@@ -243,6 +247,8 @@ function lessonSectionToSceneOutline(
 export default function GenerateCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoStartRef = useRef(searchParams.get("autostart") === "1");
   const session = useSession();
   const { user, updateCourse } = session;
   const course = useCourse(params?.id);
@@ -328,6 +334,10 @@ export default function GenerateCoursePage() {
         if (cancelled) return;
         setBackgroundEnabled(payload.backgroundEnabled);
         if (!payload.job) return;
+        // A queued request-bound job may have been prepared by quick design.
+        // The quick canvas starts it explicitly; the detailed generator keeps
+        // showing its normal controls until the teacher starts this mode.
+        if (!payload.backgroundEnabled && payload.job.status === "queued") return;
         applyBackgroundJob(payload.job);
       } catch {
         if (!cancelled) setBackgroundEnabled(false);
@@ -471,17 +481,7 @@ export default function GenerateCoursePage() {
         try {
           const generated = await generateAdaptiveClassroom({
             title: `${activeCourse.name} · ${branch.title}`,
-            requirement: [
-              `生成一份可由教师预览、可在同一播放器中连续插入主课程的${branch.kind === "prerequisite" ? "先决知识回顾" : "额外学习"}资源。`,
-              `主课程：${activeCourse.name}`,
-              `分支目标：${branch.objective}`,
-              `知识要点：${branch.keyPoints.join("；")}`,
-              `相对主课新增价值：${branch.noveltyStatement}`,
-              `潜在重叠主课页：${branch.mainCourseOverlapSceneIds.join("、") || "无"}。不得复述这些页面已经讲过的定义、回顾、例题和结论。`,
-              `教师指导：${branch.generationGuidance || "遵循分支目标与课程原有教学风格。"}`,
-              `总时长控制在 ${branch.targetDurationSec} 秒左右，结尾自然返回主课程。`,
-              "必须生成完整 PPT/互动内容、讲稿和 TTS，使用与主课程相同的播放管线。",
-            ].join("\n"),
+            requirement: buildAdaptiveResourceRequirement(activeCourse.name, branch),
             stageKey: "ai-learning",
             requestRole: "teacher",
             scenes: [{
@@ -514,6 +514,7 @@ export default function GenerateCoursePage() {
             classroomId: generated.classroomId,
             scenesCount: generated.scenesCount,
             generatedAt: new Date().toISOString(),
+            sourceSignature: adaptiveBranchGenerationSignature(branch),
           });
         } catch (cause) {
           const error = cause instanceof Error ? cause.message : "分支生成失败";
@@ -785,6 +786,16 @@ export default function GenerateCoursePage() {
     setStarted(true);
     void startGeneration();
   }
+
+  useEffect(() => {
+    if (!autoStartRef.current || !hydrated || !course || backgroundEnabled === null) return;
+    autoStartRef.current = false;
+    beginGeneration();
+    // The auto-start request is consumed once. beginGeneration intentionally
+    // remains outside the dependency list so media-option changes cannot
+    // trigger a second generation run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backgroundEnabled, course, hydrated]);
 
   if (!hydrated) {
     return (

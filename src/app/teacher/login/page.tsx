@@ -68,7 +68,7 @@ export default function TeacherLoginPage() {
         <div>
           <h1 className="font-editorial text-3xl font-semibold">教师登录</h1>
           <p className="mt-2 text-sm leading-6 text-[var(--pbl-text-muted)]">
-            请输入账号与密码。未配置 JWT_SECRET 时鉴权未启用,任意账号可直接进入。
+            请输入账号与密码。若服务端尚未配置鉴权，请联系系统管理员完成初始化。
           </p>
         </div>
 

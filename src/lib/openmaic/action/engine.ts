@@ -14,6 +14,7 @@ import { createStageAPI } from '@openmaic/lib/api/stage-api';
 import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { useWhiteboardHistoryStore } from '@openmaic/lib/store/whiteboard-history';
 import { useMediaGenerationStore, isMediaPlaceholder } from '@openmaic/lib/store/media-generation';
+import { useTeachingToolsStore } from '@openmaic/lib/store/teaching-tools';
 import type { AudioPlayer } from '@openmaic/lib/utils/audio-player';
 import type {
   Action,
@@ -34,6 +35,8 @@ import type {
   WidgetSetStateAction,
   WidgetAnnotationAction,
   WidgetRevealAction,
+  CheckUnderstandingAction,
+  EvidenceBoardUpdateAction,
 } from '@openmaic/lib/types/action';
 import type { CodeLine } from '@openmaic/dsl';
 import katex from 'katex';
@@ -83,16 +86,19 @@ export class ActionEngine {
   private audioPlayer: AudioPlayer | null;
   private effectTimer: ReturnType<typeof setTimeout> | null = null;
   private widgetMessageCallback: WidgetMessageCallback | null = null;
+  private waitForUnderstandingCheck: boolean;
 
   constructor(
     stageStore: StageStore,
     audioPlayer?: AudioPlayer | null,
     widgetMessageCallback?: WidgetMessageCallback | null,
+    waitForUnderstandingCheck = true,
   ) {
     this.stageStore = stageStore;
     this.stageAPI = createStageAPI(stageStore);
     this.audioPlayer = audioPlayer ?? null;
     this.widgetMessageCallback = widgetMessageCallback ?? null;
+    this.waitForUnderstandingCheck = waitForUnderstandingCheck;
   }
 
   /** Set callback for sending messages to widget iframe */
@@ -171,6 +177,19 @@ export class ActionEngine {
         return this.executeWidgetAnnotation(action as WidgetAnnotationAction);
       case 'widget_reveal':
         return this.executeWidgetReveal(action as WidgetRevealAction);
+      case 'check_understanding':
+        if (this.waitForUnderstandingCheck) {
+          return useTeachingToolsStore
+            .getState()
+            .presentCheck(action as CheckUnderstandingAction);
+        }
+        useTeachingToolsStore.getState().openCheck(action as CheckUnderstandingAction);
+        return;
+      case 'evidence_board_update':
+        useTeachingToolsStore
+          .getState()
+          .updateEvidenceBoard(action as EvidenceBoardUpdateAction);
+        return;
     }
   }
 

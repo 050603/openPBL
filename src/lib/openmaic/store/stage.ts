@@ -14,6 +14,7 @@ import type { ChatSession } from '@openmaic/lib/types/chat';
 import type { SceneOutline } from '@openmaic/lib/types/generation';
 import { createLogger } from '@openmaic/lib/logger';
 import { useCanvasStore } from '@openmaic/lib/store/canvas';
+import { useTeachingToolsStore } from '@openmaic/lib/store/teaching-tools';
 import { migrateScene } from '@openmaic/lib/edit/slide-schema';
 
 const log = createLogger('StageStore');
@@ -421,6 +422,9 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
         log.info('Stage already loaded in memory, skipping IndexedDB load:', stageId);
         return;
       }
+      if (currentState.stage?.id !== stageId) {
+        useTeachingToolsStore.getState().reset();
+      }
 
       const { loadStageData } = await import('@openmaic/lib/utils/stage-storage');
       const data = await loadStageData(stageId);
@@ -494,6 +498,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   },
 
   clearStore: () => {
+    useTeachingToolsStore.getState().reset();
     set((s) => ({
       stage: null,
       scenes: [],

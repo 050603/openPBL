@@ -2,7 +2,13 @@ import { Prisma } from "@prisma/client";
 import { type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { isBackgroundCourseGenerationEnabled } from "@/lib/course-generation/capability";
-import type { PersistedCourseGenerationRequest } from "@/lib/course-generation/job-runner";
+import {
+  cancelCourseGeneration,
+  estimatePersistedCourseGenerationSeconds,
+  resetCourseGenerationCheckpoints,
+  startQueuedCourseGeneration,
+  type PersistedCourseGenerationRequest,
+} from "@/lib/course-generation/job-runner";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
@@ -16,6 +22,7 @@ async function authorize(request: NextRequest): Promise<string | null> {
 
 function responseJob(job: Awaited<ReturnType<typeof prisma.courseGenerationJob.findUnique>>) {
   if (!job) return null;
+  const persistedRequest = job.request as unknown as Partial<PersistedCourseGenerationRequest>;
   return {
     id: job.id,
     status: job.status,
@@ -31,6 +38,23 @@ function responseJob(job: Awaited<ReturnType<typeof prisma.courseGenerationJob.f
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     updatedAt: job.updatedAt.toISOString(),
+    requestPreview: {
+      courseTitle: persistedRequest.courseTitle,
+      sceneOutlines: Array.isArray(persistedRequest.sceneOutlines)
+        ? persistedRequest.sceneOutlines.map((scene) => ({
+            id: scene.id,
+            title: scene.title,
+            type: scene.type,
+            stageKey: scene.stageKey,
+            stageLabel: scene.stageLabel,
+            estimatedDuration: scene.estimatedDuration,
+          }))
+        : [],
+      enableImageGeneration: persistedRequest.enableImageGeneration !== false,
+      enableVideoGeneration: persistedRequest.enableVideoGeneration === true,
+      enableTTS: persistedRequest.enableTTS !== false,
+      interactiveMode: persistedRequest.interactiveMode === true,
+    },
   };
 }
 
@@ -38,10 +62,37 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cou
   const requestedBy = await authorize(request);
   if (requestedBy === "") return Response.json({ error: "Unauthorized" }, { status: 401 });
   const backgroundEnabled = isBackgroundCourseGenerationEnabled();
-  if (!backgroundEnabled) return Response.json({ backgroundEnabled, job: null });
   const { courseId } = await context.params;
   const job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
   return Response.json({ backgroundEnabled, job: responseJob(job) });
+}
+
+export async function PATCH(request: NextRequest, context: { params: Promise<{ courseId: string }> }) {
+  const requestedBy = await authorize(request);
+  if (requestedBy === "") return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await request.json().catch(() => null) as { action?: unknown } | null;
+  if (body?.action !== "start-persisted-job") {
+    return Response.json({ error: "INVALID_GENERATION_ACTION" }, { status: 400 });
+  }
+  const backgroundEnabled = isBackgroundCourseGenerationEnabled();
+  const { courseId } = await context.params;
+  const job = backgroundEnabled
+    ? await prisma.courseGenerationJob.findUnique({ where: { courseId } })
+    : await startQueuedCourseGeneration(courseId);
+  if (!job) return Response.json({ error: "GENERATION_JOB_NOT_FOUND" }, { status: 404 });
+  return Response.json({ backgroundEnabled, job: responseJob(job) }, { status: 202 });
+}
+
+export async function DELETE(request: NextRequest, context: { params: Promise<{ courseId: string }> }) {
+  const requestedBy = await authorize(request);
+  if (requestedBy === "") return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { courseId } = await context.params;
+  const job = await cancelCourseGeneration(courseId);
+  if (!job) return Response.json({ error: "GENERATION_JOB_NOT_FOUND" }, { status: 404 });
+  return Response.json({
+    backgroundEnabled: isBackgroundCourseGenerationEnabled(),
+    job: responseJob(job),
+  });
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ courseId: string }> }) {
@@ -60,10 +111,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
   }
   const totalScenes = Array.isArray(body.sceneOutlines) ? body.sceneOutlines.length : 0;
   const adaptiveBranchCount = Math.max(0, Math.round(body.adaptiveBranchCount ?? 0));
-  const initialEstimate = Math.max(
-    5 * 60,
-    120 + Math.max(totalScenes, 6) * 35 + adaptiveBranchCount * 90,
-  );
+  const initialEstimate = estimatePersistedCourseGenerationSeconds({
+    totalScenes,
+    adaptiveBranchCount,
+    enableImageGeneration: body.enableImageGeneration,
+    enableVideoGeneration: body.enableVideoGeneration,
+    enableTTS: body.enableTTS,
+  });
   const requestJson = body as unknown as Prisma.InputJsonValue;
   let job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
 
@@ -83,6 +137,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
       job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
     }
   } else if (job.status === "failed") {
+    // A newly submitted request must never reuse pages prepared for the old
+    // request. Worker restarts keep checkpoints; explicit retries reset them.
+    await resetCourseGenerationCheckpoints(job.id);
     job = await prisma.courseGenerationJob.update({
       where: { id: job.id },
       data: {

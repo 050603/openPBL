@@ -155,12 +155,55 @@ export function buildStructuredPrompt(
     lengthGuidelines: buildLengthGuidelines(agentConfig.role),
     whiteboardGuidelines: buildWhiteboardGuidelines(agentConfig.role),
     discussionContextSection: buildDiscussionContextSection(discussionContext, agentResponses),
+    structuredOutputMode: true,
+    nativeToolMode: false,
   };
 
   const prompt = buildPrompt(PROMPT_IDS.AGENT_SYSTEM, vars);
   if (!prompt) {
     throw new Error('agent-system template not found');
   }
+  return prompt.system;
+}
+
+/** Build the live-classroom prompt used with native AI SDK tool calls. */
+export function buildNativeToolPrompt(
+  agentConfig: AgentConfig,
+  storeState: StatelessChatRequest['storeState'],
+  discussionContext?: DiscussionContext,
+  whiteboardLedger?: WhiteboardActionRecord[],
+  userProfile?: { nickname?: string; bio?: string },
+  agentResponses?: AgentTurnSummary[],
+): string {
+  const currentScene = storeState.currentSceneId
+    ? storeState.scenes.find((scene) => scene.id === storeState.currentSceneId)
+    : undefined;
+  const effectiveActions = getEffectiveActions(agentConfig.allowedActions, currentScene?.type);
+  const hasSlideActions =
+    effectiveActions.includes('spotlight') || effectiveActions.includes('laser');
+  const vars = {
+    agentName: agentConfig.name,
+    persona: agentConfig.persona,
+    roleGuideline: ROLE_GUIDELINES[agentConfig.role] || ROLE_GUIDELINES.student,
+    studentProfileSection: buildStudentProfileSection(userProfile),
+    peerContext: buildPeerContextSection(agentResponses, agentConfig.name),
+    languageConstraint: buildLanguageConstraint(storeState.stage?.languageDirective),
+    formatExample: '',
+    orderingPrinciples: '',
+    spotlightExamples: '',
+    actionDescriptions: getActionDescriptions(effectiveActions),
+    slideActionGuidelines: hasSlideActions ? SLIDE_ACTION_GUIDELINES : '',
+    mutualExclusionNote: hasSlideActions ? MUTUAL_EXCLUSION_NOTE : '',
+    stateContext: buildStateContext(storeState),
+    virtualWhiteboardContext: buildVirtualWhiteboardContext(storeState, whiteboardLedger),
+    lengthGuidelines: buildLengthGuidelines(agentConfig.role),
+    whiteboardGuidelines: buildWhiteboardGuidelines(agentConfig.role),
+    discussionContextSection: buildDiscussionContextSection(discussionContext, agentResponses),
+    structuredOutputMode: false,
+    nativeToolMode: true,
+  };
+  const prompt = buildPrompt(PROMPT_IDS.AGENT_SYSTEM, vars);
+  if (!prompt) throw new Error('agent-system template not found');
   return prompt.system;
 }
 

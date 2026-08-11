@@ -1,11 +1,13 @@
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import {
   derivePretestKnowledgeEvidence,
+  isAdaptiveAnswerCorrect,
   scoreAdaptiveAssessment,
 } from "@/lib/adaptive-learning";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type {
   AdaptiveAssessmentEvidence,
+  AdaptiveAssessmentAnswer,
   AdaptiveBranchRun,
   AdaptiveMicroLesson,
   AdaptiveTriggerEvaluation,
@@ -21,7 +23,7 @@ type StateAction =
       action: "submit-pretest";
       courseId: string;
       studentId: string;
-      answers: Record<string, number>;
+      answers: Record<string, AdaptiveAssessmentAnswer>;
     }
   | {
       action: "record-node-assessment";
@@ -149,7 +151,7 @@ export async function POST(request: Request) {
             masteredKnowledgePointIds: knowledgeEvidence.masteredKnowledgePointIds,
             questionResults: plan.pretest.questions.map((question) => ({
               questionId: question.id,
-              correct: body.answers[question.id] === question.correctOptionIndex,
+              correct: isAdaptiveAnswerCorrect(question, body.answers[question.id]),
             })),
           },
         ],

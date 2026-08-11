@@ -12,7 +12,6 @@ import {
 } from "./ai-policy";
 import { getStageMissionDefinition, inferLearningPreset } from "./missions";
 import type {
-  ArtifactSnapshot,
   LearningEvidence,
   LearningEvidenceKind,
   LearningEvidencePayloadByKind,

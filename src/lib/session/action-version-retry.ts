@@ -21,8 +21,8 @@ export async function retryVersionConflict<T>(
     } catch (error) {
       const canRetry =
         error instanceof SessionActionRequestError &&
-        error.status === 409 &&
-        error.code === "VERSION_CONFLICT" &&
+        ((error.status === 409 && error.code === "VERSION_CONFLICT") ||
+          (error.status === 428 && error.code === "EXPECTED_VERSION_REQUIRED")) &&
         Number.isSafeInteger(error.currentVersion) &&
         attempt < maxAttempts;
       if (!canRetry) throw error;

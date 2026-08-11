@@ -16,13 +16,14 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
   const [message, setMessage] = useState<string | null>(null);
   const project = course.groups?.find((item) =>
     item.members.some((member) => member.studentId === studentId));
+  const projectId = project?.id;
   const versions = useMemo(
     () => (course.uploads ?? [])
       .filter((item) =>
         item.stageKey === "make"
-        && (item.studentId === studentId || Boolean(project?.id && item.groupId === project.id)))
+        && (item.studentId === studentId || Boolean(projectId && item.groupId === projectId)))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
-    [course.uploads, project?.id, studentId],
+    [course.uploads, projectId, studentId],
   );
   const versionNotes = useMemo(() => new Map(
     (course.learningEvidence ?? [])
@@ -76,7 +77,7 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
       session.upsertUpload({
         id: data.id,
         courseId: course.id,
-        groupId: project?.id,
+        groupId: projectId,
         studentId,
         studentName: session.studentName ?? session.user.name,
         stageKey: "make",
@@ -118,7 +119,7 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
         courseId: course.id,
         studentId,
         studentName: session.studentName ?? session.user.name,
-        groupId: project?.id,
+        groupId: projectId,
         stageKey: "make",
         type: "document",
         title: `V${versionNumber} · ${file.name}`,

@@ -1,9 +1,9 @@
 # OpenPBL — full local/dev stack.
 #
 # Brings up the Next.js app, PostgreSQL, and Redis together with healthchecks
-# so `docker compose up` gives you a working environment. Production overrides
-# live in `docker-compose.prod.yml` (apply with `docker compose -f
-# docker-compose.yml -f docker-compose.prod.yml up`).
+# so `docker compose up` gives you a working environment. Production uses the
+# independent `docker-compose.prod.yml`; do not stack it on this development
+# Compose file.
 #
 # Required environment (read from `.env.local` next to this file):
 #   - POSTGRES_PASSWORD  — password for the `openpbl` Postgres role.

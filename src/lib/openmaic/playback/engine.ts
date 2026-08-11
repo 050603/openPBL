@@ -733,9 +733,14 @@ export class PlaybackEngine {
       case 'wb_draw_chart':
       case 'wb_draw_latex':
       case 'wb_draw_table':
+      case 'wb_draw_line':
+      case 'wb_draw_code':
+      case 'wb_edit_code':
       case 'wb_clear':
       case 'wb_delete':
       case 'wb_close':
+      case 'check_understanding':
+      case 'evidence_board_update':
       case 'widget_highlight':
       case 'widget_setState':
       case 'widget_annotation':

@@ -64,6 +64,8 @@ const ACTION_REQUIRED_FIELDS: Record<ActionType, Readonly<Record<string, FieldKi
   widget_setState: { state: 'object' },
   widget_annotation: { target: 'string' },
   widget_reveal: { target: 'string' },
+  check_understanding: { question: 'string', responseType: 'string' },
+  evidence_board_update: { operation: 'string', items: 'array' },
 };
 
 function matchesKind(value: unknown, kind: FieldKind): boolean {

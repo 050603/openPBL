@@ -517,7 +517,7 @@ export function buildEvaluationPlanPrompt(
   system: string;
   user: string;
 } {
-  const user = `请基于以下课程基础信息、知识图谱、六模块时间分配、课程模块和课程大纲，生成项目评价方案（4-6 个维度，AI 与教师各自维度内部权重分别合计 100%，含整体评价说明）。
+  const user = `请基于以下课程基础信息、知识图谱、六模块时间分配、课程模块和课程大纲，生成项目评价方案（4-6 个维度，全部计分维度权重合计 100%，含整体评价说明）。
 
 课程名称：${input.name}
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
@@ -537,16 +537,36 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
 1. 评价维度要能检查学生是否理解知识图谱中的核心节点及节点关系。
 2. 至少一个维度关注知识迁移与项目应用，而不仅是展示表达。
 3. 每个维度必须标记 responsibleRole：AI 负责学习过程、AI 协作健康度、证据迭代、专业知识准确性、方案逻辑与可行性；教师负责现场汇报、答辩回应、成果呈现、课堂规范与通用能力、项目价值理解。
-4. AI 不预测、不建议教师分数。最终成绩由 AI 过程与专业评价 40% + 教师现场汇报评价 60% 合成；学生反思不计分，系统不设置同伴互评。
+4. AI 不预测、不建议教师分数。AI 过程与专业评价、教师现场评价都必须占有正权重，二者合计 100%；具体比例要根据本课程可采集的过程证据、专业判断需求、现场展示与答辩需求自动判断，不得套用固定比例。学生反思不计分，系统不设置同伴互评。
 5. AI 协作健康度不能按 AI 使用次数高低评分，应观察问题是否具体、是否自行推进、是否核验修改、是否产生实际进展、是否比较求证、是否长期索要完整答案或代做；证据不足时该维度记 0 分并明确列出缺口。
-6. overallRubric 明确两部分独立评分、缺一时最终分待完成。
+6. overallRubric 明确本课程为何采用当前 AI/教师权重、两部分独立评分、缺一时最终分待完成。
 7. 评价证据必须优先引用个人项目配置中的 evidenceRequirements；AI 过程评价关注方案选择、修订、测试和 AI 建议采纳/拒绝证据，教师评价关注 artifact 与 presentation，学生 reflection 只评价成长与迁移，不计入计分权重。
 8. 评价维度必须覆盖 foundation/core 理解、application/extension 迁移、项目实践证据、成果表达与反思成长，并标明评价发生在哪个课程模块。
-9. 权重规则：AI 负责的维度权重合计必须为 100，教师负责的维度权重合计也必须为 100。weight 为纯数字（如 20，不要写 "20%"）。
+9. 权重规则：所有 dimensions 的 weight 合计必须为 100；AI 维度合计必须等于 AI flow 的 weight，教师维度合计必须等于 teacher flow 的 weight。weight 为纯数字（如 20，不要写 "20%"）。
 
 仅返回 JSON，结构如下（字段名必须完全一致）：
 {
   "evaluationPlan": {
+    "flows": [
+      {
+        "id": "evaluation-ai",
+        "sourceRole": "ai",
+        "name": "AI 过程与专业评价",
+        "weight": 47,
+        "evidenceRequirements": ["本课程中由系统持续采集的过程与专业证据"],
+        "enabled": true,
+        "scored": true
+      },
+      {
+        "id": "evaluation-teacher",
+        "sourceRole": "teacher",
+        "name": "教师现场评价",
+        "weight": 53,
+        "evidenceRequirements": ["本课程中需要教师现场观察与判断的证据"],
+        "enabled": true,
+        "scored": true
+      }
+    ],
     "dimensions": [
       {
         "id": "ev-1",
@@ -566,6 +586,6 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
     "overallRubric": "整体评价说明字符串"
   }
 }
-注意：dimensions 数组必须包含 4-6 个对象；每个对象必须包含 name（字符串）、weight（数字）、responsibleRole（"ai" 或 "teacher"）；responsibleRole 为 "ai" 的维度 weight 合计 = 100，responsibleRole 为 "teacher" 的维度 weight 合计 = 100。`;
+注意：上面的 47/53 仅用于展示合法 JSON 数字格式，严禁直接照抄。必须根据本课程证据结构重新判断比例。dimensions 数组必须包含 4-6 个对象；每个对象必须包含 name（字符串）、weight（数字）、responsibleRole（"ai" 或 "teacher"）；flows 必须同时包含 ai 与 teacher 且权重都大于 0；flows 与 dimensions 均须合计 100，且各角色维度小计必须与对应 flow 权重一致。`;
   return { system: SYSTEM_PREAMBLE, user };
 }

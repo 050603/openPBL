@@ -905,6 +905,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           uiState: {},
           createdAt: now,
           updatedAt: now,
+          version: 1,
         };
         commit({ type: "CREATE_COURSE", payload: course });
         return course;
@@ -981,7 +982,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             };
 
         // Update the user object so the top-right avatar shows the student's
-        // name and role, not the default "寮犺€佸笀".
+        // name and role, not the default teacher identity.
         const studentUser = { role: "student" as const, name: student.name };
         // Pre-seed the identity cache so the next polling refresh cannot
         // drop the just-joined student from course.students before the

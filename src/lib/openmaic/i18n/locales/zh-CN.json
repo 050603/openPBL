@@ -1607,6 +1607,19 @@
     "speed": "语速",
     "language": "语言"
   },
+  "teachingTools": {
+    "checkTitle": "随堂理解检查",
+    "evidenceTitle": "证据板",
+    "answerPlaceholder": "请写下你的判断和理由……",
+    "responseMessage": "随堂理解检查回答\n问题：{{question}}\n我的回答：{{answer}}",
+    "submit": "提交回答",
+    "close": "关闭",
+    "sourceStatus": {
+      "verified": "来源已核验",
+      "student_provided": "学生提供",
+      "needs_verification": "来源待核验"
+    }
+  },
   "accessCode": {
     "title": "请输入访问码",
     "placeholder": "访问码",

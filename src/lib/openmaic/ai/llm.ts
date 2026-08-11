@@ -21,6 +21,7 @@ import {
   isAbortError,
   throwIfAborted,
 } from '@openmaic/lib/generation/generation-retry';
+import { withCourseGenerationLlmSlot } from '@/lib/course-generation/llm-concurrency';
 const log = createLogger('LLM');
 
 // Re-export for external use
@@ -281,6 +282,19 @@ const DEFAULT_VALIDATE = (text: string) => text.trim().length > 0;
  * @param thinking - Optional per-call thinking config (overrides global LLM_THINKING_DISABLED)
  */
 export async function callLLM<T extends GenerateTextParams>(
+  params: T,
+  source: string,
+  retryOptions?: LLMRetryOptions,
+  thinking?: ThinkingConfig,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<GenerateTextResult<any, any>> {
+  return withCourseGenerationLlmSlot(
+    () => callLLMWithoutCourseLimit(params, source, retryOptions, thinking),
+    { signal: params.abortSignal },
+  );
+}
+
+async function callLLMWithoutCourseLimit<T extends GenerateTextParams>(
   params: T,
   source: string,
   retryOptions?: LLMRetryOptions,

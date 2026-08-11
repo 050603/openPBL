@@ -3,6 +3,10 @@ import { generateInviteCode } from "../src/lib/session/invite-code";
 import { DEFAULT_STAGES, type Course } from "../src/lib/session/types";
 import { dispatchAction } from "../src/lib/db/session-repository";
 import { prisma } from "../src/lib/db/client";
+import {
+  retryVersionConflict,
+  SessionActionRequestError,
+} from "../src/lib/session/action-version-retry";
 
 let courseId = "";
 let inviteCode = "";
@@ -63,12 +67,15 @@ test("student can join, read the classroom, save progress, and reload it", async
     `join failed: ${joinPayload.error ?? joinPayload.message ?? joinResponse.status()}`,
   ).toBe(true);
 
-  await expect(page).toHaveURL(new RegExp(`/student/classroom/${courseId}$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/student/classroom/${courseId}$`),
+    { timeout: 20_000 },
+  );
   await expect(page.getByText("未找到课堂")).toHaveCount(0);
   await expect(page.getByText("无法读取课堂数据")).toHaveCount(0);
   await expect(page.getByText("项目启动").first()).toBeVisible();
 
-  const sessionResponse = await page.request.get("/api/session", {
+  const sessionResponse = await page.request.get("/api/courses", {
     headers: { "X-OpenPBL-Role": "student" },
   });
   expect(sessionResponse.ok()).toBe(true);
@@ -76,6 +83,7 @@ test("student can join, read the classroom, save progress, and reload it", async
     studentId?: string;
     courses: Array<{
       id: string;
+      version?: number;
       students: Array<{
         id: string;
         stageProgress: Record<string, number>;
@@ -85,26 +93,57 @@ test("student can join, read the classroom, save progress, and reload it", async
   expect(session.studentId).toBeTruthy();
   expect(session.courses.map((course) => course.id)).toEqual([courseId]);
 
-  const saveResponse = await page.request.post("/api/session/actions", {
-    headers: { "X-OpenPBL-Role": "student" },
-    data: {
-      type: "UPDATE_STUDENT_PROGRESS",
-      payload: {
-        courseId,
-        studentId: session.studentId,
-        stageKey: "launch",
-        value: 67,
-      },
+  const currentCourse = session.courses.find((course) => course.id === courseId);
+  expect(currentCourse).toBeTruthy();
+
+  const requestId = crypto.randomUUID();
+  const savePayload = await retryVersionConflict(
+    async (expectedVersion) => {
+      const response = await page.request.post(`/api/courses/${courseId}/actions`, {
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost:3000",
+          "X-OpenPBL-Role": "student",
+        },
+        data: {
+          requestId,
+          expectedVersion,
+          action: {
+            type: "UPDATE_STUDENT_PROGRESS",
+            payload: {
+              courseId,
+              studentId: session.studentId,
+              stageKey: "launch",
+              value: 67,
+            },
+          },
+        },
+      });
+      const payload = (await response.json()) as {
+        code?: string;
+        courseVersion?: number;
+        details?: { currentVersion?: number };
+      };
+      if (!response.ok()) {
+        throw new SessionActionRequestError(
+          payload.code ?? `SESSION_ACTION_FAILED_${response.status()}`,
+          response.status(),
+          payload.details?.currentVersion,
+        );
+      }
+      return payload;
     },
-  });
-  expect(saveResponse.ok()).toBe(true);
+    currentCourse?.version,
+  );
+  expect(savePayload.courseVersion).toBeGreaterThan(currentCourse?.version ?? 0);
 
   await page.reload();
-  const reloadedResponse = await page.request.get("/api/session", {
+  const reloadedResponse = await page.request.get("/api/courses", {
     headers: { "X-OpenPBL-Role": "student" },
   });
   const reloaded = (await reloadedResponse.json()) as typeof session;
-  const student = reloaded.courses[0].students.find(
+  const reloadedCourse = reloaded.courses.find((course) => course.id === courseId);
+  const student = reloadedCourse?.students.find(
     (candidate) => candidate.id === reloaded.studentId,
   );
   expect(student?.stageProgress.launch).toBe(67);

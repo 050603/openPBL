@@ -15,6 +15,7 @@ import {
   resolveAdaptiveSceneIdentity,
 } from "@/lib/adaptive-learning";
 import type {
+  AdaptiveAssessmentAnswer,
   AdaptiveBranchOutline,
   AdaptiveBranchRun,
   Course,
@@ -237,7 +238,7 @@ export function AdaptiveAiLearningRuntime({
     setInsertedResources((current) => [...current, ...queue]);
   }
 
-  async function handlePretestSubmit(answers: Record<string, number>) {
+  async function handlePretestSubmit(answers: Record<string, AdaptiveAssessmentAnswer>) {
     const nextState = await persistState({ action: "submit-pretest", answers });
     await preparePreCourseResources(nextState);
   }
@@ -400,13 +401,21 @@ function AdaptivePretest({
   onSubmit,
 }: {
   plan: NonNullable<Course["content"]["adaptiveLearningPlan"]>;
-  onSubmit: (answers: Record<string, number>) => Promise<void>;
+  onSubmit: (answers: Record<string, AdaptiveAssessmentAnswer>) => Promise<void>;
 }) {
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<Record<string, AdaptiveAssessmentAnswer>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const questions = plan.pretest.questions.slice(0, 5);
-  const complete = questions.every((question) => answers[question.id] !== undefined);
+  const complete = questions.every((question) => {
+    const answer = answers[question.id];
+    if (question.type !== "matching") return typeof answer === "number";
+    return Boolean(
+      answer
+      && typeof answer === "object"
+      && (question.matchingPairs ?? []).every((pair) => answer[pair.left]),
+    );
+  });
 
   return (
     <div className="min-h-[720px] bg-[radial-gradient(circle_at_top_left,#cffafe_0,transparent_32%),linear-gradient(145deg,#f8fafc,#fff)] p-5 sm:p-8">
@@ -430,7 +439,29 @@ function AdaptivePretest({
                 {questionIndex + 1}. {question.prompt}
               </legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {question.options.map((option, optionIndex) => {
+                {question.type === "matching" ? (
+                  (question.matchingPairs ?? []).map((pair) => {
+                    const current = answers[question.id];
+                    const matches = current && typeof current === "object" ? current : {};
+                    return (
+                      <label className="rounded-[8px] border border-stone-200 bg-stone-50/60 p-3 text-xs" key={`${question.id}-${pair.left}`}>
+                        <span className="mb-2 block font-bold text-stone-800">{pair.left}</span>
+                        <select
+                          aria-label={`为${pair.left}选择匹配项`}
+                          className="w-full rounded-[7px] border border-stone-200 bg-white px-2.5 py-2 text-stone-700 outline-none focus:border-cyan-600"
+                          onChange={(event) => setAnswers((currentAnswers) => ({
+                            ...currentAnswers,
+                            [question.id]: { ...matches, [pair.left]: event.target.value },
+                          }))}
+                          value={matches[pair.left] ?? ""}
+                        >
+                          <option value="">请选择匹配项</option>
+                          {question.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </label>
+                    );
+                  })
+                ) : question.options.map((option, optionIndex) => {
                   const selected = answers[question.id] === optionIndex;
                   return (
                     <button

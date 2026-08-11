@@ -139,6 +139,27 @@ export interface GenerateClassroomResult {
   };
 }
 
+export interface GenerateClassroomOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
+  /** Final normalized/media-planned/timed outlines from an interrupted run. */
+  preparedOutlines?: SceneOutline[];
+  /** Persist final outlines before the first page starts. */
+  onOutlinesPrepared?: (outlines: SceneOutline[]) => Promise<void> | void;
+  /** Restore an exact-fingerprint completed page, if one exists. */
+  loadSceneCheckpoint?: (
+    outline: SceneOutline,
+    index: number,
+    stageId: string,
+  ) => Promise<Scene | null> | Scene | null;
+  /** Persist only a fully assembled page, after its timing correction pass. */
+  onSceneCompleted?: (
+    outline: SceneOutline,
+    scene: Scene,
+    index: number,
+  ) => Promise<void> | void;
+}
+
 function createInMemoryStore(stage: Stage): StageStore {
   let state = {
     stage: stage as Stage | null,
@@ -440,10 +461,7 @@ Return a JSON object with this exact structure:
 
 export async function generateClassroom(
   input: GenerateClassroomInput,
-  options: {
-    signal?: AbortSignal;
-    onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
-  },
+  options: GenerateClassroomOptions,
 ): Promise<GenerateClassroomResult> {
   const { requirement, pdfContent } = input;
 
@@ -621,18 +639,19 @@ export async function generateClassroom(
     scenesGenerated: 0,
   });
 
+  const preparedOutlines = normalizeSceneOutlinesForGeneration(options.preparedOutlines);
   const confirmedOutlines = normalizeSceneOutlinesForGeneration(input.sceneOutlines);
   const isStructuredPbl =
     input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
     Boolean(input.pblActivityCatalog?.length);
-  if (isStructuredPbl && confirmedOutlines.length === 0) {
+  if (isStructuredPbl && preparedOutlines.length === 0 && confirmedOutlines.length === 0) {
     throw new Error('课程生成必须使用已确认的课程大纲，当前未收到有效课程大纲内容。');
   }
 
   let generatedLanguageDirective = '';
   let generatedCourseTitle: string | undefined;
   let generatedOutlines: SceneOutline[] = [];
-  if (confirmedOutlines.length === 0) {
+  if (preparedOutlines.length === 0 && confirmedOutlines.length === 0) {
     const outlinesResult = await generateSceneOutlinesFromRequirements(
       requirements,
       pdfText,
@@ -660,10 +679,18 @@ export async function generateClassroom(
   const languageDirective = input.languageDirective || generatedLanguageDirective;
   const courseTitle = input.courseTitle || generatedCourseTitle;
   let baseOutlines = enforcePblOutlineContract(
-    confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
+    preparedOutlines.length > 0
+      ? preparedOutlines
+      : confirmedOutlines.length > 0
+        ? confirmedOutlines
+        : generatedOutlines,
     requirements,
   );
-  const outlineSource = confirmedOutlines.length > 0 ? 'confirmed' : 'generated';
+  const outlineSource = preparedOutlines.length > 0
+    ? 'prepared'
+    : confirmedOutlines.length > 0
+      ? 'confirmed'
+      : 'generated';
   // Interactive mode is allowed to repair only an unconfirmed model-generated
   // plan. A teacher-confirmed outline is authoritative: PPT, quiz, and
   // interactive markers must survive final classroom generation unchanged.
@@ -676,7 +703,8 @@ export async function generateClassroom(
     }
   }
   if (
-    confirmedOutlines.length > 0
+    preparedOutlines.length === 0
+    && confirmedOutlines.length > 0
     && (input.enableImageGeneration || input.enableVideoGeneration)
   ) {
     try {
@@ -712,10 +740,12 @@ export async function generateClassroom(
   );
   throwIfAborted(options.signal);
   validateConfirmedPblDetails(outlines, input);
+  await options.onOutlinesPrepared?.(outlines);
+  throwIfAborted(options.signal);
   log.info(
-    confirmedOutlines.length > 0
-      ? `Using ${outlines.length} confirmed scene outlines (courseTitle: ${courseTitle ?? 'n/a'})`
-      : `Generated ${outlines.length} scene outlines (languageDirective: ${languageDirective}, courseTitle: ${courseTitle ?? 'n/a'})`,
+    outlineSource === 'generated'
+      ? `Generated ${outlines.length} scene outlines (languageDirective: ${languageDirective}, courseTitle: ${courseTitle ?? 'n/a'})`
+      : `Using ${outlines.length} ${outlineSource} scene outlines (courseTitle: ${courseTitle ?? 'n/a'})`,
   );
 
     await reportProgress({
@@ -773,9 +803,6 @@ export async function generateClassroom(
         }),
   };
 
-  const store = createInMemoryStore(stage);
-  const api = createStageAPI(store);
-
   log.info('Stage 2: Generating scene content and actions...');
   const sceneConcurrency = getClassroomSceneConcurrency();
   log.info(`Generating scenes with bounded concurrency: ${sceneConcurrency}`);
@@ -802,6 +829,19 @@ export async function generateClassroom(
         scenesGenerated: 0,
         totalScenes: outlines.length,
       });
+
+      const checkpoint = await options.loadSceneCheckpoint?.(safeOutline, index, stageId);
+      if (checkpoint) {
+        generatedSceneDrafts += 1;
+        await reportProgress({
+          step: 'generating_scenes',
+          progress: completedSceneGenerationProgress(generatedSceneDrafts, outlines.length),
+          message: `Restored ${generatedSceneDrafts}/${outlines.length} completed scenes`,
+          scenesGenerated: generatedSceneDrafts,
+          totalScenes: outlines.length,
+        });
+        return { outline: safeOutline, scene: checkpoint, index };
+      }
 
       const reportSceneRetry = async (
         phase: 'content' | 'actions',
@@ -917,6 +957,17 @@ export async function generateClassroom(
       }
 
       log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
+      // Keep the canonical assembler so restored and fresh pages have the
+      // exact same timing pauses, PBL metadata and outline identity.
+      const pageStore = createInMemoryStore(stage);
+      const pageApi = createStageAPI(pageStore);
+      const sceneId = createSceneWithActions(safeOutline, content, actions, pageApi);
+      const scene = sceneId
+        ? pageStore.getState().scenes.find((candidate) => candidate.id === sceneId) ?? null
+        : null;
+      if (!scene) return null;
+      await options.onSceneCompleted?.(safeOutline, scene, index);
+      throwIfAborted(options.signal);
       generatedSceneDrafts += 1;
       await reportProgress({
         step: 'generating_scenes',
@@ -925,7 +976,7 @@ export async function generateClassroom(
         scenesGenerated: generatedSceneDrafts,
         totalScenes: outlines.length,
       });
-      return { outline: safeOutline, content, actions, index };
+      return { outline: safeOutline, scene, index };
     },
     { shouldContinue: () => !options.signal?.aborted },
   );
@@ -940,30 +991,20 @@ export async function generateClassroom(
     failedTitles: failedContentTitles,
     phase: 'content',
   });
-  let generatedScenes = 0;
-  const failedAssemblyTitles: string[] = [];
-  for (const draft of sceneDrafts) {
-    if (!draft) continue;
-    const sceneId = createSceneWithActions(draft.outline, draft.content, draft.actions, api);
-    if (!sceneId) {
-      log.warn(`Skipping scene "${draft.outline.title}" — scene creation failed`);
-      failedAssemblyTitles.push(draft.outline.title);
-      continue;
-    }
-
-    generatedScenes += 1;
-  }
+  const assembledScenes = sceneDrafts.flatMap((draft) => draft ? [draft.scene] : []);
 
   assertCompleteSceneGeneration({
     expectedCount: outlines.length,
-    generatedCount: generatedScenes,
-    failedTitles: failedAssemblyTitles,
+    generatedCount: assembledScenes.length,
+    failedTitles: sceneDrafts.flatMap((draft, index) => (
+      draft ? [] : [outlines[index]?.title ?? `scene-${index + 1}`]
+    )),
     phase: 'assembly',
   });
 
   const qualityResult = auditAndRepairGeneratedCourse(
     outlines,
-    store.getState().scenes,
+    assembledScenes,
     requirements.teachingConstraints,
   );
   const scenes = qualityResult.scenes;

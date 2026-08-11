@@ -30,6 +30,7 @@ import {
   normalizeSceneOutlinesForDuration,
 } from '@openmaic/lib/generation/outline-generator';
 import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { splitLongStudentSlides } from '@openmaic/lib/generation/student-slide-duration-policy';
 import { resolveOutlinePromptPlan } from '@openmaic/lib/generation/outline-prompt-plan';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import { nanoid } from 'nanoid';
@@ -642,7 +643,9 @@ export async function POST(req: NextRequest) {
               contractOutlines,
               promptPlan.interactiveMode,
             );
-            const normalizedOutlines = normalizeSceneOutlinesForDuration(modeAwareOutlines);
+            const normalizedOutlines = normalizeSceneOutlinesForDuration(
+              splitLongStudentSlides(modeAwareOutlines),
+            );
             const uniquifiedOutlines = uniquifyMediaElementIds(normalizedOutlines);
             // Send done event with all outlines
             const doneEvent = JSON.stringify({

@@ -29,6 +29,7 @@ import type {
   LessonOutlineSection,
   TeachingOutlineSection,
 } from "../session/types";
+import { DEFAULT_EVALUATION_FLOWS } from "../session/types";
 import { getActiveAiSettings } from "./settings";
 import { validatePblKnowledgeAlignment } from "@/lib/pbl-outline-validation";
 import {
@@ -49,6 +50,13 @@ import {
   type PblModelTimingRecommendation,
 } from "@/lib/pbl-time-model";
 import { localizeGeneratedNarrative } from "./generated-language";
+import { withCourseGenerationLlmSlot } from "@/lib/course-generation/llm-concurrency";
+import { withGenerationRetry } from "@openmaic/lib/generation/generation-retry";
+import {
+  requestClassForCourseContentAction,
+  resolveLlmRequestTimeoutMs,
+  type LlmRequestClass,
+} from "@/lib/llm/request-policy";
 export { localizeGeneratedNarrative } from "./generated-language";
 
 function env(name: string): string | undefined {
@@ -68,9 +76,6 @@ export async function isActiveLlmConfigured(): Promise<boolean> {
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
-// LLM 长输出（如 PBL 六阶段课程模块、教学大纲）生成可能需要 60-120 秒，
-// 60 秒超时会导致复杂任务失败。提高到 180 秒覆盖最慢场景。
-const LLM_REQUEST_TIMEOUT_MS = 180_000;
 const MAX_MALFORMED_STREAM_CHUNKS = 5;
 let llmCooldownUntil = 0;
 
@@ -92,16 +97,16 @@ function setRateLimitCooldown(res: Response, detail = ""): LlmRateLimitError {
 }
 
 /**
- * Combine a caller-provided abort signal with a 60s timeout. Returns the
+ * Combine a caller-provided abort signal with a request-class timeout. Returns the
  * combined signal plus the timeout signal so callers can distinguish a
  * timeout-driven abort from a caller-driven abort and throw the more
  * specific `LlmTimeoutError`.
  */
-function withTimeout(callerSignal: AbortSignal | undefined): {
+function withTimeout(callerSignal: AbortSignal | undefined, timeoutMs: number): {
   signal: AbortSignal;
   timeoutSignal: AbortSignal;
 } {
-  const timeoutSignal = AbortSignal.timeout(LLM_REQUEST_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = AbortSignal.any([callerSignal ?? new AbortController().signal, timeoutSignal]);
   return { signal, timeoutSignal };
 }
@@ -117,13 +122,22 @@ function summarizeUpstream(body: string): string {
   return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
 }
 
+export type LlmCallOptions = {
+  jsonMode?: boolean;
+  abortSignal?: AbortSignal;
+  requestClass?: LlmRequestClass;
+  maxTransientRetries?: number;
+};
+
 export async function callLLM(
   messages: ChatMessage[],
-  opts: { jsonMode?: boolean; abortSignal?: AbortSignal } = {},
+  opts: LlmCallOptions = {},
 ): Promise<string> {
   return callChatCompletions(messages, {
     jsonMode: opts.jsonMode ?? false,
     abortSignal: opts.abortSignal,
+    requestClass: opts.requestClass ?? "standard",
+    maxTransientRetries: opts.maxTransientRetries ?? 0,
   });
 }
 
@@ -133,7 +147,7 @@ export async function callLLM(
  */
 export async function* callLLMStream(
   messages: ChatMessage[],
-  opts: { abortSignal?: AbortSignal } = {},
+  opts: { abortSignal?: AbortSignal; requestClass?: LlmRequestClass } = {},
 ): AsyncGenerator<string, void, void> {
   if (isLlmCoolingDown()) {
     throw new LlmRateLimitError(Math.max(0, llmCooldownUntil - Date.now()));
@@ -147,7 +161,8 @@ export async function* callLLMStream(
   if (!endpoint || !apiKey || !model) throw new LlmNotConfiguredError();
 
   const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
-  const { signal, timeoutSignal } = withTimeout(opts.abortSignal);
+  const timeoutMs = resolveLlmRequestTimeoutMs(opts.requestClass ?? "standard");
+  const { signal, timeoutSignal } = withTimeout(opts.abortSignal, timeoutMs);
 
   let res: Response;
   try {
@@ -166,7 +181,7 @@ export async function* callLLMStream(
       signal,
     });
   } catch (err) {
-    if (timeoutSignal.aborted) throw new LlmTimeoutError(LLM_REQUEST_TIMEOUT_MS);
+    if (timeoutSignal.aborted) throw new LlmTimeoutError(timeoutMs);
     throw err;
   }
 
@@ -192,7 +207,7 @@ export async function* callLLMStream(
       try {
         readResult = await reader.read();
       } catch (err) {
-        if (timeoutSignal.aborted) throw new LlmTimeoutError(LLM_REQUEST_TIMEOUT_MS);
+        if (timeoutSignal.aborted) throw new LlmTimeoutError(timeoutMs);
         throw err;
       }
       const { done, value } = readResult;
@@ -249,7 +264,41 @@ export function parseLLMJson<T = unknown>(text: string): T {
 
 async function callChatCompletions(
   messages: ChatMessage[],
-  opts: { jsonMode: boolean; abortSignal?: AbortSignal },
+  opts: {
+    jsonMode: boolean;
+    abortSignal?: AbortSignal;
+    requestClass: LlmRequestClass;
+    maxTransientRetries: number;
+  },
+): Promise<string> {
+  const timeoutMs = resolveLlmRequestTimeoutMs(opts.requestClass);
+  return withGenerationRetry(
+    () => withCourseGenerationLlmSlot(
+      () => callChatCompletionsWithoutCourseLimit(messages, {
+        jsonMode: opts.jsonMode,
+        abortSignal: opts.abortSignal,
+        timeoutMs,
+      }),
+      { signal: opts.abortSignal },
+    ),
+    {
+      label: `LLM ${opts.requestClass} request`,
+      maxRetries: Math.max(0, Math.min(2, opts.maxTransientRetries)),
+      baseDelayMs: 2_000,
+      maxDelayMs: 10_000,
+      signal: opts.abortSignal,
+      onRetry: (event) => {
+        console.warn(
+          `[LLM] ${event.label} transient failure (${event.attempt}/${event.maxAttempts}); retrying in ${event.nextDelayMs}ms: ${event.reason}`,
+        );
+      },
+    },
+  );
+}
+
+async function callChatCompletionsWithoutCourseLimit(
+  messages: ChatMessage[],
+  opts: { jsonMode: boolean; abortSignal?: AbortSignal; timeoutMs: number },
 ): Promise<string> {
   if (isLlmCoolingDown()) {
     throw new LlmRateLimitError(Math.max(0, llmCooldownUntil - Date.now()));
@@ -263,7 +312,7 @@ async function callChatCompletions(
   if (!endpoint || !apiKey || !model) throw new LlmNotConfiguredError();
 
   const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
-  const { signal, timeoutSignal } = withTimeout(opts.abortSignal);
+  const { signal, timeoutSignal } = withTimeout(opts.abortSignal, opts.timeoutMs);
 
   async function doFetch(useJsonMode: boolean): Promise<Response> {
     return fetch(url, {
@@ -286,7 +335,7 @@ async function callChatCompletions(
   try {
     res = await doFetch(opts.jsonMode);
   } catch (err) {
-    if (timeoutSignal.aborted) throw new LlmTimeoutError(LLM_REQUEST_TIMEOUT_MS);
+    if (timeoutSignal.aborted) throw new LlmTimeoutError(opts.timeoutMs);
     throw err;
   }
 
@@ -309,9 +358,15 @@ async function callChatCompletions(
     });
   }
 
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
+  let data: { choices?: { message?: { content?: string } }[] };
+  try {
+    data = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+  } catch (error) {
+    if (timeoutSignal.aborted) throw new LlmTimeoutError(opts.timeoutMs);
+    throw error;
+  }
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new LlmEmptyResponseError();
   return content;
@@ -1094,13 +1149,42 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
     };
   });
 
-  // Normalize weights: ensure each role group sums to 100
-  const normalized = normalizeDimensionWeights(parsed);
-
   const overallRubric =
     pickString(plan, ["overallRubric", "rubric", "整体评价", "评价说明"]) ?? "";
 
-  return { dimensions: normalized, overallRubric: localizeGeneratedNarrative(overallRubric) };
+  return {
+    dimensions: parsed,
+    overallRubric: localizeGeneratedNarrative(overallRubric),
+    flows: parseEvaluationFlows(plan.flows),
+  };
+}
+
+function parseEvaluationFlows(raw: unknown): EvaluationPlan["flows"] {
+  if (!Array.isArray(raw)) return undefined;
+  const defaults = new Map(DEFAULT_EVALUATION_FLOWS.map((flow) => [flow.sourceRole, flow]));
+  const parsed = raw.flatMap((value, index) => {
+    if (!value || typeof value !== "object") return [];
+    const flow = value as Record<string, unknown>;
+    const sourceRole = pickString(flow, ["sourceRole", "role", "评价方"]);
+    if (sourceRole !== "ai" && sourceRole !== "teacher") return [];
+    const fallback = defaults.get(sourceRole)!;
+    const evidence = Array.isArray(flow.evidenceRequirements)
+      ? flow.evidenceRequirements.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => localizeGeneratedNarrative(item.trim()))
+      : [...fallback.evidenceRequirements];
+    return [{
+      id: pickString(flow, ["id"]) ?? `evaluation-${sourceRole}-${index + 1}`,
+      sourceRole: sourceRole as "ai" | "teacher",
+      name: localizeGeneratedNarrative(pickString(flow, ["name", "title"]) ?? fallback.name),
+      weight: parseWeight(flow),
+      evidenceRequirements: evidence,
+      enabled: flow.enabled !== false,
+      scored: flow.scored !== false,
+    }];
+  });
+  const aiWeight = parsed.filter((flow) => flow.sourceRole === "ai").reduce((sum, flow) => sum + flow.weight, 0);
+  const teacherWeight = parsed.filter((flow) => flow.sourceRole === "teacher").reduce((sum, flow) => sum + flow.weight, 0);
+  if (aiWeight <= 0 || teacherWeight <= 0) return undefined;
+  return parsed;
 }
 
 /** Try multiple keys on a record and return the first non-empty string value. */
@@ -1125,49 +1209,6 @@ function parseWeight(dimension: Record<string, unknown>): number {
     if (!Number.isNaN(num)) return num;
   }
   return 0;
-}
-
-/**
- * Normalize dimension weights so that AI dimensions sum to 100 and teacher
- * dimensions sum to 100. Dimensions without a role are grouped together and
- * also normalized to 100. If all weights in a group are 0, distribute evenly.
- */
-function normalizeDimensionWeights(
-  dimensions: Array<{ id: string; name: string; weight: number; description: string; responsibleRole?: "ai" | "teacher" }>,
-): Array<{ id: string; name: string; weight: number; description: string; responsibleRole?: "ai" | "teacher" }> {
-  const groups: Record<string, number[]> = { ai: [], teacher: [], unassigned: [] };
-  const groupIndex: Array<{ group: string; idx: number }> = [];
-
-  dimensions.forEach((dim, idx) => {
-    const group = dim.responsibleRole ?? "unassigned";
-    groups[group].push(dim.weight);
-    groupIndex.push({ group, idx });
-  });
-
-  const normalizedWeights: Record<string, number[]> = {};
-  for (const [group, weights] of Object.entries(groups)) {
-    if (weights.length === 0) continue;
-    const sum = weights.reduce((a, b) => a + b, 0);
-    if (sum === 0) {
-      // All zero → distribute evenly
-      normalizedWeights[group] = weights.map(() => Math.round(100 / weights.length));
-    } else if (sum === 100) {
-      normalizedWeights[group] = weights;
-    } else {
-      // Scale proportionally, round, then fix rounding error on last element
-      const scaled = weights.map((w) => Math.round((w / sum) * 100));
-      const diff = 100 - scaled.reduce((a, b) => a + b, 0);
-      if (scaled.length > 0) scaled[scaled.length - 1] += diff;
-      normalizedWeights[group] = scaled;
-    }
-  }
-
-  return dimensions.map((dim, idx) => {
-    const group = groupIndex[idx].group;
-    const weightArr = normalizedWeights[group];
-    const weightIdx = groupIndex.filter((g) => g.group === group).findIndex((g) => g.idx === idx);
-    return { ...dim, weight: weightArr?.[weightIdx] ?? dim.weight };
-  });
 }
 
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {
@@ -1274,7 +1315,12 @@ export async function generateCourseContent(
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    { jsonMode: true, abortSignal: opts?.signal },
+    {
+      jsonMode: true,
+      abortSignal: opts?.signal,
+      requestClass: requestClassForCourseContentAction(action),
+      maxTransientRetries: 1,
+    },
   );
 
   const json = extractJson(text);

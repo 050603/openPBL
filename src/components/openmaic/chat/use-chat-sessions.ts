@@ -16,6 +16,8 @@ import { useStageStore } from '@openmaic/lib/store';
 import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { useSettingsStore } from '@openmaic/lib/store/settings';
 import { useUserProfileStore } from '@openmaic/lib/store/user-profile';
+import { useTeachingToolsStore } from '@openmaic/lib/store/teaching-tools';
+import { useWidgetIframeStore } from '@openmaic/lib/store/widget-iframe';
 import { useAgentRegistry } from '@openmaic/lib/orchestration/registry/store';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { getCurrentModelConfig } from '@openmaic/lib/utils/model-config';
@@ -29,6 +31,14 @@ import { toast } from 'sonner';
 import { createLogger } from '@openmaic/lib/logger';
 
 const log = createLogger('ChatSessions');
+
+function buildTeachingToolState(): NonNullable<AgentLoopStoreState['teachingTools']> {
+  const state = useTeachingToolsStore.getState();
+  return {
+    lastCheckResponse: state.lastCheckResponse,
+    evidenceBoard: state.evidenceBoard,
+  };
+}
 
 /**
  * Hydrate post-submit quiz state for the active scene from localStorage so the
@@ -374,7 +384,16 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
 
             // Execute the action via ActionEngine (fire-and-forget for visual effects)
             try {
-              const actionEngine = new ActionEngine(useStageStore);
+              const sceneId = useStageStore.getState().currentSceneId;
+              const actionEngine = new ActionEngine(
+                useStageStore,
+                null,
+                (type, payload) => {
+                  if (!sceneId) return;
+                  useWidgetIframeStore.getState().getSendMessage(sceneId)?.(type, payload);
+                },
+                false,
+              );
               const action = {
                 id: data.actionId,
                 type: data.actionName,
@@ -529,6 +548,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
               currentSceneId: freshState.currentSceneId,
               mode: freshState.mode,
               whiteboardOpen: useCanvasStore.getState().whiteboardOpen,
+              teachingTools: buildTeachingToolState(),
               quizResults: buildQuizResultsForStoreState(
                 freshState.scenes,
                 freshState.currentSceneId,
@@ -935,6 +955,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
               currentSceneId: currentState.currentSceneId,
               mode: currentState.mode,
               whiteboardOpen: useCanvasStore.getState().whiteboardOpen,
+              teachingTools: buildTeachingToolState(),
               quizResults: buildQuizResultsForStoreState(
                 currentState.scenes,
                 currentState.currentSceneId,
@@ -1149,6 +1170,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
               currentSceneId: currentState.currentSceneId,
               mode: currentState.mode,
               whiteboardOpen: useCanvasStore.getState().whiteboardOpen,
+              teachingTools: buildTeachingToolState(),
               quizResults: buildQuizResultsForStoreState(
                 currentState.scenes,
                 currentState.currentSceneId,
@@ -1202,6 +1224,28 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
       t,
     ],
   );
+
+  useEffect(() => {
+    const handleUnderstandingCheck = (event: Event) => {
+      const detail = (event as CustomEvent<{ question?: unknown; answer?: unknown }>).detail;
+      if (!detail || typeof detail.question !== 'string') return;
+      const answer = Array.isArray(detail.answer)
+        ? detail.answer.map(String).join(', ')
+        : String(detail.answer ?? '');
+      void sendMessage(
+        t('teachingTools.responseMessage', {
+          question: detail.question,
+          answer,
+        }),
+      );
+    };
+    window.addEventListener('openmaic:understanding-check-submitted', handleUnderstandingCheck);
+    return () =>
+      window.removeEventListener(
+        'openmaic:understanding-check-submitted',
+        handleUnderstandingCheck,
+      );
+  }, [sendMessage, t]);
 
   /**
    * Start a discussion with agent speaking first
@@ -1291,6 +1335,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
               currentSceneId: currentState.currentSceneId,
               mode: currentState.mode,
               whiteboardOpen: useCanvasStore.getState().whiteboardOpen,
+              teachingTools: buildTeachingToolState(),
               quizResults: buildQuizResultsForStoreState(
                 currentState.scenes,
                 currentState.currentSceneId,

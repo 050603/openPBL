@@ -64,7 +64,15 @@ export async function requestCourseCoverImage(
   course: CourseCoverContext,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const response = await fetch("/api/openmaic/generate/image", {
+  return requestCourseCoverImageAtEndpoint(course, "/api/openmaic/generate/image", signal);
+}
+
+export async function requestCourseCoverImageAtEndpoint(
+  course: CourseCoverContext,
+  endpoint: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

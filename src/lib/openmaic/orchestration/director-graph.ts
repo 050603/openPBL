@@ -32,7 +32,7 @@ import type { StatelessChatRequest } from '@openmaic/lib/types/chat';
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
 import type { AgentConfig } from '@openmaic/lib/orchestration/registry/types';
 import { useAgentRegistry } from '@openmaic/lib/orchestration/registry/store';
-import { buildStructuredPrompt } from './prompt-builder';
+import { buildNativeToolPrompt, buildStructuredPrompt } from './prompt-builder';
 import { summarizeConversation } from './summarizers/conversation-summary';
 import { convertMessagesToOpenAI } from './summarizers/message-converter';
 import { buildDirectorPrompt, parseDirectorDecision } from './director-prompt';
@@ -40,6 +40,7 @@ import { getEffectiveActions } from './tool-schemas';
 import type { AgentTurnSummary, WhiteboardActionRecord } from './types';
 import { parseStructuredChunk, createParserState, finalizeParser } from './stateless-generate';
 import { createLogger } from '@openmaic/lib/logger';
+import { createNativeTeachingTools } from './native-teaching-tools';
 
 const log = createLogger('DirectorGraph');
 
@@ -276,144 +277,170 @@ async function runAgentGeneration(
   const effectiveActions = getEffectiveActions(agentConfig.allowedActions, sceneType);
 
   const discussionContext = state.discussionContext || undefined;
-  const systemPrompt = buildStructuredPrompt(
-    agentConfig,
-    state.storeState,
-    discussionContext,
-    state.whiteboardLedger,
-    state.userProfile || undefined,
-    state.agentResponses,
-  );
   const openaiMessages = convertMessagesToOpenAI(state.messages, agentId);
   const adapter = new AISdkLangGraphAdapter(state.languageModel, state.thinkingConfig ?? undefined);
 
-  const lcMessages = [
-    new SystemMessage(systemPrompt),
-    ...openaiMessages.map((m) =>
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content),
-    ),
-  ];
+  const createMessages = (systemPrompt: string) => {
+    const messages = [
+      new SystemMessage(systemPrompt),
+      ...openaiMessages.map((message) =>
+        message.role === 'user'
+          ? new HumanMessage(message.content)
+          : new AIMessage(message.content),
+      ),
+    ];
+    const lastMessage = messages[messages.length - 1];
+    if (!messages.some((message) => message instanceof HumanMessage)) {
+      messages.push(new HumanMessage('Please begin.'));
+    } else if (lastMessage instanceof AIMessage) {
+      messages.push(
+        new HumanMessage("It's your turn to speak. Respond from your perspective."),
+      );
+    }
+    return messages;
+  };
 
-  // Ensure the message list ends with a HumanMessage.
-  // After agent-aware role mapping, other agents' messages become user role,
-  // so trailing AIMessage is less likely. But guard against edge cases
-  // (e.g. agent's own previous response is last in history).
-  const lastMsg = lcMessages[lcMessages.length - 1];
-  if (!lcMessages.some((m) => m instanceof HumanMessage)) {
-    lcMessages.push(new HumanMessage('Please begin.'));
-  } else if (lastMsg instanceof AIMessage) {
-    lcMessages.push(new HumanMessage("It's your turn to speak. Respond from your perspective."));
-  }
-
-  const parserState = createParserState();
   let fullText = '';
   let actionCount = 0;
   const whiteboardActions: WhiteboardActionRecord[] = [];
 
-  try {
-    for await (const chunk of adapter.streamGenerate(lcMessages, {
+  const emitText = (content: string) => {
+    const text = content.replace(/^>+\s?/gm, '');
+    if (!text) return;
+    fullText += text;
+    write({ type: 'text_delta', data: { content: text, messageId } });
+  };
+
+  const emitAction = (
+    actionId: string,
+    actionName: string,
+    params: Record<string, unknown>,
+  ) => {
+    if (!effectiveActions.includes(actionName)) {
+      log.warn(
+        `[AgentGenerate] Agent ${agentConfig.name} attempted disallowed action: ${actionName}, skipping`,
+      );
+      return;
+    }
+    actionCount++;
+    if (actionName.startsWith('wb_')) {
+      whiteboardActions.push({
+        actionName: actionName as WhiteboardActionRecord['actionName'],
+        agentId,
+        agentName: agentConfig.name,
+        params,
+      });
+    }
+    write({
+      type: 'action',
+      data: { actionId, actionName, params, agentId, messageId },
+    });
+  };
+
+  const runStructuredFallback = async () => {
+    const parserState = createParserState();
+    const prompt = buildStructuredPrompt(
+      agentConfig,
+      state.storeState,
+      discussionContext,
+      state.whiteboardLedger,
+      state.userProfile || undefined,
+      state.agentResponses,
+    );
+    for await (const chunk of adapter.streamGenerate(createMessages(prompt), {
       signal: config.signal,
     })) {
-      if (chunk.type === 'delta') {
-        const parseResult = parseStructuredChunk(chunk.content, parserState);
-
-        // Emit events in original interleaved order via the `ordered` array.
-        // The ordered array tracks complete items from Step 5 of the parser;
-        // trailing partial text deltas (Step 6) are in textChunks but not in ordered.
-        let emittedTextCount = 0;
-        if (parseResult.ordered.length > 0 || parseResult.textChunks.length > 0) {
-          log.debug(
-            `[AgentGenerate] Parse: ordered=${parseResult.ordered.length} (${parseResult.ordered.map((e) => e.type).join(',')}), textChunks=${parseResult.textChunks.length}, actions=${parseResult.actions.length}, done=${parseResult.isDone}`,
-          );
-        }
-        for (const entry of parseResult.ordered) {
-          if (entry.type === 'text') {
-            const rawText = parseResult.textChunks[entry.index];
-            if (!rawText) {
-              log.warn(
-                `[AgentGenerate] Ordered text entry index=${entry.index} but textChunks[${entry.index}] is empty`,
-              );
-              continue;
-            }
-            const text = rawText.replace(/^>+\s?/gm, '');
-            if (!text) continue;
-            fullText += text;
-            write({
-              type: 'text_delta',
-              data: { content: text, messageId },
-            });
-            emittedTextCount++;
-          } else if (entry.type === 'action') {
-            const ac = parseResult.actions[entry.index];
-            if (!ac) continue;
-            if (!effectiveActions.includes(ac.actionName)) {
-              log.warn(
-                `[AgentGenerate] Agent ${agentConfig.name} attempted disallowed action: ${ac.actionName}, skipping`,
-              );
-              continue;
-            }
-            actionCount++;
-            // Record whiteboard actions to the ledger
-            if (ac.actionName.startsWith('wb_')) {
-              whiteboardActions.push({
-                actionName: ac.actionName as WhiteboardActionRecord['actionName'],
-                agentId,
-                agentName: agentConfig.name,
-                params: ac.params,
-              });
-            }
-            write({
-              type: 'action',
-              data: {
-                actionId: ac.actionId,
-                actionName: ac.actionName,
-                params: ac.params,
-                agentId,
-                messageId,
-              },
-            });
-          }
-        }
-
-        // Emit trailing partial text deltas not covered by ordered
-        for (let i = emittedTextCount; i < parseResult.textChunks.length; i++) {
-          const rawText = parseResult.textChunks[i];
-          if (!rawText) continue;
-          const text = rawText.replace(/^>+\s?/gm, '');
-          if (!text) continue;
-          fullText += text;
-          write({
-            type: 'text_delta',
-            data: { content: text, messageId },
-          });
+      if (chunk.type !== 'delta') continue;
+      const parseResult = parseStructuredChunk(chunk.content, parserState);
+      let emittedTextCount = 0;
+      for (const entry of parseResult.ordered) {
+        if (entry.type === 'text') {
+          const text = parseResult.textChunks[entry.index];
+          if (text) emitText(text);
+          emittedTextCount++;
+        } else {
+          const action = parseResult.actions[entry.index];
+          if (action) emitAction(action.actionId, action.actionName, action.params);
         }
       }
+      for (let index = emittedTextCount; index < parseResult.textChunks.length; index++) {
+        const text = parseResult.textChunks[index];
+        if (text) emitText(text);
+      }
     }
-
-    // Finalize: emit any remaining content if the model didn't produce valid JSON
     const finalResult = finalizeParser(parserState);
     for (const entry of finalResult.ordered) {
-      if (entry.type === 'text') {
-        const rawText = finalResult.textChunks[entry.index];
-        if (!rawText) continue;
-        const text = rawText.replace(/^>+\s?/gm, '');
-        if (!text) continue;
-        fullText += text;
-        write({
-          type: 'text_delta',
-          data: { content: text, messageId },
-        });
+      if (entry.type !== 'text') continue;
+      const text = finalResult.textChunks[entry.index];
+      if (text) emitText(text);
+    }
+  };
+
+  const useNativeTools = process.env.OPENMAIC_NATIVE_CLASSROOM_TOOLS !== 'false';
+  try {
+    if (!useNativeTools) {
+      await runStructuredFallback();
+    } else {
+      const nativePrompt = buildNativeToolPrompt(
+        agentConfig,
+        state.storeState,
+        discussionContext,
+        state.whiteboardLedger,
+        state.userProfile || undefined,
+        state.agentResponses,
+      );
+      const tools = createNativeTeachingTools(effectiveActions);
+      for await (const chunk of adapter.streamGenerate(createMessages(nativePrompt), {
+        tools,
+        signal: config.signal,
+      })) {
+        if (chunk.type === 'delta') {
+          emitText(chunk.content);
+        } else if (chunk.type === 'tool_calls') {
+          for (const toolCall of chunk.toolCalls) {
+            let params: Record<string, unknown> = {};
+            try {
+              const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+              if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                params = parsed as Record<string, unknown>;
+              }
+            } catch (error) {
+              log.warn(`[AgentGenerate] Invalid tool arguments for ${toolCall.function.name}:`, error);
+              continue;
+            }
+            emitAction(toolCall.id, toolCall.function.name, params);
+          }
+        }
       }
     }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw error;
     }
-    log.error(`[AgentGenerate] Error for ${agentConfig.name}:`, error);
-    write({
-      type: 'error',
-      data: { message: error instanceof Error ? error.message : String(error) },
-    });
+    if (useNativeTools && fullText.length === 0 && actionCount === 0) {
+      log.warn(
+        `[AgentGenerate] Native tools unavailable for ${agentConfig.name}; retrying with structured Action DSL`,
+        error,
+      );
+      try {
+        await runStructuredFallback();
+      } catch (fallbackError) {
+        log.error(`[AgentGenerate] Structured fallback failed for ${agentConfig.name}:`, fallbackError);
+        write({
+          type: 'error',
+          data: {
+            message:
+              fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          },
+        });
+      }
+    } else {
+      log.error(`[AgentGenerate] Error for ${agentConfig.name}:`, error);
+      write({
+        type: 'error',
+        data: { message: error instanceof Error ? error.message : String(error) },
+      });
+    }
   }
 
   write({

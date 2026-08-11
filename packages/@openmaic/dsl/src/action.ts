@@ -220,6 +220,41 @@ export interface WidgetRevealAction extends ActionBase {
   content?: string;
 }
 
+// ==================== Classroom Teaching Tool Actions ====================
+
+export interface UnderstandingCheckOption {
+  id: string;
+  label: string;
+}
+
+/** Open an in-context formative assessment card. */
+export interface CheckUnderstandingAction extends ActionBase {
+  type: 'check_understanding';
+  question: string;
+  responseType: 'single_choice' | 'multiple_choice' | 'short_answer' | 'prediction';
+  options?: UnderstandingCheckOption[];
+  hint?: string;
+  expectedEvidence?: string;
+}
+
+export interface EvidenceBoardItem {
+  id: string;
+  claim: string;
+  evidence: string;
+  reasoning?: string;
+  source?: string;
+  sourceStatus: 'verified' | 'student_provided' | 'needs_verification';
+  stance?: 'supports' | 'challenges' | 'neutral';
+}
+
+/** Update the durable claim-evidence-reasoning board used in PBL teaching. */
+export interface EvidenceBoardUpdateAction extends ActionBase {
+  type: 'evidence_board_update';
+  operation: 'replace' | 'append' | 'clear';
+  title?: string;
+  items: EvidenceBoardItem[];
+}
+
 // ==================== Union type ====================
 
 export type Action =
@@ -243,7 +278,9 @@ export type Action =
   | WidgetHighlightAction
   | WidgetSetStateAction
   | WidgetAnnotationAction
-  | WidgetRevealAction;
+  | WidgetRevealAction
+  | CheckUnderstandingAction
+  | EvidenceBoardUpdateAction;
 
 export type ActionType = Action['type'];
 
@@ -274,6 +311,8 @@ export const SYNC_ACTIONS: ActionType[] = [
   'widget_setState',
   'widget_annotation',
   'widget_reveal',
+  'check_understanding',
+  'evidence_board_update',
 ];
 
 /** Frozen set of every valid {@link ActionType}, for cheap membership checks. */
@@ -299,6 +338,8 @@ export const ACTION_TYPES = [
   'widget_setState',
   'widget_annotation',
   'widget_reveal',
+  'check_understanding',
+  'evidence_board_update',
 ] as const satisfies readonly ActionType[];
 
 // Compile-time exhaustiveness: every ActionType must appear in ACTION_TYPES.

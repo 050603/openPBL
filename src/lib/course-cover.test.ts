@@ -3,6 +3,7 @@ import {
   COURSE_COVER_GENERATION_SPEC,
   buildCourseCoverPrompt,
   requestCourseCoverImage,
+  requestCourseCoverImageAtEndpoint,
 } from "@/lib/course-cover";
 
 const course = {
@@ -71,5 +72,24 @@ describe("course cover generation", () => {
     expect(body).toMatchObject(COURSE_COVER_GENERATION_SPEC);
     expect(body.prompt).toContain(course.name);
     expect(body.negativePrompt).toContain("text");
+  });
+
+  it("supports an absolute endpoint for background quick generation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ result: { url: "https://cdn.example.test/quick-cover.webp" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestCourseCoverImageAtEndpoint(
+      course,
+      "https://openpbl.example.test/api/openmaic/generate/image",
+    )).resolves.toBe("https://cdn.example.test/quick-cover.webp");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://openpbl.example.test/api/openmaic/generate/image",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });

@@ -2,8 +2,9 @@
 
 ## React Bits — Stack motion pattern
 
-The course-generation card-stack animation in
-`src/components/teacher/course-build-animation.tsx` is adapted from the
+The course-generation card-stack animations in
+`src/components/teacher/course-build-animation.tsx` and
+`src/components/teacher/stage-generation-card-stack.tsx` are adapted from the
 React Bits `Stack` component.
 
 Copyright (c) 2026 David Haz
@@ -15,4 +16,3 @@ Permission is granted to use, copy, modify, merge, publish, and distribute the
 software as part of an application, website, or product. The components may
 not be sold, sublicensed, or redistributed by themselves, in a bundle, or as a
 ported component library. The software is provided without warranty.
-

@@ -26,8 +26,11 @@ const JoinSchema = z.object({
 export async function POST(req: Request) {
   const csrfError = requireSameOrigin(req);
   if (csrfError) return csrfError;
-  if (!isAuthConfigured() || !isDatabaseConfigured()) {
-    return apiError(req, "AUTH_UNAVAILABLE", "Authentication service is unavailable.", 503);
+  if (!isAuthConfigured()) {
+    return apiError(req, "AUTH_NOT_CONFIGURED", "未配置 JWT_SECRET，学生鉴权不可用。", 503);
+  }
+  if (!isDatabaseConfigured()) {
+    return apiError(req, "DB_NOT_CONFIGURED", "数据库未配置，无法加入课堂。", 503);
   }
   const joinLimit = await checkDistributedRateLimit({
     namespace: "join",

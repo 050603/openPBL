@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   CircleGauge,
   FileQuestion,
   GripVertical,
   Layers3,
-  Loader2,
   MousePointer2,
   PlaySquare,
+  RotateCw,
   Sparkles,
 } from "lucide-react";
 import type {
@@ -20,9 +20,18 @@ import type {
 } from "@/lib/session/types";
 import {
   adaptiveResourceAddsNovelContent,
+  buildAdaptiveResourceRequirement,
   deriveAdaptiveCheckpointSceneIds,
+  evaluateAdaptiveLearningPlanQuality,
+  hasCompleteAdaptivePrerequisiteLoop,
 } from "@/lib/adaptive-learning";
+import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
+import { adaptiveBranchGenerationSignature } from "@/lib/teacher/adaptive-resource-generation";
 import { cn } from "@/lib/utils";
+import {
+  CourseGenerationGlyph,
+} from "@/components/course-workshop-animation";
+import { StageGenerationCardStack } from "@/components/teacher/stage-generation-card-stack";
 
 type AdaptiveMainScene = Pick<
   OpenMaicSceneOutlineSnapshot,
@@ -54,20 +63,35 @@ function resourceLabel(branch: AdaptiveBranchOutline): string {
 
 export function AdaptiveLearningPlanEditor({
   courseId,
+  courseName = "当前课程",
   knowledgePoints,
   mainScenes = [],
   plan,
   onChange,
 }: {
   courseId: string;
+  courseName?: string;
   knowledgePoints: KnowledgePoint[];
   mainScenes?: AdaptiveMainScene[];
   plan?: AdaptiveLearningPlan;
   onChange: (plan: AdaptiveLearningPlan) => void;
 }) {
   const [generating, setGenerating] = useState(false);
+  const [generatingBranchIds, setGeneratingBranchIds] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string>();
   const [selectedBranchId, setSelectedBranchId] = useState<string>();
+  const planRef = useRef(plan);
+  useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
+
+  function commitPlan(transform: (current: AdaptiveLearningPlan) => AdaptiveLearningPlan) {
+    const current = planRef.current;
+    if (!current) return;
+    const next = transform(current);
+    planRef.current = next;
+    onChange(next);
+  }
 
   async function generatePlan() {
     setGenerating(true);
@@ -94,13 +118,12 @@ export function AdaptiveLearningPlanEditor({
   }
 
   function patchPlan(patch: Partial<AdaptiveLearningPlan>) {
-    if (!plan) return;
-    onChange({
-      ...plan,
+    commitPlan((current) => ({
+      ...current,
       ...patch,
       status: patch.status ?? "draft",
       updatedAt: new Date().toISOString(),
-    });
+    }));
   }
 
   function patchBranch(id: string, patch: Partial<AdaptiveBranchOutline>) {
@@ -113,10 +136,95 @@ export function AdaptiveLearningPlanEditor({
       branches: plan.branches.map((branch) => branch.id === id ? {
         ...branch,
         ...patch,
-        preparedResource: invalidatesResource ? undefined : branch.preparedResource,
+        preparedResource: invalidatesResource && branch.preparedResource?.classroomId
+          ? { ...branch.preparedResource, status: "stale", error: undefined }
+          : invalidatesResource
+            ? undefined
+            : branch.preparedResource,
         status: "draft",
       } : branch),
     });
+  }
+
+  async function generateBranchResources(branchIds: readonly string[]) {
+    const current = planRef.current;
+    if (!current || !branchIds.length) return;
+    const targets = current.branches.filter((branch) => branchIds.includes(branch.id) && branch.enabled !== false);
+    if (!targets.length) return;
+    setGeneratingBranchIds((ids) => new Set([...ids, ...targets.map((branch) => branch.id)]));
+    setMessage(`正在增量生成 ${targets.length} 份个性化资源；主课程和其他已就绪资源不会重新生成。`);
+    commitPlan((latest) => ({
+      ...latest,
+      updatedAt: new Date().toISOString(),
+      branches: latest.branches.map((branch) => targets.some((target) => target.id === branch.id)
+        ? { ...branch, preparedResource: { ...branch.preparedResource, status: "generating", error: undefined } }
+        : branch),
+    }));
+
+    let cursor = 0;
+    let completed = 0;
+    let failed = 0;
+    async function worker() {
+      while (cursor < targets.length) {
+        const branch = targets[cursor++];
+        const sourceSignature = adaptiveBranchGenerationSignature(branch);
+        try {
+          const generated = await generateAdaptiveClassroom({
+            title: `${courseName} · ${branch.title}`,
+            requirement: buildAdaptiveResourceRequirement(courseName, branch),
+            stageKey: "ai-learning",
+            requestRole: "teacher",
+            scenes: [{
+              title: branch.title,
+              description: branch.objective,
+              keyPoints: branch.keyPoints,
+              type: branch.sceneType,
+              targetDurationSec: branch.targetDurationSec,
+              knowledgePointIds: branch.anchorKnowledgePointIds,
+            }],
+          });
+          commitPlan((latest) => ({
+            ...latest,
+            updatedAt: new Date().toISOString(),
+            branches: latest.branches.map((candidate) => {
+              if (candidate.id !== branch.id) return candidate;
+              const stillCurrent = adaptiveBranchGenerationSignature(candidate) === sourceSignature;
+              return {
+                ...candidate,
+                preparedResource: {
+                  status: stillCurrent ? "ready" : "stale",
+                  classroomId: generated.classroomId,
+                  scenesCount: generated.scenesCount,
+                  generatedAt: new Date().toISOString(),
+                  sourceSignature,
+                },
+              };
+            }),
+          }));
+          completed += 1;
+        } catch (cause) {
+          failed += 1;
+          const error = cause instanceof Error ? cause.message : "资源生成失败";
+          commitPlan((latest) => ({
+            ...latest,
+            updatedAt: new Date().toISOString(),
+            branches: latest.branches.map((candidate) => candidate.id === branch.id
+              ? { ...candidate, preparedResource: { ...candidate.preparedResource, status: "failed", generatedAt: new Date().toISOString(), error } }
+              : candidate),
+          }));
+        } finally {
+          setGeneratingBranchIds((ids) => {
+            const next = new Set(ids);
+            next.delete(branch.id);
+            return next;
+          });
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(2, targets.length) }, () => worker()));
+    setMessage(failed
+      ? `增量生成完成：${completed} 份成功，${failed} 份失败；失败资源可单独重试。`
+      : `已仅重新生成 ${completed} 份个性化资源，主课程与其他资源保持不变。`);
   }
 
   function autoAssignBranches() {
@@ -135,6 +243,10 @@ export function AdaptiveLearningPlanEditor({
   const studentScenes = mainScenes.filter(isStudentMainScene).sort(
     (left, right) => (left.order ?? 0) - (right.order ?? 0),
   );
+  const displayKnowledgePoints = [
+    ...knowledgePoints,
+    ...(plan?.prerequisiteKnowledgePoints ?? []),
+  ].filter((point, index, points) => points.findIndex((candidate) => candidate.id === point.id) === index);
   const quizIds = new Set(deriveAdaptiveCheckpointSceneIds(studentScenes));
   const pretestKnowledgePointIds = new Set(
     plan?.pretest.questions.flatMap((question) => question.knowledgePointIds) ?? [],
@@ -146,22 +258,16 @@ export function AdaptiveLearningPlanEditor({
         : [],
     ) ?? [],
   );
-  const coveredModuleQuizIds = new Set(
-    plan?.branches.flatMap((branch) =>
-      (branch.trigger?.placement ?? (resourceKind(branch) === "prerequisite" ? "before-main-course" : "after-module")) === "after-module"
-        ? branch.trigger?.assessmentSceneIds ?? []
-        : [],
-    ) ?? [],
-  );
   const missingPrerequisiteCoverage = [...pretestKnowledgePointIds].filter(
     (id) => !coveredPrerequisiteIds.has(id),
   );
-  const missingModuleCoverage = [...quizIds].filter(
-    (id) => !coveredModuleQuizIds.has(id),
-  );
-  const coverageComplete =
-    missingPrerequisiteCoverage.length === 0
-    && missingModuleCoverage.length === 0;
+  const coverageComplete = missingPrerequisiteCoverage.length === 0;
+  const prerequisiteLoopComplete = plan
+    ? hasCompleteAdaptivePrerequisiteLoop(plan, knowledgePoints.length)
+    : false;
+  const planQuality = plan
+    ? evaluateAdaptiveLearningPlanQuality(plan, { knowledgePoints, mainScenes: studentScenes })
+    : undefined;
   const invalidResources = plan?.branches.filter((branch) =>
     !adaptiveResourceAddsNovelContent(branch)
     || ((branch.trigger?.placement ?? (resourceKind(branch) === "prerequisite" ? "before-main-course" : "after-module")) === "after-module"
@@ -170,11 +276,10 @@ export function AdaptiveLearningPlanEditor({
   const issueCount =
     invalidResources.length
     + missingPrerequisiteCoverage.length
-    + missingModuleCoverage.length;
-  const totalResourceMinutes = Math.ceil(
-    (plan?.branches.reduce((total, branch) => total + branch.targetDurationSec, 0) ?? 0) / 60,
-  );
-
+    + (planQuality?.issues.length ?? 0);
+  const resourceGenerationTargets = plan?.branches.filter((branch) =>
+    branch.enabled !== false && branch.preparedResource?.status !== "ready",
+  ) ?? [];
   return (
     <section className="overflow-clip rounded-[8px] border border-stone-200 bg-white shadow-[var(--shadow-card)]">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-200 px-5 py-4">
@@ -182,11 +287,17 @@ export function AdaptiveLearningPlanEditor({
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--pbl-teacher)]">课程设计</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <h3 className="font-editorial text-xl font-semibold text-stone-950">个性化学习路径</h3>
-              {plan?.status === "teacher-confirmed" && !invalidResources.length && coverageComplete ? (
+              {plan?.status === "teacher-confirmed" && !invalidResources.length && coverageComplete && planQuality?.passed ? (
                 <Status tone="ready">已随课程确认</Status>
+              ) : !prerequisiteLoopComplete ? (
+                <Status tone="warning">前序知识闭环待完善</Status>
+              ) : planQuality && !planQuality.passed ? (
+                <Status tone="warning">路径策略有 {planQuality.issues.length} 项待完善</Status>
+              ) : planQuality?.warnings.length ? (
+                <Status tone="warning">已达标 · {planQuality.warnings.length} 项优化建议</Status>
               ) : !coverageComplete ? (
                 <Status tone="warning">
-                  缺 {missingPrerequisiteCoverage.length} 个先决知识资源 / {missingModuleCoverage.length} 个模块资源
+                  缺 {missingPrerequisiteCoverage.length} 个先决知识资源
                 </Status>
               ) : invalidResources.length ? (
                 <Status tone="warning">{invalidResources.length} 份资源待完善</Status>
@@ -197,16 +308,84 @@ export function AdaptiveLearningPlanEditor({
               )}
             </div>
         </div>
-        <button
-          className="inline-flex h-9 items-center gap-2 rounded-[6px] bg-[var(--pbl-teacher)] px-3.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
-          disabled={generating || knowledgePoints.length === 0}
-          onClick={() => void generatePlan()}
-          type="button"
-        >
-          {generating ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
-          {plan ? "按当前主课重新建模" : "生成个性化路径方案"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {plan && resourceGenerationTargets.length > 0 ? (
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-[var(--pbl-teacher-border)] bg-white px-3.5 text-xs font-bold text-[var(--pbl-teacher)] transition hover:bg-[var(--pbl-teacher-soft)] disabled:opacity-50"
+              disabled={generating || generatingBranchIds.size > 0}
+              onClick={() => void generateBranchResources(resourceGenerationTargets.map((branch) => branch.id))}
+              type="button"
+            >
+              {generatingBranchIds.size > 0 ? <CourseGenerationGlyph /> : <RotateCw size={14} />}
+              仅生成已修改资源（{resourceGenerationTargets.length}）
+            </button>
+          ) : null}
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-[6px] bg-[var(--pbl-teacher)] px-3.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
+            disabled={generating || generatingBranchIds.size > 0 || knowledgePoints.length === 0}
+            onClick={() => void generatePlan()}
+            type="button"
+          >
+            {generating ? <CourseGenerationGlyph /> : <Sparkles size={14} />}
+            {plan ? "按当前主课重新建模" : "生成个性化路径方案"}
+          </button>
+        </div>
       </div>
+
+      {generating ? (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-stone-950/40 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="正在生成个性化学习路径">
+          <div className="w-[760px] max-w-[94vw] overflow-hidden rounded-[22px] border border-white/30 bg-white shadow-[0_30px_90px_rgba(15,23,42,.28)]">
+            <div className="h-1 bg-gradient-to-r from-transparent via-blue-700 to-transparent" />
+            <div className="grid gap-5 p-5 md:grid-cols-[1.14fr_.86fr] md:p-6">
+              <StageGenerationCardStack
+                cards={[
+                  {
+                    id: "adaptive-main-scenes",
+                    eyebrow: "本次主课",
+                    title: `${studentScenes.length} 个学生页面`,
+                    detail: "识别主课已经覆盖的知识与活动，避免重复生成。",
+                    items: studentScenes.slice(0, 3).map((scene) => scene.title),
+                    accent: "orange",
+                  },
+                  {
+                    id: "adaptive-knowledge",
+                    eyebrow: "真实知识点",
+                    title: `${knowledgePoints.length} 个知识点`,
+                    detail: "仅围绕本课程的知识图谱安排先修与拓展路径。",
+                    items: knowledgePoints.slice(0, 3).map((point) => point.name),
+                    accent: "blue",
+                  },
+                  {
+                    id: "adaptive-assessment",
+                    eyebrow: "判断依据",
+                    title: `${quizIds.size} 个模块测验`,
+                    detail: "根据前测与模块掌握度决定是否插入额外资源。",
+                    items: ["前测差距", "模块掌握度", "剩余学习时间"],
+                    accent: "violet",
+                  },
+                  {
+                    id: "adaptive-review",
+                    eyebrow: "输出要求",
+                    title: "可审核的个性化路径",
+                    detail: "生成结果会保留插入位置、触发条件与新增价值说明。",
+                    items: ["不重复主课", "位置明确", "教师可修改"],
+                    accent: "green",
+                  },
+                ]}
+                kind="adaptiveLearning"
+              />
+              <div className="flex flex-col justify-center">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-blue-700"><CourseGenerationGlyph />个性化路径生成中</p>
+                <h3 className="mt-3 font-editorial text-2xl font-semibold text-stone-950">正在分析主课与学习分叉</h3>
+                <p className="mt-2 text-sm leading-6 text-stone-500">系统会检查先决知识、模块测验和内容重叠，再安排可由教师审核的学习路径。</p>
+                <div className="mt-5 rounded-[10px] border border-stone-200 bg-stone-50 px-4 py-3 text-xs leading-5 text-stone-600">
+                  当前使用 {knowledgePoints.length} 个真实知识点和 {studentScenes.length} 个主课页面作为生成依据。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!plan ? (
         <div className="grid min-h-44 place-items-center bg-stone-50/50 px-6 py-8 text-center">
@@ -222,8 +401,8 @@ export function AdaptiveLearningPlanEditor({
         <div className="bg-white">
           <div className="grid border-b border-stone-200 sm:grid-cols-2 xl:grid-cols-4">
             <OverviewMetric label="主课结构" value={`${studentScenes.length} 页`} detail={`${quizIds.size} 个模块测验`} />
-            <OverviewMetric label="课前诊断" value={`${plan.pretest.questions.length} 题`} detail={`覆盖 ${pretestKnowledgePointIds.size} 个先决知识`} />
-            <OverviewMetric label="资源池" value={`${plan.branches.length} 份`} detail={`合计约 ${totalResourceMinutes} 分钟`} />
+            <OverviewMetric label="课前诊断" value={`${plan.pretest.questions.length} 题 · ${plan.pretest.estimatedMinutes} 分钟`} detail={`覆盖 ${pretestKnowledgePointIds.size} 个先决知识`} tone={prerequisiteLoopComplete ? "ready" : "warning"} />
+            <OverviewMetric label="备课资源库" value={`${plan.branches.length} 份`} detail={`拓展候选建议 ${planQuality?.recommendedMin ?? 0}-${planQuality?.recommendedMax ?? 2} 份 · 单生最多 ${planQuality?.runtimeMaxPerStudent ?? 1} 份`} />
             <OverviewMetric
               label="审核结果"
               value={issueCount ? `${issueCount} 项待处理` : "可以生成"}
@@ -231,6 +410,34 @@ export function AdaptiveLearningPlanEditor({
               tone={issueCount ? "warning" : "ready"}
             />
           </div>
+
+          <section className="border-b border-stone-200 bg-violet-50/35 px-5 py-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-violet-700">课程库建设 · 拓展机会评估</p>
+                <p className="mt-1 text-xs leading-5 text-stone-600">{plan.enrichmentStrategy?.summary || "系统会建设丰富候选库，真实课堂再按学生证据只插入少量最匹配资源。"}</p>
+              </div>
+              <Status tone={planQuality?.passed ? "ready" : "warning"}>
+                候选 {plan.branches.filter((branch) => branch.kind !== "prerequisite" && branch.enabled !== false).length} / 建议 {planQuality?.recommendedMin ?? 0}-{planQuality?.recommendedMax ?? 2} · 单生≤{planQuality?.runtimeMaxPerStudent ?? 1}
+              </Status>
+            </div>
+            {(planQuality?.warnings.length ?? 0) > 0 ? (
+              <p className="mt-2 text-[10px] leading-4 text-amber-700">优化建议：{planQuality!.warnings.join("；")}</p>
+            ) : null}
+            {(plan.enrichmentStrategy?.decisions.length ?? 0) > 0 ? (
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {plan.enrichmentStrategy!.decisions.slice(0, 4).map((decision) => (
+                  <div className="rounded-[7px] border border-violet-100 bg-white px-3 py-2" key={decision.id}>
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="text-[11px] text-stone-800">{decision.title}</strong>
+                      <span className={cn("text-[9px] font-bold", decision.decision === "selected" ? "text-emerald-700" : "text-stone-400")}>{decision.decision === "selected" ? "保留" : "不采用"}</span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-stone-500">{decision.rationale}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
 
           <section className="border-b border-stone-200 bg-stone-50/55">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
@@ -270,10 +477,12 @@ export function AdaptiveLearningPlanEditor({
 
           <CourseFlowModel
             branches={plan.branches}
-            knowledgePoints={knowledgePoints}
+            courseId={courseId}
+            knowledgePoints={displayKnowledgePoints}
             mainScenes={studentScenes}
             onAutoAssign={autoAssignBranches}
             onChangeBranch={patchBranch}
+            onGenerateBranch={(branchId) => void generateBranchResources([branchId])}
             onChangePretestQuestion={(questionId, prompt) => patchPlan({
               pretest: {
                 ...plan.pretest,
@@ -285,6 +494,7 @@ export function AdaptiveLearningPlanEditor({
             onSelectBranch={(branch) => setSelectedBranchId((current) => current === branch.id ? undefined : branch.id)}
             pretest={plan.pretest}
             selectedBranchId={selectedBranchId}
+            generatingBranchIds={generatingBranchIds}
             threshold={plan.thresholds.enrichmentMasteryMin ?? 80}
           />
 
@@ -327,21 +537,28 @@ function OverviewMetric({
 
 function ResourceEditor({
   branch,
+  courseId,
+  generating,
   knowledgePoints,
   mainScenes,
   onChange,
+  onGenerate,
   onOpenChange,
   open,
   threshold,
 }: {
   branch: AdaptiveBranchOutline;
+  courseId?: string;
+  generating?: boolean;
   knowledgePoints: KnowledgePoint[];
   mainScenes: AdaptiveMainScene[];
   onChange: (patch: Partial<AdaptiveBranchOutline>) => void;
+  onGenerate?: () => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   threshold: number;
 }) {
+  const [showDesignPreview, setShowDesignPreview] = useState(false);
   const effectiveKind = resourceKind(branch);
   const prerequisite = effectiveKind === "prerequisite";
   const trigger = branch.trigger ?? {
@@ -377,8 +594,16 @@ function ResourceEditor({
           <span className="mt-1 block text-[10px] text-stone-400">约 {Math.ceil(branch.targetDurationSec / 60)} 分钟 · 同播放器无感插入</span>
         </span>
         <span className="flex items-center justify-end gap-2">
-          <Status tone={branch.preparedResource?.status === "ready" ? "ready" : "draft"}>
-            {branch.preparedResource?.status === "ready" ? `${branch.preparedResource.scenesCount ?? 1} 页成品` : "待生成"}
+          <Status tone={branch.preparedResource?.status === "ready" ? "ready" : branch.preparedResource?.status === "failed" ? "warning" : "draft"}>
+            {branch.preparedResource?.status === "ready"
+              ? `${branch.preparedResource.scenesCount ?? 1} 页成品`
+              : branch.preparedResource?.status === "stale"
+                ? "内容已修改"
+                : branch.preparedResource?.status === "generating"
+                  ? "生成中"
+                  : branch.preparedResource?.status === "failed"
+                    ? "生成失败"
+                    : "待生成"}
           </Status>
           {!noveltyValid ? <Status tone="warning">需处理</Status> : null}
           <ChevronDown className="text-stone-400 transition group-open:rotate-180" size={17} />
@@ -475,14 +700,43 @@ function ResourceEditor({
               ? branch.mainCourseOverlapSceneIds.map((id) => mainScenes.find((scene) => scene.id === id)?.title ?? id).join("、")
               : "未标记潜在重叠页；生成时仍会使用完整主课大纲进行去重。"}
           </div>
-          {branch.preparedResource?.status === "ready" && branch.preparedResource.classroomId ? (
-            <a
-              className="inline-flex h-9 items-center gap-2 rounded-[6px] bg-stone-900 px-3 text-xs font-bold text-white"
-              href={`/teacher/openmaic/classroom/${branch.preparedResource.classroomId}`}
-              target="_blank"
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-stone-300 bg-white px-3 text-xs font-bold text-stone-700 hover:bg-stone-100"
+              onClick={() => setShowDesignPreview((value) => !value)}
+              type="button"
             >
-              <PlaySquare size={14} /> 预览已生成资源
-            </a>
+              <PlaySquare size={14} /> {showDesignPreview ? "收起设计预览" : "预览设计内容"}
+            </button>
+            {courseId && branch.preparedResource?.classroomId ? (
+              <a
+                className="inline-flex h-9 items-center gap-2 rounded-[6px] bg-stone-900 px-3 text-xs font-bold text-white"
+                href={`/teacher/prepare/${courseId}/preview?adaptiveBranchId=${encodeURIComponent(branch.id)}`}
+                target="_blank"
+              >
+                <PlaySquare size={14} /> {branch.preparedResource.status === "ready" ? "预览成品" : "预览旧版本"}
+              </a>
+            ) : null}
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-[6px] bg-[var(--pbl-teacher)] px-3 text-xs font-bold text-white disabled:opacity-50"
+              disabled={generating}
+              onClick={onGenerate}
+              type="button"
+            >
+              {generating ? <CourseGenerationGlyph /> : <RotateCw size={14} />}
+              {branch.preparedResource?.classroomId ? "重新生成本资源" : "生成本资源"}
+            </button>
+          </div>
+          {showDesignPreview ? (
+            <section className="rounded-[8px] border border-cyan-200 bg-cyan-50/60 p-3" aria-label={`${branch.title}设计内容预览`}>
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-cyan-800">生成前设计预览 · 约 {Math.ceil(branch.targetDurationSec / 60)} 分钟</p>
+              <h5 className="mt-2 text-sm font-black text-stone-900">{branch.title}</h5>
+              <p className="mt-1 text-xs leading-5 text-stone-700">{branch.objective}</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] leading-5 text-stone-600">
+                {branch.keyPoints.map((point) => <li key={point}>{point}</li>)}
+              </ul>
+              {branch.generationGuidance ? <p className="mt-2 border-t border-cyan-100 pt-2 text-[10px] leading-4 text-stone-500">生成指导：{branch.generationGuidance}</p> : null}
+            </section>
           ) : null}
         </div>
       </div>
@@ -492,22 +746,28 @@ function ResourceEditor({
 
 function CourseFlowModel({
   branches,
+  courseId,
+  generatingBranchIds,
   knowledgePoints = [],
   mainScenes,
   onAutoAssign,
   onChangeBranch,
   onChangePretestQuestion,
+  onGenerateBranch,
   onSelectBranch,
   pretest,
   selectedBranchId,
   threshold = 80,
 }: {
   branches: AdaptiveBranchOutline[];
+  courseId?: string;
+  generatingBranchIds?: ReadonlySet<string>;
   knowledgePoints?: KnowledgePoint[];
   mainScenes: AdaptiveMainScene[];
   onAutoAssign?: () => void;
   onChangeBranch?: (id: string, patch: Partial<AdaptiveBranchOutline>) => void;
   onChangePretestQuestion?: (questionId: string, prompt: string) => void;
+  onGenerateBranch?: (id: string) => void;
   onSelectBranch?: (branch: AdaptiveBranchOutline) => void;
   pretest: AdaptiveLearningPlan["pretest"];
   selectedBranchId?: string;
@@ -545,8 +805,7 @@ function CourseFlowModel({
   );
   const pretestIds = new Set(pretest.questions.flatMap((question) => question.knowledgePointIds));
   const coveredPretestIds = new Set(prerequisites.flatMap((branch) => branch.prerequisiteKnowledgePointIds ?? []).filter((id) => pretestIds.has(id)));
-  const moduleCheckpointIds = new Set(modules.flatMap((module) => module.checkpoint ? [module.checkpoint.id] : []));
-  const coveredModuleIds = new Set(modules.flatMap((module) => module.resources.flatMap((branch) => branch.trigger?.assessmentSceneIds ?? [])).filter((id) => moduleCheckpointIds.has(id)));
+  const optionalEnrichmentCount = modules.reduce((total, module) => total + module.resources.length, 0);
   function moveBranchToSlot(branchId: string, slot: CourseInsertionSlot) {
     const branch = branches.find((item) => item.id === branchId);
     if (!branch || !onChangeBranch) return;
@@ -586,19 +845,22 @@ function CourseFlowModel({
         </div>
         <div className="flex gap-2">
           <Status tone={coveredPretestIds.size >= pretestIds.size ? "ready" : "warning"}>先决覆盖 {coveredPretestIds.size}/{pretestIds.size}</Status>
-          <Status tone={coveredModuleIds.size >= moduleCheckpointIds.size ? "ready" : "warning"}>模块覆盖 {coveredModuleIds.size}/{moduleCheckpointIds.size}</Status>
+          <Status tone="ready">可选拓展 {optionalEnrichmentCount} 处</Status>
         </div>
       </div>
       <div className={cn("grid items-start", onChangeBranch && "lg:grid-cols-[minmax(0,3fr)_minmax(320px,2fr)]")}>
       <div className={cn("relative min-w-0 py-2 before:absolute before:bottom-6 before:left-[30px] before:top-7 before:w-px before:bg-stone-200 sm:before:left-[34px]", onChangeBranch && "lg:border-r lg:border-stone-200")}>
         <CourseMapRow
           activeSlotId={activeSlotId}
+          courseId={courseId}
           draggedBranchId={draggedBranchId}
           index={1}
           main={<PretestCourseNode knowledgePoints={knowledgePoints} onChangeQuestion={onChangePretestQuestion} pretest={pretest} />}
           knowledgePoints={knowledgePoints}
+          generatingBranchIds={generatingBranchIds}
           mainScenes={mainScenes}
           onChangeBranch={onChangeBranch}
+          onGenerateBranch={onGenerateBranch}
           onDragEnd={() => { setDraggedBranchId(undefined); setActiveSlotId(undefined); }}
           onDragStart={setDraggedBranchId}
           onDropBranch={moveBranchToSlot}
@@ -618,13 +880,16 @@ function CourseFlowModel({
           return (
             <CourseMapRow
               activeSlotId={activeSlotId}
+              courseId={courseId}
               draggedBranchId={draggedBranchId}
               index={index + 2}
               key={module.checkpoint?.id ?? module.scenes.map((scene) => scene.id).join("-")}
               knowledgePoints={knowledgePoints}
+              generatingBranchIds={generatingBranchIds}
               main={<CourseModuleNode index={index + 1} knowledgePoints={knowledgePoints} module={module} />}
               mainScenes={mainScenes}
               onChangeBranch={onChangeBranch}
+              onGenerateBranch={onGenerateBranch}
               onDragEnd={() => { setDraggedBranchId(undefined); setActiveSlotId(undefined); }}
               onDragStart={setDraggedBranchId}
               onDropBranch={moveBranchToSlot}
@@ -668,12 +933,15 @@ function CourseFlowModel({
 
 function CourseMapRow({
   activeSlotId,
+  courseId,
   draggedBranchId,
+  generatingBranchIds,
   index,
   knowledgePoints,
   main,
   mainScenes,
   onChangeBranch,
+  onGenerateBranch,
   onDragEnd,
   onDragStart,
   onDropBranch,
@@ -685,12 +953,15 @@ function CourseMapRow({
   threshold,
 }: {
   activeSlotId?: string;
+  courseId?: string;
   draggedBranchId?: string;
+  generatingBranchIds?: ReadonlySet<string>;
   index: number;
   knowledgePoints: KnowledgePoint[];
   main: ReactNode;
   mainScenes: AdaptiveMainScene[];
   onChangeBranch?: (id: string, patch: Partial<AdaptiveBranchOutline>) => void;
+  onGenerateBranch?: (id: string) => void;
   onDragEnd: () => void;
   onDragStart: (branchId: string) => void;
   onDropBranch: (branchId: string, slot: CourseInsertionSlot) => void;
@@ -760,9 +1031,12 @@ function CourseMapRow({
           <div className="overflow-hidden border border-stone-200 bg-white">
             <ResourceEditor
               branch={selectedBranch}
+              courseId={courseId}
+              generating={generatingBranchIds?.has(selectedBranch.id)}
               knowledgePoints={knowledgePoints}
               mainScenes={mainScenes}
               onChange={(patch) => onChangeBranch?.(selectedBranch.id, patch)}
+              onGenerate={() => onGenerateBranch?.(selectedBranch.id)}
               onOpenChange={(open) => { if (!open) onSelectBranch?.(selectedBranch); }}
               open
               threshold={threshold}
@@ -901,7 +1175,7 @@ function PretestCourseNode({
           <label className="relative block rounded-[8px] border border-amber-100 bg-white px-3 py-2.5 shadow-[0_3px_0_#f5f5f4]" key={question.id}>
             <span className="absolute -top-1 left-7 h-1.5 w-8 rounded-t-[3px] border border-b-0 border-amber-100 bg-white" />
             <span className="flex flex-wrap items-center justify-between gap-2 text-[9px] font-bold text-stone-400">
-              <span>诊断题 {index + 1}</span>
+              <span><span>诊断题 {index + 1}</span> · {question.type === "matching" ? "匹配" : question.type === "true-false" ? "判断" : "单选"}</span>
               <span>关联：{knowledgeNames(question.knowledgePointIds, knowledgePoints)}</span>
             </span>
             {onChangeQuestion ? (
@@ -909,6 +1183,16 @@ function PretestCourseNode({
             ) : (
               <span className="mt-1.5 block text-[11px] leading-5 text-stone-800">{question.prompt}</span>
             )}
+            <div className="mt-2 grid gap-1 sm:grid-cols-2">
+              {question.type === "matching"
+                ? (question.matchingPairs ?? []).map((pair) => (
+                    <span className="rounded bg-stone-50 px-2 py-1 text-[10px] text-stone-600" key={`${pair.left}-${pair.right}`}>{pair.left} → {pair.right}</span>
+                  ))
+                : question.options.map((option, optionIndex) => (
+                    <span className={cn("rounded px-2 py-1 text-[10px]", optionIndex === question.correctOptionIndex ? "bg-emerald-50 font-bold text-emerald-800" : "bg-stone-50 text-stone-600")} key={`${question.id}-option-${optionIndex}`}>{option}</span>
+                  ))}
+            </div>
+            {question.rationale ? <p className="mt-2 text-[10px] leading-4 text-stone-500">判分依据：{question.rationale}</p> : null}
           </label>
         ))}
       </div>

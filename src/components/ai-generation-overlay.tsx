@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  StageGenerationCardStack,
+  type StageGenerationCardData,
+} from "@/components/teacher/stage-generation-card-stack";
 
 /* ============================================================
    AiGenerationOverlay — AI 生成全屏加载动画
    ------------------------------------------------------------
    当教师在备课界面触发 AI 生成（知识图谱、课程模块、教学大纲等）
-   长时间任务时，展示全屏遮罩 + 摆锤加载动画 + 阶段提示，
+   长时间任务时，展示全屏遮罩 + 翻卡片动画 + 阶段提示，
    让教师直观感知 AI 正在思考什么。
 
-   动画：摆锤左右摆动 + 渐变拖尾，简洁优雅。
+   动画沿用最终课程资源页的卡片堆叠语言，并为各阶段重绘内容。
    ============================================================ */
 
 export type AiTaskKind =
@@ -87,9 +91,11 @@ type Props = {
   kind: AiTaskKind | null;
   /** 可选的自定义提示语，覆盖默认的阶段滚动 */
   hint?: string;
+  /** 本次任务的真实课程数据；提供后会替代固定示例卡片。 */
+  cards?: StageGenerationCardData[];
 };
 
-export function AiGenerationOverlay({ kind, hint }: Props) {
+export function AiGenerationOverlay({ kind, hint, cards }: Props) {
   const visible = kind !== null;
   const config = kind ? TASK_STAGES[kind] : TASK_STAGES.generic;
   const [elapsed, setElapsed] = useState(0);
@@ -104,19 +110,6 @@ export function AiGenerationOverlay({ kind, hint }: Props) {
     }, 100);
     return () => clearInterval(timer);
   }, [visible]);
-
-  // 阶段滚动：根据已用时间占总权重时间的比例推进
-  const totalWeight = config.stages.reduce((sum, s) => sum + s.weight, 0);
-  // 假设每个 weight 单位 ≈ 4 秒，总时长 ≈ totalWeight * 4 秒。
-  // This is derived render state; storing it separately caused an avoidable
-  // effect/render cascade and could briefly display a stale stage.
-  const totalSeconds = totalWeight * 4;
-  const elapsedSeconds = elapsed / 1000;
-  const ratio = Math.min(0.95, elapsedSeconds / totalSeconds);
-  const stageIndex = Math.min(
-    config.stages.length - 1,
-    Math.floor(ratio * config.stages.length),
-  );
 
   if (!visible) return null;
 
@@ -138,79 +131,33 @@ export function AiGenerationOverlay({ kind, hint }: Props) {
       <div className="absolute inset-0 bg-stone-900/40 backdrop-blur-md" />
 
       {/* 中央卡片 */}
-      <div className="ai-card relative z-10 w-[420px] max-w-[90vw] overflow-hidden rounded-[var(--radius-xl)] border border-white/20 bg-white/95 shadow-[0_24px_64px_rgba(0,0,0,0.25)]">
+      <div className="ai-card relative z-10 w-[760px] max-w-[94vw] overflow-hidden rounded-[22px] border border-white/30 bg-white/95 shadow-[0_30px_90px_rgba(15,23,42,0.28)]">
         {/* 顶部渐变光带 */}
         <div className="ai-overlay-glow h-1 w-full" />
 
-        <div className="px-8 py-7">
-          {/* 摆锤加载动画 */}
-          <div className="mb-5 flex justify-center">
-            <PendulumLoader />
-          </div>
+        <div className="grid gap-6 p-5 md:grid-cols-[1.14fr_0.86fr] md:p-6">
+          <StageGenerationCardStack cards={cards} kind={kind ?? "generic"} />
 
-          {/* 标题 */}
-          <div className="mb-1 text-center">
+          <div className="flex min-w-0 flex-col py-1">
+          <div className="mb-1">
             <h3 className="text-[17px] font-bold text-[var(--pbl-ink)]">
               AI 正在{config.title}
             </h3>
+            <p className="mt-1 text-xs leading-5 text-stone-500">卡片展示的是本次课程正在处理的内容。</p>
           </div>
 
           {/* 已用时间 */}
-          <div className="mb-5 text-center">
+          <div className="mb-4 mt-3">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-3 py-1 text-[12px] font-medium tabular-nums text-stone-500">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--pbl-teacher)]" />
               已用 {formatTime(elapsed)}
             </span>
           </div>
 
-          {/* 阶段进度 */}
-          <div className="space-y-2">
-            {config.stages.map((stage, i) => {
-              const done = i < stageIndex;
-              const active = i === stageIndex;
-              const pending = i > stageIndex;
-              return (
-                <div
-                  key={i}
-                  className={[
-                    "flex items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-[13px] transition-all duration-300",
-                    done && "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]",
-                    active && "bg-stone-50 text-[var(--pbl-ink)]",
-                    pending && "text-stone-400",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                    {done ? (
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <path
-                          d="M2 7L5.5 10.5L12 3.5"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    ) : active ? (
-                      <span className="ai-stage-dot h-2 w-2 rounded-full bg-[var(--pbl-accent)]" />
-                    ) : (
-                      <span className="h-1.5 w-1.5 rounded-full bg-stone-300" />
-                    )}
-                  </span>
-                  <span className={done ? "font-medium" : active ? "font-semibold" : ""}>
-                    {stage.label}
-                  </span>
-                  {active && (
-                    <span className="ml-auto flex gap-0.5">
-                      <span className="ai-bar-bounce h-3 w-0.5 rounded-full bg-[var(--pbl-teacher)] opacity-40" style={{ animationDelay: "0ms" }} />
-                      <span className="ai-bar-bounce h-3 w-0.5 rounded-full bg-[var(--pbl-teacher)] opacity-40" style={{ animationDelay: "150ms" }} />
-                      <span className="ai-bar-bounce h-3 w-0.5 rounded-full bg-[var(--pbl-teacher)] opacity-40" style={{ animationDelay: "300ms" }} />
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+          <div className="rounded-[12px] border border-stone-200 bg-stone-50/80 px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[.15em] text-stone-400">正在处理</p>
+            <p className="mt-2 text-sm font-bold text-stone-800">{cards?.[0]?.title ?? config.stages[0]?.label}</p>
+            <p className="mt-1 text-xs leading-5 text-stone-500">{cards?.[0]?.detail ?? hint ?? "正在结合课程上下文生成可编辑内容。"}</p>
           </div>
 
           {/* 自定义提示语 */}
@@ -220,16 +167,6 @@ export function AiGenerationOverlay({ kind, hint }: Props) {
             </p>
           )}
 
-          {/* 底部进度条 */}
-          <div className="mt-5">
-            <div className="h-1 w-full overflow-hidden rounded-full bg-stone-100">
-              <div
-                className="ai-progress-fill h-full rounded-full"
-                style={{
-                  width: `${((stageIndex + 1) / config.stages.length) * 100}%`,
-                }}
-              />
-            </div>
           </div>
         </div>
       </div>
@@ -315,112 +252,6 @@ export function AiGenerationOverlay({ kind, hint }: Props) {
         @keyframes ai-progress-shimmer {
           0% { background-position: 200% 0; }
           100% { background-position: -200% 0; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-/* ============================================================
-   PendulumLoader — 摆锤加载动画
-   ------------------------------------------------------------
-   摆杆从顶部固定点向下垂，末端圆球左右摆动，
-   带有渐变拖尾和柔和阴影，简洁优雅。
-   摆动使用 cubic-bezier 缓动模拟真实物理钟摆。
-   ============================================================ */
-
-function PendulumLoader() {
-  return (
-    <div className="pendulum-stage">
-      {/* 顶部固定支点 */}
-      <div className="pendulum-pivot" />
-
-      {/* 摆杆 + 摆球 */}
-      <div className="pendulum-arm">
-        <div className="pendulum-rod" />
-        <div className="pendulum-ball" />
-      </div>
-
-      {/* 摆球运动轨迹（淡弧线） */}
-      <svg className="pendulum-trail" width="120" height="80" viewBox="0 0 120 80" fill="none">
-        <path
-          d="M 20 10 Q 60 70 100 10"
-          stroke="var(--pbl-teacher)"
-          strokeWidth="1"
-          strokeDasharray="3 4"
-          strokeLinecap="round"
-          opacity="0.2"
-        />
-      </svg>
-
-      <style jsx>{`
-        .pendulum-stage {
-          position: relative;
-          width: 120px;
-          height: 90px;
-          display: flex;
-          justify-content: center;
-        }
-        .pendulum-pivot {
-          position: absolute;
-          top: 0;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          background: var(--pbl-ink);
-          z-index: 3;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-        }
-        .pendulum-arm {
-          position: absolute;
-          top: 5px;
-          left: 50%;
-          transform-origin: top center;
-          animation: pendulum-swing 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite alternate;
-          z-index: 2;
-        }
-        .pendulum-rod {
-          width: 2px;
-          height: 60px;
-          margin-left: -1px;
-          background: linear-gradient(
-            to bottom,
-            var(--pbl-ink) 0%,
-            var(--pbl-teacher) 100%
-          );
-          border-radius: 1px;
-        }
-        .pendulum-ball {
-          position: absolute;
-          bottom: -14px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 18px;
-          height: 18px;
-          border-radius: 50%;
-          background: linear-gradient(135deg, var(--pbl-teacher) 0%, var(--pbl-ai) 100%);
-          box-shadow:
-            0 2px 8px rgba(29, 78, 216, 0.35),
-            0 0 12px rgba(109, 40, 217, 0.25),
-            inset 0 1px 2px rgba(255, 255, 255, 0.4);
-        }
-        .pendulum-trail {
-          position: absolute;
-          top: 5px;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 1;
-          opacity: 0.6;
-        }
-        @keyframes pendulum-swing {
-          0% {
-            transform: rotate(-32deg);
-          }
-          100% {
-            transform: rotate(32deg);
-          }
         }
       `}</style>
     </div>

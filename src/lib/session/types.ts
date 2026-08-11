@@ -681,12 +681,19 @@ export type StudentLearningTier = "foundation" | "standard" | "advanced";
 
 export type AdaptiveAssessmentQuestion = {
   id: string;
+  /** All supported formats are objectively scorable; free-text diagnostics are intentionally excluded. */
+  type?: "single-choice" | "true-false" | "matching";
   prompt: string;
   options: string[];
   correctOptionIndex: number;
+  /** A matching question stores the canonical left -> right pairs here. */
+  matchingPairs?: Array<{ left: string; right: string }>;
   rationale?: string;
+  /** IDs from AdaptiveLearningPlan.prerequisiteKnowledgePoints. */
   knowledgePointIds: string[];
 };
+
+export type AdaptiveAssessmentAnswer = number | Record<string, string>;
 
 export type AdaptiveBranchKind =
   | "prerequisite"
@@ -712,10 +719,13 @@ export type AdaptiveBranchTrigger = {
 };
 
 export type AdaptivePreparedBranchResource = {
-  status: "generating" | "ready" | "failed";
+  /** `stale` keeps the previous classroom preview available after its branch design changes. */
+  status: "generating" | "ready" | "stale" | "failed";
   classroomId?: string;
   scenesCount?: number;
   generatedAt?: string;
+  /** Signature of the branch design used to generate this classroom. */
+  sourceSignature?: string;
   error?: string;
 };
 
@@ -756,11 +766,36 @@ export type AdaptiveLearningPlan = {
     /** Module score required before optional enrichment may be inserted. */
     enrichmentMasteryMin: number;
   };
+  /**
+   * Knowledge students should already know before this lesson. These concepts
+   * are intentionally separate from CourseContent.knowledgePoints, which are
+   * taught by the lesson itself.
+   */
+  prerequisiteKnowledgePoints?: KnowledgePoint[];
   pretest: {
     title: string;
     introduction: string;
     estimatedMinutes: number;
     questions: AdaptiveAssessmentQuestion[];
+  };
+  /** Course-level opportunity review. Enrichment is selective, but a rich course cannot silently yield none. */
+  enrichmentStrategy?: {
+    /** Candidate resources to pre-generate into the reusable course library. */
+    recommendedMin: number;
+    recommendedMax: number;
+    /** Hard cap for resources actually inserted into one student's live lesson. */
+    runtimeMaxPerStudent: number;
+    summary: string;
+    decisions: Array<{
+      id: string;
+      decision: "selected" | "rejected";
+      title: string;
+      valueType: "task-transfer" | "concept-depth" | "classic-extension";
+      rationale: string;
+      anchorKnowledgePointIds: string[];
+      afterAssessmentSceneId?: string;
+      branchId?: string;
+    }>;
   };
   branches: AdaptiveBranchOutline[];
 };
@@ -794,7 +829,7 @@ export type AdaptiveBranchRun = {
 };
 
 export type AdaptiveTriggerCondition = {
-  key: "plan" | "resource" | "student-path" | "anchor" | "unused" | "evidence" | "score" | "time" | "novelty";
+  key: "plan" | "resource" | "student-path" | "path-limit" | "anchor" | "unused" | "evidence" | "score" | "time" | "novelty";
   label: string;
   expected: string;
   actual: string;
@@ -1020,6 +1055,50 @@ export type CourseContent = {
   interactiveMode?: boolean;
   /** Teacher-confirmed pretest and adaptive branch outlines for new courses. */
   adaptiveLearningPlan?: AdaptiveLearningPlan;
+  /** Traceable outputs and quality gates produced by the quick-design mode. */
+  designGenerationTrace?: CourseDesignGenerationTrace;
+};
+
+export type CourseDesignGenerationTraceEntry = {
+  step: string;
+  label: string;
+  summary: string;
+  status: "completed" | "warning";
+  completedAt: string;
+  checks: string[];
+  /** Real course artifacts exposed to the quick-generation progress canvas. */
+  artifacts?: CourseDesignGenerationArtifact[];
+};
+
+export type CourseDesignGenerationArtifact = {
+  id: string;
+  kind: "facts" | "graph" | "outcome" | "rubric" | "timeline" | "pages" | "branches" | "audit";
+  eyebrow: string;
+  title: string;
+  summary: string;
+  accent: "orange" | "blue" | "violet" | "green";
+  items: Array<{
+    label: string;
+    value: string;
+    meta?: string;
+    /** The evaluator responsible for this concrete rubric dimension. */
+    evaluator?: "ai" | "teacher";
+  }>;
+  /** Structured visualization payload for mature renderers such as React Flow. */
+  visualization?: {
+    knowledgeGraph?: KnowledgeGraph;
+    knowledgePoints?: KnowledgePoint[];
+  };
+};
+
+export type CourseDesignGenerationTrace = {
+  mode: "quick";
+  teacherBrief: string;
+  startedAt: string;
+  completedAt?: string;
+  entries: CourseDesignGenerationTraceEntry[];
+  qualityScore?: number;
+  qualitySummary?: string;
 };
 
 /**

@@ -10,6 +10,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // OpenPBL connects directly to PostgreSQL. Keep a local Node-API engine even
+  // when the parent shell happens to define PRISMA_GENERATE_NO_ENGINE.
+  engineType = "library"
 }
 
 datasource db {
@@ -103,6 +106,7 @@ model Course {
   announcementReplies          AnnouncementReply[]
   resourceDownloads            ResourceDownload[]
   generationJob                CourseGenerationJob?
+  designGenerationJob          CourseDesignGenerationJob?
 
   @@index([status])
   @@index([updatedAt])
@@ -115,7 +119,7 @@ model CourseGenerationJob {
   courseId                  String    @unique
   course                    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   requestedBy               String?
-  status                    String    @default("queued") // queued | running | completed | failed
+  status                    String    @default("queued") // queued | running | cancelling | cancelled | completed | failed
   step                      String    @default("queued")
   progress                  Int       @default(0)
   message                   String    @default("课程生成任务已创建") @db.Text
@@ -123,8 +127,59 @@ model CourseGenerationJob {
   totalScenes               Int       @default(0)
   estimatedRemainingSeconds Int?
   request                   Json
+  preparedOutlines          Json?
   result                    Json?
   events                    Json      @default("[]")
+  error                     String?   @db.Text
+  attempt                   Int       @default(0)
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  lastHeartbeatAt           DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  version                   Int       @default(1)
+  pageCheckpoints           CourseGenerationPageCheckpoint[]
+
+  @@index([status, createdAt])
+  @@index([lastHeartbeatAt])
+}
+
+// Durable page-level checkpoints. A page is reusable only when its canonical
+// outline fingerprint still matches; restored pages still pass the whole-course
+// audit before the classroom is persisted.
+model CourseGenerationPageCheckpoint {
+  id                 String              @id @default(uuid())
+  jobId              String
+  job                CourseGenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  pageKey             String
+  outlineFingerprint String
+  outlineOrder        Int
+  scene               Json
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([jobId, pageKey])
+  @@index([jobId, outlineOrder])
+}
+
+// Durable quick-design pipeline. It produces the same CourseContent fields as
+// the detailed editor and then hands the course to CourseGenerationJob.
+model CourseDesignGenerationJob {
+  id                        String    @id @default(uuid())
+  courseId                  String    @unique
+  course                    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  requestedBy               String?
+  status                    String    @default("queued") // queued | running | review_available | paused | cancelling | cancelled | completed | failed
+  step                      String    @default("queued")
+  reviewStatus              String    @default("unavailable") // unavailable | available | paused | approved | auto-continued
+  reviewAvailableUntil      DateTime?
+  stepIndex                 Int       @default(0)
+  progress                  Int       @default(0)
+  message                   String    @default("快速生成任务已创建") @db.Text
+  estimatedRemainingSeconds Int?
+  request                   Json
+  trace                     Json      @default("[]")
+  qualityReport             Json?
   error                     String?   @db.Text
   attempt                   Int       @default(0)
   startedAt                 DateTime?

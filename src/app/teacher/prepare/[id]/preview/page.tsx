@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   ArrowLeft,
@@ -23,6 +23,7 @@ import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-pan
 import { AdaptiveCourseFlowPreview } from "@/components/teacher/adaptive-learning-plan-editor";
 import { StudentStageHost } from "@/components/openmaic-bridge/student-stage-host";
 import type { AdaptiveBranchOutline } from "@/lib/session/types";
+import { courseDetailedEditHref } from "@/lib/courses/preparation-navigation";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -33,6 +34,7 @@ const STEPS = [
 export default function PreviewCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const session = useSession();
   const { user, publishCourse } = session;
   const course = useCourse(params?.id);
@@ -80,6 +82,11 @@ export default function PreviewCoursePage() {
   });
   const adaptivePlan = course.content.adaptiveLearningPlan;
   const activeAdaptiveBranches = adaptivePlan?.branches.filter((branch) => branch.enabled !== false) ?? [];
+  const requestedPreviewBranch = activeAdaptiveBranches.find(
+    (branch) => branch.id === searchParams.get("adaptiveBranchId")
+      && Boolean(branch.preparedResource?.classroomId),
+  );
+  const activePreviewBranch = previewBranch ?? requestedPreviewBranch;
   const missingAdaptiveResources =
     adaptivePlan?.enabled
       ? activeAdaptiveBranches.filter((branch) =>
@@ -156,7 +163,7 @@ export default function PreviewCoursePage() {
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <Link
           className="grid h-9 w-9 place-items-center rounded-[6px] border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-          href={`/teacher/prepare/${course.id}/verify`}
+          href={courseDetailedEditHref(course.id)}
         >
           <ArrowLeft size={17} />
         </Link>
@@ -167,7 +174,7 @@ export default function PreviewCoursePage() {
           {isPublished ? <Pill tone="green">已发布</Pill> : <Pill tone="amber">未发布</Pill>}
           <Link
             className="inline-flex h-10 items-center gap-1.5 rounded-[6px] border border-stone-200 bg-white px-4 text-sm font-semibold text-stone-600 hover:bg-stone-50"
-            href={`/teacher/prepare/${course.id}/verify`}
+            href={courseDetailedEditHref(course.id)}
           >
             <Edit3 size={15} /> 修改
           </Link>
@@ -508,9 +515,9 @@ export default function PreviewCoursePage() {
           </Card>
         </aside>
       </div>}
-      {previewBranch?.preparedResource?.classroomId ? (
+      {activePreviewBranch?.preparedResource?.classroomId ? (
         <div
-          aria-label={`${previewBranch.title}成品课堂预览`}
+          aria-label={`${activePreviewBranch.title}成品课堂预览`}
           aria-modal="true"
           className="fixed inset-0 z-[120] grid place-items-center bg-stone-950/65 p-3 backdrop-blur-sm"
           role="dialog"
@@ -520,13 +527,19 @@ export default function PreviewCoursePage() {
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-800">
                   教师预览 · 不记录学生进度
+                  {activePreviewBranch.preparedResource.status !== "ready" ? " · 当前为修改前版本" : ""}
                 </p>
-                <h3 className="mt-0.5 text-sm font-black text-stone-900">{previewBranch.title}</h3>
+                <h3 className="mt-0.5 text-sm font-black text-stone-900">{activePreviewBranch.title}</h3>
               </div>
               <button
                 aria-label="关闭分支课堂预览"
                 className="grid h-9 w-9 place-items-center rounded-full text-stone-500 hover:bg-stone-100"
-                onClick={() => setPreviewBranch(undefined)}
+                onClick={() => {
+                  setPreviewBranch(undefined);
+                  if (requestedPreviewBranch) {
+                    router.replace(`/teacher/prepare/${course.id}/preview`, { scroll: false });
+                  }
+                }}
                 type="button"
               >
                 <X size={18} />
@@ -534,7 +547,7 @@ export default function PreviewCoursePage() {
             </header>
             <StudentStageHost
               backHref={`/teacher/prepare/${course.id}/preview`}
-              classroomId={previewBranch.preparedResource.classroomId}
+              classroomId={activePreviewBranch.preparedResource.classroomId}
               className="min-h-0 flex-1"
               mode="teacher-preview"
               standalone

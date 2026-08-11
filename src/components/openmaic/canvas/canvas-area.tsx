@@ -12,6 +12,7 @@ import type { CanvasToolbarProps } from '@openmaic/components/canvas/canvas-tool
 import type { Scene, StageMode } from '@openmaic/lib/types/stage';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { ClassroomCompletePageConnected } from '@openmaic/components/scene-renderers/classroom-complete';
+import { TeachingToolLayer } from './teaching-tool-layer';
 
 interface CanvasAreaProps extends CanvasToolbarProps {
   readonly currentScene: Scene | null;
@@ -123,6 +124,8 @@ export function CanvasArea({
               <Whiteboard isOpen={whiteboardOpen} onClose={onWhiteboardClose} />
             </SceneProvider>
           </div>
+
+          <TeachingToolLayer />
 
           {/* Scene Content */}
           {currentScene && !whiteboardOpen && (

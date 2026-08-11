@@ -22,6 +22,15 @@ describe("session action version conflict recovery", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("recovers a missing local version from the server response", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(new SessionActionRequestError("EXPECTED_VERSION_REQUIRED", 428, 1))
+      .mockResolvedValueOnce({ courseVersion: 2 });
+
+    await expect(retryVersionConflict(send, undefined)).resolves.toEqual({ courseVersion: 2 });
+    expect(send.mock.calls).toEqual([[undefined], [1]]);
+  });
+
   it("bounds repeated conflicts instead of looping forever", async () => {
     const send = vi.fn((version: number | undefined) =>
       Promise.reject(new SessionActionRequestError("VERSION_CONFLICT", 409, (version ?? 0) + 1)),

@@ -260,6 +260,18 @@ export interface StatelessChatRequest {
         aiComment?: string;
       }>;
     };
+    teachingTools?: {
+      lastCheckResponse: {
+        actionId: string;
+        question: string;
+        answer: string | string[];
+        submittedAt: number;
+      } | null;
+      evidenceBoard: {
+        title: string;
+        items: unknown[];
+      } | null;
+    };
   };
   /** Agent configuration */
   config: {

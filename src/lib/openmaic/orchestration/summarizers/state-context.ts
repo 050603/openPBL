@@ -95,7 +95,8 @@ export function summarizeElements(elements: any[]): string {
  * Build context string from store state
  */
 export function buildStateContext(storeState: StatelessChatRequest['storeState']): string {
-  const { stage, scenes, currentSceneId, mode, whiteboardOpen, quizResults } = storeState;
+  const { stage, scenes, currentSceneId, mode, whiteboardOpen, quizResults, teachingTools } =
+    storeState;
 
   const lines: string[] = [];
 
@@ -106,6 +107,18 @@ export function buildStateContext(storeState: StatelessChatRequest['storeState']
   lines.push(
     `Whiteboard: ${whiteboardOpen ? 'OPEN (slide canvas is hidden)' : 'closed (slide canvas is visible)'}`,
   );
+
+  if (teachingTools?.lastCheckResponse) {
+    const response = teachingTools.lastCheckResponse;
+    lines.push(
+      `Latest understanding check response: question="${response.question}"; answer=${JSON.stringify(response.answer)}`,
+    );
+  }
+  if (teachingTools?.evidenceBoard) {
+    lines.push(
+      `Evidence board "${teachingTools.evidenceBoard.title}": ${JSON.stringify(teachingTools.evidenceBoard.items)}`,
+    );
+  }
 
   // Stage info
   if (stage) {

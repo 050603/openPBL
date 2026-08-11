@@ -33,6 +33,10 @@ export type {
   WidgetSetStateAction,
   WidgetAnnotationAction,
   WidgetRevealAction,
+  UnderstandingCheckOption,
+  CheckUnderstandingAction,
+  EvidenceBoardItem,
+  EvidenceBoardUpdateAction,
   Action,
   ActionType,
   PercentageGeometry,
@@ -41,4 +45,10 @@ export type {
 // The action-category lists are runtime values (plain arrays), so they must be
 // value re-exported — a bare `export type {}` would erase them and leave the
 // imports as `undefined` at runtime.
-export { FIRE_AND_FORGET_ACTIONS, SLIDE_ONLY_ACTIONS, SYNC_ACTIONS } from '@openmaic/dsl';
+export {
+  ACTION_TYPES,
+  FIRE_AND_FORGET_ACTIONS,
+  SLIDE_ONLY_ACTIONS,
+  SYNC_ACTIONS,
+  isActionType,
+} from '@openmaic/dsl';
