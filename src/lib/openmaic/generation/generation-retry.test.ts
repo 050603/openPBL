@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LlmEmptyResponseError, LlmTimeoutError } from '@/lib/llm/errors';
-import { withGenerationRetry } from './generation-retry';
+import { isRetryableGenerationError, withGenerationRetry } from './generation-retry';
 
 describe('withGenerationRetry', () => {
   it('honors an upstream retryAfterMs hint for throttled requests', async () => {
@@ -53,5 +53,11 @@ describe('withGenerationRetry', () => {
       sleep: vi.fn().mockResolvedValue(undefined),
       random: () => 0,
     })).resolves.toBe('valid JSON');
+  });
+
+  it('treats an inference-engine abort with an unknown finish reason as transient', () => {
+    expect(isRetryableGenerationError(new Error(
+      'An error occurred in model serving, error message is: [Inference engine abort. Finish reason: [UNKNOWN].]',
+    ))).toBe(true);
   });
 });

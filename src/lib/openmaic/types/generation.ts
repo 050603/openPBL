@@ -54,7 +54,6 @@ export interface UserRequirements {
   /** Shared learner-readiness and knowledge-boundary contract for every generation stage. */
   teachingConstraints?: import('@openmaic/lib/pedagogy/teaching-constraints').TeachingConstraints;
   webSearch?: boolean; // Enable web search for richer context
-  interactiveMode?: boolean; // Enable Interactive Mode for interactive-first generation
   taskEngineMode?: boolean; // Enable vocational task-engine generation path
   /** Structured profile for the personal-project PBL classroom template. */
   pblProfile?: import("@/lib/pbl-course-config").PblCourseConfig;
@@ -143,6 +142,33 @@ export type PblTeachingActivityRequirement = {
   requirement: string;
 };
 
+export type TeachingToolKind =
+  | 'whiteboard'
+  | 'spotlight'
+  | 'laser-pointer'
+  | 'interactive-widget';
+
+/**
+ * Page-level teaching-tool intent produced during lesson planning.
+ *
+ * This is deliberately semantic rather than coordinate based: teachers can
+ * review when/why a tool will appear before generation, while the action
+ * generator remains responsible for turning the intent into executable
+ * whiteboard, canvas, or widget actions.
+ */
+export type TeachingToolPlanItem = {
+  id?: string;
+  tool: TeachingToolKind;
+  /** Spoken-content cue that should immediately precede the tool action. */
+  trigger: string;
+  /** Learning benefit provided by the tool on this page. */
+  purpose: string;
+  /** Exact notes, labels, formulae, steps, or relationships to make visible. */
+  content: string[];
+  /** Confirmed plans are contractual; generation may not silently omit them. */
+  required?: boolean;
+};
+
 /** First-level activity catalog used to validate second-level parent links. */
 export type PblActivityCatalogEntry = {
   activityId: string;
@@ -198,6 +224,10 @@ export interface SceneOutline {
   ttsPolicy?: PblTtsPolicy;
   /** Model-specific narration budget used by generation and playback verification. */
   timingPlan?: TtsTimingPlan;
+  /** Embedded resources continue a parent lesson and never own greetings/farewells. */
+  narrationMode?: 'standalone-course' | 'embedded-segment';
+  /** Teacher-reviewable intent for whiteboard/canvas/widget use on this page. */
+  teachingToolPlan?: TeachingToolPlanItem[];
   /** Requested output form; the generator must preserve it for PBL scenes. */
   resourceTypes?: SceneResourceType[];
   outcomePart?: 'artifact' | 'presentation' | 'reflection';

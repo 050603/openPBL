@@ -75,6 +75,7 @@ Produce a **`courseTitle`** (required): a concise, human-readable name for the *
 - **Clear Purpose**: Each scene has a clear teaching function
 - **Logical Flow**: Scenes form a natural teaching progression
 - **Experience Design**: Consider learning experience and emotional response from the student's perspective
+- **Visible reasoning**: When a slide explanation depends on multiple steps, a causal or structural relationship, a formula derivation, code evolution, a worked example, or teacher annotations, add a page-level `teachingToolPlan`. Specify the trigger, learning purpose, and exact visible content. Use `whiteboard` only when it adds explanatory value beyond the slide; do not copy slide text. Use `interactive-widget` for learner manipulation.
 
 ---
 
@@ -382,7 +383,7 @@ Omit `scenarioRoleplay` and `scenarioBrief` entirely for ordinary build-an-artef
 5. `quiz` scenes must include `quizConfig`.
 6. `interactive` scenes must include `widgetType` and `widgetOutline` (preferred). `interactiveConfig` is deprecated and only accepted for backwards compatibility.
 7. `pbl` scenes must include `pblConfig` with `projectTopic`, `projectDescription`, `targetSkills`, `issueCount`.
-8. Arrange scenes by inferred duration (typically 1-2 scenes per minute). Every coherent knowledge block must end with a short quiz carrying the same `knowledgePointIds`; a single end-of-course quiz is not sufficient. Use interactive scenes sparingly (max 1-2 per course).
+8. Arrange scenes by semantic teaching need, not a mechanical pages-per-minute rule. Fully explain and practise every confirmed knowledge point, use meaningful ungraded interactions where they improve understanding, then add exactly one terminal mastery quiz carrying all taught `knowledgePointIds`. Never insert block quizzes or a second final quiz.
 9. **Language**: Infer from the user's requirement text and context. Output all scene content in the inferred language.
 10. Regardless of information completeness, always output conforming JSON - do not ask questions or request more information
 11. **No teacher identity on slides**: Scene titles and keyPoints must be neutral and topic-focused. Never include the teacher's name or role (e.g., avoid "Teacher Wang's Tips", "Teacher's Wishes"). Use generic labels like "Tips", "Summary", "Key Takeaways" instead.

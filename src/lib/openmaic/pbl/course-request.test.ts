@@ -28,4 +28,43 @@ describe("course generation requirements", () => {
     expect(requirement).toContain('"totalMinutes": 120');
     expect(requirement).toContain("理解分类的直观含义");
   });
+
+  it("removes legacy resource selections before serializing confirmed modules", () => {
+    const requirement = buildPblCourseRequirement(course, {
+      teachingOutline: [
+        {
+          id: "module-launch",
+          stageKey: "launch",
+          title: "Project launch",
+          durationMin: 10,
+          teachingGoal: "Understand the challenge",
+          teacherRole: "Frame the challenge",
+          platformRole: "Show the prompt",
+          aiRole: "None",
+          studentActivity: "Record an initial idea",
+          resourceTypes: ["interactive-demo", "worksheet", "project-brief"],
+        },
+        {
+          id: "module-ai",
+          stageKey: "ai-learning",
+          title: "AI learning",
+          durationMin: 20,
+          teachingGoal: "Learn the core concept",
+          teacherRole: "Coach",
+          platformRole: "Present learning pages",
+          aiRole: "Explain and check",
+          studentActivity: "Learn and answer",
+          resourceTypes: ["ppt", "interactive-demo", "script", "rubric"],
+        },
+      ],
+    });
+
+    expect(requirement).not.toContain('"worksheet"');
+    expect(requirement).not.toContain('"rubric"');
+    expect(requirement).not.toContain('"project-brief"');
+    expect(requirement).toMatch(/"resourceTypes": \[\s*"ppt",\s*"script"\s*\]/);
+    expect(requirement).toMatch(
+      /"resourceTypes": \[\s*"ppt",\s*"interactive-demo",\s*"code-interactive"\s*\]/,
+    );
+  });
 });

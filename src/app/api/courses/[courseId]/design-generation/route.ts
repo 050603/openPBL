@@ -7,11 +7,13 @@ import {
   pauseCourseDesignForOutlineReview,
   resumeCourseDesignAfterOutlineReview,
   runCourseDesignJob,
+  resumeRecoverableCourseDesignJob,
   initialQuickGenerationEstimateSeconds,
   type QuickDesignRequest,
 } from "@/lib/course-design/job-runner";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 import { isSameCourseDesignRequest } from "@/lib/course-design/resume-policy";
+import { formatFatalCourseDesignError } from "@/lib/course-design/failure-policy";
 import type { LessonOutlineSection, OpenMaicSceneOutlineSnapshot } from "@/lib/session/types";
 import { getCourse } from "@/lib/session/server-store";
 
@@ -39,7 +41,12 @@ function responseJob(job: Awaited<ReturnType<typeof prisma.courseDesignGeneratio
     estimatedRemainingSeconds: job.estimatedRemainingSeconds,
     trace: job.trace,
     qualityReport: job.qualityReport,
-    error: job.error,
+    // Never expose model review diagnostics or historical raw worker errors to
+    // teachers. Correctable failures are resumed by GET; terminal failures use
+    // a safe, actionable system-level message only.
+    error: job.status === "failed" && job.error
+      ? formatFatalCourseDesignError(new Error(job.error))
+      : null,
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     updatedAt: job.updatedAt.toISOString(),
@@ -70,7 +77,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cou
     const requestedBy = await authorize(request);
     if (requestedBy === "") return Response.json({ error: "Unauthorized" }, { status: 401 });
     const { courseId } = await context.params;
-    const job = await prisma.courseDesignGenerationJob.findUnique({ where: { courseId } });
+    let job = await prisma.courseDesignGenerationJob.findUnique({ where: { courseId } });
+    if (job?.status === "failed") {
+      job = await resumeRecoverableCourseDesignJob(courseId);
+    }
     const course = job && ["review_available", "paused"].includes(job.status)
       ? await getCourse(courseId)
       : null;
@@ -99,7 +109,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
       courseId,
       teacherBrief,
       options: {
-        interactiveMode: body?.options?.interactiveMode === true,
         enableImageGeneration: body?.options?.enableImageGeneration !== false,
         enableTTS: body?.options?.enableTTS !== false,
         enableVideoGeneration: body?.options?.enableVideoGeneration === true,

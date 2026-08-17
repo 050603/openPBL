@@ -206,6 +206,56 @@ export function resolveAdaptiveInsertionIndex(
   return (anchorIndex >= 0 ? anchorIndex : currentIndex) + 1;
 }
 
+type PreparedAdaptiveInsertion = {
+  insertion: AdaptiveSceneInsertion;
+  scenes: Scene[];
+};
+
+/**
+ * Compose a batch before publishing it to the player store. In particular,
+ * prerequisite segments must already be at the head of the queue when Stage
+ * mounts; inserting them afterwards makes the main lesson audibly start and
+ * then jump backwards once for every resource that finishes loading.
+ */
+export function composeAdaptiveSceneQueue(
+  scenes: Scene[],
+  currentSceneId: string | null,
+  prepared: PreparedAdaptiveInsertion[],
+): { scenes: Scene[]; activatedSceneId?: string } {
+  const nextScenes = [...scenes];
+  const activatedSceneId = prepared[0]?.scenes[0]?.id;
+  const insertionGroups = new Map<number, PreparedAdaptiveInsertion[]>();
+  for (const item of prepared) {
+    const insertionIndex = resolveAdaptiveInsertionIndex(
+      scenes,
+      currentSceneId,
+      item.insertion,
+    );
+    insertionGroups.set(insertionIndex, [
+      ...(insertionGroups.get(insertionIndex) ?? []),
+      item,
+    ]);
+  }
+  // Work backwards through the untouched base indexes. Items sharing an
+  // anchor are spliced as one declared-order segment and their tails form a
+  // deterministic A -> B -> main-course return chain.
+  for (const [insertionIndex, group] of [...insertionGroups.entries()].sort(
+    ([left], [right]) => right - left,
+  )) {
+    const returnSceneId = nextScenes[insertionIndex]?.id;
+    let downstreamSceneId = returnSceneId;
+    for (const item of [...group].reverse()) {
+      const lastInsertedScene = item.scenes.at(-1) as AdaptiveScene | undefined;
+      if (lastInsertedScene && downstreamSceneId) {
+        lastInsertedScene.openpblAdaptiveReturnSceneId = downstreamSceneId;
+      }
+      downstreamSceneId = item.scenes[0]?.id ?? downstreamSceneId;
+    }
+    nextScenes.splice(insertionIndex, 0, ...group.flatMap((item) => item.scenes));
+  }
+  return { scenes: nextScenes, activatedSceneId };
+}
+
 function expectedDurationSec(scene?: Scene): number | undefined {
   if (!scene) return undefined;
   if (scene.timingPlan) {
@@ -301,6 +351,12 @@ export function StudentStageHost({
   const ttsDurationBySceneRef = useRef<Map<string, number>>(new Map());
   const mainSceneIdsRef = useRef<Set<string>>(new Set());
   const insertedAdaptiveIdsRef = useRef<Set<string>>(new Set());
+  // A prerequisite queue is immutable for this player mount. Capture it so
+  // later branch-run persistence cannot reload the main classroom underneath
+  // an actively playing student.
+  const initialPrerequisiteInsertionsRef = useRef(
+    adaptiveInsertions.filter((insertion) => insertion.placement === 'before-current'),
+  );
   const trackingEnabled = !standalone && shouldTrackStudentLearning(mode) && Boolean(courseId && studentId);
   const prefetchClassroomKey = prefetchClassroomIds.join('|');
 
@@ -443,10 +499,36 @@ export function StudentStageHost({
       // 3. hydrate useStageStore（与 OpenMAIC classroom page 一致）
       const migrated = studentScenes.map(migrateScene);
       mainSceneIdsRef.current = new Set(migrated.map((scene) => scene.id));
+      insertedAdaptiveIdsRef.current.clear();
+      const restoredMainSceneId = migrated[restoredIndex]?.id ?? migrated[0]?.id ?? null;
+      const preparedPrerequisites = await Promise.all(
+        initialPrerequisiteInsertionsRef.current.map(async (insertion) => {
+          const classroom = await prefetchAdaptiveClassroom(insertion.classroomId);
+          const preparedStudentScenes = selectStudentLearningScenes(classroom.scenes);
+          return {
+            insertion,
+            scenes: prepareAdaptiveInsertionScenes(
+              insertion.id,
+              insertion.classroomId,
+              preparedStudentScenes.length ? preparedStudentScenes : classroom.scenes,
+            ),
+          };
+        }),
+      );
+      if (loadController.signal.aborted) return;
+      const initialQueue = composeAdaptiveSceneQueue(
+        migrated,
+        restoredMainSceneId,
+        preparedPrerequisites,
+      );
+      preparedPrerequisites.forEach(({ insertion }) =>
+        insertedAdaptiveIdsRef.current.add(insertion.id),
+      );
+      const initialSceneId = initialQueue.activatedSceneId ?? restoredMainSceneId ?? undefined;
       useStageStore.getState().setStage(stage);
       useStageStore.setState({
-        scenes: migrated,
-        currentSceneId: migrated[restoredIndex]?.id ?? migrated[0]?.id ?? null,
+        scenes: initialQueue.scenes,
+        currentSceneId: initialSceneId ?? null,
         // playback 模式：学生端只读，不允许进入 Pro 编辑模式
         mode: 'playback',
         // 清空生成相关 transient 状态，避免 IndexedDB 残留触发自动生成
@@ -455,26 +537,24 @@ export function StudentStageHost({
         generationComplete: true,
         generationStatus: 'completed',
       });
-      setActiveMediaClassroomId(classroomId);
-      // 学生端强制启用 TTS：默认使用 browser-native-tts（无需 API key），
-      // 让 PlaybackEngine 在处理 speech action 时能调用浏览器原生语音合成。
+      const initialAdaptiveScene = initialQueue.scenes.find(
+        (scene) => scene.id === initialSceneId,
+      ) as AdaptiveScene | undefined;
+      setActiveMediaClassroomId(
+        initialAdaptiveScene?.openpblAdaptiveClassroomId ?? classroomId,
+      );
+      if (initialQueue.activatedSceneId) setAutoplaySceneId(initialQueue.activatedSceneId);
+      // Preserve the configured provider and voice. Generated classrooms carry
+      // server-side audio URLs; forcing browser-native here silently replaced
+      // the teacher/system voice choice whenever a segment lacked an asset.
       useSettingsStore.setState((s) => ({
         ttsEnabled: true,
-        // 学生课堂每次进入都应恢复可听状态；仍可在播放器内再次静音。
         ttsMuted: false,
         ttsVolume: s.ttsVolume > 0 ? s.ttsVolume : 1,
-        ttsProviderId: s.ttsProviderId || 'browser-native-tts',
-        ttsProvidersConfig: {
-          ...s.ttsProvidersConfig,
-          'browser-native-tts': {
-            ...s.ttsProvidersConfig?.['browser-native-tts'],
-            enabled: true,
-          },
-        },
       }));
       hydratedRef.current = true;
       ttsDurationBySceneRef.current.clear();
-      for (const scene of migrated) {
+      for (const scene of initialQueue.scenes) {
         if (!sceneAudioUrls(scene).length) continue;
         void measuredSceneTtsDurationSec(scene).then((duration) => {
           if (!duration || !hydratedRef.current) return;
@@ -485,7 +565,6 @@ export function StudentStageHost({
           }
         });
       }
-      const initialSceneId = migrated[restoredIndex]?.id ?? migrated[0]?.id;
       if (trackingEnabled && initialSceneId) {
         seenSceneIdsRef.current.add(initialSceneId);
         sceneEnteredAtRef.current = Date.now();
@@ -551,30 +630,18 @@ export function StudentStageHost({
       );
       if (cancelled) return;
       const storeState = useStageStore.getState();
-      const nextScenes = [...storeState.scenes];
-      const activatedSceneId = prepared[0]?.scenes[0]?.id;
-      // Insert from the end so multiple resources sharing one anchor keep
-      // their declared order and form one continuous return chain.
-      for (const item of [...prepared].reverse()) {
-        const insertionIndex = resolveAdaptiveInsertionIndex(
-          nextScenes,
-          storeState.currentSceneId,
-          item.insertion,
-        );
-        const returnSceneId = nextScenes[insertionIndex]?.id;
-        const lastInsertedScene = item.scenes.at(-1) as AdaptiveScene | undefined;
-        if (lastInsertedScene && returnSceneId) {
-          lastInsertedScene.openpblAdaptiveReturnSceneId = returnSceneId;
-        }
-        nextScenes.splice(insertionIndex, 0, ...item.scenes);
-      }
+      const nextQueue = composeAdaptiveSceneQueue(
+        storeState.scenes,
+        storeState.currentSceneId,
+        prepared,
+      );
       prepared.forEach(({ insertion }) =>
         insertedAdaptiveIdsRef.current.add(insertion.id),
       );
-      if (activatedSceneId) setAutoplaySceneId(activatedSceneId);
+      if (nextQueue.activatedSceneId) setAutoplaySceneId(nextQueue.activatedSceneId);
       useStageStore.setState({
-        scenes: nextScenes,
-        currentSceneId: activatedSceneId ?? storeState.currentSceneId,
+        scenes: nextQueue.scenes,
+        currentSceneId: nextQueue.activatedSceneId ?? storeState.currentSceneId,
       });
     })().catch((error) => {
       log.error('Failed to insert prepared adaptive classroom:', error);

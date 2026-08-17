@@ -11,7 +11,7 @@ describe('native classroom tool prompt', () => {
       persona: 'Teach clearly.',
       avatar: '',
       color: '#000000',
-      allowedActions: ['wb_draw_text', 'check_understanding', 'evidence_board_update'],
+      allowedActions: ['wb_draw_text', 'wb_draw_line', 'widget_annotation'],
       priority: 10,
       createdAt: new Date(0),
       updatedAt: new Date(0),
@@ -26,8 +26,8 @@ describe('native classroom tool prompt', () => {
     });
 
     expect(prompt).toContain('Use native tool calls for classroom actions');
-    expect(prompt).toContain('check_understanding');
-    expect(prompt).toContain('evidence_board_update');
+    expect(prompt).toContain('wb_draw_text');
+    expect(prompt).toContain('wb_draw_line');
     expect(prompt).not.toContain('You MUST output a JSON array');
   });
 });

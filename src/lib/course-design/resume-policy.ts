@@ -1,22 +1,39 @@
 import { evaluateLessonOutlines } from "@/lib/course-design/quality-gates";
 import type { PblActivityCatalogEntry, SceneOutline } from "@/lib/openmaic/types/generation";
 
+function hasCompletedStep(trace: unknown, step: string): boolean {
+  if (!Array.isArray(trace)) return false;
+  return trace.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = entry as { step?: unknown; status?: unknown };
+    return event.step === step
+      && (event.status === "completed" || event.status === "warning");
+  });
+}
+
+export function canResumeAfterValidatedStage(input: {
+  trace: unknown;
+  step: string;
+  qualityPassed: boolean;
+}): boolean {
+  return input.qualityPassed && hasCompletedStep(input.trace, input.step);
+}
+
+export function canResumeAfterValidatedPositioning(input: {
+  trace: unknown;
+  positioningPassed: boolean;
+}): boolean {
+  return input.positioningPassed && hasCompletedStep(input.trace, "base");
+}
+
 export function canResumeAfterValidatedLessonOutline(input: {
   trace: unknown;
   outlines: ReadonlyArray<SceneOutline>;
-  interactiveMode: boolean;
   activityCatalog?: ReadonlyArray<PblActivityCatalogEntry>;
 }): boolean {
-  if (!Array.isArray(input.trace)) return false;
-  const completed = input.trace.some((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const event = entry as { step?: unknown; status?: unknown };
-    return event.step === "lessonOutline"
-      && (event.status === "completed" || event.status === "warning");
-  });
-  return completed
+  return hasCompletedStep(input.trace, "lessonOutline")
     && input.outlines.length > 0
-    && evaluateLessonOutlines(input.outlines, input.interactiveMode, input.activityCatalog).passed;
+    && evaluateLessonOutlines(input.outlines, input.activityCatalog).passed;
 }
 
 export function canResumeAfterValidatedTeachingOutline(input: {
@@ -29,14 +46,7 @@ export function canResumeAfterValidatedTeachingOutline(input: {
   teachingOutlineCount: number;
   timingPlanConfirmed: boolean;
 }): boolean {
-  if (!Array.isArray(input.trace)) return false;
-  const completed = input.trace.some((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const event = entry as { step?: unknown; status?: unknown };
-    return event.step === "teachingOutline"
-      && (event.status === "completed" || event.status === "warning");
-  });
-  return completed
+  return hasCompletedStep(input.trace, "teachingOutline")
     && input.positioningPassed
     && input.projectDesignPassed
     && input.evaluationPlanPassed
@@ -49,7 +59,6 @@ export function canResumeAfterValidatedTeachingOutline(input: {
 function normalizedRequest(value: unknown): {
   courseId: string;
   teacherBrief: string;
-  interactiveMode: boolean;
   enableImageGeneration: boolean;
   enableTTS: boolean;
   enableVideoGeneration: boolean;
@@ -63,7 +72,6 @@ function normalizedRequest(value: unknown): {
   return {
     courseId: request.courseId,
     teacherBrief: request.teacherBrief.trim(),
-    interactiveMode: options.interactiveMode === true,
     enableImageGeneration: options.enableImageGeneration !== false,
     enableTTS: options.enableTTS !== false,
     enableVideoGeneration: options.enableVideoGeneration === true,

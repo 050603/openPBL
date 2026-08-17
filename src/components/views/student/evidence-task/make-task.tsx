@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ExternalLink, FileClock, FileUp, UploadCloud } from "lucide-react";
+import { Beaker, ExternalLink, FileClock, FileUp, RefreshCw, UploadCloud } from "lucide-react";
 import { PrimaryButton, Textarea } from "@/components/ui";
+import { activeMakeIterationId } from "@/lib/companion/workspace-operation";
+import { resolveCourseLearningPreset } from "@/lib/learning-evidence/missions";
 import { LEARNING_EVIDENCE_SCHEMA_VERSION } from "@/lib/learning-evidence/types";
 import type { ArtifactSnapshot, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { evidenceRecordId } from "./use-evidence-draft";
+import { useEvidenceDraft } from "./use-evidence-draft";
+import { EvidenceCard, Field, SelectField } from "./shared";
 
 export function MakeEvidenceTask({ course, studentId }: { course: Course; studentId: string }) {
   const session = useSession();
@@ -17,6 +21,7 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
   const project = course.groups?.find((item) =>
     item.members.some((member) => member.studentId === studentId));
   const projectId = project?.id;
+  const iterationId = activeMakeIterationId(course, studentId);
   const versions = useMemo(
     () => (course.uploads ?? [])
       .filter((item) =>
@@ -146,7 +151,23 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
   }
 
   return (
-    <div className="make-version-workspace">
+    <div className="make-stage-workspace">
+      <section className="make-cycle-heading">
+        <div>
+          <span><Beaker size={14} /> 当前迭代 {iterationId.replace("cycle-", "#")}</span>
+          <h2>先记录测试事实，再决定怎样修改</h2>
+        </div>
+        <p>AI 组员可以直接整理这些草稿字段；观察事实、修订选择和最终提交仍由你核对。</p>
+      </section>
+
+      <MakeIterationEditor
+        course={course}
+        iterationId={iterationId}
+        key={iterationId}
+        studentId={studentId}
+      />
+
+      <div className="make-version-workspace">
       <section className="make-version-submit">
         <div className="make-version-submit__copy">
           <FileUp size={22} />
@@ -210,6 +231,169 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
           </div>
         )}
       </section>
+      </div>
+    </div>
+  );
+}
+
+function MakeIterationEditor({
+  course,
+  studentId,
+  iterationId,
+}: {
+  course: Course;
+  studentId: string;
+  iterationId: string;
+}) {
+  const preset = resolveCourseLearningPreset(course);
+  const testResult = useEvidenceDraft({
+    course,
+    studentId,
+    stageKey: "make",
+    kind: "test-result",
+    suffix: iterationId,
+    title: `测试记录 ${iterationId.replace("cycle-", "#")}`,
+    initialPayload: {
+      iterationId,
+      method: "",
+      target: "",
+      observation: "",
+      result: "",
+      limitation: "",
+      ...(preset === "research" ? { researchMethod: "", ethics: "" } : {}),
+    },
+  });
+  const revision = useEvidenceDraft({
+    course,
+    studentId,
+    stageKey: "make",
+    kind: "revision-decision",
+    suffix: iterationId,
+    title: `修订决定 ${iterationId.replace("cycle-", "#")}`,
+    initialPayload: {
+      iterationId,
+      interpretation: "",
+      decision: "revise",
+      reason: "",
+      plannedChange: "",
+      nextGoal: "",
+    },
+  });
+
+  return (
+    <div className="make-iteration-grid">
+      <EvidenceCard
+        active
+        description="只记录真实发生的测试，不要把预期写成观察结果。"
+        error={testResult.error}
+        eyebrow="测试事实"
+        onSubmit={() => testResult.submit()}
+        saveState={testResult.saveState}
+        status={testResult.status}
+        title="记录本轮测试"
+      >
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Field
+            label="怎样测试"
+            onChange={(method) => testResult.setPayload((value) => ({ ...value, method }))}
+            placeholder="让使用者在相同条件下完成一次任务…"
+            value={testResult.payload.method}
+          />
+          <Field
+            label="测试对象与条件"
+            onChange={(target) => testResult.setPayload((value) => ({ ...value, target }))}
+            placeholder="对象、数量、场景和约束…"
+            value={testResult.payload.target}
+          />
+        </div>
+        <Field
+          description="写看到、听到或测量到的事实，避免先下结论。"
+          label="观察记录"
+          onChange={(observation) => testResult.setPayload((value) => ({ ...value, observation }))}
+          placeholder="3 名同学中有 2 人在第二步停顿超过 10 秒…"
+          value={testResult.payload.observation}
+        />
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Field
+            label="测试结果"
+            onChange={(result) => testResult.setPayload((value) => ({ ...value, result }))}
+            placeholder="目标是否达成？关键数据是什么？"
+            value={testResult.payload.result}
+          />
+          <Field
+            label="本次测试的局限"
+            onChange={(limitation) => testResult.setPayload((value) => ({ ...value, limitation }))}
+            placeholder="样本少、场景单一、测量误差…"
+            value={testResult.payload.limitation ?? ""}
+          />
+        </div>
+        {preset === "research" ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Field
+              label="研究方法说明"
+              onChange={(researchMethod) => testResult.setPayload((value) => ({ ...value, researchMethod }))}
+              placeholder="变量控制、记录方式与分析方法…"
+              value={testResult.payload.researchMethod ?? ""}
+            />
+            <Field
+              label="伦理与安全"
+              onChange={(ethics) => testResult.setPayload((value) => ({ ...value, ethics }))}
+              placeholder="知情同意、隐私、安全风险与退出方式…"
+              value={testResult.payload.ethics ?? ""}
+            />
+          </div>
+        ) : null}
+      </EvidenceCard>
+
+      <EvidenceCard
+        active
+        description="把测试结果转化成一个明确的版本动作。"
+        error={revision.error}
+        eyebrow="修订决定"
+        onSubmit={() => revision.submit()}
+        saveState={revision.saveState}
+        status={revision.status}
+        title="决定下一步"
+      >
+        <Field
+          label="你怎样解释测试结果"
+          onChange={(interpretation) => revision.setPayload((value) => ({ ...value, interpretation }))}
+          placeholder="结果说明了什么？还不能说明什么？"
+          value={revision.payload.interpretation}
+        />
+        <SelectField
+          label="本轮决定"
+          onChange={(decision) => revision.setPayload((value) => ({
+            ...value,
+            decision: decision as "revise" | "keep" | "retry",
+          }))}
+          options={[
+            { value: "revise", label: "修改作品" },
+            { value: "keep", label: "保留当前设计" },
+            { value: "retry", label: "调整测试后重试" },
+          ]}
+          value={revision.payload.decision}
+        />
+        <Field
+          label="决定理由"
+          onChange={(reason) => revision.setPayload((value) => ({ ...value, reason }))}
+          placeholder="引用上面的观察或数据说明理由…"
+          value={revision.payload.reason}
+        />
+        <Field
+          label="计划修改"
+          onChange={(plannedChange) => revision.setPayload((value) => ({ ...value, plannedChange }))}
+          placeholder="只写这轮真正要改的一处…"
+          value={revision.payload.plannedChange}
+        />
+        <Field
+          label="下一轮验证目标"
+          onChange={(nextGoal) => revision.setPayload((value) => ({ ...value, nextGoal }))}
+          placeholder="修改后希望观察到什么变化？"
+          value={revision.payload.nextGoal}
+        />
+        <p className="make-revision-note"><RefreshCw size={14} /> 两项记录提交后，再上传对应的新作品版本。</p>
+      </EvidenceCard>
     </div>
   );
 }

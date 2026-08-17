@@ -24,7 +24,6 @@ import {
   Search,
   Server,
   SlidersHorizontal,
-  Sparkles,
   Trash2,
   Users,
   Video,
@@ -34,14 +33,13 @@ import {
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import {
-  Card,
   Pill,
   PrimaryButton,
-  SectionTitle,
   TextArea,
   TextInput,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { getProviderStatePresentation } from "@/lib/teacher/ai-service-settings";
 import type { ProviderSection } from "@/lib/openmaic-bridge/provider-config-editor";
 import { qualifyModelForProvider, splitModelIds } from "@/lib/openmaic-bridge/model-id";
 
@@ -136,46 +134,30 @@ const TABS: Array<{
   { key: "agent-voice", label: "智能体音色", shortLabel: "音色", section: "tts", icon: Users },
 ];
 
-const TAB_COPY: Record<TabKey, { title: string; description: string; tips: string[] }> = {
+const TAB_COPY: Record<TabKey, { title: string }> = {
   llm: {
-    title: "AI 大模型配置",
-    description: "配置课堂内容生成、对话辅导和评价反馈使用的 AI 大模型。",
-    tips: ["选择服务商", "填写密钥与服务地址", "确认模型列表并选择默认模型", "保存后测试连接"],
+    title: "AI 大模型",
   },
   tts: {
-    title: "语音朗读配置",
-    description: "配置课堂旁白、角色朗读和讲解音频使用的语音合成服务。",
-    tips: ["选择服务商", "按需填写密钥与地址", "保存后在生成语音时生效"],
+    title: "语音朗读",
   },
   asr: {
-    title: "语音识别配置",
-    description: "配置学生语音输入转文字服务。",
-    tips: ["选择识别服务", "填写凭据", "课堂语音输入会读取这里的配置"],
+    title: "语音识别",
   },
   image: {
-    title: "图像生成配置",
-    description: "配置课堂素材和场景插图生成服务。",
-    tips: ["选择图像服务", "填写凭据", "后续生成图片时使用此配置"],
+    title: "图像生成",
   },
   video: {
-    title: "视频生成配置",
-    description: "配置视频素材生成服务。",
-    tips: ["选择视频服务", "填写凭据", "保存后进入生成流程"],
+    title: "视频生成",
   },
   "web-search": {
-    title: "联网搜索配置",
-    description: "配置 AI 实时检索网络资料时使用的搜索服务。",
-    tips: ["选择搜索引擎", "填写密钥", "保存后用于资料检索与事实补充"],
+    title: "联网搜索",
   },
   pdf: {
-    title: "PDF 解析配置",
-    description: "配置读取和解析 PDF 教材资料的服务。",
-    tips: ["选择解析服务", "云服务填写密钥", "本地服务按需填写地址"],
+    title: "PDF 解析",
   },
   "agent-voice": {
-    title: "智能体音色配置",
-    description: "为每个 AI 伙伴选择符合性格的朗读音色，让课堂对话更生动。",
-    tips: ["确认语音服务商已配置", "为每个智能体选择音色", "可一键应用推荐配置", "点击试听效果"],
+    title: "智能体音色",
   },
 };
 
@@ -373,16 +355,18 @@ function AgentVoiceConfig() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* 操作栏 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-stone-200 bg-white p-4">
-        <div className="flex items-center gap-2 text-sm text-stone-600">
-          <Volume2 size={16} className="text-[var(--pbl-teacher)]" />
-          <span>
-            当前语音服务商：<span className="font-bold text-stone-900">{currentProvider?.providerName ?? ttsProviderId}</span>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-stone-200 bg-white px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[8px] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
+            <Volume2 size={17} />
           </span>
-          <span className="text-stone-400">·</span>
-          <span>共 {availableVoices.length} 个可用音色</span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-bold text-stone-900">
+              {currentProvider?.providerName ?? ttsProviderId}
+            </span>
+            <span className="block text-xs text-stone-500">{availableVoices.length} 个可用音色</span>
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {isQwenProvider ? (
@@ -391,8 +375,8 @@ function AgentVoiceConfig() {
               onClick={handleApplyRecommended}
               className="h-8 px-3 text-xs"
             >
-              <Sparkles size={13} />
-              应用推荐配置
+              <SlidersHorizontal size={13} />
+              应用推荐音色
             </PrimaryButton>
           ) : null}
           <PrimaryButton
@@ -406,8 +390,7 @@ function AgentVoiceConfig() {
         </div>
       </div>
 
-      {/* 智能体列表 */}
-      <div className="space-y-3">
+      <div className="divide-y divide-stone-100 overflow-hidden rounded-[12px] border border-stone-200 bg-white">
         {AI_COMPANIONS.map((companion) => {
           const override = agentVoiceOverrides[companion.id];
           const selectedVoiceId = override?.voiceId ?? "";
@@ -415,9 +398,8 @@ function AgentVoiceConfig() {
           const isRecommended = isQwenProvider && rec && selectedVoiceId === rec.voiceId;
 
           return (
-            <Card key={companion.id} compact>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                {/* 智能体信息 */}
+            <div key={companion.id} className="px-4 py-3.5 transition-colors hover:bg-stone-50/70">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <span
                     className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-lg"
@@ -425,29 +407,21 @@ function AgentVoiceConfig() {
                   >
                     {companion.emoji}
                   </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-stone-950">{companion.name}</span>
-                      <Pill tone="blue" className="h-5 px-1.5 text-[10px]">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="truncate font-bold text-stone-950">{companion.name}</span>
+                      <Pill tone="blue" className="h-5 shrink-0 px-1.5 text-[10px]">
                         {companion.role}
                       </Pill>
                       {isRecommended ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--pbl-warning)]">
-                          <Sparkles size={10} />
+                        <span className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[var(--pbl-success-soft)] px-2 text-[10px] font-bold text-[var(--pbl-success)]">
+                          <CheckCircle2 size={10} />
                           推荐
                         </span>
                       ) : null}
-                    </div>
-                    {rec && isQwenProvider ? (
-                      <p className="mt-0.5 truncate text-xs text-stone-400">{rec.reason}</p>
-                    ) : (
-                      <p className="mt-0.5 truncate text-xs text-stone-400">{companion.description}</p>
-                    )}
                   </div>
                 </div>
 
-                {/* 音色选择 + 试听 */}
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2 sm:w-[280px]">
                   <select
                     value={selectedVoiceId}
                     onChange={(e) => {
@@ -461,7 +435,7 @@ function AgentVoiceConfig() {
                         setAgentVoiceOverride(companion.id, undefined);
                       }
                     }}
-                    className="h-9 min-w-[200px] rounded-[6px] border border-stone-300 bg-white px-3 text-sm font-medium text-stone-800 transition focus:border-[var(--pbl-teacher)] focus:outline-none focus:ring-2 focus:ring-[var(--pbl-teacher)]/20"
+                    className="h-9 min-w-0 flex-1 rounded-[6px] border border-stone-300 bg-white px-3 text-sm font-medium text-stone-800 transition focus:border-[var(--pbl-teacher)] focus:outline-none focus:ring-2 focus:ring-[var(--pbl-teacher)]/20"
                   >
                     <option value="">跟随默认音色</option>
                     {availableModelGroups.length > 1
@@ -495,26 +469,12 @@ function AgentVoiceConfig() {
                   </button>
                 </div>
               </div>
-            </Card>
+            </div>
           );
         })}
       </div>
 
-      {/* 试听结果 */}
       {testResult ? <ResultNotice result={testResult} /> : null}
-
-      {/* 说明 */}
-      <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-4">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-stone-400">
-          <Sparkles size={13} />
-          推荐说明
-        </div>
-        <p className="mt-2 text-sm leading-6 text-stone-600">
-          {isQwenProvider
-            ? "已为 Qwen TTS 用户准备了符合各智能体性格的推荐音色配置。点击「应用推荐配置」可一键设置全部音色。未选择的智能体将使用「语音朗读」中设置的默认音色。"
-            : "为每个智能体选择不同的音色可以让课堂对话更生动。当前服务商的可用音色会显示在下拉列表中。未选择的智能体将使用默认音色。"}
-        </p>
-      </div>
     </div>
   );
 }
@@ -900,6 +860,10 @@ export default function TeacherSettingsPage() {
 
   const selectedLlmProvider = providers.find((provider) => provider.id === selectedLlmId) ?? null;
   const selectedModalityProvider = providers.find((provider) => provider.id === expandedId) ?? null;
+  const configuredProvidersCount = providers.filter((provider) => {
+    const saved = savedConfigs[configKey(currentTab.section, provider.id)];
+    return saved?.hasApiKey || saved?.enabled !== undefined;
+  }).length;
 
   async function handleDelete(provider: ProviderMeta) {
     setDeleting(true);
@@ -946,26 +910,20 @@ export default function TeacherSettingsPage() {
 
   return (
     <DashboardShell role="teacher">
-      <div className="mb-5 flex items-center gap-3">
-        <Link
-          href="/teacher"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-stone-200 bg-white text-stone-500 transition hover:bg-stone-50 hover:text-stone-800"
-          title="返回教师首页"
-        >
-          <ArrowLeft size={18} />
-        </Link>
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-stone-900">AI 服务设置</h1>
+      <div className="mb-5 overflow-hidden rounded-[14px] border border-stone-200 bg-white">
+        <div className="flex items-center gap-3 border-b border-stone-200 px-3 py-3 sm:px-4">
+          <Link
+            href="/teacher"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pbl-teacher)]"
+            title="返回教师首页"
+          >
+            <ArrowLeft size={18} />
+          </Link>
+          <h1 className="min-w-0 truncate text-lg font-bold text-stone-900 sm:text-xl">AI 服务设置</h1>
         </div>
-      </div>
 
-      <ThemeProvider>
-        <I18nProvider>
-          <ServerProvidersInit />
-
-          {/* Tab 栏 */}
-          <div className="mb-5 overflow-x-auto border-b border-stone-200">
-            <div className="flex min-w-max gap-1">
+        <nav aria-label="AI 服务类型" className="overflow-x-auto p-2">
+            <div className="grid min-w-[760px] grid-cols-8 gap-1">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key;
@@ -979,21 +937,22 @@ export default function TeacherSettingsPage() {
                   <button
                     key={tab.key}
                     type="button"
+                    aria-current={active ? "page" : undefined}
                     onClick={() => handleTabChange(tab.key)}
                     className={cn(
-                      "inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-bold transition",
+                      "inline-flex h-10 min-w-0 items-center justify-center gap-2 rounded-[8px] px-3 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--pbl-teacher)]",
                       active
-                        ? "border-[var(--pbl-teacher)] text-[var(--pbl-teacher)]"
-                        : "border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-800",
+                        ? "bg-[var(--pbl-teacher)] text-white"
+                        : "text-stone-500 hover:bg-stone-100 hover:text-stone-800",
                     )}
                   >
-                    <Icon size={16} />
-                    {tab.shortLabel}
+                    <Icon size={16} className="shrink-0" />
+                    <span className="truncate">{tab.shortLabel}</span>
                     {tabConfigured > 0 ? (
                       <span className={cn(
-                        "inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                        "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-bold",
                         active
-                          ? "bg-[var(--pbl-teacher)] text-white"
+                          ? "bg-white/20 text-white"
                           : "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
                       )}>
                         {tabConfigured}
@@ -1003,27 +962,22 @@ export default function TeacherSettingsPage() {
                 );
               })}
             </div>
-          </div>
+        </nav>
+      </div>
 
-          {/* 主内容区 - 全宽 */}
-          <div>
+      <ThemeProvider>
+        <I18nProvider>
+          <ServerProvidersInit />
+
+          <div className="min-w-0">
             <main className="min-w-0">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-stone-900">{tabCopy.title}</h2>
-                </div>
-                <div className="relative w-full md:w-[320px]">
-                  <Search
-                    size={16}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
-                  />
-                  <TextInput
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索服务商名称"
-                    className="pl-9"
-                  />
-                </div>
+              <div className="mb-4 flex min-h-8 items-center justify-between gap-3">
+                <h2 className="truncate text-lg font-bold text-stone-900 sm:text-xl">{tabCopy.title}</h2>
+                {activeTab !== "agent-voice" ? (
+                  <span className="shrink-0 text-xs font-medium tabular-nums text-stone-500">
+                    {configuredProvidersCount}/{providers.length} 已配置
+                  </span>
+                ) : null}
               </div>
 
               {configLoading ? (
@@ -1036,43 +990,24 @@ export default function TeacherSettingsPage() {
               {activeTab === "agent-voice" ? (
                 <AgentVoiceConfig />
               ) : activeTab === "llm" ? (
-                <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="grid items-start gap-4 lg:grid-cols-[304px_minmax(0,1fr)]">
                   <ProviderList
                     providers={filteredProviders}
+                    totalCount={providers.length}
                     selectedId={selectedLlmId}
                     section={currentTab.section}
                     savedConfigs={savedConfigs}
+                    query={query}
+                    onQueryChange={setQuery}
                     onSelect={selectProvider}
-                    onDelete={setDeletingProvider}
                   />
 
                   {selectedLlmProvider ? (
-                    <Card>
-                      <SectionTitle
-                        title={selectedLlmProvider.name}
-                        hint={`服务标识：${selectedLlmProvider.id}`}
-                        action={
-                          <span className="flex items-center gap-2">
-                            {getSavedConfig("providers", selectedLlmProvider.id)?.hasApiKey ? (
-                              <Pill tone="green">已配置</Pill>
-                            ) : (
-                              <Pill tone={selectedLlmProvider.requiresApiKey ? "amber" : "blue"}>
-                                {selectedLlmProvider.requiresApiKey ? "待配置" : "无需密钥"}
-                              </Pill>
-                            )}
-                            {getSavedConfig("providers", selectedLlmProvider.id)?.hasApiKey ? (
-                              <button
-                                type="button"
-                                onClick={() => setDeletingProvider(selectedLlmProvider)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]"
-                                title="删除配置"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            ) : null}
-                          </span>
-                        }
-                      />
+                    <ProviderEditor
+                      provider={selectedLlmProvider}
+                      saved={getSavedConfig("providers", selectedLlmProvider.id)}
+                      onDelete={() => setDeletingProvider(selectedLlmProvider)}
+                    >
                       <LlmConfigForm
                         provider={selectedLlmProvider}
                         saved={getSavedConfig("providers", selectedLlmProvider.id)}
@@ -1093,48 +1028,29 @@ export default function TeacherSettingsPage() {
                         onSave={() => handleSave(selectedLlmProvider)}
                         onTest={() => handleTestConnection(selectedLlmProvider)}
                       />
-                    </Card>
+                    </ProviderEditor>
                   ) : (
                     <EmptyPanel text="选择一个服务商后编辑连接信息。" />
                   )}
                 </div>
               ) : (
-                <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="grid items-start gap-4 lg:grid-cols-[304px_minmax(0,1fr)]">
                   <ProviderList
                     providers={filteredProviders}
+                    totalCount={providers.length}
                     selectedId={expandedId}
                     section={currentTab.section}
                     savedConfigs={savedConfigs}
+                    query={query}
+                    onQueryChange={setQuery}
                     onSelect={selectProvider}
-                    onDelete={setDeletingProvider}
                   />
                   {selectedModalityProvider ? (
-                    <Card>
-                      <SectionTitle
-                        title={selectedModalityProvider.name}
-                        hint={`服务标识：${selectedModalityProvider.id}`}
-                        action={
-                          <span className="flex items-center gap-2">
-                            {getSavedConfig(currentTab.section, selectedModalityProvider.id)?.hasApiKey ? (
-                              <Pill tone="green">已配置</Pill>
-                            ) : (
-                              <Pill tone={selectedModalityProvider.requiresApiKey ? "amber" : "blue"}>
-                                {selectedModalityProvider.requiresApiKey ? "待配置" : "无需密钥"}
-                              </Pill>
-                            )}
-                            {getSavedConfig(currentTab.section, selectedModalityProvider.id)?.hasApiKey ? (
-                              <button
-                                type="button"
-                                onClick={() => setDeletingProvider(selectedModalityProvider)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]"
-                                title="删除配置"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            ) : null}
-                          </span>
-                        }
-                      />
+                    <ProviderEditor
+                      provider={selectedModalityProvider}
+                      saved={getSavedConfig(currentTab.section, selectedModalityProvider.id)}
+                      onDelete={() => setDeletingProvider(selectedModalityProvider)}
+                    >
                       <ModalityConfigForm
                         provider={selectedModalityProvider}
                         saved={getSavedConfig(currentTab.section, selectedModalityProvider.id)}
@@ -1158,9 +1074,8 @@ export default function TeacherSettingsPage() {
                         onSave={() => handleSave(selectedModalityProvider)}
                         onTest={() => handleTestConnection(selectedModalityProvider)}
                         onCalibrate={activeTab === "tts" ? () => handleCalibrateTts(selectedModalityProvider) : undefined}
-                        onDelete={() => setDeletingProvider(selectedModalityProvider)}
                       />
-                    </Card>
+                    </ProviderEditor>
                   ) : (
                     <EmptyPanel text="选择一个服务商后编辑连接信息。" />
                   )}
@@ -1206,75 +1121,140 @@ export default function TeacherSettingsPage() {
   );
 }
 
+function ProviderEditor({
+  provider,
+  saved,
+  onDelete,
+  children,
+}: {
+  provider: ProviderMeta;
+  saved?: SavedConfig;
+  onDelete: () => void;
+  children: ReactNode;
+}) {
+  const hasSavedConfig = Boolean(saved?.hasApiKey || saved?.enabled !== undefined);
+
+  return (
+    <section className="min-w-0 overflow-hidden rounded-[12px] border border-stone-200 bg-white">
+      <header className="flex min-w-0 items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <ProviderLogo icon={provider.icon} name={provider.name} />
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-bold text-stone-950" title={provider.name}>
+              {provider.name}
+            </h3>
+            <p className="truncate text-xs text-stone-500" title={provider.id}>{provider.id}</p>
+          </div>
+        </div>
+        <div className="flex min-w-0 shrink items-center justify-end gap-2">
+          <div className="min-w-0 max-w-[220px]">
+            <ProviderStateBadge provider={provider} saved={saved} />
+          </div>
+          {hasSavedConfig ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] text-stone-400 transition hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pbl-danger)]"
+              title="删除配置"
+            >
+              <Trash2 size={14} />
+            </button>
+          ) : null}
+        </div>
+      </header>
+      <div className="p-4 sm:p-5">{children}</div>
+    </section>
+  );
+}
+
 function ProviderList({
   providers,
+  totalCount,
   selectedId,
   section,
   savedConfigs,
+  query,
+  onQueryChange,
   onSelect,
-  onDelete,
 }: {
   providers: ProviderMeta[];
+  totalCount: number;
   selectedId: string | null;
   section: ProviderSection;
   savedConfigs: Record<string, SavedConfig>;
+  query: string;
+  onQueryChange: (value: string) => void;
   onSelect: (provider: ProviderMeta) => void;
-  onDelete: (provider: ProviderMeta) => void;
 }) {
-  if (providers.length === 0) {
-    return <EmptyPanel text="没有匹配的服务商。" />;
-  }
-
   return (
-    <div className="space-y-2">
-      {providers.map((provider) => {
-        const saved = savedConfigs[configKey(section, provider.id)];
-        const selected = selectedId === provider.id;
-        return (
-          <button
-            key={provider.id}
-            type="button"
-            onClick={() => onSelect(provider)}
-            className={cn(
-              "group flex w-full items-center gap-3 rounded-[8px] border px-3 py-3 text-left transition",
-              selected
-                ? "border-[var(--pbl-teacher)]/40 bg-[var(--pbl-teacher-soft)] shadow-sm"
-                : "border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50",
-            )}
-          >
-            <ProviderLogo icon={provider.icon} name={provider.name} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-bold text-stone-900">
-                {provider.name}
-              </span>
-              <span className="mt-1 flex items-center gap-2">
-                <ProviderStateBadge provider={provider} saved={saved} />
-              </span>
-            </span>
-            {saved?.hasApiKey ? (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(provider);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.stopPropagation();
-                    onDelete(provider);
-                  }
-                }}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-stone-300 opacity-0 transition group-hover:opacity-100 hover:bg-[var(--pbl-danger-soft)] hover:text-[var(--pbl-danger)]"
-                title="删除配置"
-              >
-                <Trash2 size={13} />
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
+    <aside className="min-w-0 overflow-hidden rounded-[12px] border border-stone-200 bg-white lg:sticky lg:top-20">
+      <div className="border-b border-stone-200 bg-stone-50/70 p-3">
+        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+          <h3 className="text-sm font-bold text-stone-800">服务商</h3>
+          <span className="shrink-0 text-xs tabular-nums text-stone-500">
+            {providers.length === totalCount ? totalCount : `${providers.length}/${totalCount}`}
+          </span>
+        </div>
+        <div className="relative">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
+          />
+          <TextInput
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="搜索服务商"
+            className="h-9 bg-white pl-9 text-sm"
+          />
+        </div>
+      </div>
+
+      <div className="max-h-[320px] overflow-y-auto p-2 lg:max-h-[calc(100vh-248px)]">
+        {providers.length === 0 ? (
+          <div className="grid min-h-28 place-items-center px-4 text-center text-sm text-stone-500">
+            没有匹配的服务商
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {providers.map((provider) => {
+              const saved = savedConfigs[configKey(section, provider.id)];
+              const selected = selectedId === provider.id;
+              return (
+                <button
+                  key={provider.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onSelect(provider)}
+                  className={cn(
+                    "group relative flex min-h-[64px] w-full min-w-0 items-center gap-3 overflow-hidden rounded-[8px] px-2.5 py-2.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--pbl-teacher)]",
+                    selected
+                      ? "bg-[var(--pbl-teacher-soft)]"
+                      : "hover:bg-stone-50",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "absolute inset-y-2 left-0 w-0.5 rounded-full bg-[var(--pbl-teacher)] transition-opacity",
+                      selected ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  <ProviderLogo icon={provider.icon} name={provider.name} />
+                  <span className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block truncate text-sm font-bold text-stone-900" title={provider.name}>
+                      {provider.name}
+                    </span>
+                    <span className="mt-1.5 block min-w-0 overflow-hidden">
+                      <ProviderStateBadge provider={provider} saved={saved} />
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -1322,36 +1302,38 @@ function LlmConfigForm({
 
   return (
     <div className="space-y-5">
-      <SecretField
-        label="密钥"
-        value={editApiKey}
-        show={showApiKey}
-        required={provider.requiresApiKey}
-        saved={saved?.hasApiKey}
-        placeholder={saved?.hasApiKey ? "留空则继续使用已保存的密钥" : "输入密钥"}
-        onChange={onApiKeyChange}
-        onToggleShow={() => onShowApiKeyChange(!showApiKey)}
-      />
-
-      <Field label="服务地址" icon={Server}>
-        <TextInput
-          value={editBaseUrl}
-          onChange={(event) => onBaseUrlChange(event.target.value)}
-          placeholder={provider.defaultBaseUrl || "输入兼容 OpenAI / Anthropic 的服务地址"}
+      <div className="grid items-start gap-4 md:grid-cols-2">
+        <SecretField
+          label="密钥"
+          value={editApiKey}
+          show={showApiKey}
+          required={provider.requiresApiKey}
+          saved={saved?.hasApiKey}
+          placeholder={saved?.hasApiKey ? "留空则保留已保存的密钥" : "输入密钥"}
+          onChange={onApiKeyChange}
+          onToggleShow={() => onShowApiKeyChange(!showApiKey)}
         />
-        {provider.defaultBaseUrl ? (
-          <button
-            type="button"
-            onClick={() => onBaseUrlChange(provider.defaultBaseUrl || "")}
-            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--pbl-teacher)] hover:text-[var(--pbl-teacher)]"
-          >
-            <RefreshCw size={13} />
-            恢复默认地址
-          </button>
-        ) : null}
-      </Field>
 
-      <Field label="模型列表" helper="用逗号或换行分隔；测试和生成会使用默认模型。" icon={Bot}>
+        <Field label="服务地址" icon={Server}>
+          <TextInput
+            value={editBaseUrl}
+            onChange={(event) => onBaseUrlChange(event.target.value)}
+            placeholder={provider.defaultBaseUrl || "输入兼容服务地址"}
+          />
+          {provider.defaultBaseUrl ? (
+            <button
+              type="button"
+              onClick={() => onBaseUrlChange(provider.defaultBaseUrl || "")}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--pbl-teacher)] hover:text-[var(--pbl-teacher)]"
+            >
+              <RefreshCw size={13} />
+              恢复默认地址
+            </button>
+          ) : null}
+        </Field>
+      </div>
+
+      <Field label="模型列表" helper="每行一个模型 ID。" icon={Bot}>
         <TextArea
           value={editModels}
           onChange={(event) => onModelsChange(event.target.value)}
@@ -1363,7 +1345,7 @@ function LlmConfigForm({
       {modelIds.length > 0 ? (
         <Field
           label="默认模型"
-          helper={`闪电标记的模型为当前活跃模型，连接测试将使用 ${qualifyModelForProvider(testModel, provider.id)}`}
+          helper={`连接测试将使用 ${qualifyModelForProvider(testModel, provider.id)}`}
           icon={CircleDot}
         >
           <div className="grid gap-2 md:grid-cols-2">
@@ -1376,9 +1358,9 @@ function LlmConfigForm({
                   type="button"
                   onClick={() => onDefaultModelChange(modelId)}
                   className={cn(
-                    "flex min-h-12 items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-sm transition",
+                    "flex min-h-12 min-w-0 items-center gap-2 overflow-hidden rounded-[8px] border px-3 py-2 text-left text-sm transition",
                     selected
-                      ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] shadow-sm ring-1 ring-[var(--pbl-teacher)]/20"
+                      ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher)]/20"
                       : "border-stone-200 bg-white text-stone-600 hover:border-stone-300",
                   )}
                 >
@@ -1387,8 +1369,8 @@ function LlmConfigForm({
                   ) : (
                     <Circle size={17} className="shrink-0 text-stone-300" />
                   )}
-                  <span className="min-w-0">
-                    <span className="block truncate font-bold">{modelMeta?.name || modelId}</span>
+                  <span className="min-w-0 overflow-hidden">
+                    <span className="block truncate font-bold" title={modelMeta?.name || modelId}>{modelMeta?.name || modelId}</span>
                     {modelMeta ? <span className="block truncate text-xs opacity-75">{modelId}</span> : null}
                   </span>
                 </button>
@@ -1433,7 +1415,6 @@ function ModalityConfigForm({
   onSave,
   onTest,
   onCalibrate,
-  onDelete,
 }: {
   provider: ProviderMeta;
   saved?: SavedConfig;
@@ -1457,7 +1438,6 @@ function ModalityConfigForm({
   onSave: () => void;
   onTest: () => void;
   onCalibrate?: () => void;
-  onDelete: () => void;
 }) {
   const availableModels = provider.models ?? [];
   const modelIds = splitModelIds(editModels);
@@ -1470,8 +1450,8 @@ function ModalityConfigForm({
   );
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_180px]">
-      <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="grid items-start gap-4 md:grid-cols-2">
         {provider.requiresApiKey ? (
           <SecretField
             label="密钥"
@@ -1479,7 +1459,7 @@ function ModalityConfigForm({
             show={showApiKey}
             required
             saved={saved?.hasApiKey}
-            placeholder={saved?.hasApiKey ? "留空则继续使用已保存的密钥" : "输入密钥"}
+            placeholder={saved?.hasApiKey ? "留空则保留已保存的密钥" : "输入密钥"}
             onChange={onApiKeyChange}
             onToggleShow={() => onShowApiKeyChange(!showApiKey)}
           />
@@ -1504,10 +1484,11 @@ function ModalityConfigForm({
             </button>
           ) : null}
         </Field>
+      </div>
 
-        {availableModels.length > 0 ? (
-          <Field label="模型" helper="圆点标记的模型为当前活跃模型。" icon={Bot}>
-            <div className="flex flex-wrap gap-2">
+      {availableModels.length > 0 ? (
+          <Field label="模型" helper="选择保存后使用的默认模型。" icon={Bot}>
+            <div className="grid gap-2 sm:grid-cols-2">
               {availableModels.map((m) => {
                 const isActive = editDefaultModel === m.id;
                 const isSelected = modelIds.includes(m.id);
@@ -1522,9 +1503,9 @@ function ModalityConfigForm({
                       }
                     }}
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                      "flex min-h-10 min-w-0 items-center gap-2 overflow-hidden rounded-[8px] border px-3 py-2 text-left text-xs font-medium transition",
                       isActive
-                        ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] shadow-sm ring-1 ring-[var(--pbl-teacher)]/20"
+                        ? "border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher)]/20"
                         : isSelected
                           ? "border-stone-300 bg-stone-50 text-stone-700"
                           : "border-stone-200 bg-white text-stone-500 hover:border-stone-300",
@@ -1535,7 +1516,7 @@ function ModalityConfigForm({
                     ) : (
                       <Circle size={12} />
                     )}
-                    {m.name || m.id}
+                    <span className="min-w-0 truncate" title={m.name || m.id}>{m.name || m.id}</span>
                   </button>
                 );
               })}
@@ -1543,10 +1524,10 @@ function ModalityConfigForm({
           </Field>
         ) : null}
 
-        {onCalibrate ? (
+      {onCalibrate ? (
           <Field
             label="默认音色与自然语速"
-            helper="语速建模会以 1.0 倍自然语速生成标准文本，并用实际音频时长计算该模型与音色的内容预算。"
+            helper="基于当前模型与音色测量中文自然语速。"
             icon={Volume2}
           >
             <select
@@ -1567,74 +1548,31 @@ function ModalityConfigForm({
             )}
           </Field>
         ) : null}
-      </div>
 
-      <div className="flex flex-col justify-between rounded-[8px] border border-stone-200 bg-stone-50 p-3">
-        <div className="text-xs leading-5 text-stone-500">
-          <div className="mb-3 rounded-[8px] border border-stone-200 bg-white p-2 text-[var(--pbl-teacher)]">
-            <div className="flex items-center gap-1.5 font-bold">
-              {saved?.priority === 0 ? <CheckCircle2 size={13} /> : <Zap size={13} />}
-              {saved?.priority === 0 ? "当前应用默认" : "保存后设为默认"}
-            </div>
-            <div className="mt-1 text-[11px] leading-4 text-stone-500">
-              系统会优先使用此服务商和选中的默认模型完成对应模态任务。
-            </div>
-          </div>
-          <div className="font-bold text-stone-700">服务标识</div>
-          <div className="mt-1 break-all">{provider.id}</div>
-        </div>
-        <div className="mt-4 space-y-2">
-          <PrimaryButton onClick={onSave} disabled={saving || testing} className="h-9 w-full px-3 text-sm">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            保存为默认
-          </PrimaryButton>
-          <PrimaryButton
-            variant="outline"
-            onClick={onTest}
-            disabled={saving || testing}
-            className="h-9 w-full px-3 text-sm"
-          >
-            {testing ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
-            测试
-          </PrimaryButton>
-          {onCalibrate ? (
-            <PrimaryButton
-              variant="outline"
-              onClick={onCalibrate}
-              disabled={saving || testing || calibrating}
-              className="h-9 w-full px-3 text-sm"
-            >
-              {calibrating ? <Loader2 size={14} className="animate-spin" /> : <SlidersHorizontal size={14} />}
-              语速建模
-            </PrimaryButton>
-          ) : null}
-          {saved?.hasApiKey ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[8px] border border-[var(--pbl-danger-border)] bg-white px-3 text-sm font-medium text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]"
-            >
-              <Trash2 size={14} />
-              删除
-            </button>
-          ) : null}
-          <ResultNotice result={saveResult} compact />
-          <ResultNotice result={testResult} compact />
-          {testResult?.audioUrl ? (
-            <audio className="mt-2 w-full" controls preload="metadata" src={testResult.audioUrl} />
-          ) : null}
-          {testResult?.previewUrl ? (
-            <Image
-              alt="图像模型测试结果"
-              className="mt-2 h-auto w-full rounded-[8px] border border-stone-200 object-cover"
-              height={180}
-              src={testResult.previewUrl}
-              unoptimized
-              width={180}
-            />
-          ) : null}
-        </div>
-      </div>
+      <ActionRow
+        saving={saving}
+        testing={testing}
+        calibrating={calibrating}
+        saveResult={saveResult}
+        testResult={testResult}
+        onSave={onSave}
+        onTest={onTest}
+        onCalibrate={onCalibrate}
+      />
+
+      {testResult?.audioUrl ? (
+        <audio className="w-full" controls preload="metadata" src={testResult.audioUrl} />
+      ) : null}
+      {testResult?.previewUrl ? (
+        <Image
+          alt="图像模型测试结果"
+          className="h-auto max-h-72 w-full rounded-[8px] border border-stone-200 object-contain"
+          height={320}
+          src={testResult.previewUrl}
+          unoptimized
+          width={640}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1642,21 +1580,25 @@ function ModalityConfigForm({
 function ActionRow({
   saving,
   testing,
+  calibrating = false,
   saveResult,
   testResult,
   onSave,
   onTest,
+  onCalibrate,
 }: {
   saving: boolean;
   testing: boolean;
+  calibrating?: boolean;
   saveResult: ResultState;
   testResult: ResultState;
   onSave: () => void;
   onTest: () => void;
+  onCalibrate?: () => void;
 }) {
   return (
-    <div className="space-y-3 border-t border-stone-100 pt-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-3 border-t border-stone-200 pt-4">
+      <div className="flex flex-wrap items-center gap-2">
         <PrimaryButton onClick={onSave} disabled={saving || testing} className="h-10 px-4 text-sm">
           {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
           保存配置
@@ -1670,6 +1612,17 @@ function ActionRow({
           {testing ? <Loader2 size={15} className="animate-spin" /> : <Plug size={15} />}
           测试连接
         </PrimaryButton>
+        {onCalibrate ? (
+          <PrimaryButton
+            variant="outline"
+            onClick={onCalibrate}
+            disabled={saving || testing || calibrating}
+            className="h-10 px-4 text-sm"
+          >
+            {calibrating ? <Loader2 size={15} className="animate-spin" /> : <SlidersHorizontal size={15} />}
+            语速建模
+          </PrimaryButton>
+        ) : null}
       </div>
       <ResultNotice result={saveResult} />
       <ResultNotice result={testResult} />
@@ -1775,43 +1728,34 @@ function ResultNotice({ result, compact = false }: { result: ResultState; compac
 }
 
 function ProviderStateBadge({ provider, saved }: { provider: ProviderMeta; saved?: SavedConfig }) {
-  const isDefault = saved?.priority === 0;
-  const isConfigured = saved?.hasApiKey || saved?.enabled !== undefined;
-  const activeModel = saved?.defaultModel || saved?.models?.[0];
+  const state = getProviderStatePresentation({
+    requiresApiKey: provider.requiresApiKey,
+    saved,
+  });
 
-  if (isConfigured) {
-    return (
-      <span className="flex items-center gap-1.5">
-        {isDefault ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-success-soft)] px-2 py-0.5 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-success)]/30">
-            <CheckCircle2 size={10} />
-            默认
-          </span>
-        ) : (
-          <Pill tone="green" className="h-5 px-1.5 text-[10px]">已配置</Pill>
+  return (
+    <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
+      <span
+        className={cn(
+          "inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-[10px] font-bold",
+          state.tone === "success" && "bg-[var(--pbl-success-soft)] text-[var(--pbl-success)]",
+          state.tone === "info" && "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]",
+          state.tone === "neutral" && "bg-stone-100 text-stone-500",
         )}
-        {activeModel ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-600">
-            {activeModel}
-          </span>
-        ) : null}
+      >
+        {state.tone === "success" ? <CheckCircle2 size={10} className="shrink-0" /> : null}
+        {state.label}
       </span>
-    );
-  }
-  if (!provider.requiresApiKey) {
-    return (
-      <span className="flex items-center gap-1.5">
-        <Pill tone="blue" className="h-5 px-1.5 text-[10px]">无需密钥</Pill>
-        {isDefault ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--pbl-success-soft)] px-2 py-0.5 text-xs font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-success)]/30">
-            <CheckCircle2 size={10} />
-            默认
-          </span>
-        ) : null}
-      </span>
-    );
-  }
-  return <Pill tone="gray" className="h-5 px-1.5 text-[10px]">未配置</Pill>;
+      {state.model ? (
+        <span
+          className="min-w-0 flex-1 truncate text-[11px] font-medium text-stone-500"
+          title={state.model}
+        >
+          {state.model}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function ProviderLogo({ icon, name }: { icon?: string; name: string }) {

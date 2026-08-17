@@ -275,12 +275,13 @@ OPENPBL_LLM_ENDPOINT=https://your-provider.example/v1
 OPENPBL_LLM_API_KEY=your-api-key
 OPENPBL_LLM_MODEL=your-model
 OPENPBL_LLM_REQUEST_TIMEOUT_MS=180000
+OPENPBL_LLM_QUALITY_REVIEW_TIMEOUT_MS=300000
 OPENPBL_LLM_LONG_REQUEST_TIMEOUT_MS=600000
 ```
 
 未配置 LLM 时可以使用示例内容继续验证非 AI 流程，但真实课程生成、AI 对话、联网搜索或 TTS 需要相应 Provider。
 
-普通结构化模型调用默认超时为 180 秒；知识图谱、六阶段架构、逐页主课脚本和整课生成属于长输出任务，默认超时为 600 秒。两个值均可按 Provider 能力调整，系统会限制在 30 秒至 30 分钟之间。课程生成中的瞬态超时、限流、网络错误或 5xx 会自动重试一次，鉴权或结构错误不会盲目重试。
+普通结构化模型调用默认超时为 180 秒；独立质量审校默认 300 秒；知识图谱、六阶段架构、逐页主课脚本和整课生成属于长输出任务，默认超时为 600 秒。三个值均可按 Provider 能力调整，系统会限制在 30 秒至 30 分钟之间。课程生成中的瞬态超时、限流、网络错误或 5xx 会自动重试一次，鉴权或结构错误不会盲目重试。
 
 `PARALLEL_SCENE_CONCURRENCY` 支持 `1–5`，默认 `4`。提高并发会缩短课程生成时间，但会同时增加模型请求、限流压力和失败重试量；迁移到新服务器后应先保持默认值，再根据 Provider 配额和实际监控调整。
 

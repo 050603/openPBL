@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AdaptiveLearningPlanEditor } from "@/components/teacher/adaptive-learning-plan-editor";
@@ -30,6 +30,26 @@ function addOptionalVariableExtension(plan: AdaptiveLearningPlan): AdaptiveLearn
 }
 
 describe("AdaptiveLearningPlanEditor", () => {
+  it("returns the independently repaired knowledge graph with a regenerated adaptive plan", async () => {
+    const point = { id: "kp-cv", name: "图像分类", description: "理解图像分类", keyInfo: "特征支撑判断" };
+    const plan = createDefaultAdaptiveLearningPlan({ knowledgePoints: [point] });
+    const knowledgeGraph = {
+      nodes: [{ id: "kp-cv", label: "图像分类", description: "理解图像分类", keyInfo: "特征支撑判断", instructionalRole: "lesson" as const }],
+      edges: [],
+    };
+    const onChange = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ plan, knowledgeGraph, persisted: true, reviewSummary: "独立审校通过" }),
+    }));
+    render(<AdaptiveLearningPlanEditor courseId="course-cv" knowledgePoints={[point]} onChange={onChange} plan={plan} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "按当前主课重新建模" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(plan, knowledgeGraph));
+    vi.unstubAllGlobals();
+  });
+
   it("shows the complete nested course path and edits resources inside the map", () => {
     const point = { id: "kp-1", name: "变量", description: "变量表示可变化的数据" };
     const mainScenes = [{
@@ -63,7 +83,7 @@ describe("AdaptiveLearningPlanEditor", () => {
     expect(screen.getByText("按条件插入")).not.toBeNull();
     expect(screen.getByText("诊断题 1")).not.toBeNull();
     expect(screen.getByText("主题模块 01")).not.toBeNull();
-    expect(screen.getByText("步骤 01 · 模块测验")).not.toBeNull();
+    expect(screen.getByText("步骤 01 · 主课达标测")).not.toBeNull();
     expect(screen.queryByText("个性化内容已嵌入")).toBeNull();
     expect(screen.getByText("2/2 已使用")).not.toBeNull();
     expect(screen.getByRole("button", { name: "自动分配" })).not.toBeNull();
@@ -105,7 +125,7 @@ describe("AdaptiveLearningPlanEditor", () => {
     expect(document.getElementById("adaptive-resource-resource-module-scene-1")?.hasAttribute("open")).toBe(true);
     expect(screen.getByText("当前资源完整设置")).not.toBeNull();
     expect(screen.getByText("相对主课新增价值（必填）")).not.toBeNull();
-    expect(screen.getByText("关联模块测验")).not.toBeNull();
+    expect(screen.getByText("关联主课达标测")).not.toBeNull();
 
     fireEvent.change(screen.getByDisplayValue("变量 · 模块拓展"), {
       target: { value: "变量 · 新应用" },

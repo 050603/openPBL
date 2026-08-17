@@ -18,34 +18,33 @@ Use this provider/model/voice rate before deciding student AI-learning narration
 
 ## Output planning rules
 
-### Mandatory knowledge-block assessment cadence
+### Foundation-first deep-interaction cadence in student AI-learning
 
-- Divide student `ai-learning` into coherent knowledge blocks by dependency and `knowledgePointIds`.
-- Every knowledge block MUST end with a short `quiz` scene (normally 1–3 focused questions) using the same `knowledgePointIds`. The quiz must test the block that immediately precedes it.
-- Do not replace these checkpoint quizzes with one comprehensive quiz at the end. A final synthesis quiz may be added only after all required block-level quizzes.
-- Keep question reading, answering, feedback, and any adaptive follow-up inside the confirmed parent duration. Do not increase course time to add checkpoints.
-
-{{#if interactiveMode}}
-### Interactive mode — mandatory explanation-practice cadence in student AI-learning
-
-- This is a structural constraint, not a style preference. Every coherent knowledge block must follow this rhythm: `slide` explanation (one or at most two closely related semantic pages) → one related `interactive` practice → the mandatory block-level `quiz`. Repeat that rhythm for the next knowledge block, then optionally finish with a comprehensive synthesis.
-- Slides remain responsible for explaining concepts, examples, evidence, and stable references. Do not replace all slides with widgets. After each one- or two-slide explanation block, however, the next student learning detail MUST be `type: "interactive"` and MUST let the learner explore, manipulate, observe, compare, construct, or rehearse the immediately preceding `knowledgePointIds`.
-- A `quiz` is an assessment and does NOT satisfy the interaction requirement. Do not produce slide-only or slide/quiz-only AI-learning sequences while this mode is enabled.
+- This is the default structural contract, not an optional mode. Organize the lesson as: prerequisite activation and complete explanation → concrete example, counterexample, comparison, derivation, or visible evidence → guided ungraded interaction with explanatory feedback → the next knowledge block. Only after all essential blocks are taught and practised may assessment begin.
+- Every knowledge block must visibly teach its concept, a concrete example, and at least one mechanism, relationship, step, boundary, or common misconception before the learner is assessed on it. A title-only or keyword-only slide is invalid. Use additional semantic slides when one page cannot carry a complete explanation without hiding evidence in narration.
+- Slides remain responsible for durable definitions, examples, evidence, comparisons, and summaries. Interactions let learners explore, manipulate, observe, compare, construct, or rehearse the immediately preceding `knowledgePointIds`. Do not replace teaching with widgets and do not insert an interaction before students have enough explanation to use it meaningfully.
+- A `quiz` is an assessment and does NOT satisfy the interaction requirement. Do not produce slide-only or slide/quiz-only AI-learning sequences.
 - If there is any student `ai-learning` knowledge content, generate at least one interactive practice. Longer AI-learning modules must contain repeated explanation-practice pairs rather than placing all interactions at the end.
 - Select the widget by teaching affordance: simulation for variable/causal models, diagram for structures and relationships, code for executable reasoning, game for applied decisions or practice, and 3D for spatial structure.
 - Every interaction must reuse the preceding block's valid `parentActivityId` and `knowledgePointIds`, and directly require prediction, manipulation or decision, observation, and explanatory feedback. Decorative clicking, animation, points, or unguided exploration is invalid.
 - Interactions are ungraded exploration or operation spaces, not extra assessments. Do not request matching, sorting, ordering, drag-to-answer, multiple-choice, answer submission, correctness verdicts, knowledge scores, rankings, or pass/fail gates. If dragging is pedagogically necessary, it must directly manipulate or construct the model and must not compare the final arrangement with an answer key.
-- Mark an interaction complete after a meaningful operation or exploration loop and show what changed and why. Put every correctness judgment in the mandatory `quiz` scene that follows the block.
-- Split the confirmed parent duration across explanation, interaction, and optional assessment. Interaction time is part of the existing module budget; never increase the parent duration to satisfy this rule.
-- This mode changes only student `ai-learning`. Keep `launch`, `proposal`, `make`, `showcase`, and `reflection` teacher-facing and PPT/script-only under the phase contract.
-{{/if}}
+- Mark an interaction complete after a meaningful operation or exploration loop and show what changed and why. Do not interrupt it with a quiz.
+- Split the confirmed parent duration primarily across explanation and interaction. Across student AI-learning, reserve no more than 20% of time for the terminal assessment and keep the largest share for explicit teaching.
+- Deep interaction applies only to student `ai-learning`. Keep `launch`, `proposal`, `make`, `showcase`, and `reflection` teacher-facing and PPT/script-only under the phase contract.
+
+### One terminal mastery assessment
+
+- Generate exactly one terminal mastery `quiz` after every student explanation and interaction scene. Never add a quiz after each knowledge block, and never add another comprehensive quiz after the terminal assessment.
+- Give it a learner-facing title equivalent to “主课达标测”, not “章节练习” or repeated “理解检查”. Normally use 4–8 focused questions depending on the number of confirmed knowledge points and available time.
+- The quiz scene carries all assessed `knowledgePointIds`. During question generation, every question must carry one or more specific `knowledgePointIds` from that scene so the runtime can calculate a mastery profile per knowledge point.
+- Keep reading, answering, and answer analysis inside the confirmed course duration. Prepared enrichment is optional and runs only after this assessment when mastery and remaining time allow; it must not reduce the time needed to teach the core lesson well.
 
 - Cover all six phase keys exactly as defined by the phase contract.
 - Build a one-to-many hierarchy: a course module may have multiple course-outline details, and details under different parents may have different resource types. Every detail must include `parentActivityId` from the confirmed course-module catalog.
 - Include at least one teacher resource for every phase listed in `{{requiredTeacherResourceStages}}`; other phases may be covered by a facilitation scaffold or companion guidance instead of a PPT.
 - Include student learning scenes in `ai-learning` and keep them focused on the confirmed knowledge graph and learning objectives.
 - Treat the structured student profile and teaching boundary inside the course facts as authoritative. Establish prerequisites before specialist vocabulary, explain every unfamiliar term before using it, use examples familiar to the stated learners, and never turn an outside concept into an implicit prerequisite or assessment target.
-- Plan a visible cognitive progression across student pages: prior knowledge and concrete example first, then mechanism, guided application, independent check, and synthesis. Do not make every page equally dense or equally difficult.
+- Plan a visible cognitive progression across student pages: prior knowledge and concrete example first, then mechanism, guided application, terminal mastery check, and optional enrichment. Do not make every page equally dense or equally difficult.
 - Quiz configs may request only `single`, `multiple`, `true_false`, `fill_blank`, `short_answer`, or `scenario_task`. Choose formats according to the knowledge objective rather than random variety; do not request matching, dragging, connecting, ordering, or sorting.
 - Treat the supplied course-module catalog as the source of truth for timing. Use the AI to decide whether each module needs one or multiple semantic details: create a new detail when a concept dependency, example, method, comparison, practice, evidence check, or transition needs its own visual focus; keep tightly related content together when one page explains it more clearly. Do not split merely to satisfy a fixed seconds-per-page threshold, and do not force a fixed number of pages.
 - Treat each `slide` detail as one coherent PPT page. For student `ai-learning`, use `targetDurationSec` as the content/TTS budget for that semantic detail and make the sum of details under each parent equal the confirmed module duration. If the target is long, add only valid depth directly tied to the assigned knowledge points (explanation, evidence, example, counterexample, steps, or guided practice); if the content is complete sooner, do not pad it with repetition or unrelated topics. Teacher support details are different: the parent duration is student activity time, so keep the PPT and presenter notes concise, normally one page per teacher resource, and never write a long script to fill the activity duration.

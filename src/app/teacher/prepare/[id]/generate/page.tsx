@@ -274,15 +274,14 @@ export default function GenerateCoursePage() {
   const [enableImageGeneration, setEnableImageGeneration] = useState(true);
   const [enableVideoGeneration, setEnableVideoGeneration] = useState(false);
   const [enableTTS, setEnableTTS] = useState(true);
-  // 互动模式：从备课阶段读取，不在生成页面修改
-  const interactiveMode = course?.content.interactiveMode ?? true;
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
   const pblCoverage = checkPblStageCoverage(course ? buildConfirmedSceneOutlines() : []);
   const adaptiveBranchCount =
     course?.content.adaptiveLearningPlan?.enabled &&
-    course.content.adaptiveLearningPlan.status === "teacher-confirmed"
+    course.content.adaptiveLearningPlan.status === "teacher-confirmed" &&
+    course.content.adaptiveLearningPlan.prerequisiteSemanticReview?.status === "passed"
       ? course.content.adaptiveLearningPlan.branches.filter(
           (branch) => branch.enabled !== false && branch.status === "teacher-confirmed",
         ).length
@@ -403,7 +402,6 @@ export default function GenerateCoursePage() {
       enableImageGeneration,
       enableVideoGeneration,
       enableTTS,
-      interactiveMode,
       ttsProviderId,
       ttsModelId,
       ttsVoice: ttsVoiceId,
@@ -416,6 +414,18 @@ export default function GenerateCoursePage() {
   async function prepareAdaptiveBranches(): Promise<AdaptiveLearningPlan | undefined> {
     const plan = course?.content.adaptiveLearningPlan;
     if (!course || !plan?.enabled || plan.status !== "teacher-confirmed") return plan;
+    if (plan.prerequisiteSemanticReview?.status !== "passed") {
+      setSteps((previous) => [
+        ...previous,
+        {
+          step: "跳过未审校个性化路径",
+          progress: 98,
+          message: "先修边界尚未通过独立语义审校；本次保留完整主课，不生成或插入旧的前测与补学资源。",
+          ts: Date.now(),
+        },
+      ]);
+      return plan;
+    }
     const activeCourse = course;
     const confirmedBranches = plan.branches.filter(
       (branch) => branch.enabled !== false && branch.status === "teacher-confirmed",
@@ -481,7 +491,7 @@ export default function GenerateCoursePage() {
         try {
           const generated = await generateAdaptiveClassroom({
             title: `${activeCourse.name} · ${branch.title}`,
-            requirement: buildAdaptiveResourceRequirement(activeCourse.name, branch),
+            requirement: buildAdaptiveResourceRequirement(activeCourse.name, branch, plan),
             stageKey: "ai-learning",
             requestRole: "teacher",
             scenes: [{
@@ -888,7 +898,7 @@ export default function GenerateCoursePage() {
             <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
               ["课程大纲资源", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
               ["互动活动", "按教学活动配置"], ["知识检查", "覆盖学习目标"],
-              ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.openMaicUse !== "student-ai-learning").length ?? 0} 组`],
+              ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.stageKey !== "ai-learning").length ?? 0} 组`],
               ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
             ].map(([label, value]) => <div className="border-t border-[var(--pbl-border)] pt-3" key={label}><dt className="text-xs text-[var(--pbl-text-muted)]">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
 
@@ -914,14 +924,12 @@ export default function GenerateCoursePage() {
                 </label>
               ))}
 
-              {interactiveMode ? (
-                <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3 md:col-span-2">
-                  <div className="text-sm font-bold text-stone-800">互动模式 · 已开启</div>
-                  <div className="mt-1 text-xs leading-5 text-stone-500">
-                    最终生成严格遵循已确认大纲中的 PPT、测验与互动类型，不会在此阶段再次转换。项目启动和后续教师资源仍为 PPT/讲稿。
-                  </div>
+              <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3 md:col-span-2">
+                <div className="text-sm font-bold text-stone-800">深度互动教学</div>
+                <div className="mt-1 text-xs leading-5 text-stone-500">
+                  课堂会先完成基础讲解，再安排非评分互动巩固，并以一次主课达标测形成按知识点记录的学习证据。
                 </div>
-              ) : null}
+              </div>
             </div>
             </details>
 

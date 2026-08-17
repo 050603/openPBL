@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   runtime: { current: null as unknown },
   pixiProps: { current: null as unknown },
   upsertCompanionTask: vi.fn(),
+  upsertLearningEvidence: vi.fn(),
+  upsertCompanionConfirmation: vi.fn(),
+  addCompanionProcessRecord: vi.fn(),
   setAutoInterventionsPaused: vi.fn(),
 }));
 
@@ -36,8 +39,9 @@ vi.mock("@/lib/session/store", () => ({
     studentName: "张三",
     user: { name: "张三" },
     upsertCompanionTask: mocks.upsertCompanionTask,
-    upsertCompanionConfirmation: vi.fn(),
-    addCompanionProcessRecord: vi.fn(),
+    upsertCompanionConfirmation: mocks.upsertCompanionConfirmation,
+    addCompanionProcessRecord: mocks.addCompanionProcessRecord,
+    upsertLearningEvidence: mocks.upsertLearningEvidence,
   }),
 }));
 
@@ -137,6 +141,9 @@ function runtime(progress?: number) {
 describe("CompanionStudioWorkspace micro-lesson task sync", () => {
   beforeEach(() => {
     mocks.upsertCompanionTask.mockReset();
+    mocks.upsertLearningEvidence.mockReset();
+    mocks.upsertCompanionConfirmation.mockReset();
+    mocks.addCompanionProcessRecord.mockReset();
     mocks.setAutoInterventionsPaused.mockReset();
     mocks.upsertCompanionTask.mockImplementation((input) => ({
       ...input,
@@ -216,6 +223,105 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     expect(screen.getByRole("alert").textContent).toContain("你的输入仍会保留");
   });
 
+  it("applies a completed AI workspace edit immediately and records an undo journal", async () => {
+    const initialRuntime = {
+      ...runtime(),
+      send: vi.fn(() => new Promise<boolean>(() => undefined)),
+    };
+    mocks.runtime.current = initialRuntime;
+    const view = render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    fireEvent.change(screen.getByLabelText("给伴学伙伴的任务"), {
+      target: { value: "请把样本不足补充到方案风险里" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(mocks.upsertCompanionTask).toHaveBeenCalledTimes(1));
+
+    mocks.runtime.current = {
+      ...runtime(),
+      lastCompletedRound: {
+        taskId: "task-1",
+        text: "我已经补充了样本风险。",
+        companionIds: ["knowledge"],
+        workspacePatches: [{
+          companionId: "knowledge",
+          taskId: "task-1",
+          mode: "append",
+          target: "proposal.risks",
+          title: "补充样本风险",
+          content: "样本数量不足",
+          reviewInstruction: "核对是否符合真实情况",
+        }],
+      },
+    };
+    view.rerender(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    await waitFor(() => expect(mocks.upsertLearningEvidence).toHaveBeenCalledTimes(1));
+    expect(mocks.upsertLearningEvidence.mock.calls[0]?.[0]).toMatchObject({
+      kind: "plan-version",
+      status: "draft",
+      source: "system",
+      payload: { risks: ["样本数量不足"] },
+    });
+    expect(mocks.upsertCompanionConfirmation).toHaveBeenCalledWith(expect.objectContaining({
+      action: "edit-workspace",
+      status: "confirmed",
+      payload: expect.objectContaining({
+        kind: "direct-workspace-edit",
+        target: "proposal.risks",
+        beforeValue: [],
+        afterValue: ["样本数量不足"],
+      }),
+    }));
+    expect(mocks.addCompanionProcessRecord).toHaveBeenCalledWith(expect.objectContaining({
+      title: "知知已编辑“风险与应对”",
+    }));
+  });
+
+  it("shows stage guidance and lets students edit a proposal prompt before sending", () => {
+    const proposalRuntime = {
+      ...runtime(),
+      send: vi.fn().mockResolvedValue(true),
+    };
+    mocks.runtime.current = proposalRuntime;
+
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    const guide = screen.getByRole("complementary", { name: "当前阶段指引" });
+    expect(guide.textContent).toContain("把方向变成一份可实施、可验证的方案");
+    expect(guide.textContent).toContain("打开方案工作台");
+
+    fireEvent.click(screen.getByRole("button", { name: "填入快捷提问：帮我比较两个方案方向" }));
+
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "给伴学伙伴的任务" }).value)
+      .toBe("帮我比较两个方案方向");
+    expect(proposalRuntime.send).not.toHaveBeenCalled();
+  });
+
+  it("changes the guidance and quick prompts for project practice", () => {
+    const makeCourse: Course = {
+      ...course,
+      currentStageIndex: 3,
+      companionTasks: [],
+    };
+    mocks.runtime.current = { ...runtime(), stageKey: "make", contextLabel: "项目实践" };
+
+    render(
+      <CompanionStudioWorkspace contextLabel="项目实践" course={makeCourse} stageKey="make" />,
+    );
+
+    const guide = screen.getByRole("complementary", { name: "当前阶段指引" });
+    expect(guide.textContent).toContain("完成作品、保留版本，并根据测试持续迭代");
+    expect(screen.getByRole("button", { name: "填入快捷提问：帮我设计一个可执行的测试" }))
+      .toBeTruthy();
+  });
+
   it("switches one mounted whiteboard between docked and fullscreen modes", () => {
     render(
       <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
@@ -226,20 +332,13 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "前往当前阶段任务" }));
 
-    expect(screen.getByRole("complementary", { name: "项目白板" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "项目白板" })).toBeTruthy();
     expect(screen.getByText("项目工作台")).toBeTruthy();
     expect(screen.getByText("伴学场景")).toBeTruthy();
-    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
+    expect(mocks.pixiProps.current).toMatchObject({ paused: true });
     fireEvent.change(screen.getByRole("textbox", { name: "同步草稿" }), {
       target: { value: "保留这份未保存草稿" },
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "全屏显示项目白板" }));
-    expect(screen.getByRole("dialog", { name: "项目白板" })).toBeTruthy();
-    expect(mocks.pixiProps.current).toMatchObject({ paused: true });
-    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "同步草稿" }).value)
-      .toBe("保留这份未保存草稿");
-    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(true);
 
     fireEvent.click(screen.getByRole("button", { name: "缩小到侧边栏" }));
     expect(screen.getByRole("complementary", { name: "项目白板" })).toBeTruthy();
@@ -267,11 +366,11 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     };
     act(() => pixiProps.onSelectStudyZone("library"));
 
-    expect(screen.getByRole("dialog", { name: "资料角" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "项目白板" })).toBeTruthy();
     expect(mocks.pixiProps.current).toMatchObject({ paused: true });
     expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭项目白板" })[1]);
     expect(mocks.pixiProps.current).toMatchObject({ paused: false });
     expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(false);
   });

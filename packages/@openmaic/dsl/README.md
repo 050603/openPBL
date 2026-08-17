@@ -29,6 +29,7 @@ nothing.
 | `action.ts`   | The playback verb set: `Action` and all variants (spotlight, laser, speech, the `Wb*` whiteboard family, `play_video`, `discussion`, and the `widget_*` interaction actions), `ActionType`, the frozen `ACTION_TYPES` set + `isActionType` guard, the `FIRE_AND_FORGET_ACTIONS` / `SLIDE_ONLY_ACTIONS` / `SYNC_ACTIONS` category lists, plus the `PercentageGeometry` overlay type. |
 | `guards.ts`   | Pure discriminant type-guards (`isTextElement`, …) and `PPT_ELEMENT_TYPES`. |
 | `validate.ts` | Pure, zero-dep structural validators — `validateStage` / `validateScene` / `validateAction` returning an error-collecting `ValidationResult`. |
+| `normalize.ts` | Pure, zero-dep defaulters — `normalizeElement` / `normalizeSlide` / `normalizeScene` / `normalizeStage` and the canonical `ELEMENT_DEFAULTS`. Fills required-field defaults, derives geometry, fails loud on malformed input; the repair counterpart to `validate*`. `normalizeSlideWith({ onInvalid: 'drop', onDropped })` builds a map-safe `normalizeSlide` variant so producers normalizing wild-world input (imported decks, model output) can degrade per element instead of failing the document; `normalizeSlide` itself stays unary (`slides.map(normalizeSlide)` keeps working). |
 | `version.ts`  | Serialized-contract version + migration registry: `DSL_VERSION`, the `DSL_MIGRATIONS` ladder, and the pure `migrate` / `dslVersionOf` / `needsMigration` runner. |
 
 ```ts
@@ -36,11 +37,12 @@ import type { Slide, PPTElement, Action } from '@openmaic/dsl';
 import { isTextElement, DSL_VERSION, SYNC_ACTIONS } from '@openmaic/dsl';
 ```
 
-## Runtime layer (schema + validators)
+## Runtime layer (schema + validators + normalizers)
 
 The contract is enforceable two ways — a zero-dependency in-process validator
 and a cross-language JSON Schema — both generated from / aligned to the same
-public TS types, and both honoring the zero-runtime-dependency invariant:
+public TS types, and both honoring the zero-runtime-dependency invariant; a
+third zero-dependency `normalize*` family repairs a document to satisfy them:
 
 1. **JSON Schema artifacts (cross-language mirror)** — `Stage`, the default
    `Scene<Action, SceneContent>`, and `Action` are emitted as standalone JSON
@@ -81,6 +83,37 @@ public TS types, and both honoring the zero-runtime-dependency invariant:
    `ValidationResult` is `{ valid: true } | { valid: false; errors: { path; message }[] }` —
    it collects every issue rather than failing on the first.
 
+3. **Pure normalizers (repair boundary)** — where `validate*` *reports* on a
+   document, `normalize*` *repairs* one, so producers stop carrying their own
+   imperative "fix up the output" pass. `normalizeElement` (and the
+   `normalizeSlide` / `normalizeScene` / `normalizeStage` walkers) fill the
+   required fields a producer may have left off, derive geometry-dependent fields
+   (a line's `start` / `end`, a shape's `viewBox` / `path`), and **fail loud** on
+   a present-but-wrong-typed field — returning a fully-defaulted document that
+   then satisfies the validators. Pure and non-mutating; idempotent.
+
+   The *static* defaults (`ELEMENT_DEFAULTS`) are the single source of truth and
+   also ride out on the JSON Schema as `@default` annotations (so non-TS
+   consumers ship them too); a test pins the two together. `normalize*` owns only
+   the producer-independent defaults — media-specific reconciliation (e.g.
+   fitting an image box to a resolved asset's real dimensions) stays a producer
+   concern.
+
+   Scope: `normalize*` owns element **content** (the per-variant required fields
+   + derivable geometry). It does **not** fill or check the base identity /
+   geometry every element shares (`id`, `left` / `top` / `width` / `height` /
+   `rotate`) — those are producer-supplied (the `id` is often assigned
+   downstream) and carry no content default. `normalize*` and `validate*` are
+   complementary: normalize repairs content, validate / the schema check the
+   full structure.
+
+   ```ts
+   import { normalizeElement, normalizeScene, ELEMENT_DEFAULTS } from '@openmaic/dsl';
+
+   const el = normalizeElement(rawElement); // required fields filled, geometry derived
+   const scene = normalizeScene(rawScene); //  walks the slide canvas + whiteboards
+   ```
+
 ## Version & migration
 
 Two version numbers live in this package and do **not** track each other:
@@ -119,9 +152,69 @@ already *is* `0.1.0`. The entry wires the pipeline end to end and gives real
 documents a version to migrate forward from; the first real transform is
 appended (and `DSL_VERSION` bumped) when the serialized shape first changes.
 
+Promoting `interactive` and `pbl` into the contract does **not** bump
+`DSL_VERSION`: it widens accepted content without changing stored bytes or the
+meaning of an existing field. This follows the additive-field precedent in
+the `GeneratedAgentConfig` compatibility note in `stage.ts`; schema-pinned
+consumers still need the new package version to accept documents carrying the
+newly described shapes.
+
 Which aggregate carries the `dslVersion` field — a whole `Stage`, a single Scene
 row, or a bundle — is left to the store that first consumes this pipeline; the
 runner only needs the envelope field.
+
+## Runtime envelope (#869)
+
+Learner-produced runtime data (chat, quiz attempts, playback facts) is persisted
+outside the document, per learner, through a `RuntimeStore` (`@openmaic/storage`).
+This package owns the envelope: `RuntimeSession` (identity + lifecycle, keyed by
+stage/learner/kind) and `RuntimeRecord<TPayload>` (ordered facts; the
+store-assigned `seq` is the replay ordering key). Core-kind payload skeletons
+(`chat`, `quizAttempt`) live here; payload internals are app-owned, validated at
+the store boundary via injected validators (`runtime.ts` guards + `validate.ts`).
+A `RuntimeSession` carries its **own** version envelope field,
+`runtimeDslVersion` — mechanically disjoint from a document's `dslVersion` — and
+rides its **own** version line: `RUNTIME_DSL_VERSION` and a dedicated
+`RUNTIME_DSL_MIGRATIONS` ladder, walked by `migrateRuntime` (not `migrate`), with
+`runtimeDslVersionOf` / `needsRuntimeMigration` as the runtime-line counterparts
+of `dslVersionOf` / `needsMigration`.
+
+Unlike the document line, the runtime line has **no unversioned epoch**. Real
+pre-versioning documents exist, so `migrate` lifts an unstamped document from
+`UNVERSIONED_DSL_VERSION` via its first ladder entry. Nothing legitimately
+predates the runtime envelope, though — it is a brand-new contract, and the
+future `RuntimeStore` stamps `RUNTIME_DSL_VERSION` at write time. So a
+`RuntimeSession` is **born stamped** (`runtimeDslVersion` is a **required** field,
+not optional), `RUNTIME_DSL_MIGRATIONS` ships **empty** (no legacy-lift entry;
+the first real runtime shape change appends a step from the pinned
+`INITIAL_RUNTIME_DSL_VERSION` and bumps `RUNTIME_DSL_VERSION`), and an unstamped
+object reaching any runtime-line function (`migrateRuntime`,
+`needsRuntimeMigration`, `runtimeDslVersionOf`) **throws** — it is a misrouted
+legacy document or an unstamped producer write, not legacy data to lift.
+(Non-objects stay exempt: they are not migratable aggregates and read as
+unversioned on every line.) An empty ladder is still fully functional — a
+stamped-current session early-returns as already current, and a session stamped
+at an unknown older version hits the "no migration path" fail-loud.
+
+The two lines stamp **different fields**, so neither ladder reads the other's
+version — but disjoint fields alone are not enough: a session lacking
+`dslVersion` would still read as *unversioned* to the document runner and be
+lifted onto the wrong line. The **cross-line guard** —
+enforced in the shared envelope reader, so the plain `dslVersionOf` /
+`runtimeDslVersionOf` reads, the `needs*Migration` predicates, and the runners
+all give one answer per envelope — closes this with three-case semantics: (1) own line's stamp present → migrate normally
+on the own line, regardless of the other key; (2) both stamps absent → genuine
+legacy data, walk the own ladder; (3) own stamp absent but the sibling line's
+stamp present → **throw**. Case (3) is undecidable from the envelope — the
+other line's aggregate misrouted here is byte-identical to this line's data
+carrying a stray foreign stamp; migrating would mangle the former, returning it
+unchanged would permanently orphan the latter from its own line — so it is
+treated like a malformed stamp and fails loud. `validateRuntimeSession`
+likewise rejects a session **missing** its `runtimeDslVersion` (born stamped, no
+legacy epoch) and a **stray** `dslVersion` on a session at the door. The runner
+mechanism (contiguous ladder, idempotent, forward-compatible, fail-loud) is
+shared; only the ladder, target version, own stamp field, and the sibling field
+the guard checks differ.
 
 ## Status
 
@@ -148,17 +241,22 @@ of the slide types:
 - [x] Bring the `Action` playback verb set into the DSL (`action.ts`); the
       widget interaction actions graduated into the contract once they decoupled
       from widget configs, so the standard `Action` union now covers them too.
-      `Scene<TAction>` defaults to that union; PBL configs and the app's richer
-      content kinds still plug in via `Scene`'s generics.
+      `Scene<TAction>` defaults to that union.
+- [x] Promote interactive and PBL content into the persisted contract, with a
+      minimal widget-config extension point and the PBL design/seed skeleton.
 - [x] Activate the migration registry: `version.ts` ships the `DSL_MIGRATIONS`
       ladder and a pure `migrate` runner (idempotent, forward-compatible,
       fail-loud), no longer a stub. See **Version & migration** above.
+- [x] Own element defaulting in the contract: `normalize.ts` ships the pure
+      `normalize*` family + `ELEMENT_DEFAULTS`, and the static defaults ride out
+      on the JSON Schema as `@default` annotations. Producers drop their
+      imperative "fix up the output" passes. See **Runtime layer** above.
 - [ ] Reserve `@openmaic/exporter` as the 4th family member.
 
 ### Stage / Scene split
 
-`stage.ts` owns the **universal lesson skeleton**: `Stage`, the discriminated
-`SceneContent` (`SlideContent | QuizContent`), and a generic
+`stage.ts` owns the **universal lesson skeleton**: `Stage`, the compatibility
+default `SceneContent` (`SlideContent | QuizContent`), and a generic
 
 ```ts
 interface Scene<TAction = Action, TContent extends { type: SceneType } = SlideContent | QuizContent>
@@ -166,20 +264,22 @@ interface Scene<TAction = Action, TContent extends { type: SceneType } = SlideCo
 
 `TAction` defaults to the contract's standard `Action` union (defined in
 `action.ts`), so a scene carries playback actions out of the box; skeleton-only
-consumers that reject actions opt out with `Scene<never, …>`. Apps widen the
-content union (and, if they add their own actions, the action union) by
-injecting their own types:
+consumers that reject actions opt out with `Scene<never, …>`. `InteractiveContent`
+and `PBLContent` are contract-owned and compose into concrete scene unions through
+the generic; apps may also specialize widget configs and action unions:
 
 ```ts
-import type { Scene, Action } from '@openmaic/dsl';
-type AppScene = Scene<Action, SlideContent | QuizContent | InteractiveContent | PBLContent>;
+import type { Action, InteractiveContent, PBLContent, Scene, SceneContent, WidgetConfigBase } from '@openmaic/dsl';
+interface AppWidgetConfig extends WidgetConfigBase { featurePayload?: unknown }
+type AppContent = SceneContent | InteractiveContent<AppWidgetConfig> | PBLContent;
+type AppScene = Scene<Action, AppContent>;
 ```
 
-Widget *configs* (`WidgetType` / `WidgetConfig`) and `PBLProjectConfig` remain
-out of scope here — they're faster-moving product surfaces that stay app-side
-and plug in via `Scene`'s generics. The widget *actions* (`widget_highlight`,
-`widget_setState`, …), by contrast, are config-free playback verbs and live in
-`action.ts` with the rest of the `Action` union.
+The contract owns `WidgetType`, the minimal `WidgetConfigBase`,
+`InteractiveContent`, `PBLContent`, and the design-time `PBLProject` plus its
+canonical planner-seeded skeleton. Rich per-widget payloads and PBL learner
+runtime overlays stay app-side. The widget actions (`widget_highlight`,
+`widget_setState`, …) remain config-free playback verbs in `action.ts`.
 
 ## Divergence reconciled (seed provenance)
 

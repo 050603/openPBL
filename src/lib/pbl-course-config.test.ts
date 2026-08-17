@@ -29,12 +29,12 @@ describe("PBL course configuration", () => {
     ]);
   });
 
-  it("normalizes and deduplicates teacher-authored inquiry questions", () => {
+  it("normalizes legacy inquiry lists to one core project driving question", () => {
     const config = normalizePblCourseConfig({
       inquiryQuestions: ["  如何节水？ ", "如何节水？", "如何回收雨水？"],
     });
 
-    expect(config.inquiryQuestions).toEqual(["如何节水？", "如何回收雨水？"]);
+    expect(config.inquiryQuestions).toEqual(["如何节水？"]);
   });
 
   it("treats evidence requirements as selected entries", () => {

@@ -1,8 +1,13 @@
 import type { LlmCallRequest } from "@/lib/llm/types";
 
-export type LlmRequestClass = "standard" | "long-generation";
+export type LlmRequestClass = "standard" | "quality-review" | "long-generation";
 
 const STANDARD_TIMEOUT_MS = 180_000;
+// Deep-reasoning reviewers often spend substantial time evaluating a dense
+// curriculum graph before emitting a relatively small JSON verdict. A short
+// output is not necessarily a short inference, so keep a conservative five-
+// minute default while retaining an independent operator override.
+const QUALITY_REVIEW_TIMEOUT_MS = 300_000;
 const LONG_GENERATION_TIMEOUT_MS = 600_000;
 const MIN_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 1_800_000;
@@ -19,15 +24,22 @@ export function resolveLlmRequestTimeoutMs(
   requestClass: LlmRequestClass,
   environment: TimeoutEnvironment = process.env,
 ): number {
-  return requestClass === "long-generation"
-    ? boundedTimeout(
+  if (requestClass === "long-generation") {
+    return boundedTimeout(
         environment.OPENPBL_LLM_LONG_REQUEST_TIMEOUT_MS,
         LONG_GENERATION_TIMEOUT_MS,
-      )
-    : boundedTimeout(
-        environment.OPENPBL_LLM_REQUEST_TIMEOUT_MS,
-        STANDARD_TIMEOUT_MS,
       );
+  }
+  if (requestClass === "quality-review") {
+    return boundedTimeout(
+      environment.OPENPBL_LLM_QUALITY_REVIEW_TIMEOUT_MS,
+      QUALITY_REVIEW_TIMEOUT_MS,
+    );
+  }
+  return boundedTimeout(
+    environment.OPENPBL_LLM_REQUEST_TIMEOUT_MS,
+    STANDARD_TIMEOUT_MS,
+  );
 }
 
 export function requestClassForCourseContentAction(

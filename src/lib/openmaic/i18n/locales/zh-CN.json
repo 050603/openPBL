@@ -36,9 +36,7 @@
     "ttsTitle": "语音合成",
     "ttsHint": "选择 AI 教师的朗读音色",
     "ttsPreview": "试听",
-    "ttsPreviewing": "播放中...",
-    "interactiveModeHint": "开启深度交互模式，生成更多互动内容",
-    "interactiveModeLabel": "深度交互"
+    "ttsPreviewing": "播放中..."
   },
   "export": {
     "pptx": "导出 PPTX",
@@ -1606,19 +1604,6 @@
     "voice": "音色",
     "speed": "语速",
     "language": "语言"
-  },
-  "teachingTools": {
-    "checkTitle": "随堂理解检查",
-    "evidenceTitle": "证据板",
-    "answerPlaceholder": "请写下你的判断和理由……",
-    "responseMessage": "随堂理解检查回答\n问题：{{question}}\n我的回答：{{answer}}",
-    "submit": "提交回答",
-    "close": "关闭",
-    "sourceStatus": {
-      "verified": "来源已核验",
-      "student_provided": "学生提供",
-      "needs_verification": "来源待核验"
-    }
   },
   "accessCode": {
     "title": "请输入访问码",

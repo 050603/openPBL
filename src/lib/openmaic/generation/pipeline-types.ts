@@ -26,6 +26,7 @@ export interface SceneGenerationContext {
   previousPageTitle?: string;
   previousPageSummary?: string;
   currentTeachingObjective?: string;
+  narrationMode?: 'standalone-course' | 'embedded-segment';
 }
 
 // ==================== Generated Slide Data Interface ====================

@@ -33,6 +33,7 @@ export async function testGrokImageConnectivity(
   try {
     const response = await fetch(`${baseUrl}/images/generations`, {
       method: 'POST',
+      redirect: 'manual',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,

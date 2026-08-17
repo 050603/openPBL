@@ -7,7 +7,15 @@ import {
 describe("LLM request timeout policy", () => {
   it("gives long structured course outputs substantially more time", () => {
     expect(resolveLlmRequestTimeoutMs("standard", {})).toBe(180_000);
+    expect(resolveLlmRequestTimeoutMs("quality-review", {})).toBe(300_000);
     expect(resolveLlmRequestTimeoutMs("long-generation", {})).toBe(600_000);
+  });
+
+  it("allows the bounded quality-review timeout to be configured independently", () => {
+    expect(resolveLlmRequestTimeoutMs("quality-review", {
+      OPENPBL_LLM_QUALITY_REVIEW_TIMEOUT_MS: "45000",
+      OPENPBL_LLM_LONG_REQUEST_TIMEOUT_MS: "900000",
+    })).toBe(45_000);
   });
 
   it("supports bounded operator overrides", () => {

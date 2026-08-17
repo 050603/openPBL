@@ -51,6 +51,34 @@ export function getActionTransitionMs(actionName: AgentActionName): number {
   return getAgentActionDefinition(actionName).transitionMs ?? 140
 }
 
+export function getActionPairTransitionMs(
+  previousAction: AgentActionName,
+  nextAction: AgentActionName,
+): number {
+  return Math.max(
+    getActionTransitionMs(previousAction),
+    getActionTransitionMs(nextAction),
+  )
+}
+
+export function getPhaseAlignedFrame(
+  previousFrame: number,
+  previousFrameCount: number,
+  nextFrameCount: number,
+): number {
+  if (previousFrameCount <= 0 || nextFrameCount <= 0) return 0
+
+  const safePreviousFrame = Math.floor(previousFrame)
+  const wrappedPreviousFrame = (
+    (safePreviousFrame % previousFrameCount) + previousFrameCount
+  ) % previousFrameCount
+  const cyclePhase = wrappedPreviousFrame / previousFrameCount
+  return Math.min(
+    nextFrameCount - 1,
+    Math.floor(cyclePhase * nextFrameCount),
+  )
+}
+
 export function getActionVisualScale(actionName: AgentActionName): number {
   return getAgentActionDefinition(actionName).visualScale ?? 1
 }
@@ -466,6 +494,21 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
       }
       applyFacing(nextSprite, actionName)
 
+      const shouldPreserveLoopPhase = Boolean(
+        previous
+        && previous.loop
+        && nextSprite.loop
+        && !options.restart
+        && getAgentActionDefinition(previousAction).group === definition.group,
+      )
+      if (shouldPreserveLoopPhase && previous) {
+        nextSprite.gotoAndStop(getPhaseAlignedFrame(
+          previous.currentFrame,
+          previous.totalFrames,
+          nextSprite.totalFrames,
+        ))
+      }
+
       const authoredPosition = { x: nextSprite.x, y: nextSprite.y }
       const applyNextFrameCorrection = () => {
         const offset = getActionFrameBodyOffset(
@@ -531,7 +574,7 @@ export function createPersonFactory({ textureLoader }: PersonFactoryOptions) {
           previousTextureAction,
           nextSprite,
           targetAlpha,
-          options.transitionMs ?? getActionTransitionMs(actionName),
+          options.transitionMs ?? getActionPairTransitionMs(previousAction, actionName),
         )
       } else {
         if (previous) {

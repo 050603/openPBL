@@ -3,10 +3,12 @@ import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import type { GenerateInput } from "./types";
 import {
   localizeGeneratedNarrative,
+  normalizeEvaluationPlanOutput,
   normalizeKnowledgeGraphOutput,
   normalizePblTimingRecommendationResponse,
   normalizeTeachingOutlineResponse,
 } from "./client";
+
 import { LlmOutputIncompleteError } from "./errors";
 import {
   buildEvaluationPlanPrompt,
@@ -17,6 +19,34 @@ import {
 } from "./prompts";
 import { createPblTimingSkeleton } from "@/lib/pbl-outline-normalization";
 import { buildPblModuleTimingPlan } from "@/lib/pbl-time-model";
+
+describe("normalizeEvaluationPlanOutput", () => {
+  it("accepts a common evaluationPlan envelope from an editing Agent", () => {
+    const result = normalizeEvaluationPlanOutput({
+      evaluationPlan: {
+        dimensions: [{ id: "ev-1", name: "概念理解", weight: "100%", description: "解释机器学习过程" }],
+        overallRubric: "依据可观察证据判断",
+      },
+    });
+
+    expect(result.dimensions).toEqual([
+      expect.objectContaining({ id: "ev-1", name: "概念理解", weight: 100 }),
+    ]);
+  });
+
+  it("preserves the current dimensions when an edit only returns changed rubric fields", () => {
+    const result = normalizeEvaluationPlanOutput(
+      { overallRubric: "更具体的综合评价说明" },
+      {
+        dimensions: [{ id: "ev-1", name: "概念理解", weight: 100, description: "解释机器学习过程" }],
+        overallRubric: "原评价说明",
+      },
+    );
+
+    expect(result.dimensions).toHaveLength(1);
+    expect(result.overallRubric).toBe("更具体的综合评价说明");
+  });
+});
 
 const stages = [
   { key: "launch", label: "项目启动", description: "明确情境与驱动问题" },
@@ -371,6 +401,23 @@ describe("buildTeachingOutlinePrompt", () => {
     expect(prompt).toContain("不得删除、合并、偷换概念或改名");
     expect(prompt).toContain("不得自环、重复或形成有向循环");
   });
+
+  it("separates lesson targets from curriculum prerequisites before building progression", () => {
+    const prompt = buildKnowledgeGraphPrompt({
+      ...input,
+      name: "自然语言处理",
+      subject: "信息技术",
+      grade: "高一",
+      learningObjectives: ["理解自然语言处理的基本任务", "完成文本分类项目"],
+    }).user;
+
+    expect(prompt).toContain("本课目标节点");
+    expect(prompt).toContain("课前先修节点");
+    expect(prompt).toContain("required-prerequisite");
+    expect(prompt).toContain("required|helpful");
+    expect(prompt).toContain("训练集、验证集、测试集");
+    expect(prompt).toContain("不得把本课准备讲授的基础层内容标成课前先修");
+  });
 });
 
 describe("normalizeKnowledgeGraphOutput", () => {
@@ -397,5 +444,34 @@ describe("normalizeKnowledgeGraphOutput", () => {
       nodes: [{ ...knowledgePoints[0], label: "分类规则" }],
       edges: [],
     }, ["模型偏差"])).toThrow("教师指定知识点未被保留");
+  });
+
+  it("preserves structured prerequisite nodes outside the lesson knowledge-point list", () => {
+    const knowledgePoints = [
+      { id: "kp-nlp", name: "自然语言处理任务", description: "理解文本处理任务", keyInfo: "文本需要转化为数据表示", masteryBoundary: "能解释文本表示和基本任务", objectiveIndexes: [0], level: "core" },
+    ];
+    const result = normalizeKnowledgeGraphOutput(knowledgePoints, {
+      nodes: [
+        { ...knowledgePoints[0], label: knowledgePoints[0].name, instructionalRole: "lesson" },
+        { id: "prereq-ml", label: "监督学习过程", description: "理解训练与验证流程", keyInfo: "训练集用于拟合，验证集用于调参，测试集用于最终检验", level: "foundation", instructionalRole: "prerequisite", priorKnowledgeEvidence: "高中信息技术前序机器学习模块", diagnosticBoundary: "能区分训练集、验证集和测试集的用途" },
+      ],
+      edges: [{ id: "edge-1", source: "prereq-ml", target: "kp-nlp", label: "是理解文本模型训练的前提", type: "required-prerequisite", strength: "required", rationale: "缺失会阻断模型训练与评价的理解" }],
+    });
+
+    expect(result.knowledgePoints.map((point) => point.id)).toEqual(["kp-nlp"]);
+    expect(result.knowledgeGraph.nodes.map((node) => node.id)).toEqual(["kp-nlp", "prereq-ml"]);
+  });
+
+  it("rejects prerequisite graphs whose relationship semantics were omitted", () => {
+    const knowledgePoints = [
+      { id: "kp-nlp", name: "自然语言处理任务", description: "理解文本处理任务", keyInfo: "文本需要转化为数据表示", masteryBoundary: "能解释文本表示和基本任务", objectiveIndexes: [0], level: "core" },
+    ];
+    expect(() => normalizeKnowledgeGraphOutput(knowledgePoints, {
+      nodes: [
+        { ...knowledgePoints[0], label: knowledgePoints[0].name, instructionalRole: "lesson" },
+        { id: "prereq-ml", label: "监督学习过程", description: "理解训练与验证流程", keyInfo: "区分数据用途", level: "foundation", instructionalRole: "prerequisite", priorKnowledgeEvidence: "前序机器学习模块", diagnosticBoundary: "能概述监督学习流程" },
+      ],
+      edges: [{ id: "edge-1", source: "prereq-ml", target: "kp-nlp", label: "是前提" }],
+    })).toThrow("每条关系必须明确填写");
   });
 });

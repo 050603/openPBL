@@ -63,14 +63,11 @@ export function buildCourseTopicOptions(course: Course): Array<{
   value: string;
   description?: string;
 }> {
-  const configured = course.pblConfig?.inquiryQuestions ?? [];
-  const questions = configured.length > 0 ? configured : [course.drivingQuestion];
-  return Array.from(
-    new Set(questions.map((question) => question.trim()).filter(Boolean)),
-  ).map((value) => ({
+  const value = (course.drivingQuestion || course.pblConfig?.inquiryQuestions?.[0] || "").trim();
+  return value ? [{
     value,
-    description: "教师设置的项目启发问题",
-  }));
+    description: "本课程唯一的项目核心驱动问题",
+  }] : [];
 }
 
 export function haveAllResourcesBeenViewed(course: Course, studentId?: string): boolean {

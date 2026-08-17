@@ -4,7 +4,7 @@
 
 **Goal:** Make every newly generated course use a foundation-first deep-interaction flow, one end-of-core mastery assessment, knowledge-point-aware optional enrichment, and reliable visual teaching guidance without adding new classroom tools.
 
-**Architecture:** Keep `interactiveMode` as a backward-compatible persisted field, but force it to `true` at all new-generation boundaries and remove teacher-facing toggles. Replace the block-quiz prompt contract and count-based interaction quality gate with a single terminal mastery assessment plus explanation-depth checks. Extend quiz questions and adaptive evidence with knowledge-point attribution so the existing prepared-resource library can select enrichment after the terminal assessment using mastery and remaining-time constraints.
+**Architecture:** Remove `interactiveMode` from new-generation APIs, persisted course data, and UI so deep interaction is the only teaching contract. Replace the block-quiz prompt and deterministic checkpoint policy with a single terminal mastery assessment plus explanation-depth checks. Extend quiz questions and adaptive evidence with knowledge-point attribution so the prepared-resource library can select enrichment after the terminal assessment using mastery and remaining-time constraints.
 
 **Tech Stack:** Next.js App Router, React 19, TypeScript, Vercel AI SDK, Vitest, OpenMAIC DSL.
 
@@ -53,9 +53,9 @@
 
 **Steps:**
 1. Remove both interactive-mode toggles and their local option state.
-2. Force `interactiveMode: true` in new design and classroom generation requests.
+2. Remove `interactiveMode` from new design and classroom generation requests.
 3. Replace mode labels with a fixed description of the foundation-first teaching flow where useful.
-4. Preserve reading old `interactiveMode` data only for compatibility.
+4. Stop copying the deprecated field into new course and classroom records.
 5. Run TypeScript and affected component tests.
 
 ### Task 4: Add knowledge-point attribution to mastery assessment questions

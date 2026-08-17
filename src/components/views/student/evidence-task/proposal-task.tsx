@@ -1,6 +1,7 @@
 "use client";
 
 import { Target } from "lucide-react";
+import { resolveCourseLearningPreset } from "@/lib/learning-evidence/missions";
 import type { Course } from "@/lib/session/types";
 import { EvidenceCard, Field, joinLines, splitLines } from "./shared";
 import { useEvidenceDraft } from "./use-evidence-draft";
@@ -14,6 +15,7 @@ export function ProposalEvidenceTask({
 }) {
   const project = course.groups?.find((item) =>
     item.members.some((member) => member.studentId === studentId));
+  const preset = resolveCourseLearningPreset(course);
   const plan = useEvidenceDraft({
     course,
     studentId,
@@ -27,6 +29,7 @@ export function ProposalEvidenceTask({
       validationMethod: "",
       risks: [],
       aiBoundary: "",
+      ...(preset === "research" ? { sources: [], methodLimitations: "", ethics: "" } : {}),
     },
   });
   const feedback = course.learningEvidence?.find(
@@ -89,6 +92,58 @@ export function ProposalEvidenceTask({
         placeholder="我会让……在……条件下使用或测试，并观察……"
         value={plan.payload.validationMethod}
       />
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Field
+          description="每行一个真实风险，并写清准备怎样降低它。AI 可以帮你整理，但不能虚构项目情况。"
+          label="风险与应对"
+          onChange={(value) =>
+            plan.setPayload((current) => ({
+              ...current,
+              risks: splitLines(value),
+            }))}
+          placeholder={"样本数量不足——增加不同年级的测试对象\n材料强度不够——先做小尺寸承重测试"}
+          value={joinLines(plan.payload.risks)}
+        />
+        <Field
+          description="说明哪些工作可以交给 AI，哪些判断、制作和核验必须由你完成。"
+          label="AI 组员的分工边界"
+          onChange={(aiBoundary) =>
+            plan.setPayload((value) => ({ ...value, aiBoundary }))}
+          placeholder="AI 可以整理资料和检查遗漏；最终选材、测试与结论由我完成并核验。"
+          value={plan.payload.aiBoundary}
+        />
+      </div>
+
+      <Field
+        description="每行一个可核验来源，优先写标题和原文链接。资料角交给知知核对的线索会追加到这里。"
+        label="关键资料来源"
+        onChange={(value) => plan.setPayload((current) => ({
+          ...current,
+          sources: splitLines(value),
+        }))}
+        placeholder="资料标题 — https://…"
+        value={joinLines(plan.payload.sources)}
+      />
+
+      {preset === "research" ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Field
+            description="说明目前的方法、样本和条件还不能证明什么。"
+            label="方法局限"
+            onChange={(methodLimitations) => plan.setPayload((current) => ({ ...current, methodLimitations }))}
+            placeholder="当前样本只来自……，因此还不能说明……"
+            value={plan.payload.methodLimitations ?? ""}
+          />
+          <Field
+            description="说明隐私、安全、公平和参与者权益的边界。"
+            label="伦理与安全"
+            onChange={(ethics) => plan.setPayload((current) => ({ ...current, ethics }))}
+            placeholder="参与者可以随时退出；不记录可识别个人身份的信息……"
+            value={plan.payload.ethics ?? ""}
+          />
+        </div>
+      ) : null}
     </EvidenceCard>
   );
 }

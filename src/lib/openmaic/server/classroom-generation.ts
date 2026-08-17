@@ -48,11 +48,12 @@ import {
 } from '@openmaic/lib/generation/generation-retry';
 import { mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
 import { getClassroomSceneConcurrency } from '@openmaic/lib/server/provider-config';
+import { resolveLlmRequestTimeoutMs } from '@/lib/llm/request-policy';
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
 import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-planner';
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
-import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { applyDeepInteractionPolicy } from '@openmaic/lib/generation/deep-interaction-policy';
 import { addStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
 import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
@@ -90,7 +91,6 @@ export interface GenerateClassroomInput {
   enableImageGeneration?: boolean;
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
-  interactiveMode?: boolean;
   ttsProviderId?: string;
   ttsModelId?: string;
   ttsVoice?: string;
@@ -392,8 +392,21 @@ function validateConfirmedPblDetails(
       );
     }
     const parentKnowledgeViolations = studentDetails.flatMap((detail) => {
-      const parent = catalog.find((activity) => activity.activityId === outlines.find((outline) => outline.id === detail.id)?.parentActivityId);
-      const allowedIds = new Set(parent?.knowledgePointIds ?? []);
+      const sourceOutline = outlines.find((outline) => outline.id === detail.id);
+      const parent = catalog.find(
+        (activity) => activity.activityId === sourceOutline?.parentActivityId,
+      );
+      const isTerminalMasteryAssessment = sourceOutline?.type === 'quiz'
+        && outlines.filter(
+          (outline) => outline.audience === 'student'
+            && outline.stageKey === 'ai-learning'
+            && outline.type === 'quiz',
+        ).length === 1;
+      const allowedIds = new Set(
+        isTerminalMasteryAssessment
+          ? input.knowledgePoints?.map((point) => point.id)
+          : parent?.knowledgePointIds ?? [],
+      );
       if (allowedIds.size === 0) return [];
       const invalidIds = (detail.knowledgePointIds ?? []).filter((id) => !allowedIds.has(id));
       return invalidIds.length > 0 ? [{ detail, invalidIds }] : [];
@@ -522,10 +535,21 @@ export async function generateClassroom(
   };
 
   const sceneAiCall: AICallFn = async (systemPrompt, userPrompt, _images) => {
+    // A single pathological page must not hold the entire classroom job
+    // indefinitely. Deep-thinking models can legitimately need several minutes
+    // for a complex interactive page, so use the conservative long-generation
+    // policy instead of the former hard-coded 150-second cutoff. Checkpoint-level
+    // recovery will still retry only the missing page if this bounded call fails.
+    const pageTimeoutSignal = AbortSignal.timeout(
+      resolveLlmRequestTimeoutMs('long-generation'),
+    );
+    const pageSignal = options.signal
+      ? AbortSignal.any([options.signal, pageTimeoutSignal])
+      : pageTimeoutSignal;
     const result = await callLLM(
       {
         model: languageModel,
-        abortSignal: options.signal,
+        abortSignal: pageSignal,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: modelInfo?.outputWindow,
@@ -561,7 +585,6 @@ export async function generateClassroom(
     pblActivityCatalog: input.pblActivityCatalog,
     knowledgePoints: input.knowledgePoints,
     teachingConstraints: input.teachingConstraints,
-    interactiveMode: input.interactiveMode ?? false,
   };
   const vocationalActive = resolveVocationalActive(requirements);
   const pdfText = pdfContent?.text || undefined;
@@ -691,15 +714,15 @@ export async function generateClassroom(
     : confirmedOutlines.length > 0
       ? 'confirmed'
       : 'generated';
-  // Interactive mode is allowed to repair only an unconfirmed model-generated
+  // Deep interaction is allowed to repair only an unconfirmed model-generated
   // plan. A teacher-confirmed outline is authoritative: PPT, quiz, and
   // interactive markers must survive final classroom generation unchanged.
-  if (input.interactiveMode && outlineSource === 'generated') {
+  if (outlineSource === 'generated') {
     const beforeCount = baseOutlines.filter((o) => o.type === 'interactive').length;
-    baseOutlines = applyInteractiveModePolicy(baseOutlines, true, outlineSource);
+    baseOutlines = applyDeepInteractionPolicy(baseOutlines, outlineSource);
     const afterCount = baseOutlines.filter((o) => o.type === 'interactive').length;
     if (afterCount > beforeCount) {
-      log.info(`Interactive mode: converted ${afterCount - beforeCount} slide(s) to interactive widgets`);
+      log.info(`Deep interaction: added ${afterCount - beforeCount} interactive practice page(s)`);
     }
   }
   if (
@@ -871,6 +894,7 @@ export async function generateClassroom(
           }),
         {
           label: `scene ${index + 1}/${outlines.length} content`,
+          maxRetries: 1,
           signal: options.signal,
           shouldRetryResult: (result) => result === null,
           onRetry: (event) => reportSceneRetry('content', event),
@@ -893,6 +917,7 @@ export async function generateClassroom(
           }),
         {
           label: `scene ${index + 1}/${outlines.length} actions`,
+          maxRetries: 1,
           signal: options.signal,
           onRetry: (event) => reportSceneRetry('actions', event),
         },

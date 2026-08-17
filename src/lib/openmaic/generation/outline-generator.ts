@@ -31,9 +31,10 @@ import type { AICallFn, GenerationResult, GenerationCallbacks } from './pipeline
 import { createLogger } from '@openmaic/lib/logger';
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { resolveOutlinePromptPlan } from './outline-prompt-plan';
-import { applyInteractiveModePolicy } from './interactive-mode-policy';
+import { applyDeepInteractionPolicy } from './deep-interaction-policy';
 import { splitLongStudentSlides } from './student-slide-duration-policy';
-import { ensureAdaptiveCheckpointQuizzes } from './adaptive-checkpoint-policy';
+import { ensureTerminalMasteryAssessment } from './terminal-mastery-assessment-policy';
+import { ensureTeachingToolPlans } from './teaching-tool-plan';
 const log = createLogger('Generation');
 
 /**
@@ -143,7 +144,6 @@ export async function generateSceneOutlinesFromRequirements(
     imageEnabled,
     videoEnabled,
     mediaEnabled,
-    interactiveMode: promptPlan.interactiveMode,
     researchContext: options?.researchContext || 'None',
     // Server-side generation populates this via options; client-side populates via formatTeacherPersonaForPrompt
     teacherContext: options?.teacherContext || '',
@@ -211,13 +211,10 @@ export async function generateSceneOutlinesFromRequirements(
     }));
 
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-    const withAdaptiveCheckpoints = ensureAdaptiveCheckpointQuizzes(
-      applyInteractiveModePolicy(
-        enforcePblOutlineContract(enriched, requirements),
-        promptPlan.interactiveMode,
-      ),
+    const withTerminalAssessment = ensureTerminalMasteryAssessment(
+      applyDeepInteractionPolicy(enforcePblOutlineContract(enriched, requirements)),
     );
-    const durationSafeOutlines = splitLongStudentSlides(withAdaptiveCheckpoints);
+    const durationSafeOutlines = splitLongStudentSlides(withTerminalAssessment);
     const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({
       id: activity.activityId,
       durationMin: activity.durationMin,
@@ -229,7 +226,7 @@ export async function generateSceneOutlinesFromRequirements(
         )
       : durationSafeOutlines;
     const result = uniquifyMediaElementIds(
-      normalizeSceneOutlinesForDuration(durationBalanced),
+      normalizeSceneOutlinesForDuration(ensureTeachingToolPlans(durationBalanced)),
     );
 
     callbacks?.onProgress?.({

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   adaptiveResourceAddsNovelContent,
+  calculateKnowledgePointAssessmentScores,
   calculateAdaptiveRemainingBudgetSec,
   buildAdaptiveResourceRequirement,
   companionMicroLessonStageContext,
   confirmAdaptiveLearningPlan,
   createDefaultAdaptiveLearningPlan,
-  deriveAdaptiveCheckpointSceneIds,
+  deriveMasteryAssessmentSceneIds,
   deriveAdaptivePrerequisiteCandidates,
   derivePretestKnowledgeEvidence,
   ensureAdaptiveResourceCoverage,
@@ -21,7 +22,8 @@ import {
   resolveAdaptiveSceneIdentity,
   scoreAdaptiveAssessment,
 } from "@/lib/adaptive-learning";
-import type { AdaptiveBranchOutline, AdaptiveLearningPlan, StudentAdaptiveLearningState } from "@/lib/session/types";
+import type { AdaptiveBranchOutline, AdaptiveLearningPlan, KnowledgeGraph, StudentAdaptiveLearningState } from "@/lib/session/types";
+import { knowledgeStructureSignature } from "@/lib/knowledge-graph-quality";
 
 function resource(overrides: Partial<AdaptiveBranchOutline> = {}): AdaptiveBranchOutline {
   return {
@@ -88,6 +90,25 @@ function state(overrides: Partial<StudentAdaptiveLearningState> = {}): StudentAd
 }
 
 describe("adaptive learning evidence model", () => {
+  it("calculates mastery separately for each knowledge point in the terminal assessment", () => {
+    expect(calculateKnowledgePointAssessmentScores({
+      questions: [
+        { id: "q-1", knowledgePointIds: ["kp-1"] },
+        { id: "q-2", knowledgePointIds: ["kp-2"] },
+        { id: "q-3", knowledgePointIds: ["kp-1", "kp-2"] },
+      ],
+      results: [
+        { questionId: "q-1", correct: true },
+        { questionId: "q-2", correct: false },
+        { questionId: "q-3", correct: true },
+      ],
+      fallbackKnowledgePointIds: [],
+    })).toEqual([
+      { knowledgePointId: "kp-1", correct: 2, total: 2, score: 100 },
+      { knowledgePointId: "kp-2", correct: 1, total: 2, score: 50 },
+    ]);
+  });
+
   it("confirms the plan and every resource when entering course generation", () => {
     const draft = plan([resource({ status: "draft" })]);
     draft.status = "draft";
@@ -165,14 +186,13 @@ describe("adaptive learning evidence model", () => {
       { id: "ai-ml", name: "人工智能与机器学习的关系", description: "理解包含关系", level: "core" as const },
       { id: "classification", name: "分类模型", description: "使用特征进行分类", level: "application" as const },
     ];
-    const knowledgeGraph = {
+    const knowledgeGraph: KnowledgeGraph = {
       nodes: knowledgePoints.map((point) => ({ id: point.id, label: point.name, description: point.description, level: point.level })),
       edges: [
         { id: "e-1", source: "data", target: "classification", label: "是理解分类输入的前提" },
         { id: "e-2", source: "ai-ml", target: "classification", label: "用于解释" },
       ],
     };
-
     const candidates = deriveAdaptivePrerequisiteCandidates({ knowledgePoints, knowledgeGraph });
     const fallback = createDefaultAdaptiveLearningPlan({ knowledgePoints, knowledgeGraph });
 
@@ -181,6 +201,52 @@ describe("adaptive learning evidence model", () => {
     expect(fallback.pretest.questions[0].prompt).toContain("数据与特征");
     expect(fallback.pretest.questions[0].prompt).not.toContain("最关键的前序判断");
     expect(fallback.pretest.questions[0].rationale).toContain("分类模型");
+  });
+
+  it("derives prerequisite diagnostics from required curriculum paths outside lesson targets", () => {
+    const knowledgePoints = [
+      { id: "kp-nlp", name: "自然语言处理基本任务", description: "本课讲授文本处理任务", keyInfo: "文本需要转化为数据表示", level: "core" as const },
+      { id: "kp-classification", name: "文本分类实践", description: "本课完成文本分类", keyInfo: "使用特征训练并验证模型", level: "application" as const },
+    ];
+    const knowledgeGraph: KnowledgeGraph = {
+      nodes: [
+        ...knowledgePoints.map((point) => ({ id: point.id, label: point.name, description: point.description, keyInfo: point.keyInfo, level: point.level, instructionalRole: "lesson" as const })),
+        { id: "prereq-ai", label: "人工智能三大基石", description: "理解数据、算法与算力", keyInfo: "三者共同支撑人工智能系统", level: "foundation" as const, instructionalRole: "prerequisite" as const, priorKnowledgeEvidence: "高中信息技术前序人工智能模块", diagnosticBoundary: "能解释数据、算法、算力各自作用" },
+        { id: "prereq-split", label: "数据集划分", description: "理解训练集、验证集和测试集", keyInfo: "三类数据承担不同职责", level: "foundation" as const, instructionalRole: "prerequisite" as const, priorKnowledgeEvidence: "高中信息技术前序机器学习模块", diagnosticBoundary: "能按用途区分三类数据集" },
+      ],
+      edges: [
+        { id: "e-1", source: "prereq-ai", target: "kp-nlp", label: "是理解数据处理的前提", type: "required-prerequisite" as const, strength: "required" as const, rationale: "缺失会阻断对数据表示与算法处理的理解" },
+        { id: "e-2", source: "prereq-split", target: "kp-classification", label: "是训练与验证的前提", type: "required-prerequisite" as const, strength: "required" as const, rationale: "缺失会导致训练和评价流程混淆" },
+        { id: "e-3", source: "prereq-ai", target: "kp-classification", label: "有助于理解", type: "supports" as const, strength: "helpful" as const, rationale: "仅提供背景" },
+      ],
+    };
+    knowledgeGraph.semanticReview = {
+      status: "passed",
+      summary: "课程先修与本课目标边界清晰。",
+      sourceSignature: knowledgeStructureSignature(knowledgeGraph, knowledgePoints),
+      lessonDecisions: knowledgePoints.map((point) => ({ knowledgePointId: point.id, verdict: "accept", issues: [] })),
+      prerequisiteDecisions: [
+        { nodeId: "prereq-ai", verdict: "accept", issues: [] },
+        { nodeId: "prereq-split", verdict: "accept", issues: [] },
+      ],
+      relationshipDecisions: [
+        { edgeId: "e-1", verdict: "accept", issues: [] },
+        { edgeId: "e-2", verdict: "accept", issues: [] },
+        { edgeId: "e-3", verdict: "accept", issues: [] },
+      ],
+    };
+
+    const candidates = deriveAdaptivePrerequisiteCandidates({ knowledgePoints, knowledgeGraph });
+
+    expect(candidates.map((candidate) => candidate.point.id)).toEqual(["prereq-ai", "prereq-split"]);
+    expect(candidates[0].supportsKnowledgePoints.map((point) => point.id)).toEqual(["kp-nlp"]);
+    expect(candidates[1].supportsKnowledgePoints.map((point) => point.id)).toEqual(["kp-classification"]);
+
+    knowledgeGraph.edges[0] = {
+      ...knowledgeGraph.edges[0],
+      rationale: "教师手动修改了依赖理由，原审核结论应立即失效",
+    };
+    expect(deriveAdaptivePrerequisiteCandidates({ knowledgePoints, knowledgeGraph })).toEqual([]);
   });
 
   it("repairs generic meta questions and removes diagnostics that are not graph-backed prerequisites", () => {
@@ -364,7 +430,7 @@ describe("adaptive learning evidence model", () => {
     const improved = improveAdaptiveLearningPlanQuality(generated, fallback, { knowledgePoints, mainScenes });
 
     expect(improved.pretest.questions).toHaveLength(0);
-    expect(improved.pretest.title).toBe("前序知识分析未完成");
+    expect(improved.pretest.title).toBe("前序知识诊断尚未生成");
   });
 
   it("keeps one duplicate enrichment topic and places it after the latest related checkpoint", () => {
@@ -438,10 +504,10 @@ describe("adaptive learning evidence model", () => {
       description: `用于质量检查的知识点 ${index}`,
       level: "core" as const,
     }));
-    const mainScenes = knowledgePoints.flatMap((point, index) => ([
-      { id: `quality-lesson-${index}`, title: point.name, type: "slide" as const, order: index * 2, stageKey: "ai-learning", audience: "student" as const, knowledgePointIds: [point.id] },
-      ...(index % 2 === 1 ? [{ id: `quality-quiz-${index}`, title: `${point.name}测验`, type: "quiz" as const, order: index * 2 + 1, stageKey: "ai-learning", audience: "student" as const, knowledgePointIds: [point.id] }] : []),
-    ]));
+    const mainScenes = [
+      ...knowledgePoints.map((point, index) => ({ id: `quality-lesson-${index}`, title: point.name, type: "slide" as const, order: index, stageKey: "ai-learning", audience: "student" as const, knowledgePointIds: [point.id] })),
+      { id: "quality-mastery-quiz", title: "主课达标测", type: "quiz" as const, order: knowledgePoints.length, stageKey: "ai-learning", audience: "student" as const, knowledgePointIds: knowledgePoints.map((point) => point.id) },
+    ];
     const current = plan([
       resource({
         id: "quality-prerequisite",
@@ -458,7 +524,7 @@ describe("adaptive learning evidence model", () => {
         objective: `把知识用于真实场景 ${index}`,
         noveltyStatement: `使用主课未出现的真实行业案例 ${index}，分析新的约束条件和决策边界。`,
         anchorKnowledgePointIds: [knowledgePoints[index].id],
-        trigger: { placement: "after-module", assessmentSceneIds: [`quality-quiz-${index % 2 === 0 ? 1 : 3}`], evidenceRule: "module-mastery", answerRule: "score-at-least", scoreThreshold: 80, minimumRemainingSec: 120 },
+        trigger: { placement: "after-module", assessmentSceneIds: ["quality-mastery-quiz"], evidenceRule: "module-mastery", answerRule: "score-at-least", scoreThreshold: 80, minimumRemainingSec: 120 },
       })),
     ]);
     current.prerequisiteKnowledgePoints = [{
@@ -466,7 +532,28 @@ describe("adaptive learning evidence model", () => {
       name: "数据读取基础",
       description: "能够从表格中读取数据",
       relatedIds: [knowledgePoints[0].id],
+      expectedPriorKnowledgeEvidence: "高中信息技术课此前已经训练过表格读取。",
+      necessityRationale: "无法读取输入数据会直接阻断后续六个知识点中的首个任务。",
+      diagnosticBoundary: "能够依据行列含义定位并读出指定单元格。",
     }];
+    current.prerequisiteAnalysis = {
+      summary: "仅表格读取需要课前诊断，其余内容由本课讲授。",
+      decisions: knowledgePoints.map((point, index) => ({
+        targetKnowledgePointId: point.id,
+        decision: index === 0 ? "diagnose-prerequisite" as const : "teach-in-main-course" as const,
+        prerequisiteKnowledgePointIds: index === 0 ? ["prereq-data-reading"] : [],
+        rationale: index === 0 ? "必须先会读取输入表格。" : "该知识由本课负责讲授。",
+      })),
+    };
+    current.prerequisiteSemanticReview = {
+      status: "passed",
+      summary: "表格读取基础属于真实先修知识。",
+      decisions: [{
+        prerequisiteKnowledgePointId: "prereq-data-reading",
+        verdict: "accept",
+        issues: [],
+      }],
+    };
     current.pretest.questions = [{
       id: "quality-pretest",
       type: "single-choice",
@@ -568,6 +655,32 @@ describe("adaptive learning evidence model", () => {
       .toContain("supervised-learning");
   });
 
+  it("requires a matching prerequisite even when the AI teaching budget is exhausted", () => {
+    const prerequisite = resource({
+      id: "pre-required",
+      kind: "prerequisite",
+      prerequisiteKnowledgePointIds: ["supervised-learning"],
+      anchorKnowledgePointIds: ["supervised-learning"],
+      noveltyStatement: "补充主课不会重讲、但理解后续对比必需的有监督学习反馈基础。",
+      trigger: {
+        placement: "before-main-course",
+        evidenceRule: "pretest-gap",
+        minimumRemainingSec: 600,
+      },
+    });
+    const result = evaluateAdaptiveBranchDecision({
+      plan: plan([prerequisite]),
+      state: state({ pretestWeakKnowledgePointIds: ["supervised-learning"] }),
+      anchorKnowledgePointIds: [],
+      phase: "pre-course",
+      remainingBudgetSec: 0,
+    });
+
+    expect(result.decision.action).toBe("insert");
+    expect(result.evaluations[0].conditions.find((condition) => condition.key === "time"))
+      .toMatchObject({ passed: true, actual: "先决知识补充为开课前必经环节" });
+  });
+
   it("does not relecture after an incorrect module quiz", () => {
     const result = evaluateAdaptiveBranchDecision({
       plan: plan(),
@@ -594,6 +707,25 @@ describe("adaptive learning evidence model", () => {
     });
     expect(result.decision.action).toBe("insert");
     expect(result.evaluations[0].score).toBe(90);
+  });
+
+  it("uses the branch's attributed knowledge-point score instead of the whole-quiz score", () => {
+    const result = evaluateAdaptiveBranchDecision({
+      plan: plan(),
+      state: state(),
+      nodeQuizScore: 90,
+      knowledgePointScores: [
+        { knowledgePointId: "reinforcement-learning", correct: 1, total: 2, score: 50 },
+        { knowledgePointId: "unrelated", correct: 2, total: 2, score: 100 },
+      ],
+      anchorKnowledgePointIds: ["reinforcement-learning", "unrelated"],
+      completedSceneId: "quiz-1",
+      phase: "after-module",
+      remainingBudgetSec: 480,
+    });
+
+    expect(result.decision.action).toBe("continue");
+    expect(result.evaluations[0].score).toBe(50);
   });
 
   it("keeps a rich course library while limiting one student's live enrichment path", () => {
@@ -682,7 +814,7 @@ describe("adaptive learning evidence model", () => {
       stableSceneId: "outline",
       runtimeSceneId: "runtime",
     });
-    expect(deriveAdaptiveCheckpointSceneIds([
+    expect(deriveMasteryAssessmentSceneIds([
       { id: "slide", type: "slide", stageKey: "ai-learning", knowledgePointIds: ["kp"] },
       { id: "quiz", type: "quiz", stageKey: "ai-learning", knowledgePointIds: ["kp"] },
     ])).toEqual(["quiz"]);
@@ -715,5 +847,58 @@ describe("extractLearningRequestTopic", () => {
     expect(isCompanionMicroLessonStage("launch")).toBe(false);
     expect(isCompanionMicroLessonStage("ai-learning")).toBe(false);
     expect(companionMicroLessonStageContext("showcase")).toBe("成果汇报");
+  });
+
+  it("keeps a reviewed prerequisite when its explanation names the lesson target it unlocks", () => {
+    const knowledgePoints = [{
+      id: "kp-classification",
+      name: "图像分类",
+      description: "理解图像分类模型如何作出类别判断",
+      keyInfo: "特征支撑类别判断",
+      masteryBoundary: "能解释图像分类流程",
+      objectiveIndexes: [0],
+      level: "application" as const,
+    }];
+    const knowledgeGraph: KnowledgeGraph = {
+      nodes: [
+        { ...knowledgePoints[0], label: knowledgePoints[0].name, instructionalRole: "lesson" },
+        {
+          id: "prereq-feature",
+          label: "数据特征与分类判断",
+          description: "理解可观察的数据特征如何为图像分类提供判断依据",
+          keyInfo: "不同特征会影响分类结果和算法选择",
+          level: "foundation",
+          instructionalRole: "prerequisite",
+          priorKnowledgeEvidence: "课程概念递进上，分类学习建立在数据特征概念之上",
+          diagnosticBoundary: "能为一个分类任务指出可用特征并说明作用",
+        },
+      ],
+      edges: [{
+        id: "e-feature",
+        source: "prereq-feature",
+        target: "kp-classification",
+        label: "是理解分类依据的必要前提",
+        type: "required-prerequisite",
+        strength: "required",
+        rationale: "缺失会无法理解图像信息如何成为分类依据",
+      }],
+    };
+    knowledgeGraph.semanticReview = {
+      status: "passed",
+      summary: "先修边界成立",
+      sourceSignature: knowledgeStructureSignature(knowledgeGraph, knowledgePoints),
+      lessonDecisions: [{ knowledgePointId: "kp-classification", verdict: "accept", issues: [] }],
+      prerequisiteDecisions: [{ nodeId: "prereq-feature", verdict: "accept", issues: [] }],
+      relationshipDecisions: [{ edgeId: "e-feature", verdict: "accept", issues: [] }],
+    };
+    const fallback = createDefaultAdaptiveLearningPlan({ knowledgePoints, knowledgeGraph });
+
+    const improved = improveAdaptiveLearningPlanQuality(fallback, fallback, {
+      knowledgePoints,
+      knowledgeGraph,
+      mainScenes: [{ id: "scene-classification", title: "图像分类", type: "slide", order: 1, stageKey: "ai-learning", audience: "student", knowledgePointIds: ["kp-classification"] }],
+    });
+
+    expect(improved.prerequisiteKnowledgePoints?.map((point) => point.id)).toContain("prereq-feature");
   });
 });

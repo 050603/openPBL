@@ -115,14 +115,14 @@ export function StudentClassroomBar({
               <span className="rounded-full bg-white/14 px-2.5 py-1 ring-1 ring-white/16">阶段 {currentIndex + 1}/{course.stages.length}</span>
               <span className="rounded-full bg-white/12 px-2.5 py-1">{statusText}</span>
               <span className="truncate rounded-full bg-white/12 px-2.5 py-1">{course.subject || "课程"} · {course.grade || "班级"}</span>
-              <button
-                className="grid h-6 w-6 place-items-center rounded-full bg-white/12 text-white/80 ring-1 ring-white/16 transition hover:bg-white/18"
+              <span
+                aria-label="阶段说明"
+                className="grid h-6 w-6 cursor-help place-items-center rounded-full bg-white/12 text-white/80 ring-1 ring-white/16"
+                role="img"
                 title={`${help.goal}｜产出：${help.deliverable}｜AI：${help.ai}`}
-                type="button"
-                aria-label="查看阶段说明"
               >
                 <HelpCircle size={14} />
-              </button>
+              </span>
             </div>
             <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
               <h1 className="truncate text-[22px] font-bold leading-tight md:text-[26px]">{currentStage.label}</h1>
@@ -249,14 +249,14 @@ export function TeacherClassroomBanner({
               <span>阶段 {course.currentStageIndex + 1}/{course.stages.length}</span>
               <span>·</span>
               <span className="truncate">{course.name}</span>
-              <button
-                className="grid h-5 w-5 place-items-center rounded-full text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)] transition hover:bg-[var(--pbl-teacher-soft)]"
+              <span
+                aria-label="阶段说明"
+                className="grid h-5 w-5 cursor-help place-items-center rounded-full text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]"
+                role="img"
                 title={`${help.goal}｜产出：${help.deliverable}｜AI：${help.ai}`}
-                type="button"
-                aria-label="查看阶段说明"
               >
                 <HelpCircle size={13} />
-              </button>
+              </span>
             </div>
             <h1 className="mt-0.5 truncate text-xl font-bold leading-tight text-[var(--pbl-text-strong)] md:text-2xl">{currentStage.label}</h1>
           </div>

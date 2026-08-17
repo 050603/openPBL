@@ -169,7 +169,7 @@ export function normalizePblCourseConfig(
         .map((question) => question.trim())
         .filter(Boolean),
     ),
-  );
+  ).slice(0, 1);
 
   return {
     projectMode: "personal",

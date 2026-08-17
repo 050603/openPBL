@@ -118,7 +118,7 @@ function messageFrom(value: unknown): string {
 
 function retryableByMessage(value: unknown): boolean {
   const message = messageFrom(value);
-  return /rate limit|too many requests|timeout|timed out|调用超时|请求超时|fetch failed|network|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EPIPE|socket hang up/i.test(
+  return /rate limit|too many requests|timeout|timed out|调用超时|请求超时|fetch failed|network|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EPIPE|socket hang up|inference engine abort|model serving.*(?:abort|unknown)|finish reason:\s*\[?unknown/i.test(
     message,
   );
 }

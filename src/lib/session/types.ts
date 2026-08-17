@@ -208,7 +208,8 @@ export type CompanionConfirmationAction =
   | "upload"
   | "submit"
   | "mark-complete"
-  | "adopt-draft";
+  | "adopt-draft"
+  | "edit-workspace";
 
 export type CompanionConfirmationStatus = "pending" | "confirmed" | "rejected";
 
@@ -629,6 +630,8 @@ export type OpenMaicSceneOutlineSnapshot = {
   segmentGroupId?: string;
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
+  narrationMode?: "standalone-course" | "embedded-segment";
+  teachingToolPlan?: import("@/lib/openmaic/types/generation").TeachingToolPlanItem[];
   resourceTypes?: SceneResourceType[];
   description?: string;
   keyPoints?: string[];
@@ -695,6 +698,32 @@ export type AdaptiveAssessmentQuestion = {
 
 export type AdaptiveAssessmentAnswer = number | Record<string, string>;
 
+export type AdaptivePrerequisiteKnowledgePoint = KnowledgePoint & {
+  /** Why this learner group can reasonably be expected to know it before class. */
+  expectedPriorKnowledgeEvidence: string;
+  /** Why lacking it would directly block a named main-course target, not merely make learning easier. */
+  necessityRationale: string;
+  /** Observable, objectively diagnosable boundary for "ready to enter the main course". */
+  diagnosticBoundary: string;
+};
+
+export type AdaptivePrerequisiteDecision = {
+  targetKnowledgePointId: string;
+  decision: "diagnose-prerequisite" | "teach-in-main-course" | "no-specific-prerequisite";
+  prerequisiteKnowledgePointIds: string[];
+  rationale: string;
+};
+
+export type AdaptivePrerequisiteSemanticReview = {
+  status: "passed" | "failed";
+  summary: string;
+  decisions: Array<{
+    prerequisiteKnowledgePointId: string;
+    verdict: "accept" | "reject";
+    issues: string[];
+  }>;
+};
+
 export type AdaptiveBranchKind =
   | "prerequisite"
   | "worked-example"
@@ -702,7 +731,7 @@ export type AdaptiveBranchKind =
   | "extension";
 
 export type AdaptiveBranchTrigger = {
-  /** Prerequisite resources run before the main course; other resources run after a module quiz. */
+  /** Prerequisite resources run before the main course; other resources run after the terminal mastery assessment. */
   placement: "before-main-course" | "after-module";
   /** Legacy/manual fixed insertion point. Prefer assessmentSceneIds for module resources. */
   afterSceneId?: string;
@@ -771,7 +800,13 @@ export type AdaptiveLearningPlan = {
    * are intentionally separate from CourseContent.knowledgePoints, which are
    * taught by the lesson itself.
    */
-  prerequisiteKnowledgePoints?: KnowledgePoint[];
+  prerequisiteKnowledgePoints?: AdaptivePrerequisiteKnowledgePoint[];
+  prerequisiteAnalysis?: {
+    summary: string;
+    decisions: AdaptivePrerequisiteDecision[];
+  };
+  /** Independent semantic audit of grade fit, necessity, and new-content overlap. */
+  prerequisiteSemanticReview?: AdaptivePrerequisiteSemanticReview;
   pretest: {
     title: string;
     introduction: string;
@@ -811,10 +846,18 @@ export type AdaptiveAssessmentEvidence = {
     questionId: string;
     correct: boolean | null;
   }>;
+  knowledgePointScores?: KnowledgePointAssessmentScore[];
   /** Knowledge points answered incorrectly in this assessment. */
   weakKnowledgePointIds?: string[];
   /** Knowledge points answered correctly in this assessment. */
   masteredKnowledgePointIds?: string[];
+};
+
+export type KnowledgePointAssessmentScore = {
+  knowledgePointId: string;
+  correct: number;
+  total: number;
+  score: number;
 };
 
 export type AdaptiveBranchRun = {
@@ -1052,7 +1095,6 @@ export type CourseContent = {
    * - true：仅 AI 授知互动优先；静态参考内容可保留 PPT，其他阶段仍为教师 PPT/讲稿
    * 该值由备课阶段页面编辑，generate 页面读取后传给生成 API。
    */
-  interactiveMode?: boolean;
   /** Teacher-confirmed pretest and adaptive branch outlines for new courses. */
   adaptiveLearningPlan?: AdaptiveLearningPlan;
   /** Traceable outputs and quality gates produced by the quick-design mode. */
@@ -1174,6 +1216,10 @@ export type KnowledgePoint = {
   name: string;
   description: string;
   keyInfo?: string;
+  /** Observable evidence that this lesson-owned target has been learned. */
+  masteryBoundary?: string;
+  /** Zero-based indexes into Course.learningObjectives. */
+  objectiveIndexes?: number[];
   relatedIds?: string[];
   level?: "foundation" | "core" | "application" | "extension";
 };
@@ -1181,6 +1227,30 @@ export type KnowledgePoint = {
 export type KnowledgeGraph = {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
+  semanticReview?: KnowledgeStructureSemanticReview;
+};
+
+export type KnowledgeStructureSemanticReview = {
+  status: "passed" | "failed";
+  summary: string;
+  sourceSignature: string;
+  /** Non-blocking Agent suggestions that could not be verified from supplied course facts. */
+  advisoryIssues?: string[];
+  lessonDecisions: Array<{
+    knowledgePointId: string;
+    verdict: "accept" | "reject";
+    issues: string[];
+  }>;
+  prerequisiteDecisions: Array<{
+    nodeId: string;
+    verdict: "accept" | "reject";
+    issues: string[];
+  }>;
+  relationshipDecisions: Array<{
+    edgeId: string;
+    verdict: "accept" | "reject";
+    issues: string[];
+  }>;
 };
 
 export type KnowledgeGraphNode = {
@@ -1189,6 +1259,16 @@ export type KnowledgeGraphNode = {
   description: string;
   keyInfo?: string;
   level?: "foundation" | "core" | "application" | "extension";
+  /** Lesson targets and curriculum prerequisites share one graph but not one teaching scope. */
+  instructionalRole?: "lesson" | "prerequisite";
+  /** Zero-based indexes into Course.learningObjectives; lesson nodes only. */
+  objectiveIndexes?: number[];
+  /** Observable end-of-lesson performance; lesson nodes only. */
+  masteryBoundary?: string;
+  /** Why students should already know this before the lesson; prerequisite nodes only. */
+  priorKnowledgeEvidence?: string;
+  /** Objective, gradable pre-course capability; prerequisite nodes only. */
+  diagnosticBoundary?: string;
   relatedLessonIds?: string[];
   position?: { x: number; y: number };
 };
@@ -1198,6 +1278,10 @@ export type KnowledgeGraphEdge = {
   source: string;
   target: string;
   label: string;
+  type?: "required-prerequisite" | "supports" | "application" | "contrast" | "transfer";
+  strength?: "required" | "helpful";
+  /** Concrete explanation of how the source affects learning or applying the target. */
+  rationale?: string;
 };
 
 export type TeachingOutlineSection = {
@@ -1242,6 +1326,8 @@ export type LessonOutlineSection = {
   segmentGroupId?: string;
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
+  narrationMode?: "standalone-course" | "embedded-segment";
+  teachingToolPlan?: import("@/lib/openmaic/types/generation").TeachingToolPlanItem[];
 };
 
 export type EvaluationPlan = {

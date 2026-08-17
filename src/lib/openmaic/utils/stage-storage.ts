@@ -29,7 +29,6 @@ export interface StageListItem {
   sceneCount: number;
   createdAt: number;
   updatedAt: number;
-  interactiveMode?: boolean;
   taskEngineMode?: boolean;
 }
 
@@ -52,7 +51,6 @@ export async function saveStageData(stageId: string, data: StageStoreData): Prom
       currentSceneId: data.currentSceneId || undefined,
       agentIds: data.stage.agentIds,
       videoManifest: data.stage.videoManifest,
-      interactiveMode: data.stage.interactiveMode,
       taskEngineMode: data.stage.taskEngineMode,
       generatedAgentConfigs: data.stage.generatedAgentConfigs,
     });
@@ -169,7 +167,6 @@ export async function listStages(): Promise<StageListItem[]> {
           sceneCount,
           createdAt: stage.createdAt,
           updatedAt: stage.updatedAt,
-          interactiveMode: stage.interactiveMode,
           taskEngineMode: stage.taskEngineMode,
         };
       }),

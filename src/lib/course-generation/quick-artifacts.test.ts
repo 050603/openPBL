@@ -28,7 +28,6 @@ function job(overrides: Partial<QuickClassroomGenerationSnapshot> = {}): QuickCl
       enableImageGeneration: true,
       enableVideoGeneration: false,
       enableTTS: true,
-      interactiveMode: true,
     },
     ...overrides,
   };

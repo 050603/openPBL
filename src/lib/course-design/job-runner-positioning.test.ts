@@ -17,6 +17,29 @@ describe("quick positioning generation", () => {
     callLLM.mockReset();
   });
 
+  it("repairs a blank target grade instead of letting unknown learner context flow downstream", async () => {
+    callLLM
+      .mockResolvedValueOnce(JSON.stringify({ name: "计算机视觉", subject: "人工智能", grade: "", hours: 2 }))
+      .mockResolvedValueOnce(JSON.stringify({ grade: "高中" }));
+    const { inferCourseSeed } = await import("./job-runner");
+    const course = {
+      name: "计算机视觉",
+      subject: "人工智能",
+      grade: "",
+      hours: 2,
+    } as Course;
+
+    const seed = await inferCourseSeed(
+      course,
+      { courseId: "course-cv", teacherBrief: "讲解图像分类、物体检测与计算机视觉工作流程" },
+      new AbortController().signal,
+    );
+
+    expect(seed.grade).toBe("高中");
+    expect(callLLM).toHaveBeenCalledTimes(2);
+    expect(callLLM.mock.calls[1][0][0].content).toContain("grade 必须是非空字符串");
+  }, 15_000);
+
   it("falls back to one directly adoptable draft when skeleton candidates are incomplete", async () => {
     generateProjectSkeleton.mockRejectedValue(
       new Error("项目骨架生成失败：AI 返回结构不完整，请检查模型输出后重试。"),
@@ -60,7 +83,7 @@ describe("quick positioning generation", () => {
     expect(result.learningObjectives).toHaveLength(3);
     expect(result.drivingQuestion).toMatch(/[？?]$/);
     expect(result.summary.length).toBeGreaterThan(30);
-  });
+  }, 15_000);
 
   it("merges generated authoring fields without restoring a stale course version", async () => {
     const { mergeGeneratedCourseSnapshot } = await import("./job-runner");
@@ -121,10 +144,13 @@ describe("quick positioning generation", () => {
         ],
       }))
       .mockResolvedValueOnce(JSON.stringify({
-        summary: "学生在两课时内分析三个校园 AI 误判案例，归纳错误类型和核验方法，最终共同形成一份简明校园广播稿。",
-        learningObjectives: ["识别校园情境中的 AI 误判", "归纳两类常见错误及核验方法", "依据案例撰写简明校园广播稿"],
-        learnerProfile: { priorKnowledge: "了解常见 AI 应用", learningNeeds: "需要案例分类与写作支架", familiarContexts: "校园广播" },
-        drivingQuestion: "我们如何用一份校园广播稿帮助同学识别 AI 错误并正确核验？",
+        summary: "已直接修订课程定位",
+        revised: {
+          summary: "学生在两课时内分析三个校园 AI 误判案例，归纳错误类型和核验方法，最终共同形成一份简明校园广播稿。",
+          learningObjectives: ["识别校园情境中的 AI 误判", "归纳两类常见错误及核验方法", "依据案例撰写简明校园广播稿"],
+          learnerProfile: { priorKnowledge: "了解常见 AI 应用", learningNeeds: "需要案例分类与写作支架", familiarContexts: "校园广播" },
+          drivingQuestion: "我们如何用一份校园广播稿帮助同学识别 AI 错误并正确核验？",
+        },
       }))
       .mockResolvedValueOnce(JSON.stringify({ passed: true, summary: "定位一致且课时可执行", issues: [] }));
 

@@ -56,6 +56,7 @@ export async function testSeedreamConnectivity(
     // any other error (400) means key is valid but request is intentionally bad
     const response = await fetch(`${baseUrl}/api/v3/images/generations`, {
       method: 'POST',
+      redirect: 'manual',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,

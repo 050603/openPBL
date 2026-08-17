@@ -295,10 +295,14 @@ export async function generateClassroomAssets(
         });
       } catch (error) {
         if (input.signal?.aborted) throw error;
+        // Keep successful segments durable, but surface the remaining missing
+        // audio to the caller so generation cannot be marked fully ready.
+        await updatePersistedClassroomScenes(group.classroomId, group.scenes);
         log.warn(
           `Classroom TTS backfill failed [classroomId=${group.classroomId}]; content remains available:`,
           error,
         );
+        throw error;
       }
     }
   };

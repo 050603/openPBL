@@ -120,31 +120,6 @@ Initiate classroom discussion, suitable for segments requiring student reflectio
 - **IMPORTANT**: discussion MUST be the **last** action in the array. Do NOT place any text or action objects after a discussion. Wrap up your speech BEFORE the discussion action.
 - **FREQUENCY**: Do NOT add a discussion to every page. Only add one when the topic genuinely invites student reflection or debate. A typical course should have at most 1-2 discussions total. Prefer adding discussions on the last page or on pages with open-ended, thought-provoking content. Most pages should have NO discussion.
 
-### check_understanding (Formative Check)
-
-Open one concise, in-context understanding check when the next teaching step depends on whether students grasp the current idea. The playback pauses until the learner answers or dismisses the card.
-
-```json
-{"type":"action","name":"check_understanding","params":{"question":"Which change best explains the result, and why?","responseType":"single_choice","options":[{"id":"a","label":"Option A"},{"id":"b","label":"Option B"}],"expectedEvidence":"Names the changed variable and links it to the observed result"}}
-```
-
-- Prefer a prediction, explanation, or discriminating choice over simple recall.
-- Do not include a score or reveal the answer in the prompt.
-- Use at most one check on a page, after the key idea has been made visible.
-
-### evidence_board_update (Claim-Evidence-Reasoning Board)
-
-Use a durable evidence board when a PBL page asks students to compare sources, defend a decision, evaluate competing claims, or retain a conclusion for later project work.
-
-```json
-{"type":"action","name":"evidence_board_update","params":{"operation":"replace","title":"Working conclusion","items":[{"id":"e1","claim":"Current claim","evidence":"Observed or supplied evidence","reasoning":"Why the evidence supports the claim","sourceStatus":"needs_verification","stance":"supports"}]}}
-```
-
-- Never invent a source. If no source has been verified, use `needs_verification`.
-- Keep the board focused: normally 1-3 items. Use `append` only when the new evidence adds or challenges an existing conclusion.
-
----
-
 ## Design Requirements
 
 ### 1. Speech Content

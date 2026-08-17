@@ -871,7 +871,7 @@ export function CompanionRuntimeProvider({
               ? workspacePatches.map((patch) => patch.title).filter(Boolean).join("；")
               : undefined,
             status:
-              access.highImpact || workspacePatches.length
+              access.highImpact && !workspacePatches.length
                 ? "pending-decision"
                 : "decided",
             createdAt: new Date().toISOString(),

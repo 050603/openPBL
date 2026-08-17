@@ -16,6 +16,7 @@ import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { ScreenElement } from '@openmaic/components/slide-renderer/Editor/ScreenElement';
 import type { PPTElement } from '@openmaic/dsl';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
+import { whiteboardIdForScene } from '@openmaic/lib/api/stage-api-whiteboard';
 
 export type WhiteboardCanvasHandle = {
   resetView: () => void;
@@ -393,11 +394,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
   function WhiteboardCanvas({ onViewModifiedChange }, ref) {
     const { t } = useI18n();
     const stage = useStageStore.use.stage();
+    const currentSceneId = useStageStore.use.currentSceneId();
     const isClearing = useCanvasStore.use.whiteboardClearing();
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
-    const whiteboard = stage?.whiteboard?.[0];
+    const activeWhiteboardId = whiteboardIdForScene(currentSceneId);
+    const whiteboard = activeWhiteboardId
+      ? stage?.whiteboard?.find((item) => item.id === activeWhiteboardId)
+      : stage?.whiteboard?.at(-1);
     const rawElements = whiteboard?.elements;
     const elements = useMemo(() => rawElements ?? [], [rawElements]);
 

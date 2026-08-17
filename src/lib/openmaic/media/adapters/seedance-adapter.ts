@@ -117,6 +117,7 @@ export async function testSeedanceConnectivity(
       `${baseUrl}/api/v3/contents/generations/tasks/connectivity-test-nonexistent`,
       {
         method: 'GET',
+        redirect: 'manual',
         headers: { Authorization: `Bearer ${config.apiKey}` },
       },
     );

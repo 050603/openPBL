@@ -134,6 +134,7 @@ export async function testKlingConnectivity(
     // Use a GET to a non-existent task to validate auth
     const response = await fetch(`${baseUrl}/v1/videos/text2video/connectivity-test`, {
       method: 'GET',
+      redirect: 'manual',
       headers: { Authorization: `Bearer ${token}` },
     });
     if (response.status === 401 || response.status === 403) {

@@ -48,6 +48,7 @@ describe("AiLearningTeacherView", () => {
 
   it("describes adaptive response states for teacher monitoring", () => {
     expect(adaptiveResponseStatus(undefined, true).label).toBe("等待前测");
+    expect(adaptiveResponseStatus(undefined, true, false).label).toBe("监测触发点");
     expect(adaptiveResponseStatus({
       classroomId: "classroom-1",
       studentId: "student-1",

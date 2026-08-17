@@ -96,10 +96,24 @@ const ACTIONS: Record<string, MissionActionDefinition[]> = {
   make: [
     {
       id: "project-work",
-      label: "制作并提交作品",
-      description: "完成作品后上传文件；后续修改可以继续提交新版本。",
+      label: "制作并保存作品版本",
+      description: "完成当前版本并上传文件，保留可回看的版本记录。",
       evidenceKinds: ["artifact-version"],
       doneWhen: "至少提交一个可查看的作品版本。",
+    },
+    {
+      id: "test-result",
+      label: "记录一次真实测试",
+      description: "记录测试方法、对象、观察事实、结果和局限。",
+      evidenceKinds: ["test-result"],
+      doneWhen: "测试记录能够区分观察事实与结果判断。",
+    },
+    {
+      id: "revision-decision",
+      label: "依据证据决定怎样修改",
+      description: "解释测试结果，选择修改、保留或重试，并写下下一轮目标。",
+      evidenceKinds: ["revision-decision"],
+      doneWhen: "修订决定明确引用了本轮测试证据。",
     },
   ],
   showcase: [
@@ -147,7 +161,7 @@ const COMPLETION: Record<string, string[]> = {
   launch: ["了解课程流程并选择研究方向"],
   "ai-learning": ["沿用原 AI 授知阶段完成条件"],
   proposal: ["形成一份能够实施和验证的项目方案", "教师确认方案方向"],
-  make: ["提交一个可查看的作品版本", "修改后可继续上传新版本"],
+  make: ["提交一个可查看的作品版本", "完成测试—解释—修订循环", "修改后继续上传新版本"],
   showcase: ["最终作品可检查", "汇报包含主张、证据和局限", "完成 AI 追问与教师现场评价"],
   reflection: ["反思引用真实过程证据并形成因果链", "完成新情境迁移"],
 };
@@ -156,7 +170,7 @@ const REQUIRED_KINDS: Record<string, LearningEvidenceKind[]> = {
   launch: [],
   "ai-learning": [],
   proposal: ["plan-version"],
-  make: ["artifact-version"],
+  make: ["artifact-version", "test-result", "revision-decision"],
   showcase: [],
   reflection: [],
 };
@@ -172,8 +186,8 @@ export function getStageMissionDefinition(
     actions.find((action) =>
       action.evidenceKinds.some((kind) => missingEvidenceKinds.includes(kind)),
     ) ?? actions[0];
-  const iterationCount = 0;
-  const targetIterations = 0;
+  const iterationCount = stageKey === "make" ? preset.requiredIterations : 0;
+  const targetIterations = stageKey === "make" ? preset.targetIterations : 0;
   const teacherRequirement = stageKey === "proposal"
       ? "plan-approval"
       : stageKey === "showcase"

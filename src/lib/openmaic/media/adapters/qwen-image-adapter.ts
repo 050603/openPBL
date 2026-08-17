@@ -68,6 +68,7 @@ export async function testQwenImageConnectivity(
       `${baseUrl}/api/v1/services/aigc/multimodal-generation/generation`,
       {
         method: 'POST',
+        redirect: 'manual',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.apiKey}`,

@@ -428,6 +428,8 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
           name?: string;
           description?: string;
           keyInfo?: string;
+          masteryBoundary?: string;
+          objectiveIndexes?: unknown;
           relatedIds?: unknown;
           level?: unknown;
         }
@@ -437,6 +439,14 @@ function validateKnowledgePoints(raw: unknown): CourseContent["knowledgePoints"]
       name: requireText(point.name, "知识点"),
       description: typeof point.description === "string" ? localizeGeneratedNarrative(point.description.trim()) : "",
       keyInfo: typeof point.keyInfo === "string" && point.keyInfo.trim() ? localizeGeneratedNarrative(point.keyInfo.trim()) : undefined,
+      masteryBoundary: typeof point.masteryBoundary === "string" && point.masteryBoundary.trim()
+        ? localizeGeneratedNarrative(point.masteryBoundary.trim())
+        : undefined,
+      objectiveIndexes: Array.isArray(point.objectiveIndexes)
+        ? [...new Set(point.objectiveIndexes.filter((value): value is number =>
+            typeof value === "number" && Number.isInteger(value) && value >= 0,
+          ))]
+        : undefined,
       relatedIds: Array.isArray(point.relatedIds)
         ? point.relatedIds.filter((id): id is string => typeof id === "string")
         : undefined,
@@ -465,11 +475,14 @@ function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["k
   }
   const rawNodes = obj.nodes;
   const rawNodesById = new Map(rawNodes.map((node) => [node.id, node]));
-  if (rawNodes.length !== knowledgePoints.length || knowledgePoints.some((point) => !rawNodesById.has(point.id))) {
-    throw new Error("知识图谱生成失败：知识点与图谱节点没有按 ID 一一对应。");
+  if (rawNodesById.size !== rawNodes.length) {
+    throw new Error("知识图谱生成失败：图谱节点 ID 存在重复。");
+  }
+  if (knowledgePoints.some((point) => !rawNodesById.has(point.id))) {
+    throw new Error("知识图谱生成失败：图谱节点没有覆盖全部本课知识点。");
   }
 
-  const nodes: KnowledgeGraph["nodes"] = knowledgePoints.map((point) => {
+  const lessonNodes: KnowledgeGraph["nodes"] = knowledgePoints.map((point) => {
     const node = rawNodesById.get(point.id)!;
     const nodeLevel =
       node.level === "foundation" ||
@@ -484,19 +497,85 @@ function normalizeKnowledgeGraph(raw: unknown, knowledgePoints: CourseContent["k
       description: point.description || (typeof node.description === "string" ? localizeGeneratedNarrative(node.description.trim()) : ""),
       keyInfo: point.keyInfo || (typeof node.keyInfo === "string" ? localizeGeneratedNarrative(node.keyInfo.trim()) : undefined),
       level: point.level ?? nodeLevel,
+      instructionalRole: "lesson" as const,
+      objectiveIndexes: point.objectiveIndexes?.length
+        ? point.objectiveIndexes
+        : Array.isArray(node.objectiveIndexes)
+          ? [...new Set(node.objectiveIndexes.filter((value): value is number =>
+              typeof value === "number" && Number.isInteger(value) && value >= 0,
+            ))]
+          : undefined,
+      masteryBoundary: point.masteryBoundary
+        || (typeof node.masteryBoundary === "string" && node.masteryBoundary.trim()
+          ? localizeGeneratedNarrative(node.masteryBoundary.trim())
+          : point.keyInfo || point.description),
       relatedLessonIds: Array.isArray(node.relatedLessonIds)
         ? node.relatedLessonIds.filter((id): id is string => typeof id === "string")
         : undefined,
     };
   });
+  const prerequisiteNodes: KnowledgeGraph["nodes"] = rawNodes.flatMap((node) => {
+    if (knowledgePoints.some((point) => point.id === node.id)) return [];
+    if (node.instructionalRole !== "prerequisite") {
+      throw new Error("知识图谱生成失败：本课知识点之外的节点必须标记为 prerequisite。");
+    }
+    const level = node.level === "core" || node.level === "application" || node.level === "extension"
+      ? node.level
+      : "foundation" as const;
+    return [{
+      id: typeof node.id === "string" ? node.id.trim() : "",
+      label: typeof node.label === "string" ? localizeGeneratedNarrative(node.label.trim()) : "",
+      description: typeof node.description === "string" ? localizeGeneratedNarrative(node.description.trim()) : "",
+      keyInfo: typeof node.keyInfo === "string" && node.keyInfo.trim()
+        ? localizeGeneratedNarrative(node.keyInfo.trim())
+        : undefined,
+      level,
+      instructionalRole: "prerequisite" as const,
+      priorKnowledgeEvidence: typeof node.priorKnowledgeEvidence === "string" && node.priorKnowledgeEvidence.trim()
+        ? localizeGeneratedNarrative(node.priorKnowledgeEvidence.trim())
+        : undefined,
+      diagnosticBoundary: typeof node.diagnosticBoundary === "string" && node.diagnosticBoundary.trim()
+        ? localizeGeneratedNarrative(node.diagnosticBoundary.trim())
+        : undefined,
+      position: node.position,
+    }];
+  });
+  const nodes = [...lessonNodes, ...prerequisiteNodes];
 
   const nodeIds = new Set(nodes.map((node) => node.id));
+  if (prerequisiteNodes.length > 0 && Array.isArray(obj.edges)) {
+    const malformedStructuredEdge = obj.edges.some((edge) =>
+      !edge
+      || typeof edge !== "object"
+      || !(edge.type === "required-prerequisite"
+        || edge.type === "supports"
+        || edge.type === "application"
+        || edge.type === "contrast"
+        || edge.type === "transfer")
+      || !(edge.strength === "required" || edge.strength === "helpful")
+      || typeof edge.rationale !== "string"
+      || !edge.rationale.trim(),
+    );
+    if (malformedStructuredEdge) {
+      throw new Error("知识图谱生成失败：包含课前先修时，每条关系必须明确填写 type、strength 和 rationale。");
+    }
+  }
   const candidateEdges = Array.isArray(obj.edges)
     ? obj.edges.map((edge, index) => ({
           id: typeof edge.id === "string" && edge.id ? edge.id : `edge-${index + 1}`,
           source: typeof edge.source === "string" ? edge.source : "",
           target: typeof edge.target === "string" ? edge.target : "",
           label: typeof edge.label === "string" && edge.label.trim() ? localizeGeneratedNarrative(edge.label.trim()) : "关联",
+          type: edge.type === "required-prerequisite"
+            || edge.type === "application"
+            || edge.type === "contrast"
+            || edge.type === "transfer"
+            ? edge.type
+            : "supports" as const,
+          strength: edge.strength === "helpful" ? "helpful" as const : "required" as const,
+          rationale: typeof edge.rationale === "string" && edge.rationale.trim()
+            ? localizeGeneratedNarrative(edge.rationale.trim())
+            : typeof edge.label === "string" ? localizeGeneratedNarrative(edge.label.trim()) : "",
         }))
     : [];
   const edges = candidateEdges.filter(
@@ -513,11 +592,16 @@ function applyGraphLevels(
   knowledgePoints: CourseContent["knowledgePoints"],
   graph: KnowledgeGraph,
 ): CourseContent["knowledgePoints"] {
-  const levels = new Map(graph.nodes.map((node) => [node.id, node.level]));
-  return knowledgePoints.map((point) => ({
-    ...point,
-    level: point.level ?? levels.get(point.id),
-  }));
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+  return knowledgePoints.map((point) => {
+    const node = nodes.get(point.id);
+    return {
+      ...point,
+      level: point.level ?? node?.level,
+      masteryBoundary: point.masteryBoundary ?? node?.masteryBoundary,
+      objectiveIndexes: point.objectiveIndexes ?? node?.objectiveIndexes,
+    };
+  });
 }
 
 export function normalizeKnowledgeGraphOutput(
@@ -1100,9 +1184,11 @@ function validateTeachingOutline(
   return normalizeTeachingOutlineResponse(raw, input, context);
 }
 
-function validateEvaluationPlan(raw: unknown): EvaluationPlan {
-  const plan = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  const rawDimensions = plan.dimensions;
+export function normalizeEvaluationPlanOutput(raw: unknown, fallback?: EvaluationPlan): EvaluationPlan {
+  const plan = unwrapEvaluationPlanRecord(raw);
+  const rawDimensions = Array.isArray(plan.dimensions) && plan.dimensions.length > 0
+    ? plan.dimensions
+    : fallback?.dimensions;
   if (!Array.isArray(rawDimensions) || rawDimensions.length === 0) {
     throw new Error("评价方案生成失败：AI 未返回评价维度。");
   }
@@ -1150,13 +1236,33 @@ function validateEvaluationPlan(raw: unknown): EvaluationPlan {
   });
 
   const overallRubric =
-    pickString(plan, ["overallRubric", "rubric", "整体评价", "评价说明"]) ?? "";
+    pickString(plan, ["overallRubric", "rubric", "整体评价", "评价说明"])
+    ?? fallback?.overallRubric
+    ?? "";
+
+  const parsedFlows = parseEvaluationFlows(plan.flows);
 
   return {
     dimensions: parsed,
     overallRubric: localizeGeneratedNarrative(overallRubric),
-    flows: parseEvaluationFlows(plan.flows),
+    flows: parsedFlows ?? fallback?.flows,
   };
+}
+
+function unwrapEvaluationPlanRecord(raw: unknown): Record<string, unknown> {
+  let current = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {};
+  for (let depth = 0; depth < 3 && !Array.isArray(current.dimensions); depth += 1) {
+    const direct = current.evaluationPlan ?? current.revised;
+    const content = current.content && typeof current.content === "object" && !Array.isArray(current.content)
+      ? current.content as Record<string, unknown>
+      : undefined;
+    const nested = direct ?? content?.evaluationPlan;
+    if (!nested || typeof nested !== "object" || Array.isArray(nested)) break;
+    current = nested as Record<string, unknown>;
+  }
+  return current;
 }
 
 function parseEvaluationFlows(raw: unknown): EvaluationPlan["flows"] {
@@ -1251,7 +1357,7 @@ function validateFullCourse(json: unknown, input: GenerateInput): CourseContent 
     knowledgeGraph,
     teachingOutline,
     lessonOutline,
-    evaluationPlan: validateEvaluationPlan(data.evaluationPlan),
+    evaluationPlan: normalizeEvaluationPlanOutput(data.evaluationPlan),
   };
 }
 
@@ -1394,7 +1500,7 @@ export async function generateCourseContent(
   }
   if (action === "evaluationPlan") {
     return {
-      content: { ...emptyCourseContent(), evaluationPlan: validateEvaluationPlan((json as { evaluationPlan?: unknown }).evaluationPlan) },
+      content: { ...emptyCourseContent(), evaluationPlan: normalizeEvaluationPlanOutput((json as { evaluationPlan?: unknown }).evaluationPlan) },
       source: "llm",
     };
   }

@@ -7,7 +7,7 @@
  * - 节点拖拽、画布平移、滚轮缩放
  * - 路径高亮：选中节点时高亮其相邻节点与连边，其余节点淡化
  * - 外部联动：通过 activeNodeId 高亮当前讲解的知识点（与 OpenMAIC 场景联动）
- * - 层级布局：foundation → core → application → extension 自上而下分层
+ * - 自适应路径布局：根据真实关系生成稳定的横向学习路径，不再固定语义层级
  * - 全屏模式：支持 isFullscreen 切换
  * - 节点选中回调：onNodeSelect 返回选中节点 ID
  */
@@ -16,6 +16,7 @@ import "@xyflow/react/dist/style.css";
 
 import {
   Background,
+  BackgroundVariant,
   Controls,
   MarkerType,
   MiniMap,
@@ -34,7 +35,12 @@ import { Handle } from "@xyflow/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KnowledgeGraph, KnowledgeGraphNode, KnowledgePoint } from "@/lib/session/types";
-import { normalizeKnowledgeGraphForDisplay } from "@/components/knowledge-graph";
+import { normalizeKnowledgeGraphForDisplay } from "@/lib/knowledge-graph-display";
+import {
+  KNOWLEDGE_GRAPH_NODE_HEIGHT,
+  KNOWLEDGE_GRAPH_NODE_WIDTH,
+  layoutKnowledgeGraph,
+} from "@/lib/knowledge-graph-layout";
 import { cn } from "@/lib/utils";
 
 // ===== 层级配色 =====
@@ -54,14 +60,15 @@ const LEVEL_STYLE: Record<Level, { bg: string; border: string; text: string; dot
   extension: { bg: "#f5f3ff", border: "#c4b5fd", text: "#5b21b6", dot: "#8b5cf6" },
 };
 
-const LEVEL_ORDER: Level[] = ["foundation", "core", "application", "extension"];
 const ZERO_POSITION = { x: 0, y: 0 };
+const EMPTY_POINTS: KnowledgePoint[] = [];
 type GraphAppearance = "default" | "teaching-rail";
 
 // ===== 自定义节点 =====
 type KgNodeData = {
   label: string;
   level: Level;
+  instructionalRole?: KnowledgeGraphNode["instructionalRole"];
   description?: string;
   keyInfo?: string;
   isActive?: boolean;
@@ -72,44 +79,54 @@ type KgNodeData = {
 function KnowledgeNode({ data }: NodeProps) {
   const d = data as KgNodeData;
   const style = LEVEL_STYLE[d.level];
+  const prerequisite = d.instructionalRole === "prerequisite";
   const isTeachingRail = d.appearance === "teaching-rail";
   return (
     <div
+      aria-label={`${d.label}，${prerequisite ? "课前先修" : LEVEL_LABEL[d.level]}`}
       className={cn(
-        "flex min-w-[140px] max-w-[200px] flex-col gap-1 px-3 py-2 transition-all duration-500",
-        isTeachingRail ? "rounded-[14px] border" : "rounded-[10px] border-2 shadow-sm",
+        "flex flex-col justify-center gap-1.5 border px-3.5 py-2.5 transition-[border-color,background-color,box-shadow,opacity,transform] duration-300",
+        isTeachingRail ? "rounded-[16px]" : "rounded-[14px]",
       )}
       style={{
-        background: isTeachingRail
-          ? d.isActive ? "rgba(237, 247, 243, 0.98)" : "rgba(255, 255, 255, 0.9)"
-          : d.isActive ? "#fffbeb" : style.bg,
-        borderColor: isTeachingRail
-          ? d.isActive ? "#4f8f82" : "rgba(148, 163, 184, 0.38)"
+        width: KNOWLEDGE_GRAPH_NODE_WIDTH,
+        minHeight: KNOWLEDGE_GRAPH_NODE_HEIGHT,
+        background: prerequisite
+          ? "#fff7ed"
+          : isTeachingRail
+          ? d.isActive ? "rgba(231, 246, 240, 0.98)" : "rgba(255, 255, 255, 0.94)"
+          : d.isActive ? "#fffdf4" : "rgba(255, 255, 255, 0.96)",
+        borderColor: prerequisite
+          ? "#fb923c"
+          : isTeachingRail
+          ? d.isActive ? "#3f8174" : "rgba(148, 163, 184, 0.34)"
           : d.isActive ? "#f59e0b" : style.border,
-        color: isTeachingRail ? (d.isActive ? "#17473f" : "#52645f") : style.text,
-        opacity: d.isDimmed ? (isTeachingRail ? 0.28 : 0.35) : 1,
+        color: prerequisite ? "#9a3412" : isTeachingRail ? (d.isActive ? "#17473f" : "#52645f") : style.text,
+        opacity: d.isDimmed ? (isTeachingRail ? 0.22 : 0.3) : 1,
         boxShadow: isTeachingRail
           ? d.isActive
             ? "0 8px 24px rgba(39, 99, 86, 0.14), 0 0 0 3px rgba(79, 143, 130, 0.1)"
-            : "0 3px 12px rgba(15, 23, 42, 0.055)"
+            : "0 4px 16px rgba(15, 23, 42, 0.055)"
           : d.isActive
-            ? "0 0 0 4px rgba(245, 158, 11, 0.25), 0 4px 12px rgba(0,0,0,0.08)"
-            : "0 1px 3px rgba(0,0,0,0.06)",
-        transform: d.isActive ? `scale(${isTeachingRail ? 1.03 : 1.06})` : "scale(1)",
+            ? "0 0 0 4px rgba(245, 158, 11, 0.14), 0 10px 28px rgba(71, 52, 20, 0.14)"
+            : "0 5px 18px rgba(15, 23, 42, 0.07)",
+        transform: d.isActive ? `scale(${isTeachingRail ? 1.025 : 1.045})` : "scale(1)",
       }}
+      title={[d.label, d.description, d.keyInfo].filter(Boolean).join("\n")}
     >
-      <Handle position={Position.Top} type="target" style={{ opacity: 0 }} />
+      <Handle position={Position.Left} type="target" style={{ opacity: 0 }} />
       <div className="flex items-center gap-1.5">
         <span
           className="inline-block h-2 w-2 shrink-0 rounded-full"
-          style={{ background: isTeachingRail ? (d.isActive ? "#3f8174" : "#9fb5af") : d.isActive ? "#f59e0b" : style.dot }}
+          style={{ background: prerequisite ? "#f97316" : isTeachingRail ? (d.isActive ? "#3f8174" : "#9fb5af") : d.isActive ? "#f59e0b" : style.dot }}
         />
-        <span className="truncate text-[13px] font-bold leading-tight">{d.label}</span>
+        <span className="line-clamp-2 text-[13px] font-bold leading-[1.35]">{d.label}</span>
       </div>
-      <span className="text-[10px] font-semibold opacity-70">
-        {LEVEL_LABEL[d.level]}
-      </span>
-      <Handle position={Position.Bottom} type="source" style={{ opacity: 0 }} />
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold opacity-65">
+        <span>{prerequisite ? "课前先修" : LEVEL_LABEL[d.level]}</span>
+        {!prerequisite ? <><span aria-hidden="true">·</span><span>本课目标</span></> : null}
+      </div>
+      <Handle position={Position.Right} type="source" style={{ opacity: 0 }} />
     </div>
   );
 }
@@ -138,8 +155,11 @@ function KnowledgeEdge({
     : d.isActive ? "#f59e0b" : d.isDimmed ? "#cbd5e1" : "#94a3b8";
   const strokeWidth = d.isActive ? (isTeachingRail ? 2 : 2.5) : 1.5;
 
-  const midY = (sourceY + targetY) / 2;
-  const path = `M ${sourceX},${sourceY} C ${sourceX},${midY} ${targetX},${midY} ${targetX},${targetY}`;
+  const curve = Math.max(54, Math.abs(targetX - sourceX) * 0.42);
+  const path = `M ${sourceX},${sourceY} C ${sourceX + curve},${sourceY} ${targetX - curve},${targetY} ${targetX},${targetY}`;
+  const visibleLabel = d.label && d.isActive && !isTeachingRail
+    ? (d.label.length > 18 ? `${d.label.slice(0, 18)}…` : d.label)
+    : null;
 
   return (
     <g>
@@ -150,20 +170,22 @@ function KnowledgeEdge({
         stroke={stroke}
         strokeWidth={strokeWidth}
         markerEnd={markerEnd}
-        style={{ transition: "stroke 0.2s, stroke-width 0.2s" }}
+        opacity={d.isDimmed ? 0.32 : 1}
+        style={{ transition: "stroke 0.2s, stroke-width 0.2s, opacity 0.2s" }}
       />
-      {d.label && !isTeachingRail ? (
+      <title>{d.label}</title>
+      {visibleLabel ? (
         <text
           x={(sourceX + targetX) / 2}
           y={(sourceY + targetY) / 2}
-          dy={-4}
+          dy={-7}
           textAnchor="middle"
           fontSize={10}
           fontWeight={600}
           fill={d.isActive ? "#b45309" : "#64748b"}
-          style={{ paintOrder: "stroke", stroke: "#fff", strokeWidth: 3 }}
+          style={{ paintOrder: "stroke", stroke: "rgba(255,255,255,0.96)", strokeWidth: 5 }}
         >
-          {d.label}
+          {visibleLabel}
         </text>
       ) : null}
     </g>
@@ -202,7 +224,7 @@ function ActiveNodeFocus({ nodeId, zoom }: { nodeId?: string | null; zoom: numbe
         void setCenter(centerX, centerY, { duration: 700, zoom });
       }
       previousNodeRef.current = nodeId;
-    }, 80);
+    }, 180);
 
     return () => {
       clearTimeout(prepareTimer);
@@ -211,41 +233,6 @@ function ActiveNodeFocus({ nodeId, zoom }: { nodeId?: string | null; zoom: numbe
   }, [getInternalNode, getViewport, nodeId, setCenter, setViewport, zoom]);
 
   return null;
-}
-
-// ===== 布局：按层级自上而下分层 =====
-function layoutNodes(nodes: KnowledgeGraphNode[]): { id: string; position: { x: number; y: number } }[] {
-  const groups: Record<Level, KnowledgeGraphNode[]> = {
-    foundation: [],
-    core: [],
-    application: [],
-    extension: [],
-  };
-  for (const node of nodes) {
-    const level = (node.level ?? "core") as Level;
-    (groups[level] ?? groups.core).push(node);
-  }
-
-  const TIER_HEIGHT = 180;
-  const NODE_GAP = 230;
-  const results: { id: string; position: { x: number; y: number } }[] = [];
-
-  LEVEL_ORDER.forEach((level, tierIndex) => {
-    const tierNodes = groups[level];
-    if (tierNodes.length === 0) return;
-    const totalWidth = (tierNodes.length - 1) * NODE_GAP;
-    tierNodes.forEach((node, idx) => {
-      results.push({
-        id: node.id,
-        position: node.position ?? {
-          x: -totalWidth / 2 + idx * NODE_GAP,
-          y: tierIndex * TIER_HEIGHT,
-        },
-      });
-    });
-  });
-
-  return results;
 }
 
 // ===== 工具：判断节点是否为高亮节点的邻居 =====
@@ -264,7 +251,7 @@ function isNeighbor(
 // ===== 主组件 =====
 export function KnowledgeGraphFlow({
   graph,
-  points = [],
+  points = EMPTY_POINTS,
   activeNodeId,
   height = 360,
   showMiniMap = true,
@@ -298,7 +285,19 @@ export function KnowledgeGraphFlow({
     [graph, points],
   );
 
-  const layout = useMemo(() => layoutNodes(normalized.nodes), [normalized.nodes]);
+  const topologyKey = useMemo(
+    () => [
+      normalized.nodes.map((node) => node.id).join("\u0001"),
+      normalized.edges.map((edge) => `${edge.source}\u0002${edge.target}`).join("\u0001"),
+    ].join("\u0003"),
+    [normalized.edges, normalized.nodes],
+  );
+  const layout = useMemo(
+    () => layoutKnowledgeGraph(normalized.nodes, normalized.edges),
+    // Names, descriptions and manually dragged positions do not change topology.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [topologyKey],
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const highlightId = activeNodeId ?? selectedId;
   // ref 暂存待通知的 nodeId，在 effect 中回调 onNodeSelect，
@@ -324,6 +323,7 @@ export function KnowledgeGraphFlow({
           level,
           description: node.description,
           keyInfo: node.keyInfo,
+          instructionalRole: node.instructionalRole,
           isActive: false,
           isDimmed: false,
           appearance,
@@ -353,11 +353,21 @@ export function KnowledgeGraphFlow({
 
   const [nodes, setNodes, onNodesChange] = useNodesState(baseNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(baseEdges);
+  const previousTopologyKeyRef = useRef(topologyKey);
 
   useEffect(() => {
-    setNodes(baseNodes);
+    const topologyChanged = previousTopologyKeyRef.current !== topologyKey;
+    setNodes((currentNodes) => {
+      if (topologyChanged) return baseNodes;
+      const currentPositions = new Map(currentNodes.map((node) => [node.id, node.position]));
+      return baseNodes.map((node) => ({
+        ...node,
+        position: currentPositions.get(node.id) ?? node.position,
+      }));
+    });
     setEdges(baseEdges);
-  }, [baseNodes, baseEdges, setNodes, setEdges]);
+    previousTopologyKeyRef.current = topologyKey;
+  }, [baseNodes, baseEdges, setNodes, setEdges, topologyKey]);
 
   // 外部 activeNodeId 或数据变化时同步节点/边的样式
   useEffect(() => {
@@ -404,6 +414,11 @@ export function KnowledgeGraphFlow({
     });
   }, []);
 
+  const clearSelection = useCallback(() => {
+    setSelectedId(null);
+    onNodeSelect?.(null);
+  }, [onNodeSelect]);
+
   if (normalized.nodes.length === 0) {
     return (
       <div className="grid h-full place-items-center rounded-[8px] border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
@@ -415,7 +430,10 @@ export function KnowledgeGraphFlow({
   return (
     <div
       className={cn(
-        "relative h-full w-full",
+        "knowledge-graph-canvas relative h-full w-full overflow-hidden",
+        appearance === "teaching-rail"
+          ? "bg-[radial-gradient(circle_at_45%_48%,rgba(221,240,234,0.74),rgba(248,251,250,0.18)_62%,transparent_100%)]"
+          : "bg-[radial-gradient(circle_at_48%_42%,rgba(239,246,255,0.9),rgba(255,255,255,0.96)_54%,rgba(240,253,250,0.72)_100%)]",
         isFullscreen && "fixed inset-0 z-50 bg-white",
       )}
       style={isFullscreen ? { minHeight: "100vh" } : { minHeight: height }}
@@ -427,13 +445,17 @@ export function KnowledgeGraphFlow({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onPaneClick={clearSelection}
           onNodeDragStop={(_, node) => onNodePositionChange?.(node.id, node.position)}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          fitView
+          fitView={!focusActiveNode || !activeNodeId}
           fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.3}
-          maxZoom={2}
+          minZoom={0.24}
+          maxZoom={1.8}
+          nodesDraggable={appearance !== "teaching-rail"}
+          nodesFocusable={appearance !== "teaching-rail"}
+          onlyRenderVisibleElements
           proOptions={{ hideAttribution: true }}
           defaultEdgeOptions={{
             markerEnd: {
@@ -446,23 +468,33 @@ export function KnowledgeGraphFlow({
           <Background
             color={appearance === "teaching-rail" ? "#cfe0db" : "#e2e8f0"}
             gap={appearance === "teaching-rail" ? 24 : 20}
-            size={appearance === "teaching-rail" ? 1 : 1.4}
+            size={appearance === "teaching-rail" ? 0.8 : 1.1}
+            variant={BackgroundVariant.Dots}
           />
           {showControls ? <Controls position="bottom-right" showInteractive={false} /> : null}
           {showMiniMap && normalized.nodes.length > 4 ? (
             <MiniMap
-              position="top-right"
+              position="bottom-left"
               pannable
               zoomable
               nodeColor={(node) => {
                 const data = node.data as KgNodeData;
                 return data.isActive ? "#f59e0b" : LEVEL_STYLE[data.level]?.dot ?? "#94a3b8";
               }}
-              maskColor="rgba(241, 245, 249, 0.6)"
+              maskColor="rgba(241, 245, 249, 0.68)"
+              className="!overflow-hidden !rounded-xl !border !border-slate-200 !bg-white/90 !shadow-sm"
             />
           ) : null}
         </ReactFlow>
       </ReactFlowProvider>
+      {appearance !== "teaching-rail" ? (
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-white/80 bg-white/85 px-3 py-1.5 text-[10px] font-semibold text-slate-500 shadow-sm backdrop-blur-md">
+          <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+          依赖方向
+          <span aria-hidden="true" className="text-slate-300">→</span>
+          <span className="text-slate-700">学习进阶</span>
+        </div>
+      ) : null}
       {onToggleFullscreen && (
         <button
           type="button"

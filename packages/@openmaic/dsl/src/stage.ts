@@ -56,6 +56,22 @@ export interface VideoManifestEntry {
 
 export type VideoManifest = Record<string, VideoManifestEntry>;
 
+/** Provider-neutral vocal identity for an agent, described as a 3-layer recipe. */
+export interface VoiceDesign {
+  /** gender / age / role */
+  identity: string;
+  /** pitch / vocal quality */
+  texture: string;
+  /** emotion / pace */
+  delivery: string;
+}
+
+/** A concrete, provider-defined TTS voice binding for an agent. */
+export interface AgentVoiceConfig {
+  providerId: string;
+  voiceId: string;
+}
+
 /**
  * Server-generated agent configuration. Embedded in persisted classroom JSON
  * so clients can hydrate the agent registry without relying on IndexedDB
@@ -69,6 +85,10 @@ export interface GeneratedAgentConfig {
   avatar: string;
   color: string;
   priority: number;
+  /** Bound TTS voice, when the generation pipeline selected one. */
+  voiceConfig?: AgentVoiceConfig;
+  /** Provider-neutral vocal descriptor for voice synthesis or registration. */
+  voiceDesign?: VoiceDesign;
 }
 
 /**
@@ -107,16 +127,9 @@ export interface Stage {
    */
   generatedAgentConfigs?: GeneratedAgentConfig[];
   /**
-   * True when this classroom was generated with Interactive Mode enabled
-   * (the INTERACTIVE_OUTLINES prompt branch).
-   * Absent on legacy classrooms, imports, and regular-mode generations.
-   */
-  interactiveMode?: boolean;
-  /**
    * True when this classroom was generated with the vocational Task Engine
-   * path enabled. This is distinct from `interactiveMode`: task-engine
-   * classrooms are interactive, but not every interactive classroom is
-   * vocational.
+   * path enabled. Deep interaction is the default for every classroom; this
+   * flag only selects the specialized vocational generation architecture.
    */
   taskEngineMode?: boolean;
 }
@@ -143,6 +156,8 @@ export interface QuizOption {
 
 export interface QuizQuestion {
   id: string;
+  /** Confirmed course knowledge points assessed by this question. */
+  knowledgePointIds?: string[];
   type: 'single' | 'multiple' | 'short_answer';
   /** Pedagogical presentation within a runtime-supported response structure. */
   format?: 'single_choice' | 'multiple_choice' | 'true_false' | 'fill_blank' | 'short_answer' | 'scenario_task';

@@ -4,7 +4,7 @@ Generate a self-contained HTML code editor with execution and test validation.
 
 ## Supported Languages
 
-- Python (via Pyodide CDN)
+- Python (via the OpenPBL same-origin Pyodide runtime)
 - JavaScript (native browser execution)
 - TypeScript (via Babel CDN transpilation)
 
@@ -27,6 +27,25 @@ Generate a self-contained HTML code editor with execution and test validation.
 ## Python Execution Requirements (CRITICAL)
 
 When generating Python widgets using Pyodide, follow these **mandatory patterns**:
+
+### 0. Use the OpenPBL Runtime URLs
+
+Do not reference jsDelivr, cdnjs, unpkg, or another public CDN for executable
+runtime assets. The classroom CSP blocks third-party scripts and student devices
+may not have reliable public-internet access.
+
+```html
+<link rel="stylesheet" href="/api/openmaic/interactive-runtime/codemirror/lib/codemirror.css">
+<script src="/api/openmaic/interactive-runtime/codemirror/lib/codemirror.js"></script>
+<script src="/api/openmaic/interactive-runtime/codemirror/mode/python/python.js"></script>
+<script src="/api/openmaic/interactive-runtime/pyodide/pyodide.js"></script>
+```
+
+Always initialize with the matching same-origin package base:
+
+```javascript
+await loadPyodide({ indexURL: '/api/openmaic/interactive-runtime/pyodide/' });
+```
 
 ### 1. Proper Stdout Capture Setup
 
@@ -59,11 +78,23 @@ If user code needs packages like numpy, load them during initialization:
 await pyodide.loadPackage(['numpy']);
 ```
 
+If generated bootstrap code imports `micropip`, it MUST load the package first:
+```javascript
+await pyodide.loadPackage('micropip');
+await pyodide.runPythonAsync(`
+    import micropip
+    await micropip.install('package-name')
+`);
+```
+Never execute `import micropip` before `loadPackage('micropip')` has completed.
+
 ### 4. Wait for Pyodide Initialization
 
 - Disable the run button until Pyodide is fully loaded
 - Show loading status to users
 - Check `pyodide !== null` before running code
+- Wrap initialization in `try/catch`; on failure, stop the spinner, show the real
+  error, and provide a retry button that calls `initPyodide()` again
 
 ### 5. Retrieve Output Correctly
 
@@ -77,7 +108,9 @@ const output = pyodide.runPython('sys.stdout.getvalue()');
 let pyodide = null;
 
 async function initPyodide() {
-    pyodide = await loadPyodide();
+    pyodide = await loadPyodide({
+        indexURL: '/api/openmaic/interactive-runtime/pyodide/'
+    });
     // Load any packages user code might need
     await pyodide.loadPackage(['numpy']);
     document.getElementById('run-btn').disabled = false;
@@ -109,7 +142,7 @@ async function runCode() {
 
 ## Technical Requirements
 
-- Use CodeMirror or Monaco via CDN for editing
+- Use CodeMirror from the OpenPBL same-origin runtime URLs above for editing
 - Syntax highlighting for the language
 - Run button with output display
 - Test case validation with pass/fail indicators
@@ -142,3 +175,5 @@ Return ONLY the HTML document, no markdown fences or explanations.
 - [ ] **NO DUPLICATED HTML** - exactly ONE `<!DOCTYPE html>` tag
 - [ ] **Python stdout uses correct import pattern** - imports BOTH `sys` AND `io`
 - [ ] **Pyodide uses async execution** - `runPythonAsync()` not `runPython()`
+- [ ] **`micropip` is loaded before it is imported**
+- [ ] **All executable runtime assets use `/api/openmaic/interactive-runtime/`**

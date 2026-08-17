@@ -192,15 +192,13 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                 {topicSelected ? <CheckCircle2 size={22} /> : <Compass size={22} />}
               </div>
               <div>
-                <div className="font-bold">选择研究主题</div>
+                <div className="font-bold">确认项目核心驱动问题</div>
                 <div className="text-sm text-stone-500">
                   {topicSelected
-                    ? `当前研究问题：${project?.topic}`
+                    ? `本课程核心问题：${project?.topic}`
                     : inquiryQuestions.length === 0
-                      ? "教师尚未发布项目启发问题"
-                      : inquiryQuestions.length === 1
-                        ? "系统将自动采用教师设置的项目问题"
-                        : "选择你最感兴趣、最想深入研究的启发问题"}
+                      ? "教师尚未发布项目核心驱动问题"
+                      : "系统将自动采用教师设置的核心驱动问题"}
                 </div>
               </div>
             </div>

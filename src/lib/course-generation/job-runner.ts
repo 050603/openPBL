@@ -13,7 +13,10 @@ import {
 } from "@openmaic/lib/server/classroom-asset-generation";
 import { splitGeneratedClassroom } from "@/lib/openmaic-bridge/server-classroom-split";
 import { linkClassroomToCourse } from "@/lib/openmaic-bridge/course-linker";
-import { isAbortError } from "@openmaic/lib/generation/generation-retry";
+import {
+  isAbortError,
+  withGenerationRetry,
+} from "@openmaic/lib/generation/generation-retry";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import {
   adaptiveBranchGenerationSignature,
@@ -33,10 +36,16 @@ import {
 } from "@/lib/course-generation/adaptive-resource-pool";
 import type { AdaptivePreparedBranchResource } from "@/lib/session/types";
 import { buildAdaptiveResourceRequirement } from "@/lib/adaptive-learning";
+import { ensureTeachingToolPlans } from "@/lib/openmaic/generation/teaching-tool-plan";
 import {
   COURSE_COVER_GENERATION_SPEC,
-  requestCourseCoverImageAtEndpoint,
 } from "@/lib/course-cover";
+import { generateCourseCoverImageOnServer } from "@/lib/course-cover-server";
+import {
+  createManagedCourseGenerationRecoveryRequest,
+  formatCourseGenerationErrorForTeacher,
+} from "@/lib/course-generation/failure-policy";
+import { auditCourseGeneratedResources } from "@/lib/course-generation/resource-audit-server";
 
 const log = createLogger("CourseGenerationWorker");
 const POLL_INTERVAL_MS = 1_500;
@@ -133,6 +142,8 @@ export type PersistedCourseGenerationRequest = GenerateClassroomInput & {
   courseTitle?: string;
   moduleTimingPlan?: unknown;
   adaptiveBranchCount?: number;
+  /** Internal checkpoint-recovery state; never supplied by the teacher UI. */
+  managedRecoveryCount?: number;
 };
 
 export type CourseGenerationJobEvent = {
@@ -350,23 +361,8 @@ async function generateAndPersistCourseCover(
     message: `正在生成课程封面：${course.name}`,
     estimatedRemainingSeconds: 45,
   }));
-  const baseUrl = process.env.PUBLIC_BASE_URL?.trim()
-    || (process.env.NODE_ENV !== "production"
-      ? `http://127.0.0.1:${process.env.PORT || "3000"}`
-      : "");
-  if (!baseUrl) {
-    await serializeWrite(() => persistWorkerPhase(job, {
-      step: "course_cover_failed",
-      progress: 99,
-      message: "课程封面生成未完成：服务地址未配置",
-      estimatedRemainingSeconds: 10,
-    }));
-    return "failed";
-  }
   try {
-    const endpoint = new URL("/api/openmaic/generate/image", baseUrl).toString();
-    const coverImageUrl = await requestCourseCoverImageAtEndpoint(course, endpoint, signal);
-    if (!coverImageUrl) throw new Error("封面服务未返回图片");
+    const coverImageUrl = await generateCourseCoverImageOnServer(course, signal);
     await updateCourse(courseId, (current) => ({ ...current, coverImageUrl }));
     await serializeWrite(() => persistWorkerPhase(job, {
       step: "course_cover_ready",
@@ -412,6 +408,107 @@ async function persistAdaptiveBranchResource(
   });
 }
 
+export async function generateAdaptiveBranchResource(
+  courseId: string,
+  branchId: string,
+  signal: AbortSignal,
+  reportProgress: (progress: number) => Promise<void> = async () => undefined,
+): Promise<AdaptivePreparedBranchResource> {
+  const course = await getCourse(courseId);
+  const plan = course?.content.adaptiveLearningPlan;
+  const branch = plan?.branches.find((candidate) => candidate.id === branchId);
+  if (!course || !plan || !branch || branch.enabled === false || branch.status !== "teacher-confirmed") {
+    throw new Error("个性化学习资源不存在或尚未确认");
+  }
+  await persistAdaptiveBranchResource(courseId, branch.id, {
+    status: "generating",
+    generatedAt: new Date().toISOString(),
+  });
+
+  try {
+    return await withGenerationRetry(async () => {
+      const sceneOutline: SceneOutline = ensureTeachingToolPlans([{
+        id: `adaptive-${branch.id}`,
+        type: branch.sceneType ?? "slide",
+        title: branch.title,
+        description: branch.objective,
+        keyPoints: branch.keyPoints,
+        teachingObjective: branch.objective,
+        estimatedDuration: branch.targetDurationSec,
+        targetDurationSec: branch.targetDurationSec,
+        order: 0,
+        stageKey: "ai-learning",
+        stageLabel: "AI 授知",
+        audience: "student",
+        generationPurpose: "knowledge-teaching",
+        detailKind: "knowledge-explanation",
+        knowledgePointIds: branch.anchorKnowledgePointIds,
+        ttsPolicy: "target-duration",
+        resourceTypes: branch.sceneType === "interactive" ? ["interactive-demo"] : ["ppt"],
+        narrationMode: "embedded-segment",
+      }])[0];
+      const generated = await generateClassroom({
+        courseTitle: `${course.name} · ${branch.title}`,
+        requirement: buildAdaptiveResourceRequirement(course.name, branch, plan),
+        sceneOutlines: [sceneOutline],
+        enableTTS: true,
+      }, {
+        signal,
+        onProgress: (progress) => reportProgress(progress.progress / 100),
+      });
+      const split = await splitGeneratedClassroom({
+        stage: generated.stage,
+        scenes: generated.scenes,
+        courseName: `${course.name} · ${branch.title}`,
+        pblMode: false,
+        signal,
+      });
+      const baseUrl = process.env.PUBLIC_BASE_URL;
+      if (!baseUrl) throw new Error("个性化学习资源无法生成配置语音：缺少 PUBLIC_BASE_URL");
+      await generateClassroomAssets({
+        ...generated.assetContext,
+        baseUrl,
+        studentClassroomId: split.studentClassroomId,
+        studentScenes: split.studentScenes,
+        teacherClassroomId: split.teacherClassroomId || undefined,
+        teacherScenes: split.teacherScenes,
+        signal,
+      });
+      const speechWithoutConfiguredAudio = split.studentScenes.some((scene) =>
+        (scene.actions ?? []).some((action) =>
+          action.type === "speech" && action.text.trim().length > 0 && !action.audioUrl,
+        ),
+      );
+      if (speechWithoutConfiguredAudio) {
+        const error = new Error("个性化学习资源仍有语音未生成") as Error & { isRetryable: boolean };
+        error.isRetryable = true;
+        throw error;
+      }
+      const preparedResource: AdaptivePreparedBranchResource = {
+        status: "ready",
+        classroomId: split.studentClassroomId,
+        scenesCount: split.studentSceneCount,
+        generatedAt: new Date().toISOString(),
+        sourceSignature: adaptiveBranchGenerationSignature(branch),
+      };
+      await persistAdaptiveBranchResource(courseId, branch.id, preparedResource);
+      return preparedResource;
+    }, {
+      label: `adaptive resource ${branch.id}`,
+      maxRetries: 2,
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted || isAbortError(error)) throw error;
+    await persistAdaptiveBranchResource(courseId, branch.id, {
+      status: "failed",
+      generatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
 async function prepareAdaptiveResources(
   job: CourseGenerationJob,
   courseId: string,
@@ -420,73 +517,19 @@ async function prepareAdaptiveResources(
 ): Promise<void> {
   const course = await getCourse(courseId);
   const plan = course?.content.adaptiveLearningPlan;
-  if (!course || !plan?.enabled || plan.status !== "teacher-confirmed") return;
+  if (
+    !course
+    || !plan?.enabled
+    || plan.status !== "teacher-confirmed"
+    || plan.prerequisiteSemanticReview?.status !== "passed"
+  ) return;
   const branches = selectAdaptiveBranchesForGeneration(plan.branches);
   if (branches.length === 0) return;
 
   const results = await runAdaptiveResourcePool(
     branches,
-    async (branch, _index, reportProgress) => {
-      await persistAdaptiveBranchResource(courseId, branch.id, {
-        status: "generating",
-        generatedAt: new Date().toISOString(),
-      });
-      try {
-        const sceneOutline: SceneOutline = {
-          id: `adaptive-${branch.id}`,
-          type: branch.sceneType ?? "slide",
-          title: branch.title,
-          description: branch.objective,
-          keyPoints: branch.keyPoints,
-          teachingObjective: branch.objective,
-          estimatedDuration: branch.targetDurationSec,
-          targetDurationSec: branch.targetDurationSec,
-          order: 0,
-          stageKey: "ai-learning",
-          stageLabel: "AI 授知",
-          audience: "student",
-          generationPurpose: "knowledge-teaching",
-          detailKind: "knowledge-explanation",
-          knowledgePointIds: branch.anchorKnowledgePointIds,
-          ttsPolicy: "target-duration",
-          resourceTypes: branch.sceneType === "interactive" ? ["interactive-demo"] : ["ppt"],
-        };
-        const generated = await generateClassroom({
-          courseTitle: `${course.name} · ${branch.title}`,
-          requirement: buildAdaptiveResourceRequirement(course.name, branch),
-          sceneOutlines: [sceneOutline],
-          enableTTS: true,
-          interactiveMode: branch.sceneType === "interactive",
-        }, {
-          signal,
-          onProgress: (progress) => reportProgress(progress.progress / 100),
-        });
-        const split = await splitGeneratedClassroom({
-          stage: generated.stage,
-          scenes: generated.scenes,
-          courseName: `${course.name} · ${branch.title}`,
-          pblMode: false,
-          signal,
-        });
-        const preparedResource: AdaptivePreparedBranchResource = {
-          status: "ready",
-          classroomId: split.studentClassroomId,
-          scenesCount: split.studentSceneCount,
-          generatedAt: new Date().toISOString(),
-          sourceSignature: adaptiveBranchGenerationSignature(branch),
-        };
-        await persistAdaptiveBranchResource(courseId, branch.id, preparedResource);
-        return preparedResource;
-      } catch (error) {
-        if (signal.aborted || isAbortError(error)) throw error;
-        await persistAdaptiveBranchResource(courseId, branch.id, {
-          status: "failed",
-          generatedAt: new Date().toISOString(),
-          error: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    },
+    (branch, _index, reportProgress) =>
+      generateAdaptiveBranchResource(courseId, branch.id, signal, reportProgress),
     {
       signal,
       onProgress: (progress) => serializeProgress(() => persistAdaptiveProgress(job, {
@@ -559,6 +602,86 @@ export async function startQueuedCourseGeneration(courseId: string): Promise<Cou
   return job;
 }
 
+function scheduleManagedCourseGenerationRetry(courseId: string): void {
+  const retryTimer = setTimeout(() => {
+    void startQueuedCourseGeneration(courseId).catch((error) => {
+      log.error(`Failed to schedule managed classroom-generation recovery for ${courseId}`, error);
+    });
+  }, 150);
+  retryTimer.unref?.();
+}
+
+export async function resumeRecoverableCourseGenerationJob(
+  courseId: string,
+): Promise<CourseGenerationJob | null> {
+  const job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
+  if (!job || job.status !== "failed" || !job.error) return job;
+  const completedPageCount = await prisma.courseGenerationPageCheckpoint.count({
+    where: { jobId: job.id },
+  });
+  const request = job.request as unknown as PersistedCourseGenerationRequest;
+  const recoveryRequest = createManagedCourseGenerationRecoveryRequest(
+    request,
+    new Error(job.error),
+    completedPageCount,
+  );
+  if (!recoveryRequest) return job;
+  const recoveryCount = recoveryRequest.managedRecoveryCount ?? 1;
+  const updated = await prisma.courseGenerationJob.updateMany({
+    where: { id: job.id, status: "failed" },
+    data: {
+      status: "queued",
+      step: "recovering_scenes",
+      message: `页面生成服务短暂中止，正在从 ${completedPageCount} 个已完成页面继续（第 ${recoveryCount} 次）`,
+      request: recoveryRequest as unknown as Prisma.InputJsonValue,
+      error: null,
+      completedAt: null,
+      estimatedRemainingSeconds: 120,
+      lastHeartbeatAt: new Date(),
+      version: { increment: 1 },
+    },
+  });
+  if (updated.count === 1) scheduleManagedCourseGenerationRetry(courseId);
+  return prisma.courseGenerationJob.findUnique({ where: { id: job.id } });
+}
+
+/**
+ * Explicitly continues a failed classroom job from its durable page
+ * checkpoints. Unlike submitting a new generation request, this intentionally
+ * preserves prepared outlines and completed pages. The managed recovery budget
+ * is reset because this is a teacher-confirmed continuation after the service
+ * configuration or provider availability may have changed.
+ */
+export async function requeueCourseGenerationFromCheckpoints(
+  courseId: string,
+): Promise<CourseGenerationJob | null> {
+  const job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
+  if (!job || job.status !== "failed") return job;
+  const completedPageCount = await prisma.courseGenerationPageCheckpoint.count({
+    where: { jobId: job.id },
+  });
+  if (completedPageCount <= 0) return job;
+  const request = job.request as unknown as PersistedCourseGenerationRequest;
+  await prisma.courseGenerationJob.updateMany({
+    where: { id: job.id, status: "failed" },
+    data: {
+      status: "queued",
+      step: "recovering_scenes",
+      message: `正在从 ${completedPageCount} 个已完成页面继续生成`,
+      request: {
+        ...request,
+        managedRecoveryCount: 0,
+      } as unknown as Prisma.InputJsonValue,
+      error: null,
+      completedAt: null,
+      estimatedRemainingSeconds: 600,
+      lastHeartbeatAt: new Date(),
+      version: { increment: 1 },
+    },
+  });
+  return prisma.courseGenerationJob.findUnique({ where: { id: job.id } });
+}
+
 async function runJob(job: CourseGenerationJob): Promise<void> {
   return runWithCourseGenerationLlmContext(() => runJobWithCourseGenerationContext(job));
 }
@@ -570,6 +693,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).courseId;
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).moduleTimingPlan;
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).adaptiveBranchCount;
+  delete (generationInput as Partial<PersistedCourseGenerationRequest>).managedRecoveryCount;
   const controller = new AbortController();
   activeController = controller;
   activeCourseId = courseId;
@@ -687,18 +811,29 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
       serializeWorkerWrite,
     );
     await serializeWorkerWrite(() => persistWorkerPhase(job, {
+      step: "auditing_resources",
+      progress: 99,
+      message: "正在进行课程页面与配套资源完整性审校",
+      estimatedRemainingSeconds: 15,
+    }));
+    const resourceAudit = await auditCourseGeneratedResources(courseId);
+    await serializeWorkerWrite(() => persistWorkerPhase(job, {
       step: "generation_resources_ready",
       progress: 99,
-      message: coverStatus === "ready"
-        ? "课程封面、个性化学习资源与课堂素材已经就绪"
-        : "课堂资源已经就绪，课程封面需要稍后补充",
+      message: resourceAudit.issues.length > 0
+        ? `课程主体已经完成，仍有 ${resourceAudit.issues.length} 项资源在自动重试后未就绪`
+        : coverStatus === "ready"
+          ? "课程封面、个性化学习资源与课堂素材已经就绪"
+          : "课堂资源已经就绪，课程封面需要稍后补充",
       estimatedRemainingSeconds: 20,
     }));
 
     const finalEvent: CourseGenerationJobEvent = {
       step: "completed",
       progress: 100,
-      message: "课程内容已生成完成",
+      message: resourceAudit.issues.length > 0
+        ? `课程主体已生成，${resourceAudit.issues.length} 项配套资源需要在预览页继续处理`
+        : "课程内容与配套资源已完整生成",
       scenesGenerated: split.studentSceneCount,
       totalScenes: Math.max(job.totalScenes, split.studentSceneCount),
       ts: Date.now(),
@@ -713,7 +848,10 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
         scenesGenerated: finalEvent.scenesGenerated,
         totalScenes: finalEvent.totalScenes,
         estimatedRemainingSeconds: 0,
-        result: result as unknown as Prisma.InputJsonValue,
+        result: {
+          ...result,
+          resourceIssues: resourceAudit.issues,
+        } as unknown as Prisma.InputJsonValue,
         events: [...asEvents(job.events), finalEvent].slice(-MAX_STORED_EVENTS) as unknown as Prisma.InputJsonValue,
         completedAt: new Date(),
         lastHeartbeatAt: new Date(),
@@ -745,7 +883,37 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
       });
       return;
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const completedPageCount = await prisma.courseGenerationPageCheckpoint.count({
+      where: { jobId: job.id },
+    });
+    const recoveryRequest = createManagedCourseGenerationRecoveryRequest(
+      request,
+      error,
+      completedPageCount,
+    );
+    if (recoveryRequest) {
+      const recoveryCount = recoveryRequest.managedRecoveryCount ?? 1;
+      log.warn(
+        `Managed classroom-generation recovery ${recoveryCount} queued for ${courseId} from ${completedPageCount} checkpoints`,
+        error,
+      );
+      await prisma.courseGenerationJob.update({
+        where: { id: job.id },
+        data: {
+          status: "queued",
+          step: "recovering_scenes",
+          message: `第 ${job.scenesGenerated + 1} 个页面生成服务短暂中止，正在从 ${completedPageCount} 个已完成页面继续`,
+          request: recoveryRequest as unknown as Prisma.InputJsonValue,
+          error: null,
+          completedAt: null,
+          estimatedRemainingSeconds: 120,
+          lastHeartbeatAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      scheduleManagedCourseGenerationRetry(courseId);
+      return;
+    }
     log.error(`Course generation job ${job.id} failed`, error);
     await prisma.courseGenerationJob.update({
       where: { id: job.id },
@@ -753,7 +921,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
         status: "failed",
         step: "failed",
         message: "课程生成未完成",
-        error: message,
+        error: formatCourseGenerationErrorForTeacher(error),
         estimatedRemainingSeconds: null,
         completedAt: new Date(),
         lastHeartbeatAt: new Date(),

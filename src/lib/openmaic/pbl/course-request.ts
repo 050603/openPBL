@@ -10,6 +10,7 @@ import {
   isPblModuleTimingPlanConfirmed,
 } from "@/lib/pbl-time-model";
 import { deriveTeachingConstraints } from "@openmaic/lib/pedagogy/teaching-constraints";
+import { normalizeTeachingModuleResourceTypes } from "@/lib/pbl-outline-normalization";
 
 export function buildCourseTeachingConstraints(
   course: Pick<Course, "name" | "subject" | "grade" | "hours" | "learningObjectives" | "pblConfig" | "learnerProfile">,
@@ -84,6 +85,10 @@ export function buildPblCourseRequirement(
     recommendedStageTotals: moduleTimingPlan?.recommendedStageTotals ?? {},
   };
   const projectMainline = timingConfirmed ? content?.projectMainline : undefined;
+  const confirmedTeachingOutline = content?.teachingOutline?.map((activity) => ({
+    ...activity,
+    resourceTypes: normalizeTeachingModuleResourceTypes(activity),
+  }));
   return [
     "课程事实：",
     JSON.stringify(
@@ -105,8 +110,8 @@ export function buildPblCourseRequirement(
     content?.knowledgePoints || content?.knowledgeGraph
       ? `已确认知识结构：\n${JSON.stringify({ knowledgePoints: content.knowledgePoints ?? [], knowledgeGraph: content.knowledgeGraph ?? null }, null, 2)}`
       : "",
-    content?.teachingOutline?.length
-      ? `已确认课程模块（每个模块可独立展开多个课程大纲资源）：\n${JSON.stringify(content.teachingOutline, null, 2)}\n课程总时长：${totalMinutes} 分钟；当前模块合计：${timeAssessment.allocatedMinutes} 分钟；六模块建议：${JSON.stringify(timeAssessment.recommendedStageTotals)}\n项目主线：${JSON.stringify(projectMainline, null, 2)}`
+    confirmedTeachingOutline?.length
+      ? `已确认课程模块（每个模块可独立展开多个课程大纲资源）：\n${JSON.stringify(confirmedTeachingOutline, null, 2)}\n课程总时长：${totalMinutes} 分钟；当前模块合计：${timeAssessment.allocatedMinutes} 分钟；六模块建议：${JSON.stringify(timeAssessment.recommendedStageTotals)}\n项目主线：${JSON.stringify(projectMainline, null, 2)}`
       : "",
     content?.teachingOutline?.length
       ? `课程模块目录（用于校验课程大纲 parentActivityId）：\n${JSON.stringify(buildPblActivityCatalog(content), null, 2)}`
@@ -121,7 +126,7 @@ export function buildPblCourseRequirement(
       ? `已确认场景大纲：\n${JSON.stringify(outlines, null, 2)}`
       : "",
     content?.adaptiveLearningPlan
-      ? `已确认学习证据与额外资源模型（主课程必须完整覆盖本节大纲；前测最多 5 题，只检查会影响新课理解的先决知识；AI 授知每个知识模块以约 3 道题的测验结束；错题仅进入解析与教师统计，不重复讲授相同内容；先决知识缺口可在主课前插入必要回顾，模块掌握良好且时间充足时可插入新例题、应用或拓展；所有额外资源均在备课期生成审核，运行时只编排播放；不得把候选资源混入所有学生的主场景）：\n${JSON.stringify(content.adaptiveLearningPlan, null, 2)}`
+      ? `已确认学习证据与额外资源模型（主课程必须先完整讲解并互动巩固本节大纲；前测最多 5 题，只检查会影响新课理解的先决知识；基础教学完成后只进行一次主课达标测，并按题目关联的知识点形成掌握度；错题仅进入解析与教师统计，不重复讲授相同内容；先决知识缺口可在主课前插入必要回顾；达标测后仅在时间充足时，按知识点掌握情况选择已审核的新例题、应用或拓展，拓展后不再测验；所有额外资源均在备课期生成审核，运行时只编排播放；不得把候选资源混入所有学生的主场景）：\n${JSON.stringify(content.adaptiveLearningPlan, null, 2)}`
       : "",
   ]
     .filter(Boolean)

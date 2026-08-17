@@ -40,7 +40,6 @@ export type QuickClassroomGenerationSnapshot = {
     enableImageGeneration: boolean;
     enableVideoGeneration: boolean;
     enableTTS: boolean;
-    interactiveMode: boolean;
   };
 };
 

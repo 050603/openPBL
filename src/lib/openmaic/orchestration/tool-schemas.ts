@@ -74,10 +74,6 @@ export const ACTION_DESCRIPTIONS: Record<string, string> = {
       'Attach a short explanatory annotation to a control or result in the current interactive simulation. Parameters: { target: string, content?: string }',
     widget_reveal:
       'Reveal a hidden part of the current interactive simulation after the learner has made a prediction or attempt. Parameters: { target: string, content?: string }',
-    check_understanding:
-      'Open one short formative understanding check. Use after a key concept, before moving on, or when the learner appears uncertain. Ask for reasoning or a prediction when possible; do not encode a score. Parameters: { question: string, responseType: "single_choice"|"multiple_choice"|"short_answer"|"prediction", options?: {id:string,label:string}[], hint?: string, expectedEvidence?: string }',
-    evidence_board_update:
-      'Open or update a claim-evidence-reasoning board for PBL decisions, competing explanations, source comparison, or conclusions that must remain inspectable. Never invent a source; mark uncertain sources as needs_verification. Parameters: { operation: "replace"|"append"|"clear", title?: string, items: {id:string,claim:string,evidence:string,reasoning?:string,source?:string,sourceStatus:"verified"|"student_provided"|"needs_verification",stance?:"supports"|"challenges"|"neutral"}[] }',
   };
 
 export function getActionDescriptions(allowedActions: string[]): string {

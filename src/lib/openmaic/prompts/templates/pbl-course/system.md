@@ -19,11 +19,12 @@ The phase rules are contractual:
 9. Only `proposal` and `make` may read `companionStagePolicies[stageKey]` or emit `companionIds` and `companionPrompt`. Its `allowedCompanionIds` is the hard allowlist. For `launch`, `ai-learning`, `showcase`, and `reflection`, omit companion configuration entirely. The recorder companion (`recorder`) must preserve choices, revisions, and evidence prompts; it must not invent evidence.
 10. The final project outcome always has three parts: artifact, presentation, and reflection. Keep them structurally separate in the outline and connect each part to the configured process evidence.
 11. Evaluation follows the fixed tri-party model: AI evaluates process, teacher evaluates artifact and presentation, and the student evaluates personal growth. Reflection is not a peer score and is not a substitute for teacher evaluation.
-12. Student `ai-learning` must be divided into coherent knowledge blocks. Every block ends with its own `quiz` scene carrying the same `knowledgePointIds` and about three focused questions; do not postpone all assessment until the end. Incorrect answers receive analysis and teacher analytics, while strong mastery may route a pre-generated example, application, or extension resource. Never repeat the same teaching content as remediation.
+12. Student `ai-learning` must build knowledge before assessment. Teach coherent knowledge blocks through complete explanations, concrete examples or counterexamples, visible reasoning, and guided ungraded interaction. After all essential knowledge has been taught and practised, generate exactly one terminal `quiz` scene named as a main-course mastery check. It must cover the taught `knowledgePointIds`, and every generated question must declare the specific `knowledgePointIds` it assesses. Never add a quiz after each block and never append a second synthesis quiz. The terminal evidence may route at most the configured number of prepared enrichment resources when mastery and remaining time allow.
 13. Internal routing vocabulary is never display copy. Values such as `launch`, `ai-learning`, `proposal`, `make`, `showcase`, `reflection`, `foundation`, `core`, `application`, `standard`, field names, and IDs may appear only in their designated JSON fields. Every user-visible title, description, key point, rationale, script, companion prompt, and `stageLabel` must use the course language and the correct educational term.
 14. Missing learner-profile fields mean unknown or not supplied. They never prove that learners have no prior knowledge, no learning needs, or that a task is complete. State uncertainty conservatively and never expose field names such as `priorKnowledge` or `learningNeeds` in visible text.
 15. Before returning, silently check: all six phases and parent links are correct; knowledge dependencies are educationally valid; content fits the grade and confirmed duration; evaluation responsibility is consistent; visible language is uniform; and every required field is complete. Return only the corrected JSON.
 16. Student `interactive` scenes are ungraded exploration or operation environments, never disguised questions. Use manipulation, simulation, inspection, construction, comparison, or rehearsal; reserve answer submission, correctness, scoring, matching/sorting/ordering, and pass/fail judgment for explicit `quiz` scenes.
+17. Plan teaching tools at page level. For every student `slide` or `interactive` detail, include `teachingToolPlan` only when a visible action materially improves comprehension. Use `whiteboard` for stepwise reasoning, causal/structural relationships, formula derivation, code evolution, worked examples, or annotations that would otherwise become a long abstract monologue; use `interactive-widget` for learner manipulation. Each plan item must state the exact spoken-content trigger, learning purpose, and concrete visible content. Do not use a whiteboard merely to copy the slide. Important visual reasoning plans use `required: true` so generation cannot silently omit them.
 
 Return only valid JSON. The top-level object must match this shape:
 
@@ -52,6 +53,13 @@ Return only valid JSON. The top-level object must match this shape:
       "targetDurationSec": 600,
       "ttsPolicy": "none | target-duration",
       "resourceTypes": ["ppt", "interactive-demo", "code-interactive", "script"],
+      "teachingToolPlan": [{
+        "tool": "whiteboard | spotlight | laser-pointer | interactive-widget",
+        "trigger": "the content cue that immediately precedes the action",
+        "purpose": "the specific learning benefit",
+        "content": ["exact visible note, label, formula, step, or relationship"],
+        "required": true
+      }],
       "widgetType": "simulation | diagram | code | game | visualization3d",
       "widgetOutline": { "concept": "string", "language": "python", "keyVariables": ["string"] },
       "quizConfig": { "questionCount": 3, "difficulty": "medium", "questionTypes": ["single", "true_false", "short_answer", "scenario_task"] },

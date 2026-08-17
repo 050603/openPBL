@@ -94,7 +94,7 @@ describe("course basics draft", () => {
     expect(buildCourseBasicsPatch(course, draft).hours).toBe(5);
   });
 
-  it("persists multiple inquiry questions and uses the first as the main driving question", () => {
+  it("persists only one core project driving question", () => {
     const course = courseFixture();
     const draft = createCourseBasicsDraft(course);
     draft.drivingQuestions = [
@@ -105,6 +105,6 @@ describe("course basics draft", () => {
     const patch = buildCourseBasicsPatch(course, draft);
 
     expect(patch.drivingQuestion).toBe("我们如何减少校园用水浪费？");
-    expect(patch.pblConfig.inquiryQuestions).toEqual(draft.drivingQuestions);
+    expect(patch.pblConfig.inquiryQuestions).toEqual([draft.drivingQuestions[0]]);
   });
 });

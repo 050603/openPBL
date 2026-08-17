@@ -1,6 +1,11 @@
 import { Prisma, type CourseDesignGenerationJob } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { callLLM, generateCourseContent, parseLLMJson } from "@/lib/llm/client";
+import {
+  callLLM,
+  generateCourseContent,
+  normalizeEvaluationPlanOutput,
+  parseLLMJson,
+} from "@/lib/llm/client";
 import { generateProjectSkeleton } from "@/lib/teaching-ai/support-engine";
 import { buildCourseGenerationInput } from "@/lib/teacher/course-generation-input";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
@@ -11,15 +16,12 @@ import {
 } from "@/lib/pbl-time-model";
 import { normalizePblTeachingOutline } from "@/lib/pbl-outline-normalization";
 import {
-  ADAPTIVE_LEARNING_GENERATION_POLICY,
-  buildAdaptiveLearningGenerationContext,
   confirmAdaptiveLearningPlan,
-  createDefaultAdaptiveLearningPlan,
-  ensureAdaptiveResourceCoverage,
   evaluateAdaptiveLearningPlanQuality,
-  improveAdaptiveLearningPlanQuality,
-  normalizeAdaptiveLearningPlan,
 } from "@/lib/adaptive-learning";
+import { generateCourseEntryPackage } from "@/lib/course-entry-generation";
+import { generateReviewedKnowledgeStructure } from "@/lib/knowledge-structure-generation";
+import { assessKnowledgeGraphQuality } from "@/lib/knowledge-graph-quality";
 import {
   buildPblActivityCatalog,
   buildPblCourseRequirement,
@@ -40,7 +42,10 @@ import {
   type PersistedCourseGenerationRequest,
 } from "@/lib/course-generation/job-runner";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
-import { generateSceneOutlinesFromRequirements } from "@/lib/openmaic/generation/outline-generator";
+import {
+  generateSceneOutlinesFromRequirements,
+  normalizeSceneOutlinesForDuration,
+} from "@/lib/openmaic/generation/outline-generator";
 import type { UserRequirements } from "@/lib/openmaic/types/generation";
 import {
   DEFAULT_PBL_EVIDENCE_REQUIREMENTS,
@@ -56,29 +61,43 @@ import {
 } from "@/lib/course-design/quality-gates";
 import { runWithCourseGenerationLlmContext } from "@/lib/course-generation/llm-concurrency";
 import {
+  canResumeAfterValidatedStage,
   canResumeAfterValidatedLessonOutline,
+  canResumeAfterValidatedPositioning,
   canResumeAfterValidatedTeachingOutline,
 } from "@/lib/course-design/resume-policy";
+import {
+  createManagedRecoveryRequest,
+  formatFatalCourseDesignError,
+} from "@/lib/course-design/failure-policy";
+import { editCourseDesignStage } from "@/lib/course-design/stage-editor";
+import { createLogger } from "@openmaic/lib/logger";
 
 const POLL_INTERVAL_MS = 1_500;
 const STALE_AFTER_MS = 30 * 60 * 1_000;
 const MAX_TRACE_ENTRIES = 24;
 const MAX_AGENT_REVIEW_ROUNDS = 4;
-// Main-course page planning is a large structured response. Use an observed
-// wall-time estimate rather than the former 180-second hard-deadline value.
-const STEP_ESTIMATES = [90, 110, 80, 80, 120, 300, 80, 55];
+// Deep-reasoning providers can spend several minutes on graph construction,
+// independent review, and page planning. Estimates are deliberately
+// conservative so the quick-generation UI does not imply that a healthy job
+// is stuck while a long inference is still within policy.
+const STEP_ESTIMATES = [180, 720, 180, 240, 360, 600, 180, 120];
 const OUTLINE_REVIEW_WINDOW_MS = 10_000;
+const log = createLogger("CourseDesign");
 
 export type QuickDesignRequest = {
   courseId: string;
   teacherBrief: string;
   options?: {
-    interactiveMode: boolean;
     enableImageGeneration: boolean;
     enableTTS: boolean;
     enableVideoGeneration: boolean;
   };
   resumeFromOutlineReview?: boolean;
+  /** Internal Agent recovery state. Never supplied by the teacher-facing UI. */
+  managedRecoveryCount?: number;
+  /** Last correctable quality failure, fed back into the next Agent run. */
+  managedRecoveryFeedback?: string;
 };
 
 export type QuickDesignTraceEvent = CourseDesignGenerationTraceEntry & {
@@ -110,7 +129,7 @@ function finalClassroomEstimateSeconds(options?: QuickDesignRequest["options"]):
     + (options?.enableImageGeneration === false ? 0 : 60)
     + (options?.enableTTS === false ? 0 : 60)
     + (options?.enableVideoGeneration === true ? 180 : 0)
-    + (options?.interactiveMode === true ? 45 : 0);
+    + 45;
 }
 
 function remainingSeconds(stepIndex: number, options?: QuickDesignRequest["options"]): number {
@@ -338,6 +357,8 @@ function toSceneOutline(section: LessonOutlineSection, index: number): SceneOutl
     segmentGroupId: section.segmentGroupId,
     ttsPolicy: section.ttsPolicy,
     timingPlan: section.timingPlan,
+    narrationMode: section.narrationMode,
+    teachingToolPlan: section.teachingToolPlan,
   } as SceneOutline & OpenMaicSceneOutlineSnapshot;
 }
 
@@ -365,6 +386,8 @@ function sceneOutlineToLessonSection(
     segmentGroupId: scene.segmentGroupId,
     ttsPolicy: scene.ttsPolicy,
     timingPlan: scene.timingPlan,
+    narrationMode: scene.narrationMode,
+    teachingToolPlan: scene.teachingToolPlan,
   };
 }
 
@@ -391,7 +414,8 @@ async function auditStage(
     const response = await callLLM([
       {
         role: "system",
-        content: "你是课程设计质量审校员。检查当前阶段是否完整、适龄、可执行，并与上游数据一致。不要改写内容，只返回 JSON。",
+        content: `你是课程设计流程代理，不掌握教师未提供的真实学情或学校条件。你只检查当前数据中可以直接观察到的常见明显问题：字段遗漏、前后矛盾、目标与成果错配、时间明显不可执行、引用对象不存在，以及常见的课程设计错误。
+不得凭空推断学生真实能力、学校设备、教师偏好或唯一正确的教学取舍；这类不确定判断不要列为问题。不要改写内容，只返回 JSON。`,
       },
       {
         role: "user",
@@ -415,25 +439,22 @@ async function auditStage(
       issues,
     };
   } catch {
-    return { passed: true, summary: "当前阶段已通过结构化质量检查", issues: [] };
+    return { passed: true, summary: "Agent 建议检查暂不可用；确定性硬规则已通过", issues: [] };
   }
 }
 
-function stageSummaryInput(course: Course, request: QuickDesignRequest, correction?: string) {
+function stageSummaryInput(course: Course, request: QuickDesignRequest) {
   return buildCourseGenerationInput({
     ...course,
     summary: [
       course.summary,
       `教师补充要求：${request.teacherBrief.trim()}`,
-      request.options?.interactiveMode
-        ? "已开启丰富互动模式：学生知识学习页面应形成讲解—操作—反馈节奏，并提高互动页面比例。"
-        : "使用普通生成模式：仅在确有教学价值时安排互动页面。",
-      correction ? `上一轮质量审校意见：${correction}` : "",
+      "默认采用深度互动教学：先完整讲清基础知识，再通过非评分操作与反馈巩固，最后只进行一次主课达标测。",
     ].filter(Boolean).join("\n"),
   });
 }
 
-async function inferCourseSeed(
+export async function inferCourseSeed(
   course: Course,
   request: QuickDesignRequest,
   signal: AbortSignal,
@@ -441,7 +462,7 @@ async function inferCourseSeed(
   const response = await callLLM([
     {
       role: "system",
-      content: "你是课程定位分析助手。根据教师输入提取课程名称、学科、年级和合理课时。课时只能是 1 至 5 的整数。不要生成课程内容，只返回 JSON。",
+      content: "你是课程定位分析助手。根据教师输入提取课程名称、学科、年级和合理课时。课时只能是 1 至 5 的整数。grade 不得为空：若教师未明确写出年级，应结合课程主题、学科和任务难度给出最合适的宽口径学段假设（如小学高段、初中、高中、大学通识），供教师后续确认。不要生成课程内容，只返回 JSON。",
     },
     {
       role: "user",
@@ -453,10 +474,34 @@ async function inferCourseSeed(
     },
   ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
   const parsed = parseLLMJson<Record<string, unknown>>(response);
+  let grade = typeof parsed.grade === "string" && parsed.grade.trim()
+    ? parsed.grade.trim().slice(0, 30)
+    : course.grade.trim().slice(0, 30);
+  if (!grade) {
+    const repairResponse = await callLLM([
+      {
+        role: "system",
+        content: "你是课程受众定位审核员。当前课程缺少学段，必须根据课程主题、学科和教师描述给出一个最合适的宽口径学段假设。只返回 JSON；grade 必须是非空字符串。",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          courseName: typeof parsed.name === "string" ? parsed.name : course.name,
+          subject: typeof parsed.subject === "string" ? parsed.subject : course.subject,
+          teacherBrief: request.teacherBrief,
+          output: { grade: "小学高段|初中|高中|大学通识|职业教育|成人教育" },
+        }),
+      },
+    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+    const repaired = parseLLMJson<Record<string, unknown>>(repairResponse);
+    grade = typeof repaired.grade === "string" && repaired.grade.trim()
+      ? repaired.grade.trim().slice(0, 30)
+      : "学段未指定（教师待确认）";
+  }
   return {
     name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim().slice(0, 40) : course.name,
     subject: typeof parsed.subject === "string" && parsed.subject.trim() ? parsed.subject.trim().slice(0, 40) : course.subject,
-    grade: typeof parsed.grade === "string" && parsed.grade.trim() ? parsed.grade.trim().slice(0, 30) : course.grade,
+    grade,
     hours: typeof parsed.hours === "number" && Number.isFinite(parsed.hours)
       ? Math.max(1, Math.min(5, Math.round(parsed.hours)))
       : Math.max(1, Math.min(5, Math.round(course.hours || 2))),
@@ -526,7 +571,7 @@ export async function generatePositioningDetails(
   const fallbackResponse = await callLLM([
     {
       role: "system",
-      content: "你是 PBL 课程定位设计师。补齐一份可直接采用的课程底稿，不要返回候选列表。目标必须可观察、可评价；课程说明包含真实情境、范围、学生任务和预期判断；驱动问题必须真实、开放、有成果边界并以问号结尾。只能返回 JSON。",
+      content: "你是 PBL 课程定位设计师。补齐一份可直接采用的课程底稿，不要返回候选列表。目标必须可观察、可评价；课程说明包含真实情境、范围、学生任务和预期判断。drivingQuestion 是统领整门课程和最终项目的唯一核心驱动问题：只能包含一个问句和一个问号，必须包含真实对象或情境、学生要完成的项目行动、预期成果或改变及证据边界。不得列举知识点问题、技术步骤问题或方法优缺点问题，也不得把多个子问题拼接在一起。只能返回 JSON。",
     },
     {
       role: "user",
@@ -578,69 +623,60 @@ export async function revisePositioningCandidate(
   issues: string[],
   signal: AbortSignal,
 ): Promise<Course> {
-  const response = await callLLM([
-    {
-      role: "system",
-      content: `你是快速课程设计代理，正在修订已经由课程定位 AI 生成的完整阶段结果。你的职责不是指出问题，而是直接解决问题并返回可采用的新版本。
-必须同时满足：
-1. 驱动问题涉及的核心概念、任务和成果必须在课程目标与课程说明中有对应要求；课程目标也必须服务于同一驱动问题。
-2. 保持教师明确提出的主题、对象和课时不变；课时不足时缩小任务、案例、成果或目标数量，不要虚增课时。
-3. 每课时按 60 分钟计算，必须留出讲授、学生制作、反馈和总结时间；通常保留 3 至 4 个可观察目标和一个主要成果。
-4. 采用最小必要修改，保留当前版本中已经合理的内容。
-5. 直接返回修订后的 JSON，不要输出解释、建议或候选列表。`,
+  return editCourseDesignStage({
+    label: "课程定位",
+    current: {
+      summary: current.summary,
+      learningObjectives: current.learningObjectives,
+      learnerProfile: current.learnerProfile,
+      drivingQuestion: current.drivingQuestion,
     },
-    {
-      role: "user",
-      content: JSON.stringify({
-        teacherBrief: request.teacherBrief,
-        fixedConstraints: {
-          name: current.name,
-          subject: current.subject,
-          grade: current.grade,
-          hours: current.hours,
-          totalMinutes: Math.round(current.hours * 60),
-        },
-        current: {
-          summary: current.summary,
-          learningObjectives: current.learningObjectives,
-          learnerProfile: current.learnerProfile,
-          drivingQuestion: current.drivingQuestion,
-        },
-        reviewIssues: issues,
-        output: {
-          summary: "string",
-          learningObjectives: ["string", "string", "string"],
-          learnerProfile: {
-            priorKnowledge: "string",
-            learningNeeds: "string",
-            familiarContexts: "string",
-          },
-          drivingQuestion: "string？",
-        },
-      }),
+    preserveValueOnMalformedEdit: current,
+    issues,
+    fixedConstraints: {
+      teacherBrief: request.teacherBrief,
+      name: current.name,
+      subject: current.subject,
+      grade: current.grade,
+      hours: current.hours,
+      totalMinutes: Math.round(current.hours * 60),
+      drivingQuestionRule: "唯一核心挑战，只含一个问句；包含真实情境、项目行动、成果或改变及证据边界",
     },
-  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
-  const parsed = parseLLMJson<Record<string, unknown>>(response);
-  const objectives = Array.isArray(parsed.learningObjectives)
-    ? parsed.learningObjectives.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()).slice(0, 4)
-    : [];
-  const rawProfile = parsed.learnerProfile && typeof parsed.learnerProfile === "object"
-    ? parsed.learnerProfile as Record<string, unknown>
-    : {};
-  const drivingQuestion = typeof parsed.drivingQuestion === "string" ? parsed.drivingQuestion.trim() : "";
-  return {
-    ...current,
-    summary: typeof parsed.summary === "string" && parsed.summary.trim() ? parsed.summary.trim() : current.summary,
-    learningObjectives: objectives.length >= 3 ? objectives : current.learningObjectives,
-    learnerProfile: {
-      priorKnowledge: typeof rawProfile.priorKnowledge === "string" ? rawProfile.priorKnowledge.trim() : current.learnerProfile?.priorKnowledge,
-      learningNeeds: typeof rawProfile.learningNeeds === "string" ? rawProfile.learningNeeds.trim() : current.learnerProfile?.learningNeeds,
-      familiarContexts: typeof rawProfile.familiarContexts === "string" ? rawProfile.familiarContexts.trim() : current.learnerProfile?.familiarContexts,
+    outputSchema: {
+      summary: "完整课程说明",
+      learningObjectives: ["3-4 个服务同一驱动问题的可观察目标"],
+      learnerProfile: {
+        priorKnowledge: "string",
+        learningNeeds: "string",
+        familiarContexts: "string",
+      },
+      drivingQuestion: "一个统领整门课程和最终项目的问句？",
     },
-    drivingQuestion: drivingQuestion
-      ? /[？?]$/.test(drivingQuestion) ? drivingQuestion : `${drivingQuestion}？`
-      : current.drivingQuestion,
-  };
+    abortSignal: signal,
+    parse: (value) => {
+      const parsed = value && typeof value === "object" ? value as Record<string, unknown> : {};
+      const objectives = Array.isArray(parsed.learningObjectives)
+        ? parsed.learningObjectives.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()).slice(0, 4)
+        : [];
+      const rawProfile = parsed.learnerProfile && typeof parsed.learnerProfile === "object"
+        ? parsed.learnerProfile as Record<string, unknown>
+        : {};
+      const drivingQuestion = typeof parsed.drivingQuestion === "string" ? parsed.drivingQuestion.trim() : "";
+      return {
+        ...current,
+        summary: typeof parsed.summary === "string" && parsed.summary.trim() ? parsed.summary.trim() : current.summary,
+        learningObjectives: objectives.length >= 3 ? objectives : current.learningObjectives,
+        learnerProfile: {
+          priorKnowledge: typeof rawProfile.priorKnowledge === "string" ? rawProfile.priorKnowledge.trim() : current.learnerProfile?.priorKnowledge,
+          learningNeeds: typeof rawProfile.learningNeeds === "string" ? rawProfile.learningNeeds.trim() : current.learnerProfile?.learningNeeds,
+          familiarContexts: typeof rawProfile.familiarContexts === "string" ? rawProfile.familiarContexts.trim() : current.learnerProfile?.familiarContexts,
+        },
+        drivingQuestion: drivingQuestion
+          ? /[？?]$/.test(drivingQuestion) ? drivingQuestion : `${drivingQuestion}？`
+          : current.drivingQuestion,
+      };
+    },
+  });
 }
 
 export async function generatePositioning(
@@ -681,18 +717,7 @@ export async function generatePositioning(
     latestIssues = audit.issues.length ? audit.issues : [audit.summary];
     if (attempt < MAX_AGENT_REVIEW_ROUNDS - 1) {
       resolvedIssues.push(...latestIssues);
-      try {
-        candidate = await revisePositioningCandidate(candidate, request, latestIssues, signal);
-      } catch {
-        const regenerated = await generatePositioningDetails(candidate, seed, request, latestIssues.join("；"), signal);
-        candidate = {
-          ...candidate,
-          summary: regenerated.summary || candidate.summary,
-          learningObjectives: regenerated.learningObjectives.length ? regenerated.learningObjectives : candidate.learningObjectives,
-          learnerProfile: regenerated.learnerProfile ?? candidate.learnerProfile,
-          drivingQuestion: regenerated.drivingQuestion || candidate.drivingQuestion,
-        };
-      }
+      candidate = await revisePositioningCandidate(candidate, request, latestIssues, signal);
     }
   }
   const structural = evaluatePositioning(candidate);
@@ -709,78 +734,105 @@ export async function generatePositioning(
   };
 }
 
-async function generateProjectDesign(
+function applyProjectDesignPayload(course: Course, value: unknown): Course {
+  const parsed = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const selectedKinds = new Set(
+    Array.isArray(parsed.evidenceKinds)
+      ? parsed.evidenceKinds.filter((item): item is string => typeof item === "string")
+      : [],
+  );
+  const evidenceRequirements = DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter(
+    (item) => selectedKinds.has(item.kind) || item.required,
+  );
+  const difficultyLevel = parsed.difficultyLevel === "introductory" || parsed.difficultyLevel === "advanced"
+    ? parsed.difficultyLevel
+    : "standard";
+  return {
+    ...course,
+    expectedOutcome: typeof parsed.artifact === "string" ? parsed.artifact.trim() : course.expectedOutcome,
+    pblConfig: normalizePblCourseConfig({
+      ...course.pblConfig,
+      difficultyLevel,
+      evidenceRequirements,
+      outcome: {
+        artifact: typeof parsed.artifact === "string" ? parsed.artifact.trim() : "",
+        presentation: typeof parsed.presentation === "string" ? parsed.presentation.trim() : "",
+        reflection: typeof parsed.reflection === "string" ? parsed.reflection.trim() : "",
+      },
+      inquiryQuestions: [course.drivingQuestion],
+    }),
+  };
+}
+
+export async function generateProjectDesign(
   course: Course,
   request: QuickDesignRequest,
   signal: AbortSignal,
 ): Promise<Course> {
-  let correction = "";
-  let latestCandidate = course;
-  let latestQuality = evaluateProjectDesign(course);
-  for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
-    const response = await callLLM([
-      {
-        role: "system",
-        content: "你是 PBL 项目成果设计师。生成个人项目的作品、表达、反思和过程证据要求。成果必须在课程课时内可完成，且能证明课程目标达成。只返回 JSON。",
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          course: stageSummaryInput(course, request, correction),
-          knowledgePoints: course.content.knowledgePoints,
-          requiredEvidenceKinds: DEFAULT_PBL_EVIDENCE_REQUIREMENTS.map((item) => ({ kind: item.kind, label: item.label })),
-          output: {
-            difficultyLevel: "introductory|standard|advanced",
-            artifact: "string",
-            presentation: "string",
-            reflection: "string",
-            evidenceKinds: ["idea-draft"],
-            inquiryQuestions: ["string"],
-          },
-        }),
-      },
-    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
-    const parsed = parseLLMJson<Record<string, unknown>>(response);
-    const selectedKinds = new Set(
-      Array.isArray(parsed.evidenceKinds)
-        ? parsed.evidenceKinds.filter((item): item is string => typeof item === "string")
-        : [],
-    );
-    const evidenceRequirements = DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter(
-      (item) => selectedKinds.has(item.kind) || item.required,
-    );
-    const difficultyLevel = parsed.difficultyLevel === "introductory" || parsed.difficultyLevel === "advanced"
-      ? parsed.difficultyLevel
-      : "standard";
-    const candidate: Course = {
-      ...course,
-      expectedOutcome: typeof parsed.artifact === "string" ? parsed.artifact.trim() : course.expectedOutcome,
-      pblConfig: normalizePblCourseConfig({
-        ...course.pblConfig,
-        difficultyLevel,
-        evidenceRequirements,
-        outcome: {
-          artifact: typeof parsed.artifact === "string" ? parsed.artifact.trim() : "",
-          presentation: typeof parsed.presentation === "string" ? parsed.presentation.trim() : "",
-          reflection: typeof parsed.reflection === "string" ? parsed.reflection.trim() : "",
+  const response = await callLLM([
+    {
+      role: "system",
+      content: "你是 PBL 项目成果设计师。生成个人项目的作品、表达、反思和过程证据要求。成果必须在课程课时内可完成，且能证明课程目标达成。只返回 JSON。",
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        course: stageSummaryInput(course, request),
+        knowledgePoints: course.content.knowledgePoints,
+        requiredEvidenceKinds: DEFAULT_PBL_EVIDENCE_REQUIREMENTS.map((item) => ({ kind: item.kind, label: item.label })),
+        output: {
+          difficultyLevel: "introductory|standard|advanced",
+          artifact: "string",
+          presentation: "string",
+          reflection: "string",
+          evidenceKinds: ["idea-draft"],
         },
-        inquiryQuestions: Array.isArray(parsed.inquiryQuestions)
-          ? parsed.inquiryQuestions.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-          : [course.drivingQuestion],
       }),
-    };
+    },
+  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+  let candidate = applyProjectDesignPayload(course, parseLLMJson<unknown>(response));
+  let latestQuality = evaluateProjectDesign(candidate);
+  let latestAuditIssues: string[] = [];
+  for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
     const quality = evaluateProjectDesign(candidate);
-    latestCandidate = candidate;
     latestQuality = quality;
     const audit = await auditStage("项目成果", {
       outcome: candidate.pblConfig?.outcome,
       evidenceRequirements: candidate.pblConfig?.evidenceRequirements,
     }, quality, signal);
     if (audit.passed) return candidate;
-    correction = audit.issues.join("；") || audit.summary;
+    latestAuditIssues = audit.issues.length ? audit.issues : [audit.summary];
+    if (attempt < MAX_AGENT_REVIEW_ROUNDS - 1) {
+      candidate = await editCourseDesignStage({
+        label: "项目成果",
+        current: {
+          difficultyLevel: candidate.pblConfig?.difficultyLevel,
+          ...candidate.pblConfig?.outcome,
+          evidenceKinds: candidate.pblConfig?.evidenceRequirements?.map((item) => item.kind),
+        },
+        issues: audit.issues.length ? audit.issues : [audit.summary],
+        fixedConstraints: {
+          teacherBrief: request.teacherBrief,
+          hours: course.hours,
+          drivingQuestion: course.drivingQuestion,
+          learningObjectives: course.learningObjectives,
+          knowledgePoints: course.content.knowledgePoints,
+        },
+        outputSchema: {
+          difficultyLevel: "introductory|standard|advanced",
+          artifact: "string",
+          presentation: "string",
+          reflection: "string",
+          evidenceKinds: ["idea-draft"],
+        },
+        abortSignal: signal,
+        preserveValueOnMalformedEdit: candidate,
+        parse: (value) => applyProjectDesignPayload(course, value),
+      });
+    }
   }
-  if (latestQuality.passed) return latestCandidate;
-  throw new Error(`项目成果代理无法生成结构完整的数据：${latestQuality.issues.join("；")}`);
+  if (latestQuality.passed) return candidate;
+  throw new Error(`项目成果编辑 Agent 无法修复硬规则问题：${latestQuality.issues.join("；") || latestAuditIssues.join("；")}`);
 }
 
 async function generateTeachingStructure(
@@ -788,12 +840,11 @@ async function generateTeachingStructure(
   content: CourseContent,
   request: QuickDesignRequest,
   signal: AbortSignal,
-  correction: string,
 ) {
   const totalMinutes = Math.max(1, Math.round(course.hours * 60));
   const timing = await generateCourseContent({
     action: "moduleTimingPlan",
-    input: stageSummaryInput(course, request, correction),
+    input: stageSummaryInput(course, request),
     context: { knowledgePoints: content.knowledgePoints, knowledgeGraph: content.knowledgeGraph },
   }, { signal });
   if (!timing.content.moduleTimingPlan) throw new Error("六阶段时间建议生成失败");
@@ -815,7 +866,7 @@ async function generateTeachingStructure(
   );
   const generatedModules = await generateCourseContent({
     action: "teachingOutline",
-    input: stageSummaryInput(course, request, correction),
+    input: stageSummaryInput(course, request),
     context: {
       knowledgePoints: content.knowledgePoints,
       knowledgeGraph: content.knowledgeGraph,
@@ -849,24 +900,66 @@ async function generateTeachingStructure(
   return { totalMinutes, teachingOutline, moduleTimingPlan, projectMainline };
 }
 
+function normalizeEditedTeachingStructure(
+  course: Course,
+  content: CourseContent,
+  value: unknown,
+) {
+  const totalMinutes = Math.max(1, Math.round(course.hours * 60));
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const rawOutline = Array.isArray(value) ? value : raw.teachingOutline;
+  const normalized = normalizePblTeachingOutline(Array.isArray(rawOutline) ? rawOutline : [], {
+    totalMinutes,
+    topic: course.name,
+    subject: course.subject,
+    summary: course.summary,
+    grade: course.grade,
+    difficulty: course.pblConfig?.difficultyLevel ?? "standard",
+    learningObjectives: course.learningObjectives,
+    learnerProfile: course.learnerProfile,
+    knowledgePoints: content.knowledgePoints,
+    knowledgeGraph: content.knowledgeGraph,
+  });
+  const normalizedPlan = buildPblModuleTimingPlan(totalMinutes, normalized, undefined, {
+    status: "confirmed",
+    preserveCurrentDurations: true,
+  });
+  const teachingOutline = normalized.map((activity) => ({
+    ...activity,
+    durationMin: normalizedPlan.allocations.find((item) => item.id === activity.id)?.durationMin ?? activity.durationMin,
+  }));
+  const moduleTimingPlan = buildPblModuleTimingPlan(totalMinutes, teachingOutline, undefined, {
+    status: "confirmed",
+    preserveCurrentDurations: true,
+  });
+  if (teachingOutline.length !== 6 || !isPblModuleTimingPlanConfirmed(moduleTimingPlan)) {
+    throw new Error("六阶段编辑稿未通过阶段数量或总时长校验");
+  }
+  return {
+    totalMinutes,
+    teachingOutline,
+    moduleTimingPlan,
+    projectMainline: buildPblProjectMainline(totalMinutes, teachingOutline),
+  };
+}
+
 async function generateMainCourseOutlines(
   course: Course,
   content: CourseContent,
   request: QuickDesignRequest,
   signal: AbortSignal,
-  correction?: string,
 ): Promise<Array<SceneOutline & OpenMaicSceneOutlineSnapshot>> {
   const requirements: UserRequirements = {
     requirement: [
       buildPblCourseRequirement(course, content, []),
-      correction ? `上一轮质量审校意见（必须纠正）：${correction}` : "",
     ].filter(Boolean).join("\n\n"),
     pblProfile: course.pblConfig,
     pblTeachingActivities: buildTeacherActivityRequirements(content),
     pblActivityCatalog: buildPblActivityCatalog(content),
     knowledgePoints: content.knowledgePoints.map((point) => ({ id: point.id, name: point.name })),
     teachingConstraints: buildCourseTeachingConstraints(course, content),
-    interactiveMode: request.options?.interactiveMode === true,
   };
   const result = await generateSceneOutlinesFromRequirements(
     requirements,
@@ -891,16 +984,48 @@ async function generateMainCourseOutlines(
   return result.data.outlines as Array<SceneOutline & OpenMaicSceneOutlineSnapshot>;
 }
 
+function normalizeEditedSceneOutlines(
+  value: unknown,
+  current: Array<SceneOutline & OpenMaicSceneOutlineSnapshot>,
+): Array<SceneOutline & OpenMaicSceneOutlineSnapshot> {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const items = Array.isArray(value) ? value : raw.outlines;
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("主课脚本编辑 Agent 未返回完整页面数组");
+  }
+  const currentById = new Map(current.map((outline) => [outline.id, outline]));
+  const merged = items.map((item, index) => {
+    if (!item || typeof item !== "object") throw new Error(`主课脚本第 ${index + 1} 页结构无效`);
+    const edited = item as Partial<SceneOutline & OpenMaicSceneOutlineSnapshot>;
+    const stableId = typeof edited.id === "string" && edited.id.trim()
+      ? edited.id.trim()
+      : current[index]?.id;
+    if (!stableId) throw new Error(`主课脚本第 ${index + 1} 页缺少稳定 ID`);
+    const original = currentById.get(stableId) ?? current[index];
+    return { ...original, ...edited, id: stableId } as SceneOutline & OpenMaicSceneOutlineSnapshot;
+  });
+  return normalizeSceneOutlinesForDuration(merged) as Array<SceneOutline & OpenMaicSceneOutlineSnapshot>;
+}
+
 function evaluateQuality(course: Course): { score: number; summary: string; checks: string[] } {
   const content = course.content;
   const positioning = evaluatePositioning(course);
   const project = evaluateProjectDesign(course);
   const evaluation = evaluateEvaluationPlan(content.evaluationPlan);
+  const mainScenes = sceneOutlinesFromContent(content);
   const lesson = evaluateLessonOutlines(
-    sceneOutlinesFromContent(content),
-    content.interactiveMode === true,
+    mainScenes,
     buildPblActivityCatalog(content),
   );
+  const adaptiveQuality = content.adaptiveLearningPlan
+    ? evaluateAdaptiveLearningPlanQuality(content.adaptiveLearningPlan, {
+        knowledgePoints: content.knowledgePoints,
+        knowledgeGraph: content.knowledgeGraph,
+        mainScenes,
+      })
+    : null;
   const checks = [
     positioning.passed ? "课程定位字段完整并通过审校" : positioning.issues.join("；"),
     content.knowledgePoints.length > 0 ? `知识图谱包含 ${content.knowledgePoints.length} 个知识点` : "知识图谱缺少知识点",
@@ -909,7 +1034,9 @@ function evaluateQuality(course: Course): { score: number; summary: string; chec
     content.teachingOutline?.length === 6 ? "六阶段课程架构完整" : `课程架构包含 ${content.teachingOutline?.length ?? 0} 个阶段`,
     isPblModuleTimingPlanConfirmed(content.moduleTimingPlan) ? "课程总时长与六阶段分配一致" : "课程时间尚未通过校验",
     lesson.passed ? `主课脚本包含 ${content.lessonOutline.length} 个合格课堂资源` : lesson.issues.join("；"),
-    content.adaptiveLearningPlan?.branches.length ? `个性化路径包含 ${content.adaptiveLearningPlan.branches.length} 条候选路径` : "个性化路径为空",
+    adaptiveQuality?.passed
+      ? `个性化学习已通过闭环校验（${content.adaptiveLearningPlan?.branches.length ?? 0} 条候选路径）`
+      : adaptiveQuality?.issues.join("；") || "缺少个性化学习方案",
   ];
   const passed = [
     positioning.passed,
@@ -919,7 +1046,7 @@ function evaluateQuality(course: Course): { score: number; summary: string; chec
     content.teachingOutline?.length === 6,
     isPblModuleTimingPlanConfirmed(content.moduleTimingPlan),
     lesson.passed,
-    Boolean(content.adaptiveLearningPlan?.branches.length),
+    adaptiveQuality?.passed === true,
   ].filter(Boolean).length;
   const score = Math.round((passed / 8) * 100);
   return {
@@ -938,7 +1065,8 @@ async function runAiQualityReview(
     const response = await callLLM([
       {
         role: "system",
-        content: "你是资深课程设计审校员。请检查课程各阶段是否一致、完整、适龄、可实施，尤其检查知识目标、项目成果、评价标准、阶段架构、主课脚本和个性化路径之间的对齐。只能返回 JSON。",
+        content: `你是课程设计流程代理，不掌握教师未提供的真实学情或学校条件。请汇总可以从当前数据直接观察到的常见明显问题，例如字段遗漏、引用失效、前后矛盾、目标与成果明显错配；不得把无法证实的学生能力、设备条件、教师偏好或教学取舍当成事实。
+确定性检查是硬规则，你的结果只用于给后续流程提供补充建议，不得虚构新的硬门槛。只能返回 JSON。`,
       },
       {
         role: "user",
@@ -984,142 +1112,28 @@ async function generateAdaptivePlan(
   mainScenes: Array<SceneOutline & OpenMaicSceneOutlineSnapshot>,
   signal: AbortSignal,
 ) {
-  const fallback = createDefaultAdaptiveLearningPlan({
-    knowledgePoints: content.knowledgePoints,
-    knowledgeGraph: content.knowledgeGraph,
-    mainScenes,
-  });
-  const adaptiveContext = buildAdaptiveLearningGenerationContext({
-    knowledgePoints: content.knowledgePoints,
-    knowledgeGraph: content.knowledgeGraph,
-    mainScenes,
-  });
   try {
-    const messages = [
-      {
-        role: "system",
-        content: ADAPTIVE_LEARNING_GENERATION_POLICY,
+    const result = await generateCourseEntryPackage({
+      course: {
+        name: course.name,
+        subject: course.subject,
+        grade: course.grade,
+        summary: course.summary,
+        learningObjectives: course.learningObjectives,
+        learnerProfile: course.learnerProfile,
       },
-      {
-        role: "user",
-        content: JSON.stringify({
-          course: { name: course.name, grade: course.grade, subject: course.subject },
-          knowledgePoints: content.knowledgePoints,
-          ...adaptiveContext,
-          mainScenes: mainScenes.map((scene) => ({
-            id: scene.id,
-            title: scene.title,
-            type: scene.type,
-            stageKey: scene.stageKey,
-            knowledgePointIds: scene.knowledgePointIds,
-            keyPoints: scene.keyPoints,
-          })),
-          output: {
-            enabled: true,
-            timeBudgetMin: 8,
-            prerequisiteKnowledgePoints: [{
-              id: "prereq-data",
-              name: "学生上课前应已掌握的具体知识",
-              description: "该知识的课前掌握边界，不得复述本课新授内容",
-              keyInfo: "准确表述",
-              relatedIds: ["受影响的本课知识点 id"],
-            }],
-            pretest: {
-              title: "string",
-              introduction: "string",
-              estimatedMinutes: 3,
-              questions: [{
-                id: "string",
-                type: "single-choice|true-false|matching",
-                prompt: "具体概念、情境、计算、辨析或操作题",
-                options: ["string", "string", "string", "string"],
-                correctOptionIndex: 0,
-                matchingPairs: [{ left: "待匹配项", right: "正确对应项" }],
-                rationale: "正确依据，以及缺失后会阻碍的后续知识",
-                knowledgePointIds: ["prerequisite-kp-id"],
-              }],
-            },
-            enrichmentStrategy: {
-              recommendedMin: fallback.enrichmentStrategy?.recommendedMin,
-              recommendedMax: fallback.enrichmentStrategy?.recommendedMax,
-              runtimeMaxPerStudent: fallback.enrichmentStrategy?.runtimeMaxPerStudent,
-              summary: "整门课的拓展机会判断",
-              decisions: [{
-                id: "opportunity-id",
-                decision: "selected|rejected",
-                title: "具体且唯一的拓展主题",
-                valueType: "task-transfer|concept-depth|classic-extension",
-                rationale: "新增价值与取舍理由",
-                anchorKnowledgePointIds: ["kp-id"],
-                afterAssessmentSceneId: "quiz-id",
-                branchId: "selected branch id",
-              }],
-            },
-            branches: [{
-              id: "string",
-              kind: "prerequisite|worked-example|application|extension",
-              title: "string",
-              objective: "string",
-              keyPoints: ["string"],
-              anchorKnowledgePointIds: ["kp-id"],
-              prerequisiteKnowledgePointIds: ["kp-id"],
-              noveltyStatement: "string",
-              mainCourseOverlapSceneIds: ["scene-id"],
-              sceneType: "slide|interactive",
-              targetDurationSec: 180,
-              generationGuidance: "string",
-              trigger: {
-                placement: "before-main-course|after-module",
-                assessmentSceneIds: ["scene-id"],
-                evidenceRule: "pretest-gap|module-mastery",
-                scoreThreshold: 80,
-                minimumRemainingSec: 180,
-              },
-            }],
-          },
-        }),
-      },
-    ] as const;
-    let response = await callLLM([...messages], {
-      jsonMode: true,
-      abortSignal: signal,
-      requestClass: "long-generation",
-      maxTransientRetries: 1,
-    });
-    const normalizeResponse = (value: string) => ensureAdaptiveResourceCoverage(
-      improveAdaptiveLearningPlanQuality(
-        normalizeAdaptiveLearningPlan(parseLLMJson<unknown>(value), fallback),
-        fallback,
-        { knowledgePoints: content.knowledgePoints, knowledgeGraph: content.knowledgeGraph, mainScenes },
-      ),
-      { knowledgePoints: content.knowledgePoints, knowledgeGraph: content.knowledgeGraph, mainScenes },
-    );
-    let plan = normalizeResponse(response);
-    let quality = evaluateAdaptiveLearningPlanQuality(plan, { knowledgePoints: content.knowledgePoints, mainScenes });
-    if (!quality.passed) {
-      response = await callLLM([
-        ...messages,
-        { role: "assistant", content: response },
-        {
-          role: "user",
-          content: `前一版未通过质量门：${quality.issues.join("；")}。重新生成完整方案：前序部分必须是新授内容之前的基础知识，并形成 5 分钟内客观题前测与逐点补缺；拓展部分先做全课机会评估，再按建议数量 ${quality.recommendedMin}-${quality.recommendedMax} 选择互不重复的最高价值主题，放在学完全部依赖知识后的最佳测验之后。禁止每章凑数，也禁止内容丰富的课程无理由为零。只返回完整 JSON。`,
-        },
-      ], {
-        jsonMode: true,
-        abortSignal: signal,
-        requestClass: "long-generation",
-        maxTransientRetries: 1,
-      });
-      plan = normalizeResponse(response);
-      quality = evaluateAdaptiveLearningPlanQuality(plan, { knowledgePoints: content.knowledgePoints, mainScenes });
-    }
-    if (!quality.passed) {
-      throw new Error(`个性化学习路径未通过质量门：${quality.issues.join("；")}`);
-    }
-    return confirmAdaptiveLearningPlan(plan);
+      knowledgePoints: content.knowledgePoints,
+      knowledgeGraph: content.knowledgeGraph,
+      mainScenes,
+    }, { abortSignal: signal });
+    return {
+      plan: confirmAdaptiveLearningPlan(result.plan),
+      knowledgeGraph: result.knowledgeGraph,
+    };
   } catch (error) {
     if (signal.aborted) throw error;
-    throw new Error("个性化学习路径生成失败，未写入空白降级方案。", { cause: error });
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`个性化学习路径生成失败，未写入空白降级方案：${detail}`, { cause: error });
   }
 }
 
@@ -1221,7 +1235,6 @@ async function enqueueClassroomGeneration(course: Course, options?: QuickDesignR
     enableImageGeneration: options?.enableImageGeneration ?? true,
     enableVideoGeneration: options?.enableVideoGeneration ?? false,
     enableTTS: options?.enableTTS ?? true,
-    interactiveMode: options?.interactiveMode === true,
     ttsLanguage: "zh-CN",
     agentMode: "default",
   };
@@ -1295,50 +1308,62 @@ async function completeCourseDesignFromTeachingOutline(
   let course = initialCourse;
   let content = initialContent;
   const teachingOutline = content.teachingOutline ?? [];
-  let sceneOutlines: Array<SceneOutline & OpenMaicSceneOutlineSnapshot> = [];
-  let correction = "";
   await beginStep(job, "lessonOutline", 5, 66, "正在逐页编写学生页面、互动与教师资源");
+  let sceneOutlines = await generateMainCourseOutlines(
+    course,
+    content,
+    request,
+    controller.signal,
+  );
   for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
-    sceneOutlines = await generateMainCourseOutlines(
-      course,
-      content,
-      request,
-      controller.signal,
-      correction,
-    );
     const quality = evaluateLessonOutlines(
       sceneOutlines,
-      request.options?.interactiveMode === true,
       buildPblActivityCatalog(content),
     );
     const audit = await auditStage("主课脚本", {
       courseOutline: teachingOutline,
       pages: sceneOutlines.map((scene) => ({
+        id: scene.id,
         title: scene.title,
         type: scene.type,
         audience: scene.audience,
         stageKey: scene.stageKey,
         duration: scene.targetDurationSec ?? scene.estimatedDuration,
       })),
-      correction,
     }, quality, controller.signal);
     if (audit.passed || (attempt === MAX_AGENT_REVIEW_ROUNDS - 1 && quality.passed)) break;
-    correction = audit.issues.join("；") || audit.summary;
     if (attempt === MAX_AGENT_REVIEW_ROUNDS - 1) {
-      throw new Error(`主课脚本代理无法生成结构完整的数据：${quality.issues.join("；")}`);
+      throw new Error(`主课脚本编辑 Agent 无法修复硬规则问题：${quality.issues.join("；") || audit.summary}`);
     }
+    sceneOutlines = await editCourseDesignStage({
+      label: "主课脚本",
+      current: { outlines: sceneOutlines },
+      issues: audit.issues.length ? audit.issues : [audit.summary],
+      fixedConstraints: {
+        teacherBrief: request.teacherBrief,
+        teachingOutline,
+        knowledgePoints: content.knowledgePoints,
+        knowledgeGraph: content.knowledgeGraph,
+        projectOutcome: course.pblConfig?.outcome,
+        evaluationPlan: content.evaluationPlan,
+      },
+      outputSchema: {
+        outlines: "完整页面数组；保留所有已正确页面及稳定 ID，只编辑问题页面和必要关联",
+      },
+      abortSignal: controller.signal,
+      preserveValueOnMalformedEdit: sceneOutlines,
+      parse: (value) => normalizeEditedSceneOutlines(value, sceneOutlines),
+    });
   }
   content = {
     ...content,
     lessonOutline: sceneOutlines.map(sceneOutlineToLessonSection),
     _openmaicSceneOutlines: sceneOutlines,
-    interactiveMode: request.options?.interactiveMode === true,
   };
   course = { ...course, content };
   course = await saveGeneratedCourse(request.courseId, course);
   const lessonQuality = evaluateLessonOutlines(
     sceneOutlines,
-    request.options?.interactiveMode === true,
     buildPblActivityCatalog(content),
   );
   await recordStep(job, {
@@ -1390,20 +1415,20 @@ async function completeCourseDesignAfterOutline(
 ): Promise<void> {
   let content = initialContent;
   await beginStep(job, "adaptiveLearning", 6, 82, "正在规划诊断补缺与达标拓展路径");
-  const adaptivePlan = await generateAdaptivePlan(
+  const adaptiveResult = await generateAdaptivePlan(
     course,
     content,
     initialSceneOutlines,
     controller.signal,
   );
+  const adaptivePlan = adaptiveResult.plan;
+  content = { ...content, knowledgeGraph: adaptiveResult.knowledgeGraph };
   const adaptiveQuality = evaluateAdaptiveLearningPlanQuality(adaptivePlan, {
     knowledgePoints: content.knowledgePoints,
+    knowledgeGraph: content.knowledgeGraph,
     mainScenes: initialSceneOutlines,
   });
-  const adaptiveIssues = [
-    ...adaptiveQuality.issues,
-    ...(adaptivePlan.branches.length > 0 ? [] : ["未生成任何个性化学习分支"]),
-  ];
+  const adaptiveIssues = [...adaptiveQuality.issues];
   const adaptiveAudit = await auditStage("个性化学习路径", {
     knowledgePoints: content.knowledgePoints,
     mainScenes: initialSceneOutlines.map((scene) => ({ id: scene.id, title: scene.title, stageKey: scene.stageKey })),
@@ -1500,8 +1525,67 @@ async function completeCourseDesignAfterOutline(
   });
 }
 
+function scheduleManagedCourseDesignRetry(jobId: string): void {
+  const retryTimer = setTimeout(() => {
+    void (async () => {
+      const now = new Date();
+      const claimed = await prisma.courseDesignGenerationJob.updateMany({
+        where: { id: jobId, status: "queued" },
+        data: {
+          status: "running",
+          step: "managed_recovery",
+          message: "托管生成 Agent 正在根据质量审校结果自动修订课程",
+          lastHeartbeatAt: now,
+          error: null,
+          attempt: { increment: 1 },
+          version: { increment: 1 },
+        },
+      });
+      if (claimed.count !== 1) return;
+      const retryJob = await prisma.courseDesignGenerationJob.findUnique({ where: { id: jobId } });
+      if (retryJob) await runCourseDesignJob(retryJob);
+    })().catch((error) => log.error("Failed to schedule managed course-design recovery", error));
+  }, 150);
+  retryTimer.unref?.();
+}
+
 export async function runCourseDesignJob(job: CourseDesignGenerationJob): Promise<void> {
   return runWithCourseGenerationLlmContext(() => runCourseDesignJobWithGenerationContext(job));
+}
+
+/**
+ * Upgrades a previously failed, but structurally recoverable, durable task to
+ * the managed Agent loop. This lets deployments resume jobs that failed under
+ * the old fail-fast policy without asking the teacher to resubmit the brief.
+ */
+export async function resumeRecoverableCourseDesignJob(
+  courseId: string,
+): Promise<CourseDesignGenerationJob | null> {
+  const job = await prisma.courseDesignGenerationJob.findUnique({ where: { courseId } });
+  if (!job || job.status !== "failed" || !job.error) return job;
+  const request = job.request as unknown as QuickDesignRequest;
+  const managedRecoveryRequest = createManagedRecoveryRequest(request, new Error(job.error));
+  if (!managedRecoveryRequest) return job;
+  const recoveryCount = managedRecoveryRequest.managedRecoveryCount ?? 1;
+  const updated = await prisma.courseDesignGenerationJob.updateMany({
+    where: { id: job.id, status: "failed" },
+    data: {
+      status: "queued",
+      step: "managed_recovery",
+      message: `检测到可修复的生成问题，托管生成 Agent 正在自动恢复（第 ${recoveryCount} 次）`,
+      request: managedRecoveryRequest as unknown as Prisma.InputJsonValue,
+      error: null,
+      completedAt: null,
+      estimatedRemainingSeconds: remainingSeconds(
+        Math.max(0, Math.min(job.stepIndex, STEP_ESTIMATES.length - 1)),
+        request.options,
+      ),
+      lastHeartbeatAt: new Date(),
+      version: { increment: 1 },
+    },
+  });
+  if (updated.count === 1) scheduleManagedCourseDesignRetry(job.id);
+  return prisma.courseDesignGenerationJob.findUnique({ where: { id: job.id } });
 }
 
 async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerationJob): Promise<void> {
@@ -1516,7 +1600,6 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
     const canResumeValidatedOutline = canResumeAfterValidatedLessonOutline({
       trace: job.trace,
       outlines: existingOutlines,
-      interactiveMode: request.options?.interactiveMode ?? false,
       activityCatalog: buildPblActivityCatalog(initialCourse.content),
     });
     if (
@@ -1553,11 +1636,17 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       );
       return;
     }
-    const positioning = await generatePositioning(initialCourse, request, controller.signal);
+    const reusePositioning = canResumeAfterValidatedPositioning({
+      trace: job.trace,
+      positioningPassed: evaluatePositioning(initialCourse).passed,
+    });
+    const positioning = reusePositioning
+      ? { value: initialCourse, review: { revisionCount: 0, advisoryIssues: [] as string[] } }
+      : await generatePositioning(initialCourse, request, controller.signal);
     let course = positioning.value;
-    course = await saveGeneratedCourse(request.courseId, course);
+    course = reusePositioning ? course : await saveGeneratedCourse(request.courseId, course);
     const positioningQuality = evaluatePositioning(course);
-    await recordStep(job, {
+    if (!reusePositioning) await recordStep(job, {
       step: "base",
       stepIndex: 0,
       progress: 10,
@@ -1587,44 +1676,52 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
     await persistCanonicalContent(request.courseId, course.content, request, job);
 
     let content = course.content;
-    let correction = "";
+    const savedGraphQuality = assessKnowledgeGraphQuality(
+      content.knowledgeGraph,
+      content.knowledgePoints,
+      content.teacherRequiredKnowledgePoints,
+      {
+        objectiveCount: course.learningObjectives?.length ?? 0,
+        requireSemanticReview: true,
+        minimumPrerequisites: 1,
+      },
+    );
+    const reuseKnowledgeStructure = canResumeAfterValidatedStage({
+      trace: job.trace,
+      step: "knowledgePoints",
+      qualityPassed: content.knowledgePoints.length >= 3 && savedGraphQuality.ok,
+    });
+    if (!reuseKnowledgeStructure) {
     await beginStep(job, "knowledgePoints", 1, 12, "正在建立课程目标与知识图谱");
-    for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
-      const generated = await generateCourseContent({
-        action: "knowledgeGraph",
-        input: stageSummaryInput(course, request, correction),
-        context: { teacherRequiredKnowledgePoints: content.teacherRequiredKnowledgePoints },
-      }, { signal: controller.signal });
-      const knowledgeGraph = generated.content.knowledgeGraph ?? { nodes: [], edges: [] };
-      const candidate = {
-        ...content,
-        knowledgePoints: generated.content.knowledgePoints,
-        knowledgeGraph,
-      };
-      const issues = [
-        candidate.knowledgePoints.length >= 3 ? "" : "知识点数量不足",
-        candidate.knowledgeGraph.nodes.length >= candidate.knowledgePoints.length ? "" : "知识图谱节点未覆盖全部知识点",
-      ].filter(Boolean);
-      const deterministic: StageQualityResult = {
-        passed: issues.length === 0,
-        issues,
-        checks: [`${candidate.knowledgePoints.length} 个知识点`, `${candidate.knowledgeGraph.edges.length} 条知识关联`, "课程目标已映射到知识边界"],
-      };
-      const audit = await auditStage("目标与知识图谱", {
-        objectives: course.learningObjectives,
-        knowledgePoints: candidate.knowledgePoints,
-        knowledgeGraph: candidate.knowledgeGraph,
-      }, deterministic, controller.signal);
-      if (audit.passed || (attempt === MAX_AGENT_REVIEW_ROUNDS - 1 && deterministic.passed)) {
-        content = candidate;
-        correction = "";
-        break;
-      }
-      correction = audit.issues.join("；") || audit.summary;
-      if (attempt === MAX_AGENT_REVIEW_ROUNDS - 1) {
-        throw new Error(`目标与知识图谱代理无法生成结构完整的数据：${deterministic.issues.join("；")}`);
-      }
+    const generated = await generateReviewedKnowledgeStructure(
+      stageSummaryInput(course, request),
+      { teacherRequiredKnowledgePoints: content.teacherRequiredKnowledgePoints },
+      { abortSignal: controller.signal, maxAttempts: MAX_AGENT_REVIEW_ROUNDS },
+    );
+    const knowledgeGraph = generated.knowledgeGraph ?? { nodes: [], edges: [] };
+    const candidate = {
+      ...content,
+      knowledgePoints: generated.knowledgePoints,
+      knowledgeGraph,
+    };
+    const graphQuality = assessKnowledgeGraphQuality(
+      candidate.knowledgeGraph,
+      candidate.knowledgePoints,
+      content.teacherRequiredKnowledgePoints,
+      {
+        objectiveCount: course.learningObjectives?.length ?? 0,
+        requireSemanticReview: true,
+        minimumPrerequisites: 1,
+      },
+    );
+    const issues = [
+      candidate.knowledgePoints.length >= 3 ? "" : "本课知识点数量不足",
+      ...graphQuality.issues,
+    ].filter(Boolean);
+    if (issues.length > 0) {
+      throw new Error(`目标与知识图谱代理无法生成结构完整的数据：${issues.join("；")}`);
     }
+    content = candidate;
     course = { ...course, content };
     course = await saveGeneratedCourse(request.courseId, course);
     await recordStep(job, {
@@ -1643,13 +1740,21 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
         })), { knowledgeGraph: content.knowledgeGraph, knowledgePoints: content.knowledgePoints }),
       ],
     });
+    }
     await persistCanonicalContent(request.courseId, content, request, job);
 
+    let projectQuality = evaluateProjectDesign(course);
+    const reuseProjectDesign = canResumeAfterValidatedStage({
+      trace: job.trace,
+      step: "projectDesign",
+      qualityPassed: projectQuality.passed,
+    });
+    if (!reuseProjectDesign) {
     await beginStep(job, "projectDesign", 2, 25, "正在把驱动问题转化为项目成果与过程证据");
     course = await generateProjectDesign(course, request, controller.signal);
     content = course.content;
     course = await saveGeneratedCourse(request.courseId, course);
-    const projectQuality = evaluateProjectDesign(course);
+    projectQuality = evaluateProjectDesign(course);
     await recordStep(job, {
       step: "projectDesign",
       stepIndex: 2,
@@ -1665,21 +1770,53 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
         ...(course.pblConfig?.evidenceRequirements ?? []).slice(0, 4).map((item) => ({ label: "过程证据", value: item.label, meta: item.description })),
       ])],
     });
+    }
     await persistCanonicalContent(request.courseId, content, request, job);
 
-    correction = "";
+    const reuseEvaluationPlan = canResumeAfterValidatedStage({
+      trace: job.trace,
+      step: "evaluationPlan",
+      qualityPassed: evaluateEvaluationPlan(content.evaluationPlan).passed,
+    });
+    if (!reuseEvaluationPlan) {
     await beginStep(job, "evaluationPlan", 3, 38, "正在设计 AI、教师与学生共同参与的评价方案");
-    for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
-      const generated = await generateCourseContent({
+    const evaluationOutputSchema = {
+      dimensions: [{ id: "稳定 ID", name: "string", weight: 20, description: "string", responsibleRole: "ai|teacher" }],
+      overallRubric: "string",
+      flows: "保留现有 AI、教师和学生反思流程",
+    };
+    let evaluationPlan = content.evaluationPlan;
+    try {
+      const generatedEvaluation = await generateCourseContent({
         action: "evaluationPlan",
-        input: stageSummaryInput(course, request, correction),
+        input: stageSummaryInput(course, request),
         context: {
           knowledgePoints: content.knowledgePoints,
           knowledgeGraph: content.knowledgeGraph,
           pblOutline: JSON.stringify(course.pblConfig?.outcome ?? {}),
         },
       }, { signal: controller.signal });
-      const evaluationPlan = ensureEvaluationResponsibility(generated.content.evaluationPlan);
+      evaluationPlan = ensureEvaluationResponsibility(generatedEvaluation.content.evaluationPlan);
+    } catch (error) {
+      const issue = error instanceof Error ? error.message : "评价方案首稿结构不完整";
+      evaluationPlan = await editCourseDesignStage({
+        label: "成功标准",
+        current: content.evaluationPlan,
+        issues: [`首稿无法发布，必须依据完整课程上下文重新生成正式评价方案：${issue}`],
+        fixedConstraints: {
+          teacherBrief: request.teacherBrief,
+          hours: course.hours,
+          learningObjectives: course.learningObjectives,
+          projectOutcome: course.pblConfig?.outcome,
+          evidenceRequirements: course.pblConfig?.evidenceRequirements,
+        },
+        outputSchema: evaluationOutputSchema,
+        abortSignal: controller.signal,
+        maxAttempts: 5,
+        parse: (value) => ensureEvaluationResponsibility(normalizeEvaluationPlanOutput(value)),
+      });
+    }
+    for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
       const quality = evaluateEvaluationPlan(evaluationPlan);
       const audit = await auditStage("成功标准", {
         outcome: course.pblConfig?.outcome,
@@ -1687,13 +1824,27 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       }, quality, controller.signal);
       if (audit.passed || (attempt === MAX_AGENT_REVIEW_ROUNDS - 1 && quality.passed)) {
         content = { ...content, evaluationPlan };
-        correction = "";
         break;
       }
-      correction = audit.issues.join("；") || audit.summary;
       if (attempt === MAX_AGENT_REVIEW_ROUNDS - 1) {
-        throw new Error(`成功标准代理无法生成结构完整的数据：${quality.issues.join("；")}`);
+        throw new Error(`成功标准编辑 Agent 无法修复硬规则问题：${quality.issues.join("；") || audit.summary}`);
       }
+      evaluationPlan = await editCourseDesignStage({
+        label: "成功标准",
+        current: evaluationPlan,
+        issues: audit.issues.length ? audit.issues : [audit.summary],
+        fixedConstraints: {
+          teacherBrief: request.teacherBrief,
+          hours: course.hours,
+          learningObjectives: course.learningObjectives,
+          projectOutcome: course.pblConfig?.outcome,
+          evidenceRequirements: course.pblConfig?.evidenceRequirements,
+        },
+        outputSchema: evaluationOutputSchema,
+        abortSignal: controller.signal,
+        preserveValueOnMalformedEdit: evaluationPlan,
+        parse: (value) => ensureEvaluationResponsibility(normalizeEvaluationPlanOutput(value, evaluationPlan)),
+      });
     }
     course = { ...course, content };
     course = await saveGeneratedCourse(request.courseId, course);
@@ -1715,13 +1866,13 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
         }))),
       ],
     });
+    }
     await persistCanonicalContent(request.courseId, content, request, job);
 
     await beginStep(job, "teachingOutline", 4, 51, "正在编排六阶段任务、角色与课程时间");
-    correction = "";
     let teachingStructure: Awaited<ReturnType<typeof generateTeachingStructure>> | undefined;
+    teachingStructure = await generateTeachingStructure(course, content, request, controller.signal);
     for (let attempt = 0; attempt < MAX_AGENT_REVIEW_ROUNDS; attempt += 1) {
-      teachingStructure = await generateTeachingStructure(course, content, request, controller.signal, correction);
       const teachingAudit = await auditStage("六阶段架构", {
         totalMinutes: teachingStructure.totalMinutes,
         outcome: course.pblConfig?.outcome,
@@ -1733,7 +1884,25 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
         checks: ["六阶段顺序完整", `总时长 ${teachingStructure.totalMinutes} 分钟`, "项目成果与评价要求已作为上游约束"],
       }, controller.signal);
       if (teachingAudit.passed || attempt === MAX_AGENT_REVIEW_ROUNDS - 1) break;
-      correction = teachingAudit.issues.join("；") || teachingAudit.summary;
+      teachingStructure = await editCourseDesignStage({
+        label: "六阶段架构",
+        current: { teachingOutline: teachingStructure.teachingOutline },
+        issues: teachingAudit.issues.length ? teachingAudit.issues : [teachingAudit.summary],
+        fixedConstraints: {
+          teacherBrief: request.teacherBrief,
+          totalMinutes: teachingStructure.totalMinutes,
+          drivingQuestion: course.drivingQuestion,
+          learningObjectives: course.learningObjectives,
+          projectOutcome: course.pblConfig?.outcome,
+          evaluationPlan: content.evaluationPlan,
+        },
+        outputSchema: {
+          teachingOutline: "完整六阶段数组；保留各阶段稳定 ID，并让 durationMin 合计等于总时长",
+        },
+        abortSignal: controller.signal,
+        preserveValueOnMalformedEdit: teachingStructure,
+        parse: (value) => normalizeEditedTeachingStructure(course, content, value),
+      });
     }
     if (!teachingStructure) throw new Error("六阶段架构代理未返回可保存的数据");
     const { totalMinutes, teachingOutline, moduleTimingPlan, projectMainline } = teachingStructure;
@@ -1809,13 +1978,41 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       });
       return;
     }
+    const managedRecoveryRequest = createManagedRecoveryRequest(request, error);
+    if (managedRecoveryRequest) {
+      const recoveryCount = managedRecoveryRequest.managedRecoveryCount ?? 1;
+      log.warn(
+        `Managed course-design recovery ${recoveryCount} queued for ${request.courseId}`,
+        error,
+      );
+      await prisma.courseDesignGenerationJob.update({
+        where: { id: job.id },
+        data: {
+          status: "queued",
+          step: "managed_recovery",
+          message: `质量审校发现可修复问题，托管生成 Agent 正在自动调整（第 ${recoveryCount} 次）`,
+          request: managedRecoveryRequest as unknown as Prisma.InputJsonValue,
+          error: null,
+          estimatedRemainingSeconds: remainingSeconds(
+            Math.max(0, Math.min(job.stepIndex, STEP_ESTIMATES.length - 1)),
+            request.options,
+          ),
+          completedAt: null,
+          lastHeartbeatAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      scheduleManagedCourseDesignRetry(job.id);
+      return;
+    }
+    log.error(`Course design failed for ${request.courseId}`, error);
     await prisma.courseDesignGenerationJob.update({
       where: { id: job.id },
       data: {
         status: "failed",
         step: "failed",
         message: "快速课程设计未完成",
-        error: error instanceof Error ? error.message : String(error),
+        error: formatFatalCourseDesignError(error),
         estimatedRemainingSeconds: null,
         completedAt: new Date(),
         lastHeartbeatAt: new Date(),

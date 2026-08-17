@@ -100,38 +100,6 @@ const TOOL_INPUT_SCHEMAS: Record<string, z.ZodType> = {
   }),
   widget_annotation: z.object({ target: z.string().min(1), content: z.string().optional() }),
   widget_reveal: z.object({ target: z.string().min(1), content: z.string().optional() }),
-  check_understanding: z.object({
-    question: z.string().min(1),
-    responseType: z.enum([
-      'single_choice',
-      'multiple_choice',
-      'short_answer',
-      'prediction',
-    ]),
-    options: z
-      .array(z.object({ id: z.string().min(1), label: z.string().min(1) }))
-      .max(6)
-      .optional(),
-    hint: z.string().optional(),
-    expectedEvidence: z.string().optional(),
-  }),
-  evidence_board_update: z.object({
-    operation: z.enum(['replace', 'append', 'clear']),
-    title: z.string().optional(),
-    items: z
-      .array(
-        z.object({
-          id: z.string().min(1),
-          claim: z.string().min(1),
-          evidence: z.string().min(1),
-          reasoning: z.string().optional(),
-          source: z.string().optional(),
-          sourceStatus: z.enum(['verified', 'student_provided', 'needs_verification']),
-          stance: z.enum(['supports', 'challenges', 'neutral']).optional(),
-        }),
-      )
-      .max(8),
-  }),
 };
 
 export function getNativeTeachingToolNames(allowedActions: readonly string[]): string[] {

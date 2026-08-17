@@ -109,6 +109,15 @@ export function createSceneAPI(store: StageStore) {
             ...(params.resourceTypes !== undefined && {
               resourceTypes: [...params.resourceTypes],
             }),
+            ...(params.narrationMode !== undefined && {
+              narrationMode: params.narrationMode,
+            }),
+            ...(params.teachingToolPlan !== undefined && {
+              teachingToolPlan: params.teachingToolPlan.map((item) => ({
+                ...item,
+                content: [...item.content],
+              })),
+            }),
             createdAt: Date.now(),
             updatedAt: Date.now(),
           },

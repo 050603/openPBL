@@ -1,4 +1,5 @@
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
+import { ensureTeachingToolPlans } from "@/lib/openmaic/generation/teaching-tool-plan";
 
 export type AdaptiveGenerationProgress = {
   progress: number;
@@ -21,7 +22,7 @@ export async function generateAdaptiveClassroom(input: {
   requestRole?: "student" | "teacher";
   onProgress?: (progress: AdaptiveGenerationProgress) => void;
 }): Promise<{ classroomId: string; scenesCount: number }> {
-  const outlines: SceneOutline[] = input.scenes.map((scene, index) => ({
+  const outlines: SceneOutline[] = ensureTeachingToolPlans(input.scenes.map((scene, index) => ({
     id: `adaptive-${Date.now().toString(36)}-${index + 1}`,
     type: scene.type ?? "slide",
     title: scene.title,
@@ -48,7 +49,8 @@ export async function generateAdaptiveClassroom(input: {
     knowledgePointIds: scene.knowledgePointIds ?? [],
     ttsPolicy: "target-duration",
     resourceTypes: scene.type === "interactive" ? ["interactive-demo"] : ["ppt"],
-  }));
+    narrationMode: "embedded-segment",
+  })));
   const response = await fetch("/api/openmaic/generate", {
     method: "POST",
     headers: {
@@ -60,7 +62,6 @@ export async function generateAdaptiveClassroom(input: {
       courseTitle: input.title,
       sceneOutlines: outlines,
       enableTTS: true,
-      interactiveMode: outlines.some((scene) => scene.type === "interactive"),
     }),
     signal: input.signal,
   });

@@ -739,8 +739,6 @@ export class PlaybackEngine {
       case 'wb_clear':
       case 'wb_delete':
       case 'wb_close':
-      case 'check_understanding':
-      case 'evidence_board_update':
       case 'widget_highlight':
       case 'widget_setState':
       case 'widget_annotation':

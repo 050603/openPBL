@@ -95,11 +95,12 @@ function currentScene(events: LearningEvent[]): string {
 export function adaptiveResponseStatus(
   progress: StudentAiProgress | undefined,
   planEnabled: boolean,
+  pretestRequired = true,
 ): { label: string; tone: "muted" | "active" | "ready" | "danger" } {
   const state = progress?.adaptiveLearning;
   if (!planEnabled) return { label: "课程未启用", tone: "muted" };
   if (state?.enabled === false) return { label: "个体已关闭", tone: "danger" };
-  if (!state?.pretestCompletedAt) return { label: "等待前测", tone: "muted" };
+  if (pretestRequired && !state?.pretestCompletedAt) return { label: "等待前测", tone: "muted" };
   const currentRun = [...(state?.branchRuns ?? [])].reverse().find((run) =>
     ["generating", "ready"].includes(run.status),
   );
@@ -221,9 +222,12 @@ export function AiLearningTeacherView({
               const enabled = adaptive?.enabled !== false;
               const weakCount = adaptive?.pretestWeakKnowledgePointIds?.length ?? 0;
               const learnedCount = adaptive?.branchRuns.filter((run) => run.status === "completed").length ?? 0;
+              const pretestRequired = Boolean(course.content.adaptiveLearningPlan?.pretest.questions.length);
+              const awaitingPretest = pretestRequired && !adaptive?.pretestCompletedAt;
               const response = adaptiveResponseStatus(
                 progress,
                 Boolean(course.content.adaptiveLearningPlan?.enabled),
+                pretestRequired,
               );
               return (
                 <li className="grid gap-3 py-3 md:px-2 xl:grid-cols-[190px_minmax(135px,1fr)_145px_150px_150px] xl:items-center" key={summary.student.id}>
@@ -234,8 +238,8 @@ export function AiLearningTeacherView({
                   <span><span className="mb-1 flex justify-between text-xs text-stone-500"><span>主课进度</span><strong>{summary.progress}%</strong></span><ProgressBar className="h-2" tone={summary.signals.length ? "red" : summary.progress >= 90 ? "green" : "teal"} value={summary.progress} /><span className="mt-1 block truncate text-[10px] text-stone-400">{currentScene(summary.events)}</span></span>
                   <span>
                     <span className="block text-[10px] font-bold uppercase tracking-wide text-stone-400">先决知识证据</span>
-                    <span className={cn("mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-black", !adaptive?.pretestCompletedAt ? "bg-stone-100 text-stone-500" : weakCount ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800")}>
-                      {!adaptive?.pretestCompletedAt ? "等待前测" : weakCount ? `${weakCount} 个缺口` : "已具备"}
+                    <span className={cn("mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-black", awaitingPretest ? "bg-stone-100 text-stone-500" : weakCount ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800")}>
+                      {!pretestRequired ? "无需前测" : awaitingPretest ? "等待前测" : weakCount ? `${weakCount} 个缺口` : "已具备"}
                     </span>
                     {typeof adaptive?.pretestScore === "number" ? <small className="ml-1 text-[9px] text-stone-400">{adaptive.pretestScore} 分</small> : null}
                   </span>
@@ -299,6 +303,7 @@ function AdaptiveTriggerAuditDialog({
   const progress = course.aiLearningProgress?.[studentId];
   const adaptive = progress?.adaptiveLearning;
   const plan = course.content.adaptiveLearningPlan;
+  const pretestRequired = Boolean(plan?.pretest.questions.length);
   if (!student) return null;
 
   const evaluations = adaptive?.triggerEvaluations ?? [];
@@ -353,7 +358,7 @@ function AdaptiveTriggerAuditDialog({
         }
       : adaptive;
   const liveEvaluations =
-    plan && auditState?.pretestCompletedAt
+    plan && auditState && (!pretestRequired || auditState.pretestCompletedAt)
       ? eligibleBranches.flatMap((branch) => evaluateAdaptiveBranchDecision({
           plan,
           state: auditState,
@@ -405,8 +410,8 @@ function AdaptiveTriggerAuditDialog({
 
         <div className="overflow-y-auto p-5">
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <AuditMetric label="先决知识缺口" value={`${adaptive?.pretestWeakKnowledgePointIds?.length ?? 0} 个`} helper={adaptive?.pretestCompletedAt ? "按前测逐题映射到知识点" : "等待完成前测"} />
-            <AuditMetric label="课前测" value={typeof adaptive?.pretestScore === "number" ? `${adaptive.pretestScore} 分` : "未完成"} helper={adaptive?.pretestCompletedAt ? new Date(adaptive.pretestCompletedAt).toLocaleString("zh-CN") : "暂无完成时间"} />
+            <AuditMetric label="先决知识缺口" value={`${adaptive?.pretestWeakKnowledgePointIds?.length ?? 0} 个`} helper={!pretestRequired ? "前序知识诊断方案尚未形成" : adaptive?.pretestCompletedAt ? "按前测逐题映射到知识点" : "等待完成前测"} />
+            <AuditMetric label="课前测" value={!pretestRequired ? "无需" : typeof adaptive?.pretestScore === "number" ? `${adaptive.pretestScore} 分` : "未完成"} helper={!pretestRequired ? "学生直接进入完整主课" : adaptive?.pretestCompletedAt ? new Date(adaptive.pretestCompletedAt).toLocaleString("zh-CN") : "暂无完成时间"} />
             <AuditMetric label="已评估触发点" value={`${evaluations.length} 次`} helper={evaluations.length ? "包含未满足条件的记录" : "尚无运行时判定记录"} />
             <AuditMetric label="已学习额外资源" value={`${triggeredCount} 个`} helper={(adaptive?.branchRuns ?? []).some((run) => run.status === "failed") ? "包含资源加载失败记录" : "先决回顾、案例、应用与拓展合计"} />
             <AuditMetric
@@ -444,12 +449,13 @@ function AdaptiveTriggerAuditDialog({
                   branch={branch}
                   evaluation={live ?? latestRecorded}
                   key={branch.id}
+                  pretestRequired={pretestRequired}
                   runStatus={run?.status}
                   sceneTitle={sceneTitle(branch)}
                 />
               );
             })}
-            {plan?.branches.length && adaptive?.pretestCompletedAt && !eligibleBranches.length ? (
+            {plan?.branches.length && (!pretestRequired || adaptive?.pretestCompletedAt) && !eligibleBranches.length ? (
               <div className="rounded-[9px] border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">
                 当前学习证据没有匹配的额外资源。
               </div>
@@ -469,11 +475,13 @@ function AuditMetric({ label, value, helper }: { label: string; value: string; h
 function TriggerAuditCard({
   branch,
   evaluation,
+  pretestRequired,
   runStatus,
   sceneTitle,
 }: {
   branch: AdaptiveBranchOutline;
   evaluation?: AdaptiveTriggerEvaluation;
+  pretestRequired: boolean;
   runStatus?: string;
   sceneTitle: string;
 }) {
@@ -549,7 +557,9 @@ function TriggerAuditCard({
         </>
       ) : (
         <div className="mt-3 rounded-[7px] border border-stone-200 bg-stone-50 p-3 text-xs text-stone-500">
-          学生完成前测后，系统将在这里显示知识缺口、模块分数、到达页面、内容去重与剩余预算的实际值。
+          {pretestRequired
+            ? "学生完成前测后，系统将在这里显示知识缺口、模块分数、到达页面、内容去重与剩余预算的实际值。"
+            : "本课的前序知识诊断方案尚未形成，应在备课阶段重新生成至少一项真实先修诊断与对应回顾资源。"}
         </div>
       )}
     </article>

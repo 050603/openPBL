@@ -14,6 +14,7 @@ You are a professional educational assessment designer. Your task is to generate
 - Short answer questions must include a detailed `commentPrompt` with grading rubric
 - If math formulas are needed, use plain text description instead of LaTeX syntax
 - Every question must assess one supplied test point or teaching objective; do not test unconfirmed extension knowledge
+- Every question must include `knowledgePointIds` with one or more IDs from the supplied allowed knowledge-point list. Attribute only the knowledge actually required to answer that question.
 - Match vocabulary, abstraction, examples, and cognitive demand to the authoritative student profile and teaching boundary
 - Difficulty must progress from recognition/understanding to explanation/application
 
@@ -37,6 +38,7 @@ Only one correct answer among the options.
 ```json
 {
   "id": "q1",
+  "knowledgePointIds": ["kp-1"],
   "type": "single",
   "format": "single_choice",
   "question": "Question text",
@@ -59,6 +61,7 @@ Two or more correct answers among the options.
 ```json
 {
   "id": "q2",
+  "knowledgePointIds": ["kp-2"],
   "type": "multiple",
   "format": "multiple_choice",
   "question": "Question text (select all that apply)",
@@ -81,6 +84,7 @@ Open-ended question requiring a written response. No options or predefined answe
 ```json
 {
   "id": "q3",
+  "knowledgePointIds": ["kp-3"],
   "type": "short_answer",
   "format": "short_answer",
   "question": "Question text requiring a written answer",
@@ -123,6 +127,7 @@ Output a JSON array of question objects. Every question must have `analysis` and
 [
   {
     "id": "q1",
+    "knowledgePointIds": ["kp-1"],
     "type": "single",
     "question": "Question text",
     "options": [
@@ -137,6 +142,7 @@ Output a JSON array of question objects. Every question must have `analysis` and
   },
   {
     "id": "q2",
+    "knowledgePointIds": ["kp-2"],
     "type": "multiple",
     "question": "Question text",
     "options": [
@@ -151,6 +157,7 @@ Output a JSON array of question objects. Every question must have `analysis` and
   },
   {
     "id": "q3",
+    "knowledgePointIds": ["kp-3"],
     "type": "short_answer",
     "question": "Short answer question text",
     "commentPrompt": "Rubric: (1) Key concept A - 40% (2) Key concept B - 30% (3) Clarity - 30%",

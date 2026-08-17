@@ -10,7 +10,8 @@ import {
 } from "@/components/openmaic-bridge/student-stage-host";
 import {
   calculateAdaptiveRemainingBudgetSec,
-  deriveAdaptiveCheckpointSceneIds,
+  calculateKnowledgePointAssessmentScores,
+  deriveMasteryAssessmentSceneIds,
   evaluateAdaptiveBranchDecision,
   resolveAdaptiveSceneIdentity,
 } from "@/lib/adaptive-learning";
@@ -31,6 +32,21 @@ type QueuedResource = {
   anchorSceneId?: string;
 };
 
+function hasUnqueuedPrerequisiteGap(
+  plan: NonNullable<Course["content"]["adaptiveLearningPlan"]> | undefined,
+  state: StudentAdaptiveLearningState,
+): boolean {
+  if (!plan?.enabled || plan.status !== "teacher-confirmed" || !state.pretestCompletedAt) return false;
+  const weakIds = new Set(state.pretestWeakKnowledgePointIds ?? []);
+  const queuedBranchIds = new Set(state.branchRuns.map((run) => run.branchOutlineId));
+  return plan.branches.some((branch) =>
+    branch.enabled !== false
+    && branch.trigger?.placement === "before-main-course"
+    && !queuedBranchIds.has(branch.id)
+    && branch.prerequisiteKnowledgePointIds.some((id) => weakIds.has(id)),
+  );
+}
+
 export function AdaptiveAiLearningRuntime({
   course,
   classroomId,
@@ -46,7 +62,13 @@ export function AdaptiveAiLearningRuntime({
   backHref: string;
   variant?: "embedded" | "fullscreen";
 }) {
-  const plan = course.content.adaptiveLearningPlan;
+  const candidatePlan = course.content.adaptiveLearningPlan;
+  // Legacy or manually changed plans may contain plausible-looking questions that
+  // actually test new lesson content. Only independently reviewed prerequisite
+  // boundaries are allowed to alter a student's learning path.
+  const plan = candidatePlan?.prerequisiteSemanticReview?.status === "passed"
+    ? candidatePlan
+    : undefined;
   const initialState = course.aiLearningProgress?.[studentId]?.adaptiveLearning ?? {
     evidence: [],
     branchRuns: [],
@@ -54,9 +76,14 @@ export function AdaptiveAiLearningRuntime({
   };
   const [adaptiveState, setAdaptiveState] = useState<StudentAdaptiveLearningState>(initialState);
   const [insertedResources, setInsertedResources] = useState<QueuedResource[]>([]);
+  const [preCoursePreparing, setPreCoursePreparing] = useState(
+    hasUnqueuedPrerequisiteGap(plan, initialState),
+  );
+  const [preCoursePreparationError, setPreCoursePreparationError] = useState<string>();
+  const restoredPreparationStartedRef = useRef(false);
   const switchingRef = useRef(false);
   const checkpointSceneIds = useMemo(
-    () => new Set(deriveAdaptiveCheckpointSceneIds(course.content._openmaicSceneOutlines ?? [])),
+    () => new Set(deriveMasteryAssessmentSceneIds(course.content._openmaicSceneOutlines ?? [])),
     [course.content._openmaicSceneOutlines],
   );
   const remoteAdaptiveState = course.aiLearningProgress?.[studentId]?.adaptiveLearning;
@@ -217,7 +244,17 @@ export function AdaptiveAiLearningRuntime({
           evaluations: result.evaluations,
         }).catch(() => simulatedState);
       }
-      if (result.decision.action !== "insert") continue;
+      const hasMatchingGap = branch.prerequisiteKnowledgePointIds.some((id) =>
+        state.pretestWeakKnowledgePointIds?.includes(id),
+      );
+      if (result.decision.action !== "insert") {
+        if (hasMatchingGap) {
+          throw new Error(
+            `必需的先决知识补充“${branch.title}”尚未准备完成，请重试后再进入主课。`,
+          );
+        }
+        continue;
+      }
       const resource = toQueuedResource(
         result.decision.branch,
         result.decision.reason,
@@ -239,9 +276,34 @@ export function AdaptiveAiLearningRuntime({
   }
 
   async function handlePretestSubmit(answers: Record<string, AdaptiveAssessmentAnswer>) {
-    const nextState = await persistState({ action: "submit-pretest", answers });
-    await preparePreCourseResources(nextState);
+    setPreCoursePreparing(true);
+    setPreCoursePreparationError(undefined);
+    try {
+      const nextState = await persistState({ action: "submit-pretest", answers });
+      await preparePreCourseResources(nextState);
+    } catch (cause) {
+      setPreCoursePreparationError(cause instanceof Error ? cause.message : "先决知识补充准备失败");
+      throw cause;
+    } finally {
+      setPreCoursePreparing(false);
+    }
   }
+
+  useEffect(() => {
+    if (!preCoursePreparing || !hasUnqueuedPrerequisiteGap(plan, initialState)) return;
+    if (restoredPreparationStartedRef.current) return;
+    restoredPreparationStartedRef.current = true;
+    void preparePreCourseResources(initialState)
+      .catch((cause) => {
+        setPreCoursePreparationError(
+          cause instanceof Error ? cause.message : "先决知识补充准备失败",
+        );
+      })
+      .finally(() => setPreCoursePreparing(false));
+    // This is deliberately a one-shot recovery for a persisted pretest. Live
+    // submissions run through handlePretestSubmit above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleMainSceneComplete(detail: { scene: Scene; quizScore?: number }) {
     if (!plan || adaptiveState.enabled === false || switchingRef.current) return;
@@ -251,12 +313,23 @@ export function AdaptiveAiLearningRuntime({
     const questionResults = submittedQuiz?.kind === "reviewing"
       ? submittedQuiz.results.map((result) => ({ questionId: result.questionId, correct: result.correct }))
       : [];
+    const quizQuestions = detail.scene.content?.type === "quiz"
+      ? detail.scene.content.questions
+      : [];
+    const knowledgePointScores = calculateKnowledgePointAssessmentScores({
+      questions: quizQuestions,
+      results: questionResults,
+      fallbackKnowledgePointIds: anchorKnowledgePointIds,
+    });
     let evidenceState = adaptiveState;
     if (typeof detail.quizScore === "number") {
-      const weakKnowledgePointIds = detail.quizScore < 100 ? anchorKnowledgePointIds : [];
-      const masteredKnowledgePointIds = detail.quizScore >= (plan.thresholds.enrichmentMasteryMin ?? 80)
-        ? anchorKnowledgePointIds
-        : [];
+      const threshold = plan.thresholds.enrichmentMasteryMin ?? 80;
+      const weakKnowledgePointIds = knowledgePointScores
+        .filter((item) => item.score < threshold)
+        .map((item) => item.knowledgePointId);
+      const masteredKnowledgePointIds = knowledgePointScores
+        .filter((item) => item.score >= threshold)
+        .map((item) => item.knowledgePointId);
       evidenceState = await persistState({
         action: "record-node-assessment",
         evidence: {
@@ -267,6 +340,7 @@ export function AdaptiveAiLearningRuntime({
           sceneId: sceneIdentity.stableSceneId,
           knowledgePointIds: anchorKnowledgePointIds,
           questionResults,
+          knowledgePointScores,
           weakKnowledgePointIds,
           masteredKnowledgePointIds,
         },
@@ -283,6 +357,7 @@ export function AdaptiveAiLearningRuntime({
       runtimeSceneId: sceneIdentity.runtimeSceneId,
       completedSceneTitle: detail.scene.title,
       questionResults,
+      knowledgePointScores,
       isAutomaticCheckpoint: checkpointSceneIds.has(sceneIdentity.stableSceneId),
       phase: "after-module",
       remainingBudgetSec: remainingAdaptiveBudgetSec(evidenceState),
@@ -359,9 +434,44 @@ export function AdaptiveAiLearningRuntime({
     plan?.enabled
     && plan.status === "teacher-confirmed"
     && adaptiveState.enabled !== false
+    && plan.pretest.questions.length > 0
     && !adaptiveState.pretestCompletedAt
   ) {
     return <AdaptivePretest plan={plan} onSubmit={handlePretestSubmit} />;
+  }
+
+  if (preCoursePreparing || preCoursePreparationError) {
+    return (
+      <div className="grid min-h-[720px] place-items-center bg-stone-50 p-6">
+        <div className="max-w-md rounded-[12px] border border-cyan-200 bg-white p-6 text-center shadow-sm">
+          {preCoursePreparing ? <Loader2 className="mx-auto animate-spin text-cyan-800" size={28} /> : null}
+          <h2 className="mt-3 text-lg font-bold text-stone-950">
+            {preCoursePreparing ? "正在准备必需的先决知识回顾" : "先决知识回顾暂未准备好"}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-stone-600">
+            {preCoursePreparationError
+              ?? "准备完成后会直接从第一个回顾页面开始，连续学习完毕后再进入主课。"}
+          </p>
+          {preCoursePreparationError ? (
+            <button
+              className="mt-4 rounded-[8px] bg-cyan-950 px-4 py-2 text-sm font-bold text-white"
+              onClick={() => {
+                setPreCoursePreparationError(undefined);
+                setPreCoursePreparing(true);
+                void preparePreCourseResources(adaptiveState)
+                  .catch((cause) => setPreCoursePreparationError(
+                    cause instanceof Error ? cause.message : "先决知识补充准备失败",
+                  ))
+                  .finally(() => setPreCoursePreparing(false));
+              }}
+              type="button"
+            >
+              重新准备
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
   }
 
   return (

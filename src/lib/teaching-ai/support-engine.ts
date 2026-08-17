@@ -98,15 +98,8 @@ function invalidAiResult(scope: string): never {
   throw new Error(`${scope}失败：AI 返回结构不完整，请检查模型输出后重试。`);
 }
 
-export function isStrongPblDrivingQuestion(value: string): boolean {
-  const question = value.trim();
-  if (question.length < 18 || question.length > 140) return false;
-  if (!/[？?]$/.test(question) || /是否|是不是|能不能/.test(question)) return false;
-  const hasOpenSpace = /如何|怎样|哪些方案|什么样/.test(question);
-  const hasAuthenticAudience = /为|面向|帮助|改善|解决|服务|校园|社区|家庭|公众/.test(question);
-  const hasFeasibleBoundary = /方案|作品|建议|设计|模型|报告|指南|原型|证据|数据|在.{0,12}(课时|周|天)内/.test(question);
-  return hasOpenSpace && hasAuthenticAudience && hasFeasibleBoundary;
-}
+export { isStrongPblDrivingQuestion } from "@/lib/pbl-driving-question";
+import { isStrongPblDrivingQuestion } from "@/lib/pbl-driving-question";
 
 function cleanStringList(value: unknown, limit = 5): string[] {
   if (!Array.isArray(value)) return [];
@@ -160,11 +153,6 @@ function normalizeCourseHourOptions(value: unknown): Array<{ hours: number; rati
       return true;
     })
     .slice(0, 3);
-}
-
-function isUsableDrivingQuestion(value: string): boolean {
-  const question = value.trim();
-  return question.length >= 12 && question.length <= 160 && /[？?]$/.test(question) && !/是否|是不是|能不能/.test(question);
 }
 
 const SYSTEM_PREAMBLE = `你是一名资深的 PBL（项目式学习）教学支架专家，擅长基于学生当前的项目进度给出具体、可执行、可验证的改进建议。
@@ -649,12 +637,12 @@ export async function generateProjectSkeleton(input: {
     learningObjectives: `只生成课程目标候选。返回 3 组，每组 3-5 条，使用可观察、可评价的行为动词，覆盖知识理解、证据运用和成果迭代。\n仅返回 JSON：{ "learningObjectiveOptions": [["string"]] }`,
     summary: `只生成课程说明候选。返回 3 个，每个 80-160 字，说明真实情境、探究范围、学生任务与预期判断，不写宣传口号。\n仅返回 JSON：{ "summaryOptions": ["string"] }`,
     learnerProfile: `只生成 3 组学生学情与认知边界候选。每组分别给出已有基础、典型学习困难和熟悉生活情境，不虚构测评数据。\n仅返回 JSON：{ "learnerProfileOptions": [{ "priorKnowledge": "string", "learningNeeds": "string", "familiarContexts": "string" }] }`,
-    drivingQuestions: `只生成 3-5 个 PBL 驱动问题候选。每个问题必须面向真实对象或利益相关者，以“如何/怎样/什么样”提出，允许多种有依据的方案；明确成果或证据要求，并限定在 ${input.hours} 课时、${input.grade} 学生可完成的范围内；不得是是否题、知识回忆题或唯一答案题，必须以问号结尾。\n仅返回 JSON：{ "drivingQuestions": ["string"] }`,
+    drivingQuestions: `只生成 3-5 个可供教师择一采用的 PBL 核心驱动问题候选。每个候选本身只能包含一个问句、一个问号，并能统领整门课程和最终项目；必须面向真实对象或利益相关者，以“如何/怎样/什么样”提出，明确学生要设计、制作、改进或提出的项目成果及其证据要求，允许多种有依据的方案，并限定在 ${input.hours} 课时、${input.grade} 学生可完成的范围内。不得把“如何确定参数、如何处理特殊情况、如何验证规则、比较方法优缺点”等知识点问题或技术步骤问题拼成驱动问题；这些只能作为后续探究线索。不得是是否题、知识回忆题或唯一答案题，必须以问号结尾。\n仅返回 JSON：{ "drivingQuestions": ["string"] }`,
     all: `生成以下四类候选：
 1. learningObjectiveOptions：3 组课程目标，每组 3-5 条
 2. summaryOptions：3 个课程说明，每个 80-160 字
 3. learnerProfileOptions：3 组学情候选
-4. drivingQuestions：3-5 个真实、开放、有成果与课时边界的 PBL 驱动问题
+4. drivingQuestions：3-5 个供教师择一采用的候选；每个候选只能有一个问句和一个问号，必须统领整个项目，包含真实对象、项目行动、预期成果或改变及证据边界；不得把知识点问题或技术步骤问题拼接成题目
 仅返回 JSON：{ "learningObjectiveOptions": [["string"]], "summaryOptions": ["string"], "learnerProfileOptions": [{ "priorKnowledge": "string", "learningNeeds": "string", "familiarContexts": "string" }], "drivingQuestions": ["string"] }`,
   };
   const llmResult = await callLLMForJson<Record<string, unknown>>(
@@ -693,8 +681,7 @@ ${targetInstructions[targetPart]}`,
   const drivingQuestions = cleanStringList(
     llmResult.drivingQuestions ?? llmResult.questions,
   )
-    .filter(isUsableDrivingQuestion)
-    .sort((left, right) => Number(isStrongPblDrivingQuestion(right)) - Number(isStrongPblDrivingQuestion(left)));
+    .filter(isStrongPblDrivingQuestion);
 
   const targetHasCandidates = {
     courseHours: courseHourOptions.length > 0,

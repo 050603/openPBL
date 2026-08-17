@@ -158,4 +158,35 @@ describe("QuickGenerationStage", () => {
     expect(screen.getByRole("heading", { name: "诊断补缺与达标拓展" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "拆解教师输入" })).toBeNull();
   });
+
+  it("shows an explicit recoverable failure instead of pretending generation is still running", () => {
+    const onRetry = vi.fn();
+    render(
+      <QuickGenerationStage
+        artifacts={[outlineArtifact]}
+        backgroundEnabled
+        brief="设计一节项目课"
+        cancelling={false}
+        completed={false}
+        confirmCancel={false}
+        failed
+        failureMessage="已完成 15 / 16 个课堂页面，最后一页生成超时。"
+        message="课程生成未完成"
+        onCancel={vi.fn()}
+        onOpenCourse={vi.fn()}
+        onRetry={onRetry}
+        onReview={vi.fn()}
+        paused={false}
+        progress={86}
+        remainingLabel="已完成页面均已保存，可从断点继续"
+        reviewAvailable={false}
+        startedAt="2026-08-10T10:00:00.000Z"
+      />,
+    );
+
+    expect(screen.getAllByText("课程生成未完成").length).toBeGreaterThan(0);
+    expect(screen.getByText(/已完成 15 \/ 16/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /从已完成页面继续/ }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });

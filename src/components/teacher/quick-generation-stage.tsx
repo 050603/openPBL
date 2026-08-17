@@ -7,10 +7,12 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  AlertTriangle,
   GitBranch,
   Layers3,
   Network,
   Route,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Square,
@@ -56,8 +58,12 @@ export function QuickGenerationStage({
   cancelling,
   confirmCancel,
   completed,
+  failed = false,
+  failureMessage,
+  retrying = false,
   onCancel,
   onOpenCourse,
+  onRetry,
   onReview,
 }: {
   activeArtifactId?: string;
@@ -73,8 +79,12 @@ export function QuickGenerationStage({
   cancelling: boolean;
   confirmCancel: boolean;
   completed: boolean;
+  failed?: boolean;
+  failureMessage?: string;
+  retrying?: boolean;
   onCancel: () => void;
   onOpenCourse: () => void;
+  onRetry?: () => void;
   onReview: () => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -159,9 +169,18 @@ export function QuickGenerationStage({
               <BrainCircuit className="size-4" />
               {!paused ? <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[var(--pbl-bg)] bg-emerald-500 motion-safe:animate-pulse" /> : null}
             </span>
-            <span className="truncate">{paused ? "生成已暂停，等待大纲确认" : message || "正在生成课程"}</span>
+            <span className="truncate">{failed ? "课程页面生成未完成" : paused ? "生成已暂停，等待大纲确认" : message || "正在生成课程"}</span>
           </div>
-          {completed ? (
+          {failed ? (
+            <button
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)] disabled:cursor-wait disabled:opacity-60"
+              disabled={retrying || !onRetry}
+              onClick={onRetry}
+              type="button"
+            >
+              <RotateCcw className="size-3.5" />{retrying ? "正在继续" : "从已完成页面继续"}
+            </button>
+          ) : completed ? (
             <button className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)]" onClick={onOpenCourse} type="button">
               查看生成课程 <ArrowRight className="size-3.5" />
             </button>
@@ -224,8 +243,14 @@ export function QuickGenerationStage({
                     transition={reducedMotion ? { duration: 0 } : { duration: .76, ease: [.22, 1, .36, 1] }}
                   >
                     <span aria-hidden className="absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
-                    {!paused && !completed ? <motion.span aria-hidden className="absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent" animate={{ x: [-120, 860] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }} /> : null}
-                    <ArtifactCard artifact={displayed} active={!paused && !completed} />
+                    {!paused && !completed && !failed ? <motion.span aria-hidden className="absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent" animate={{ x: [-120, 860] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }} /> : null}
+                    <ArtifactCard artifact={displayed} active={!paused && !completed && !failed} />
+                    {failed ? (
+                      <div className="absolute inset-x-5 bottom-5 z-30 flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50/95 px-4 py-3 text-amber-950 shadow-sm backdrop-blur sm:inset-x-7">
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                        <div><p className="text-xs font-semibold">课程生成未完成</p><p className="mt-1 text-[11px] leading-5 text-amber-800">{failureMessage || "已完成页面均已保留，可以从断点继续生成。"}</p></div>
+                      </div>
+                    ) : null}
                     {reviewAvailable && displayed.kind === "pages" ? (
                       <button className="absolute bottom-5 left-5 z-20 inline-flex h-10 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)] sm:left-7" onClick={onReview} type="button">
                         查看详细大纲 <ArrowRight className="size-3.5" />

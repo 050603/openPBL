@@ -27,6 +27,19 @@ describe('quiz quality normalization', () => {
     expect(result.questions[0]?.analysis?.length).toBeGreaterThan(12);
   });
 
+  it('preserves valid knowledge-point attribution and repairs missing attribution', () => {
+    const result = normalizeQuizQuestions([
+      { id: 'q1', type: 'single', question: '题目一', options: ['A', 'B'], answer: 'A', knowledgePointIds: ['kp-1', 'outside'] },
+      { id: 'q2', type: 'single', question: '题目二', options: ['A', 'B'], answer: 'A' },
+    ], {
+      allowedKnowledgePointIds: ['kp-1', 'kp-2'],
+      fallbackKnowledgePointIds: ['kp-2'],
+    });
+
+    expect(result.questions[0]?.knowledgePointIds).toEqual(['kp-1']);
+    expect(result.questions[1]?.knowledgePointIds).toEqual(['kp-2']);
+  });
+
   it('selects assessment forms from the objective rather than randomly', () => {
     expect(selectQuizFormats({
       objectiveText: '比较两种分类结果并应用到校园情境', difficulty: 'medium', questionCount: 3, requested: ['single'],

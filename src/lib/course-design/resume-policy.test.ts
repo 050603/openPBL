@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SceneOutline } from "@openmaic/lib/types/generation";
 import {
+  canResumeAfterValidatedStage,
+  canResumeAfterValidatedPositioning,
   canResumeAfterValidatedLessonOutline,
   canResumeAfterValidatedTeachingOutline,
   isSameCourseDesignRequest,
@@ -25,12 +27,13 @@ const validOutline: SceneOutline = {
 const validOutlines: SceneOutline[] = [
   validOutline,
   { ...validOutline, id: "scene-2", title: "案例比较", order: 1 },
-  { ...validOutline, id: "scene-3", title: "迁移练习", order: 2 },
+  { ...validOutline, id: "scene-3", type: "interactive", title: "迁移练习", order: 2 },
+  { ...validOutline, id: "scene-4", type: "quiz", title: "主课达标测", order: 3, targetDurationSec: 90, estimatedDuration: 90 },
   ...["launch", "proposal", "make", "showcase"].map((stageKey, index): SceneOutline => ({
     ...validOutline,
     id: `teacher-${stageKey}`,
     title: `${stageKey} 教师资源`,
-    order: index + 3,
+    order: index + 4,
     stageKey,
     audience: "teacher",
     generationPurpose: "teacher-resource",
@@ -38,21 +41,38 @@ const validOutlines: SceneOutline[] = [
 ];
 
 describe("quick-design resume policy", () => {
+  it("reuses any saved middle-stage checkpoint only when its hard gate still passes", () => {
+    const trace = [
+      { step: "knowledgePoints", status: "completed" },
+      { step: "projectDesign", status: "completed" },
+    ];
+    expect(canResumeAfterValidatedStage({ trace, step: "knowledgePoints", qualityPassed: true })).toBe(true);
+    expect(canResumeAfterValidatedStage({ trace, step: "projectDesign", qualityPassed: false })).toBe(false);
+    expect(canResumeAfterValidatedStage({ trace, step: "evaluationPlan", qualityPassed: true })).toBe(false);
+  });
+
+  it("does not regenerate a still-valid positioning checkpoint during managed recovery", () => {
+    expect(canResumeAfterValidatedPositioning({
+      trace: [{ step: "base", status: "completed" }],
+      positioningPassed: true,
+    })).toBe(true);
+    expect(canResumeAfterValidatedPositioning({
+      trace: [{ step: "base", status: "completed" }],
+      positioningPassed: false,
+    })).toBe(false);
+  });
   it("requires both a completed trace entry and a still-valid saved outline", () => {
     expect(canResumeAfterValidatedLessonOutline({
       trace: [{ step: "lessonOutline", status: "completed" }],
       outlines: validOutlines,
-      interactiveMode: false,
     })).toBe(true);
     expect(canResumeAfterValidatedLessonOutline({
       trace: [],
       outlines: validOutlines,
-      interactiveMode: false,
     })).toBe(false);
     expect(canResumeAfterValidatedLessonOutline({
       trace: [{ step: "lessonOutline", status: "completed" }],
       outlines: [],
-      interactiveMode: false,
     })).toBe(false);
   });
 
@@ -60,7 +80,6 @@ describe("quick-design resume policy", () => {
     expect(canResumeAfterValidatedLessonOutline({
       trace: [{ step: "lessonOutline", status: "failed" }],
       outlines: validOutlines,
-      interactiveMode: false,
     })).toBe(false);
   });
 
@@ -91,7 +110,6 @@ describe("quick-design resume policy", () => {
       courseId: "course-1",
       teacherBrief: "设计一节人工智能课程",
       options: {
-        interactiveMode: true,
         enableImageGeneration: true,
         enableTTS: true,
         enableVideoGeneration: false,

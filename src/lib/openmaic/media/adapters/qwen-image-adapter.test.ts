@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateWithQwenImage } from './qwen-image-adapter';
+import { generateWithQwenImage, testQwenImageConnectivity } from './qwen-image-adapter';
 
 describe('Qwen image throttling metadata', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -14,5 +14,21 @@ describe('Qwen image throttling metadata', () => {
       { providerId: 'qwen-image', apiKey: 'test-key' },
       { prompt: 'classroom illustration' },
     )).rejects.toMatchObject({ statusCode: 429, retryAfterMs: 30_000 });
+  });
+});
+
+describe('Qwen image connectivity security', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('does not automatically follow redirects during the credential probe', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await testQwenImageConnectivity({ providerId: 'qwen-image', apiKey: 'test-key' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ redirect: 'manual' }),
+    );
   });
 });

@@ -19,6 +19,25 @@ type NormalizePblTeachingOutlineOptions = Omit<PblTimeModelContext, 'knowledgePo
   knowledgeGraph?: KnowledgeGraph;
 };
 
+const AI_LEARNING_RESOURCE_TYPES = [
+  'ppt',
+  'interactive-demo',
+  'code-interactive',
+] as const satisfies NonNullable<TeachingOutlineSection['resourceTypes']>;
+
+/**
+ * Keep the first-level module contract aligned with the fixed six-stage
+ * generation routes. Ordinary stages always produce teacher presentation
+ * support, while the AI-learning stage always produces all three supported
+ * student scene types.
+ */
+export function normalizeTeachingModuleResourceTypes(
+  activity: Pick<TeachingOutlineSection, 'stageKey' | 'resourceTypes'>,
+): NonNullable<TeachingOutlineSection['resourceTypes']> {
+  if (activity.stageKey !== 'ai-learning') return ['ppt', 'script'];
+  return [...AI_LEARNING_RESOURCE_TYPES];
+}
+
 export type PblOutlineStructureIssue = {
   code: 'missing-stage' | 'duplicate-stage' | 'invalid-order' | 'unexpected-stage';
   stageKey?: string;
@@ -120,9 +139,12 @@ function mergeStageActivities(
         ]))
       : Array.from(new Set(activities.flatMap((activity) => activity.knowledgePointIds ?? []))),
     openMaicUse: isKnowledge ? 'student-ai-learning' : 'none',
-    resourceTypes: isKnowledge
-      ? Array.from(new Set(activities.flatMap((activity) => activity.resourceTypes ?? ['ppt'])))
-      : ['ppt', 'script'],
+    resourceTypes: normalizeTeachingModuleResourceTypes({
+      stageKey: definition.stageKey,
+      resourceTypes: isKnowledge
+        ? Array.from(new Set(activities.flatMap((activity) => activity.resourceTypes ?? ['ppt'])))
+        : first.resourceTypes,
+    }),
     notes: uniqueText(activities.map((activity) => activity.notes)) || fallback.notes,
   };
 }
@@ -239,12 +261,10 @@ export function normalizePblTeachingOutline(
         : 1,
       knowledgePointIds: validKnowledgePointIds,
       openMaicUse: stageKey === 'ai-learning' ? 'student-ai-learning' : 'none',
-      resourceTypes:
-        stageKey === 'ai-learning'
-          ? activity.resourceTypes?.length
-            ? activity.resourceTypes
-            : ['ppt']
-          : ['ppt', 'script'],
+      resourceTypes: normalizeTeachingModuleResourceTypes({
+        stageKey,
+        resourceTypes: activity.resourceTypes,
+      }),
     } satisfies TeachingOutlineSection;
   });
 

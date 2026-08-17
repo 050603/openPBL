@@ -1,5 +1,6 @@
 import { DEFAULT_EVALUATION_FLOWS, type Course, type EvaluationPlan } from "@/lib/session/types";
 import type { PblActivityCatalogEntry, SceneOutline } from "@/lib/openmaic/types/generation";
+import { evaluatePblDrivingQuestion } from "@/lib/pbl-driving-question";
 
 export type StageQualityResult = {
   passed: boolean;
@@ -106,6 +107,7 @@ function normalizeEvaluationFlowWeights(
 }
 
 export function evaluatePositioning(course: Course): StageQualityResult {
+  const drivingQuestionQuality = evaluatePblDrivingQuestion(course.drivingQuestion);
   const issues = [
     course.name.trim() && course.name !== "未命名课程" ? "" : "课程名称仍为空白",
     course.subject.trim() ? "" : "学科尚未明确",
@@ -113,9 +115,7 @@ export function evaluatePositioning(course: Course): StageQualityResult {
     course.hours >= 1 && course.hours <= 5 ? "" : "课程课时应在 1 至 5 课时之间",
     course.summary.trim().length >= 30 ? "" : "课程说明过短，无法约束后续设计",
     (course.learningObjectives?.length ?? 0) >= 3 ? "" : "至少需要 3 个可评价课程目标",
-    course.drivingQuestion.trim().endsWith("？") || course.drivingQuestion.trim().endsWith("?")
-      ? ""
-      : "项目驱动问题需要是明确的问题",
+    ...drivingQuestionQuality.issues,
   ].filter(Boolean);
   return {
     passed: issues.length === 0,
@@ -182,11 +182,12 @@ const REQUIRED_TEACHER_STAGES = ["launch", "proposal", "make", "showcase"];
 
 export function evaluateLessonOutlines(
   outlines: ReadonlyArray<SceneOutline>,
-  interactiveMode: boolean,
   activityCatalog: ReadonlyArray<PblActivityCatalogEntry> = [],
 ): StageQualityResult {
   const student = outlines.filter((outline) => outline.audience === "student");
   const interactive = student.filter((outline) => outline.type === "interactive");
+  const slides = student.filter((outline) => outline.type === "slide");
+  const quizzes = student.filter((outline) => outline.type === "quiz");
   const teacherStages = new Set(
     outlines
       .filter((outline) => outline.audience === "teacher")
@@ -196,11 +197,37 @@ export function evaluateLessonOutlines(
   const longestStudentSlide = student
     .filter((outline) => outline.type === "slide")
     .reduce((max, outline) => Math.max(max, outline.targetDurationSec ?? outline.estimatedDuration ?? 0), 0);
-  const minimumInteractive = interactiveMode ? Math.max(1, Math.floor(student.length / 4)) : 0;
+  const studentByOrder = [...student].sort((left, right) => left.order - right.order);
+  const terminalQuiz = quizzes.length === 1 ? quizzes[0] : undefined;
+  const terminalQuizIsLast = Boolean(terminalQuiz)
+    && studentByOrder.at(-1)?.id === terminalQuiz?.id;
+  const explainedKnowledgePointIds = new Set(
+    slides.flatMap((outline) => outline.knowledgePointIds ?? []),
+  );
+  const assessedKnowledgePointIds = new Set(
+    quizzes.flatMap((outline) => outline.knowledgePointIds ?? []),
+  );
+  const unexplainedAssessmentIds = [...assessedKnowledgePointIds]
+    .filter((id) => !explainedKnowledgePointIds.has(id));
+  const studentDuration = student.reduce(
+    (sum, outline) => sum + (outline.targetDurationSec ?? outline.estimatedDuration ?? 0),
+    0,
+  );
+  const quizDuration = quizzes.reduce(
+    (sum, outline) => sum + (outline.targetDurationSec ?? outline.estimatedDuration ?? 0),
+    0,
+  );
+  const assessmentShare = studentDuration > 0 ? quizDuration / studentDuration : 0;
   const missingTeacherStages = REQUIRED_TEACHER_STAGES.filter((stage) => !teacherStages.has(stage));
   const catalogById = new Map(activityCatalog.map((activity) => [activity.activityId, activity]));
   const knowledgeIssues: string[] = [];
   if (activityCatalog.length > 0) {
+    const aiLearningActivities = activityCatalog.filter(
+      (activity) => activity.stageKey === "ai-learning",
+    );
+    const courseKnowledgePointIds = new Set(
+      aiLearningActivities.flatMap((activity) => activity.knowledgePointIds),
+    );
     for (const outline of student.filter((item) => item.stageKey === "ai-learning")) {
       const parent = outline.parentActivityId
         ? catalogById.get(outline.parentActivityId)
@@ -209,7 +236,9 @@ export function evaluateLessonOutlines(
         knowledgeIssues.push(`页面“${outline.title}”缺少有效父活动关联`);
         continue;
       }
-      const allowed = new Set(parent.knowledgePointIds);
+      const allowed = terminalQuiz?.id === outline.id
+        ? courseKnowledgePointIds
+        : new Set(parent.knowledgePointIds);
       const outside = (outline.knowledgePointIds ?? []).filter((id) => !allowed.has(id));
       if (outside.length > 0) {
         knowledgeIssues.push(
@@ -218,13 +247,14 @@ export function evaluateLessonOutlines(
       }
     }
 
-    for (const activity of activityCatalog.filter((item) => item.knowledgePointIds.length > 0)) {
+    for (const activity of aiLearningActivities.filter((item) => item.knowledgePointIds.length > 0)) {
       const covered = new Set(
         student
           .filter(
             (outline) =>
               outline.stageKey === "ai-learning" &&
-              outline.parentActivityId === activity.activityId,
+              outline.parentActivityId === activity.activityId &&
+              outline.type !== "quiz",
           )
           .flatMap((outline) => outline.knowledgePointIds ?? []),
       );
@@ -240,7 +270,14 @@ export function evaluateLessonOutlines(
     student.length >= 3 ? "" : "学生主课页面数量不足",
     missingTeacherStages.length ? `缺少教师资源阶段：${missingTeacherStages.join("、")}` : "",
     longestStudentSlide <= 8 * 60 ? "" : "存在超过 8 分钟的单个学生 PPT 页面",
-    interactive.length >= minimumInteractive ? "" : "丰富互动模式下互动页面比例不足",
+    slides.length >= 2 ? "" : "基础教学讲解页不足，至少需要概念讲解与具体例子或推演",
+    interactive.length >= 1 ? "" : "深度互动教学至少需要一个有意义的非评分互动页面",
+    quizzes.length === 1 ? "" : `学生主课只能有一次主课达标测，当前为 ${quizzes.length} 次`,
+    terminalQuizIsLast ? "" : "主课达标测必须位于全部基础讲解与互动之后",
+    unexplainedAssessmentIds.length === 0
+      ? ""
+      : `知识点尚未通过讲解页完整教学：${unexplainedAssessmentIds.join("、")}`,
+    assessmentShare <= 0.2 ? "" : `测验时长占比过高（${Math.round(assessmentShare * 100)}%），应优先保证讲解与互动`,
     ...knowledgeIssues,
   ].filter(Boolean);
   return {
@@ -249,6 +286,8 @@ export function evaluateLessonOutlines(
     checks: [
       `${student.length} 个学生页面，${outlines.length - student.length} 个教师资源`,
       `${interactive.length} 个互动页面`,
+      `${quizzes.length} 次主课达标测`,
+      `测验时长占学生主课 ${Math.round(assessmentShare * 100)}%`,
       `单个学生 PPT 最长 ${Math.ceil(longestStudentSlide / 60)} 分钟`,
     ],
   };

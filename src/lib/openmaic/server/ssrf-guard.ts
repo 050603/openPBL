@@ -75,12 +75,18 @@ function getFirstIPv6Hextet(ip: string): number | null {
 
 /** Expand an IPv6 address into 8 numeric hextets. Returns null for invalid input. */
 function expandIPv6(ip: string): number[] | null {
-  const normalized = normalizeAddress(ip);
+  let normalized = normalizeAddress(ip);
   if (!normalized.includes(':')) return null;
 
-  // Skip IPv4-suffix forms (handled separately by extractMappedIPv4)
+  // Convert a dotted IPv4 suffix into the final two IPv6 hextets.
   const lastPart = normalized.split(':').pop() || '';
-  if (lastPart.includes('.')) return null;
+  if (lastPart.includes('.')) {
+    const dottedIPv4 = parseIPv4(lastPart);
+    if (!dottedIPv4) return null;
+    const high = ((dottedIPv4[0] << 8) | dottedIPv4[1]).toString(16);
+    const low = ((dottedIPv4[2] << 8) | dottedIPv4[3]).toString(16);
+    normalized = `${normalized.slice(0, -lastPart.length)}${high}:${low}`;
+  }
 
   const sides = normalized.split('::');
   if (sides.length > 2) return null;
@@ -90,7 +96,8 @@ function expandIPv6(ip: string): number[] | null {
     const left = sides[0] ? sides[0].split(':') : [];
     const right = sides[1] ? sides[1].split(':') : [];
     const missing = 8 - left.length - right.length;
-    if (missing < 0) return null;
+    // `::` must compress at least one hextet.
+    if (missing <= 0) return null;
     parts = [...left, ...Array(missing).fill('0'), ...right];
   } else {
     parts = normalized.split(':');
@@ -167,6 +174,18 @@ export function isPrivateIP(ip: string): boolean {
       const embedded = `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
       if (isPrivateIP(embedded)) return true;
     }
+  }
+
+  // ISATAP: interface identifier 0000:5efe:V4ADDR or 0200:5efe:V4ADDR.
+  // Only classify the address as private when the embedded IPv4 endpoint is private.
+  const hextets = expandIPv6(normalized);
+  if (
+    hextets &&
+    (hextets[4] === 0x0000 || hextets[4] === 0x0200) &&
+    hextets[5] === 0x5efe
+  ) {
+    const embedded = `${hextets[6] >> 8}.${hextets[6] & 0xff}.${hextets[7] >> 8}.${hextets[7] & 0xff}`;
+    if (isPrivateIP(embedded)) return true;
   }
 
   return false;

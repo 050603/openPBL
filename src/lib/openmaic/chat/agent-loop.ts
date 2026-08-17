@@ -42,18 +42,6 @@ export interface AgentLoopStoreState {
       aiComment?: string;
     }>;
   };
-  teachingTools?: {
-    lastCheckResponse: {
-      actionId: string;
-      question: string;
-      answer: string | string[];
-      submittedAt: number;
-    } | null;
-    evidenceBoard: {
-      title: string;
-      items: unknown[];
-    } | null;
-  };
 }
 
 /** Request template — fields that stay constant across loop iterations */

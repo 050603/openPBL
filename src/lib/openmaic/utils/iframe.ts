@@ -33,6 +33,44 @@ const STORAGE_SHIM = `<script data-iframe-storage-shim>
 })();
 </script>`;
 
+const INTERACTIVE_RUNTIME_BASE = '/api/openmaic/interactive-runtime';
+
+/**
+ * Generated classrooms historically referenced public CDNs directly. The app's
+ * CSP deliberately blocks arbitrary third-party scripts, so those pages could
+ * stop before their own error UI ran and leave the learner on an eternal
+ * "loading Python" message. Keep persisted classroom HTML immutable and route
+ * the known executable runtimes through our same-origin, allowlisted service at
+ * render time instead.
+ */
+function rewriteInteractiveRuntimeUrls(html: string): string {
+  return html
+    .replace(
+      /https:\/\/cdn\.jsdelivr\.net\/pyodide\/v0\.25\.0\/full\//gi,
+      `${INTERACTIVE_RUNTIME_BASE}/pyodide/`,
+    )
+    .replace(
+      /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.65\.16\/codemirror\.min\.css/gi,
+      `${INTERACTIVE_RUNTIME_BASE}/codemirror/lib/codemirror.css`,
+    )
+    .replace(
+      /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.65\.16\/codemirror\.min\.js/gi,
+      `${INTERACTIVE_RUNTIME_BASE}/codemirror/lib/codemirror.js`,
+    )
+    .replace(
+      /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.65\.16\//gi,
+      `${INTERACTIVE_RUNTIME_BASE}/codemirror/`,
+    )
+    .replace(
+      /(\/api\/openmaic\/interactive-runtime\/codemirror\/[^"'\s<>]+)\.min\.(js|css)/gi,
+      '$1.$2',
+    )
+    .replace(
+      /https:\/\/cdn\.jsdelivr\.net\/npm\/katex@0\.16\.\d+\/dist\//gi,
+      `${INTERACTIVE_RUNTIME_BASE}/katex/`,
+    );
+}
+
 /**
  * Runtime-error capture, injected as the VERY FIRST script so it observes errors
  * from the storage shim and every page script that follows. Generated interactive
@@ -228,6 +266,7 @@ const INTERACTION_SYNC_SHIM = `<script data-iframe-interaction-sync>
  * on student devices.
  */
 export function patchHtmlForIframe(html: string): string {
+  const runtimePatchedHtml = rewriteInteractiveRuntimeUrls(html);
   const iframeCss = `<style data-iframe-patch>
   html, body {
     width: 100%;
@@ -245,21 +284,21 @@ export function patchHtmlForIframe(html: string): string {
   const injection = '\n' + ERROR_CAPTURE_SHIM + '\n' + STORAGE_SHIM + '\n' + INTERACTION_SYNC_SHIM + '\n' + iframeCss;
 
   // Insert right after <head> or at the start of the document
-  const headIdx = html.indexOf('<head>');
+  const headIdx = runtimePatchedHtml.indexOf('<head>');
   if (headIdx !== -1) {
     const insertPos = headIdx + 6; // after <head>
-    return html.substring(0, insertPos) + injection + html.substring(insertPos);
+    return runtimePatchedHtml.substring(0, insertPos) + injection + runtimePatchedHtml.substring(insertPos);
   }
 
-  const headWithAttrs = html.indexOf('<head ');
+  const headWithAttrs = runtimePatchedHtml.indexOf('<head ');
   if (headWithAttrs !== -1) {
-    const closeAngle = html.indexOf('>', headWithAttrs);
+    const closeAngle = runtimePatchedHtml.indexOf('>', headWithAttrs);
     if (closeAngle !== -1) {
       const insertPos = closeAngle + 1;
-      return html.substring(0, insertPos) + injection + html.substring(insertPos);
+      return runtimePatchedHtml.substring(0, insertPos) + injection + runtimePatchedHtml.substring(insertPos);
     }
   }
 
   // Fallback: prepend
-  return injection + html;
+  return injection + runtimePatchedHtml;
 }

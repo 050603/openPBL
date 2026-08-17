@@ -77,7 +77,7 @@ const TASK_CARDS: Record<StageGenerationKind, CardDefinition[]> = {
     card("weights", "方案检查", "校验权重与证据对应", "确保评分结构完整且可执行", ShieldCheck, "green", ["权重合计", "证据充分", "责任清楚"]),
   ],
   adaptiveLearning: [
-    card("main", "主课分析", "读取主课与知识图谱", "识别每个模块已经讲授的内容", FileText, "orange", ["主课页面", "知识节点", "模块测验"]),
+    card("main", "主课分析", "读取主课与知识图谱", "识别核心知识、互动与达标证据", FileText, "orange", ["主课页面", "知识节点", "主课达标测"]),
     card("gaps", "学习分叉", "识别可能的先修缺口", "只为影响新课理解的知识安排回顾", BrainCircuit, "blue", ["先修知识", "典型误解", "前测问题"]),
     card("paths", "路径编排", "安排新的例题与应用", "在合适位置插入不重复主课的资源", Route, "violet", ["插入位置", "触发条件", "新增价值"]),
     card("audit", "重叠检查", "检查分支与主课的差异", "避免重复定义、例题和结论", ShieldCheck, "green", ["避免重复", "路径完整", "教师可审核"]),

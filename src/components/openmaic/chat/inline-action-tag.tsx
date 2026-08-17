@@ -21,8 +21,6 @@ import {
   Minus,
   Code2,
   FileCode,
-  ClipboardCheck,
-  ShieldCheck,
   SlidersHorizontal,
   Highlighter,
   Eye,
@@ -83,8 +81,6 @@ const ACTION_CONFIG: Record<string, ActionCfg> = {
 
   // Social
   discussion: { label: 'Discuss', Icon: MessageSquare, style: DISCUSS_STYLE },
-  check_understanding: { label: 'Check', Icon: ClipboardCheck, style: DISCUSS_STYLE },
-  evidence_board_update: { label: 'Evidence', Icon: ShieldCheck, style: DISCUSS_STYLE },
   widget_highlight: { label: 'Highlight', Icon: Highlighter, style: SPOTLIGHT_STYLE },
   widget_setState: { label: 'Simulate', Icon: SlidersHorizontal, style: SPOTLIGHT_STYLE },
   widget_annotation: { label: 'Annotate', Icon: MessageSquare, style: SPOTLIGHT_STYLE },

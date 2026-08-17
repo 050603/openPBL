@@ -3,17 +3,24 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { AlertTriangle, Home, RefreshCw, Wrench } from "lucide-react";
+import {
+  isChunkLoadError,
+  recoverFromChunkLoadError,
+} from "@/lib/runtime/chunk-load-recovery";
 
 export default function Error({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
+  const chunkLoadFailed = isChunkLoadError(error);
+
   useEffect(() => {
     // 上报到控制台便于教师排查；未来可接入监控平台
     console.error("[openPBL] 未捕获错误:", error);
+    recoverFromChunkLoadError(error);
   }, [error]);
 
   const digest = error.digest;
@@ -70,11 +77,14 @@ export default function Error({
         {/* 行动按钮 */}
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <button
-            onClick={() => reset()}
+            onClick={() =>
+              chunkLoadFailed ? window.location.reload() : unstable_retry()
+            }
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-teacher)] px-6 text-sm font-semibold text-white shadow-[var(--shadow-soft)] transition hover:bg-[var(--pbl-teacher-hover)]"
             type="button"
           >
-            <RefreshCw size={16} /> 重试当前页
+            <RefreshCw size={16} />
+            {chunkLoadFailed ? "刷新并恢复" : "重试当前页"}
           </button>
           <Link
             href="/"

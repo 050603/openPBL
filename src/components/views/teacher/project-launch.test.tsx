@@ -84,34 +84,31 @@ const courseWithResource: Course = {
   }],
 };
 
-describe("teacher project launch inquiry questions", () => {
+describe("teacher project launch driving question", () => {
   beforeEach(() => {
     sessionMocks.updateCourse.mockReset();
     sessionMocks.refresh.mockReset();
     sessionMocks.refresh.mockResolvedValue(undefined);
     vi.unstubAllGlobals();
   });
-  it("shows selection distribution and publishes an additional question", () => {
+  it("shows confirmation progress and replaces the single core driving question", () => {
     render(<ProjectLaunchTeacherView course={course} />);
 
-    expect(screen.getByText("已选择 1/2")).toBeTruthy();
-    expect(screen.getByText("我们如何让雨水被校园重新利用？")).toBeTruthy();
+    expect(screen.getByText("已确认 1/2")).toBeTruthy();
+    expect(screen.queryByText("我们如何让雨水被校园重新利用？")).toBeNull();
 
     fireEvent.change(
       screen.getByPlaceholderText("例如：我们如何利用实地数据，为学校设计一套可验证的节水改进方案？"),
       { target: { value: "我们如何降低教学楼的日常用水？" } },
     );
-    fireEvent.click(screen.getByRole("button", { name: /发布到学生选题池/ }));
+    fireEvent.click(screen.getByRole("button", { name: /更新并发布核心问题/ }));
 
     expect(sessionMocks.updateCourse).toHaveBeenCalledWith(
       "course-1",
       expect.objectContaining({
+        drivingQuestion: "我们如何降低教学楼的日常用水？",
         pblConfig: expect.objectContaining({
-          inquiryQuestions: [
-            "我们如何减少校园用水浪费？",
-            "我们如何让雨水被校园重新利用？",
-            "我们如何降低教学楼的日常用水？",
-          ],
+          inquiryQuestions: ["我们如何降低教学楼的日常用水？"],
         }),
       }),
     );

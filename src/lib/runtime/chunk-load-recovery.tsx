@@ -5,6 +5,7 @@ import { useEffect } from "react";
 const RECOVERY_STORAGE_KEY = "openpbl:chunk-recovery-at";
 
 export const CHUNK_RECOVERY_COOLDOWN_MS = 30_000;
+export const CHUNK_RECOVERY_STABILITY_MS = 10_000;
 
 function errorText(value: unknown): string {
   if (value instanceof Error) return `${value.name}: ${value.message}`;
@@ -64,6 +65,31 @@ async function discardObsoleteClientCaches(): Promise<void> {
   await Promise.allSettled(tasks);
 }
 
+export function releaseChunkRecovery(
+  storage: Pick<Storage, "removeItem">,
+): void {
+  storage.removeItem(RECOVERY_STORAGE_KEY);
+}
+
+/**
+ * React can catch a rejected route transition before it reaches the global
+ * error/unhandledrejection events. Keep the actual recovery operation shared
+ * so both the root listener and app/error.tsx use the same loop guard.
+ */
+export function recoverFromChunkLoadError(reason: unknown): boolean {
+  if (!isChunkLoadError(reason)) return false;
+
+  try {
+    if (!claimChunkRecovery(window.sessionStorage)) return false;
+  } catch {
+    // Storage can be unavailable in privacy modes. Reloading is still safer
+    // than leaving the application on an unrecoverable stale module graph.
+  }
+
+  void discardObsoleteClientCaches().finally(() => window.location.reload());
+  return true;
+}
+
 /**
  * A stale browser can request a chunk that a restarted dev server no longer
  * owns. Recover once with a hard page reload; the cooldown prevents a broken
@@ -74,17 +100,8 @@ export function ChunkLoadRecovery() {
     let recoveryStarted = false;
 
     const recover = (reason: unknown) => {
-      if (recoveryStarted || !isChunkLoadError(reason)) return;
-
-      try {
-        if (!claimChunkRecovery(window.sessionStorage)) return;
-      } catch {
-        // Storage may be unavailable in privacy modes. The in-memory guard
-        // still guarantees no more than one reload during this page lifetime.
-      }
-
-      recoveryStarted = true;
-      void discardObsoleteClientCaches().finally(() => window.location.reload());
+      if (recoveryStarted) return;
+      recoveryStarted = recoverFromChunkLoadError(reason);
     };
 
     const onError = (event: ErrorEvent) => recover(event.error ?? event.message);
@@ -92,7 +109,15 @@ export function ChunkLoadRecovery() {
 
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onUnhandledRejection);
+    const stableTimer = window.setTimeout(() => {
+      try {
+        releaseChunkRecovery(window.sessionStorage);
+      } catch {
+        // Storage can be unavailable in privacy modes.
+      }
+    }, CHUNK_RECOVERY_STABILITY_MS);
     return () => {
+      window.clearTimeout(stableTimer);
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
     };

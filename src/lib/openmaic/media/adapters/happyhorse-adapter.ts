@@ -195,6 +195,7 @@ export async function testHappyHorseConnectivity(
     const baseUrl = normalizeBaseUrl(config.baseUrl);
     const response = await fetch(`${baseUrl}/api/v1/tasks/connectivity-test-nonexistent`, {
       method: 'GET',
+      redirect: 'manual',
       headers: authHeaders(config.apiKey),
     });
 

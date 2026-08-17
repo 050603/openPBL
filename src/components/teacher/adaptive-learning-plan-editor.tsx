@@ -15,13 +15,14 @@ import {
 import type {
   AdaptiveBranchOutline,
   AdaptiveLearningPlan,
+  KnowledgeGraph,
   KnowledgePoint,
   OpenMaicSceneOutlineSnapshot,
 } from "@/lib/session/types";
 import {
   adaptiveResourceAddsNovelContent,
   buildAdaptiveResourceRequirement,
-  deriveAdaptiveCheckpointSceneIds,
+  deriveMasteryAssessmentSceneIds,
   evaluateAdaptiveLearningPlanQuality,
   hasCompleteAdaptivePrerequisiteLoop,
 } from "@/lib/adaptive-learning";
@@ -74,11 +75,12 @@ export function AdaptiveLearningPlanEditor({
   knowledgePoints: KnowledgePoint[];
   mainScenes?: AdaptiveMainScene[];
   plan?: AdaptiveLearningPlan;
-  onChange: (plan: AdaptiveLearningPlan) => void;
+  onChange: (plan: AdaptiveLearningPlan, knowledgeGraph?: KnowledgeGraph) => void;
 }) {
   const [generating, setGenerating] = useState(false);
   const [generatingBranchIds, setGeneratingBranchIds] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string>();
+  const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [selectedBranchId, setSelectedBranchId] = useState<string>();
   const planRef = useRef(plan);
   useEffect(() => {
@@ -96,6 +98,7 @@ export function AdaptiveLearningPlanEditor({
   async function generatePlan() {
     setGenerating(true);
     setMessage(undefined);
+    setMessageTone("success");
     try {
       const response = await fetch("/api/adaptive-learning/outline", {
         method: "POST",
@@ -104,13 +107,20 @@ export function AdaptiveLearningPlanEditor({
       });
       const payload = await response.json() as {
         plan?: AdaptiveLearningPlan;
+        knowledgeGraph?: KnowledgeGraph;
         warning?: string;
         error?: string;
+        persisted?: boolean;
+        reviewSummary?: string;
       };
-      if (!response.ok || !payload.plan) throw new Error(payload.error || "生成失败");
-      onChange(payload.plan);
-      setMessage(payload.warning || "个性化学习路径已按当前主课重新建模，请重点审核插入位置、触发条件与新增价值。");
+      if (!response.ok || !payload.plan || !payload.knowledgeGraph || !payload.persisted) {
+        throw new Error(payload.error || "课程入口学习包没有完成原子保存");
+      }
+      onChange(payload.plan, payload.knowledgeGraph);
+      setMessageTone("success");
+      setMessage(payload.warning || `课程入口学习包已生成并保存。${payload.reviewSummary ? `独立审校：${payload.reviewSummary}` : ""}`);
     } catch (error) {
+      setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "生成失败，请稍后重试。");
     } finally {
       setGenerating(false);
@@ -118,12 +128,37 @@ export function AdaptiveLearningPlanEditor({
   }
 
   function patchPlan(patch: Partial<AdaptiveLearningPlan>) {
-    commitPlan((current) => ({
-      ...current,
-      ...patch,
-      status: patch.status ?? "draft",
-      updatedAt: new Date().toISOString(),
-    }));
+    commitPlan((current) => {
+      const prerequisiteBranchBoundary = (branches: readonly AdaptiveBranchOutline[]) => JSON.stringify(
+        branches
+          .filter((branch) => branch.kind === "prerequisite")
+          .map((branch) => ({
+            id: branch.id,
+            enabled: branch.enabled,
+            title: branch.title,
+            objective: branch.objective,
+            keyPoints: branch.keyPoints,
+            anchorKnowledgePointIds: branch.anchorKnowledgePointIds,
+            prerequisiteKnowledgePointIds: branch.prerequisiteKnowledgePointIds,
+            generationGuidance: branch.generationGuidance,
+            trigger: branch.trigger,
+          })),
+      );
+      const invalidatesPrerequisiteReview = [
+        "prerequisiteKnowledgePoints", "prerequisiteAnalysis", "pretest",
+      ].some((key) => key in patch)
+        || ("branches" in patch
+          && prerequisiteBranchBoundary(patch.branches ?? []) !== prerequisiteBranchBoundary(current.branches));
+      return {
+        ...current,
+        ...patch,
+        prerequisiteSemanticReview: invalidatesPrerequisiteReview
+          ? undefined
+          : current.prerequisiteSemanticReview,
+        status: patch.status ?? "draft",
+        updatedAt: new Date().toISOString(),
+      };
+    });
   }
 
   function patchBranch(id: string, patch: Partial<AdaptiveBranchOutline>) {
@@ -149,6 +184,10 @@ export function AdaptiveLearningPlanEditor({
   async function generateBranchResources(branchIds: readonly string[]) {
     const current = planRef.current;
     if (!current || !branchIds.length) return;
+    if (current.prerequisiteSemanticReview?.status !== "passed") {
+      setMessage("先修边界已经变化或尚未审校。请先重新生成完整个性化路径，通过独立审校后再生成资源。");
+      return;
+    }
     const targets = current.branches.filter((branch) => branchIds.includes(branch.id) && branch.enabled !== false);
     if (!targets.length) return;
     setGeneratingBranchIds((ids) => new Set([...ids, ...targets.map((branch) => branch.id)]));
@@ -171,7 +210,7 @@ export function AdaptiveLearningPlanEditor({
         try {
           const generated = await generateAdaptiveClassroom({
             title: `${courseName} · ${branch.title}`,
-            requirement: buildAdaptiveResourceRequirement(courseName, branch),
+            requirement: buildAdaptiveResourceRequirement(courseName, branch, current),
             stageKey: "ai-learning",
             requestRole: "teacher",
             scenes: [{
@@ -247,7 +286,7 @@ export function AdaptiveLearningPlanEditor({
     ...knowledgePoints,
     ...(plan?.prerequisiteKnowledgePoints ?? []),
   ].filter((point, index, points) => points.findIndex((candidate) => candidate.id === point.id) === index);
-  const quizIds = new Set(deriveAdaptiveCheckpointSceneIds(studentScenes));
+  const quizIds = new Set(deriveMasteryAssessmentSceneIds(studentScenes));
   const pretestKnowledgePointIds = new Set(
     plan?.pretest.questions.flatMap((question) => question.knowledgePointIds) ?? [],
   );
@@ -332,6 +371,20 @@ export function AdaptiveLearningPlanEditor({
         </div>
       </div>
 
+      {message ? (
+        <div
+          className={cn(
+            "border-b px-5 py-3 text-xs leading-5",
+            messageTone === "error"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800",
+          )}
+          role={messageTone === "error" ? "alert" : "status"}
+        >
+          {message}
+        </div>
+      ) : null}
+
       {generating ? (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-stone-950/40 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="正在生成个性化学习路径">
           <div className="w-[760px] max-w-[94vw] overflow-hidden rounded-[22px] border border-white/30 bg-white shadow-[0_30px_90px_rgba(15,23,42,.28)]">
@@ -358,7 +411,7 @@ export function AdaptiveLearningPlanEditor({
                   {
                     id: "adaptive-assessment",
                     eyebrow: "判断依据",
-                    title: `${quizIds.size} 个模块测验`,
+                    title: `${quizIds.size} 个主课达标测`,
                     detail: "根据前测与模块掌握度决定是否插入额外资源。",
                     items: ["前测差距", "模块掌握度", "剩余学习时间"],
                     accent: "violet",
@@ -377,7 +430,7 @@ export function AdaptiveLearningPlanEditor({
               <div className="flex flex-col justify-center">
                 <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-blue-700"><CourseGenerationGlyph />个性化路径生成中</p>
                 <h3 className="mt-3 font-editorial text-2xl font-semibold text-stone-950">正在分析主课与学习分叉</h3>
-                <p className="mt-2 text-sm leading-6 text-stone-500">系统会检查先决知识、模块测验和内容重叠，再安排可由教师审核的学习路径。</p>
+                <p className="mt-2 text-sm leading-6 text-stone-500">系统会检查先决知识、主课达标测和内容重叠，再安排可由教师审核的学习路径。</p>
                 <div className="mt-5 rounded-[10px] border border-stone-200 bg-stone-50 px-4 py-3 text-xs leading-5 text-stone-600">
                   当前使用 {knowledgePoints.length} 个真实知识点和 {studentScenes.length} 个主课页面作为生成依据。
                 </div>
@@ -393,15 +446,15 @@ export function AdaptiveLearningPlanEditor({
             <Layers3 className="mx-auto text-[var(--pbl-teacher)]" size={28} />
             <p className="mt-3 text-sm font-bold text-stone-800">先完成课程基本信息、知识图谱与主课大纲</p>
             <p className="mt-1 text-xs leading-5 text-stone-500">
-              系统随后根据完整主课生成最多 5 道先决知识前测，以及可预生成、可审核的额外资源。
+              系统会按学段和知识阶梯生成真实先修能力，并为每项能力配套一道前测和一份 AI 知识回顾；不会用常识题或本课预习题凑数。
             </p>
           </div>
         </div>
       ) : (
         <div className="bg-white">
           <div className="grid border-b border-stone-200 sm:grid-cols-2 xl:grid-cols-4">
-            <OverviewMetric label="主课结构" value={`${studentScenes.length} 页`} detail={`${quizIds.size} 个模块测验`} />
-            <OverviewMetric label="课前诊断" value={`${plan.pretest.questions.length} 题 · ${plan.pretest.estimatedMinutes} 分钟`} detail={`覆盖 ${pretestKnowledgePointIds.size} 个先决知识`} tone={prerequisiteLoopComplete ? "ready" : "warning"} />
+            <OverviewMetric label="主课结构" value={`${studentScenes.length} 页`} detail={`${quizIds.size} 个主课达标测`} />
+            <OverviewMetric label="课前诊断" value={plan.pretest.questions.length ? `${plan.pretest.questions.length} 题 · ${plan.pretest.estimatedMinutes} 分钟` : "尚未形成"} detail={plan.pretest.questions.length ? `覆盖 ${pretestKnowledgePointIds.size} 个必要先修知识` : "每门课至少需要 1 项真实先修诊断，请重新生成"} tone={prerequisiteLoopComplete ? "ready" : "warning"} />
             <OverviewMetric label="备课资源库" value={`${plan.branches.length} 份`} detail={`拓展候选建议 ${planQuality?.recommendedMin ?? 0}-${planQuality?.recommendedMax ?? 2} 份 · 单生最多 ${planQuality?.runtimeMaxPerStudent ?? 1} 份`} />
             <OverviewMetric
               label="审核结果"
@@ -410,6 +463,24 @@ export function AdaptiveLearningPlanEditor({
               tone={issueCount ? "warning" : "ready"}
             />
           </div>
+
+          <section className="border-b border-stone-200 bg-cyan-50/30 px-5 py-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-cyan-800">先修边界分析</p>
+                <p className="mt-1 text-xs leading-5 text-stone-600">{plan.prerequisiteAnalysis?.summary || "尚未完成逐知识点先修边界分析。"}</p>
+              </div>
+              <Status tone={plan.prerequisiteSemanticReview?.status === "passed" ? "ready" : "warning"}>
+                {plan.prerequisiteSemanticReview?.status === "passed" ? "独立语义审校通过" : "需要重新生成并审校"}
+              </Status>
+            </div>
+            {(plan.prerequisiteAnalysis?.decisions.length ?? 0) > 0 ? (
+              <p className="mt-2 text-[10px] leading-4 text-stone-500">
+                {plan.prerequisiteAnalysis!.decisions.filter((decision) => decision.decision === "diagnose-prerequisite").length} 个本课目标需要先修诊断；
+                {plan.prerequisiteAnalysis!.decisions.filter((decision) => decision.decision !== "diagnose-prerequisite").length} 个目标由主课负责建立基础。
+              </p>
+            ) : null}
+          </section>
 
           <section className="border-b border-stone-200 bg-violet-50/35 px-5 py-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -497,8 +568,6 @@ export function AdaptiveLearningPlanEditor({
             generatingBranchIds={generatingBranchIds}
             threshold={plan.thresholds.enrichmentMasteryMin ?? 80}
           />
-
-          {message ? <p className="text-right text-xs text-stone-500">{message}</p> : null}
         </div>
       )}
     </section>
@@ -573,7 +642,7 @@ function ResourceEditor({
   )?.title;
   const evidenceSummary = prerequisite
     ? `前测缺口 · ${knowledgeNames(branch.prerequisiteKnowledgePointIds, knowledgePoints)}`
-    : `${linkedQuizTitle ?? "未关联模块测验"} · ≥ ${trigger.scoreThreshold ?? threshold} 分`;
+    : `${linkedQuizTitle ?? "未关联主课达标测"} · ≥ ${trigger.scoreThreshold ?? threshold} 分`;
   return (
     <details
       className="group scroll-mt-24 bg-white"
@@ -651,11 +720,11 @@ function ResourceEditor({
             <p className="mt-1 text-xs font-bold text-stone-900">
               {prerequisite
                 ? "前测发现关联先决知识缺口 → 正式主课开始前连续插入"
-                : `模块测验达到 ${trigger.scoreThreshold ?? threshold} 分且时间充足 → 测验解析后连续插入`}
+                : `主课达标测中关联知识点达到 ${trigger.scoreThreshold ?? threshold} 分且时间充足 → 测验解析后连续插入`}
             </p>
             {!prerequisite ? (
               <label className="mt-3 block text-[11px] font-bold text-stone-700">
-                关联模块测验
+                关联主课达标测
                 <select
                   className="mt-1 h-9 w-full rounded-[6px] border border-stone-200 bg-white px-2 text-xs"
                   onChange={(event) => onChange({
@@ -663,7 +732,7 @@ function ResourceEditor({
                   })}
                   value={trigger.assessmentSceneIds?.[0] ?? ""}
                 >
-                  <option value="">请选择模块测验</option>
+                  <option value="">请选择主课达标测</option>
                   {quizzes.map((scene) => <option key={scene.id} value={scene.id}>{scene.title}</option>)}
                 </select>
               </label>
@@ -1158,6 +1227,15 @@ function PretestCourseNode({
   onChangeQuestion?: (questionId: string, prompt: string) => void;
   pretest: AdaptiveLearningPlan["pretest"];
 }) {
+  if (pretest.questions.length === 0) {
+    return (
+      <div className="rounded-[9px] border border-amber-200 bg-amber-50/70 px-3.5 py-3 shadow-[0_4px_0_#fef3c7]">
+        <span className="text-[9px] font-black uppercase tracking-[0.13em] text-amber-700">课程入口 · 方案不完整</span>
+        <strong className="mt-1 block text-sm text-stone-950">尚未生成前序知识诊断</strong>
+        <span className="mt-1 block text-[10px] leading-4 text-stone-600">每门课至少需要 1 项经审核的真实先修能力，以及对应的一道前测和一份知识回顾资源。请重新建模；系统不会用常识题凑数。</span>
+      </div>
+    );
+  }
   return (
     <details className="group" open>
       <summary className="relative flex cursor-pointer list-none items-center justify-between gap-3 rounded-[9px] border border-amber-200 bg-amber-50/60 px-3.5 py-3 shadow-[0_4px_0_#fef3c7]">
@@ -1244,7 +1322,7 @@ function ScenePoint({ index, knowledgePoints, scene }: { index: number; knowledg
           {isQuiz ? <FileQuestion size={12} /> : isInteractive ? <MousePointer2 size={12} /> : <PlaySquare size={12} />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="text-[9px] font-bold text-stone-400">步骤 {String(index).padStart(2, "0")} · {isQuiz ? "模块测验" : isInteractive ? "课堂互动" : "课程内容"}</span>
+          <span className="text-[9px] font-bold text-stone-400">步骤 {String(index).padStart(2, "0")} · {isQuiz ? "主课达标测" : isInteractive ? "课堂互动" : "课程内容"}</span>
           <strong className="mt-0.5 block text-[11px] leading-4 text-stone-800">{scene.title}</strong>
         </span>
         <ChevronDown className="mt-1 shrink-0 text-stone-300 transition group-open:rotate-180" size={13} />
@@ -1274,7 +1352,7 @@ function ResourceMapCard({ animationIndex = 0, branch, dragEnabled, dragging, ma
   const enabled = branch.enabled !== false;
   const prerequisite = resourceKind(branch) === "prerequisite";
   const linkedQuiz = mainScenes.find((scene) => branch.trigger?.assessmentSceneIds?.includes(scene.id));
-  const placement = prerequisite ? "课前诊断后" : `${linkedQuiz?.title ?? "关联模块测验"}后`;
+  const placement = prerequisite ? "课前诊断后" : `${linkedQuiz?.title ?? "主课达标测"}后`;
   const condition = prerequisite ? "发现先决知识缺口时插入" : `达到 ${branch.trigger?.scoreThreshold ?? threshold} 分且时间充足时插入`;
   return (
     <button

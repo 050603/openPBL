@@ -36,9 +36,7 @@
     "ttsTitle": "Text-to-Speech",
     "ttsHint": "Choose a voice for the AI teacher",
     "ttsPreview": "Preview",
-    "ttsPreviewing": "Playing...",
-    "interactiveModeHint": "Enable interactive-first mode for more hands-on content",
-    "interactiveModeLabel": "Interactive Mode"
+    "ttsPreviewing": "Playing..."
   },
   "export": {
     "pptx": "Export PPTX",
@@ -1606,19 +1604,6 @@
     "voice": "Voice",
     "speed": "Speed",
     "language": "Language"
-  },
-  "teachingTools": {
-    "checkTitle": "Understanding check",
-    "evidenceTitle": "Evidence board",
-    "answerPlaceholder": "Explain your thinking...",
-    "responseMessage": "Understanding check response\nQuestion: {{question}}\nMy answer: {{answer}}",
-    "submit": "Submit response",
-    "close": "Close",
-    "sourceStatus": {
-      "verified": "Verified source",
-      "student_provided": "Student-provided",
-      "needs_verification": "Needs verification"
-    }
   },
   "accessCode": {
     "title": "Enter Access Code",

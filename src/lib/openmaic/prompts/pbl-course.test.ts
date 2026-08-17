@@ -32,18 +32,19 @@ describe("PBL course prompt", () => {
     expect(prompt?.system).toContain("fixed seconds-per-page rule");
     expect(prompt?.system).toContain("companionStagePolicies[stageKey]");
     expect(prompt?.system).toContain("reflection");
-    expect(prompt?.system).toContain("Every block ends with its own `quiz` scene");
+    expect(prompt?.system).toContain("exactly one terminal `quiz` scene");
     expect(prompt?.user).toContain("节能方案");
     expect(prompt?.user).toContain("companionStagePolicies");
     expect(prompt?.user).toContain("launch, showcase");
     expect(prompt?.user).toContain("one coherent PPT page");
     expect(prompt?.user).toContain("fixed seconds-per-page threshold");
     expect(prompt?.user).toContain("教师负责线下校准与成果评价");
-    expect(prompt?.user).toContain("Every knowledge block MUST end with a short `quiz`");
-    expect(prompt?.user).toContain("Do not replace these checkpoint quizzes");
+    expect(prompt?.user).toContain("exactly one terminal mastery `quiz`");
+    expect(prompt?.user).toContain("Never add a quiz after each knowledge block");
+    expect(prompt?.user).toContain("knowledgePointIds");
   });
 
-  it("injects the mandatory interaction cadence only when interactive mode is enabled", () => {
+  it("always injects the foundation-first deep-interaction cadence", () => {
     const common = {
       requirement: "课程：校园节能设计",
       pblProfile: formatPblCourseConfigForPrompt(DEFAULT_PBL_COURSE_CONFIG),
@@ -55,16 +56,14 @@ describe("PBL course prompt", () => {
 
     const normal = buildPrompt(PROMPT_IDS.PBL_COURSE, {
       ...common,
-      interactiveMode: false,
     });
     const interactive = buildPrompt(PROMPT_IDS.PBL_COURSE, {
       ...common,
-      interactiveMode: true,
     });
 
-    expect(normal?.user).not.toContain("mandatory explanation-practice cadence");
-    expect(interactive?.user).toContain("mandatory explanation-practice cadence");
-    expect(interactive?.user).toContain("one or at most two closely related semantic pages");
+    expect(normal?.user).toContain("Foundation-first deep-interaction cadence");
+    expect(interactive?.user).toContain("Foundation-first deep-interaction cadence");
+    expect(interactive?.user).toContain("its concept, a concrete example");
     expect(interactive?.user).toContain("A `quiz` is an assessment and does NOT satisfy");
     expect(interactive?.user).toContain("Interactions are ungraded exploration or operation spaces");
     expect(interactive?.user).toContain("matching, sorting, ordering, drag-to-answer");

@@ -7,10 +7,12 @@ import {
   getActionTransitionMs,
   getActionFrameBodyOffset,
   getActionFrameOrder,
+  getActionPairTransitionMs,
   getActionSwitchAlignment,
   getActionVisualScale,
   getActionVisualWidthScale,
   getFacingScaleSign,
+  getPhaseAlignedFrame,
 } from './person'
 
 describe('getFacingScaleSign', () => {
@@ -57,6 +59,11 @@ describe('action playback metadata', () => {
     expect(getActionTransitionMs('salute')).toBe(140)
   })
 
+  it('keeps the longer authored fade when switching between two actions', () => {
+    expect(getActionPairTransitionMs('fc_walking_h', 'computer_typing_left')).toBe(160)
+    expect(getActionPairTransitionMs('napping', 'standby')).toBe(180)
+  })
+
   it('normalizes undersized source actions to the canonical character height', () => {
     expect(getActionVisualScale('standby')).toBe(1)
     expect(getActionVisualScale('planning_board')).toBeCloseTo(192 / 175)
@@ -68,6 +75,20 @@ describe('action playback metadata', () => {
     expect(getActionVisualWidthScale('fc_walking_up')).toBeCloseTo(10 / 9)
     expect(getActionVisualWidthScale('fc_walking_down')).toBe(1)
     expect(getActionVisualWidthScale('standby')).toBe(1)
+  })
+})
+
+describe('loop phase continuity', () => {
+  it('maps the outgoing cycle phase onto a differently sized frame strip', () => {
+    expect(getPhaseAlignedFrame(3, 8, 6)).toBe(2)
+    expect(getPhaseAlignedFrame(7, 8, 6)).toBe(5)
+  })
+
+  it('wraps invalid frame indexes and safely handles missing frames', () => {
+    expect(getPhaseAlignedFrame(9, 8, 6)).toBe(0)
+    expect(getPhaseAlignedFrame(-1, 8, 6)).toBe(5)
+    expect(getPhaseAlignedFrame(3, 0, 6)).toBe(0)
+    expect(getPhaseAlignedFrame(3, 8, 0)).toBe(0)
   })
 })
 

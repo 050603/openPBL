@@ -350,27 +350,60 @@ export function deriveStageReadiness(
         projectIdForStudent(course, studentId)
         && item.groupId === projectIdForStudent(course, studentId),
       )));
-    const submitted = versions.length > 0;
-    const checks: StageReadinessCheck[] = [{
-      id: "make-artifact-version",
-      label: "提交作品",
-      satisfied: submitted,
-      evidenceIds: evidence.filter((item) => item.kind === "artifact-version").map((item) => item.id),
-      detail: submitted ? `已保存 ${versions.length} 个版本` : undefined,
-    }];
+    const artifactEvidence = validEvidenceOfKind(evidence, "artifact-version", snapshots);
+    const testResults = validEvidenceOfKind(evidence, "test-result", snapshots);
+    const revisionDecisions = validEvidenceOfKind(evidence, "revision-decision", snapshots);
+    const revisionIterationIds = new Set(revisionDecisions.map((item) =>
+      String((item.payload as { iterationId?: string }).iterationId ?? "")));
+    const completedIterationIds = new Set(testResults
+      .map((item) => String((item.payload as { iterationId?: string }).iterationId ?? ""))
+      .filter((iterationId) => iterationId && revisionIterationIds.has(iterationId)));
+    const submitted = versions.length > 0 || artifactEvidence.length > 0;
+    const requiredIterations = preset === "guided" ? 1 : 2;
+    const iterationReady = completedIterationIds.size >= requiredIterations;
+    const checks: StageReadinessCheck[] = [
+      {
+        id: "make-artifact-version",
+        label: "提交至少一个可查看的作品版本",
+        satisfied: submitted,
+        evidenceIds: artifactEvidence.map((item) => item.id),
+        detail: submitted ? `已保存 ${Math.max(versions.length, artifactEvidence.length)} 个版本` : undefined,
+      },
+      {
+        id: "make-iteration-cycle",
+        label: `完成 ${requiredIterations} 次测试—解释—修订循环`,
+        satisfied: iterationReady,
+        evidenceIds: [...testResults, ...revisionDecisions].map((item) => item.id),
+        detail: `已完成 ${completedIterationIds.size}/${requiredIterations} 次`,
+      },
+    ];
+    const needsRevision = allStageEvidence.some((item) => item.status === "needs-revision");
+    const complete = submitted && iterationReady;
+    const hasWork = submitted || allStageEvidence.some((item) => item.countsTowardReadiness);
+    const status: StageReadinessStatus = needsRevision
+      ? "needs-revision"
+      : complete
+        ? "ready"
+        : hasWork
+          ? "working"
+          : "not-started";
     return {
       courseId: course.id,
       studentId,
       stageKey,
       preset,
-      status: submitted ? "ready" : "not-started",
+      status,
       checks,
-      missingEvidenceKinds: submitted ? [] : ["artifact-version"],
+      missingEvidenceKinds: [
+        ...(!submitted ? ["artifact-version" as const] : []),
+        ...(testResults.length ? [] : ["test-result" as const]),
+        ...(revisionDecisions.length ? [] : ["revision-decision" as const]),
+      ],
       evidenceIds: evidence.map((item) => item.id),
-      completedIterations: versions.length,
-      requiredIterations: 0,
+      completedIterations: completedIterationIds.size,
+      requiredIterations,
       teacherCalibration: "not-required",
-      reason: readinessReason(submitted ? "ready" : "not-started", checks),
+      reason: readinessReason(status, checks),
       derivedAt: now,
     };
   }

@@ -12,6 +12,7 @@ import { useWhiteboardHistoryStore } from '@openmaic/lib/store/whiteboard-histor
 import { createStageAPI } from '@openmaic/lib/api/stage-api';
 import { toast } from 'sonner';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
+import { whiteboardIdForScene } from '@openmaic/lib/api/stage-api-whiteboard';
 
 interface WhiteboardProps {
   readonly isOpen: boolean;
@@ -24,6 +25,7 @@ interface WhiteboardProps {
 export function Whiteboard({ isOpen, onClose }: WhiteboardProps) {
   const { t } = useI18n();
   const stage = useStageStore.use.stage();
+  const currentSceneId = useStageStore.use.currentSceneId();
   const isClearing = useCanvasStore.use.whiteboardClearing();
   const clearingRef = useRef(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -32,7 +34,10 @@ export function Whiteboard({ isOpen, onClose }: WhiteboardProps) {
   const snapshotCount = useWhiteboardHistoryStore((s) => s.snapshots.length);
 
   // Get element count for indicator
-  const whiteboard = stage?.whiteboard?.[0];
+  const activeWhiteboardId = whiteboardIdForScene(currentSceneId);
+  const whiteboard = activeWhiteboardId
+    ? stage?.whiteboard?.find((item) => item.id === activeWhiteboardId)
+    : stage?.whiteboard?.at(-1);
   const elementCount = whiteboard?.elements?.length || 0;
 
   const stageAPI = createStageAPI(useStageStore);

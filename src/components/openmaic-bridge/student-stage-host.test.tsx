@@ -9,18 +9,22 @@ const stageMock = vi.hoisted(() => {
     clearStore: vi.fn(),
   };
   const listeners = new Set<(current: typeof state, previous: typeof state) => void>();
+  const currentSceneHistory: string[] = [];
   return {
     state,
+    currentSceneHistory,
     reset() {
       state.scenes = [];
       state.currentSceneId = null;
       state.setStage.mockClear();
       state.clearStore.mockClear();
+      currentSceneHistory.length = 0;
       listeners.clear();
     },
     setState(patch: Partial<typeof state>) {
       const previous = { ...state };
       Object.assign(state, patch);
+      if (typeof patch.currentSceneId === "string") currentSceneHistory.push(patch.currentSceneId);
       listeners.forEach((listener) => listener(state, previous));
     },
     subscribe(listener: (current: typeof state, previous: typeof state) => void) {
@@ -83,6 +87,7 @@ vi.mock("@openmaic/lib/store/settings", () => ({ useSettingsStore: settingsMock 
 vi.mock("@/lib/learning-analytics/telemetry", () => telemetryMock);
 
 import {
+  composeAdaptiveSceneQueue,
   prepareAdaptiveInsertionScenes,
   quizScoreForScene,
   resolveAdaptiveInsertionIndex,
@@ -129,6 +134,34 @@ describe("adaptive scene preparation", () => {
         anchorSceneId: "quiz-1",
       },
     )).toBe(1);
+  });
+
+  it("chains multiple prerequisite segments in declared order before the main lesson", () => {
+    const first = prepareAdaptiveInsertionScenes("run-a", "resource-a", [
+      { id: "review-a", title: "回顾 A", actions: [] },
+    ] as never);
+    const second = prepareAdaptiveInsertionScenes("run-b", "resource-b", [
+      { id: "review-b", title: "回顾 B", actions: [] },
+    ] as never);
+    const queue = composeAdaptiveSceneQueue(
+      [{ id: "main-1", title: "主课开场", actions: [] }] as never,
+      "main-1",
+      [
+        { insertion: { id: "run-a", classroomId: "resource-a", placement: "before-current" }, scenes: first },
+        { insertion: { id: "run-b", classroomId: "resource-b", placement: "before-current" }, scenes: second },
+      ],
+    );
+
+    expect(queue.scenes.map((scene) => scene.id)).toEqual([
+      "adaptive:run-a:review-a",
+      "adaptive:run-b:review-b",
+      "main-1",
+    ]);
+    expect(queue.activatedSceneId).toBe("adaptive:run-a:review-a");
+    expect((queue.scenes[0] as never as { openpblAdaptiveReturnSceneId?: string }).openpblAdaptiveReturnSceneId)
+      .toBe("adaptive:run-b:review-b");
+    expect((queue.scenes[1] as never as { openpblAdaptiveReturnSceneId?: string }).openpblAdaptiveReturnSceneId)
+      .toBe("main-1");
   });
 });
 
@@ -252,6 +285,8 @@ describe("StudentStageHost reporting modes", () => {
       "adaptive:run-1:resource-1",
       "scene-1",
     ]);
+    expect(stageMock.currentSceneHistory[0]).toBe("adaptive:run-1:resource-1");
+    expect(stageMock.currentSceneHistory).not.toContain("scene-1");
     expect(renderedStage.props?.autoplaySceneId).toBe("adaptive:run-1:resource-1");
   });
 

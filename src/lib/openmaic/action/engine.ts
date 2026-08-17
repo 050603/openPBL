@@ -11,10 +11,10 @@
 
 import type { StageStore } from '@openmaic/lib/api/stage-api';
 import { createStageAPI } from '@openmaic/lib/api/stage-api';
+import { whiteboardIdForScene } from '@openmaic/lib/api/stage-api-whiteboard';
 import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { useWhiteboardHistoryStore } from '@openmaic/lib/store/whiteboard-history';
 import { useMediaGenerationStore, isMediaPlaceholder } from '@openmaic/lib/store/media-generation';
-import { useTeachingToolsStore } from '@openmaic/lib/store/teaching-tools';
 import type { AudioPlayer } from '@openmaic/lib/utils/audio-player';
 import type {
   Action,
@@ -35,8 +35,6 @@ import type {
   WidgetSetStateAction,
   WidgetAnnotationAction,
   WidgetRevealAction,
-  CheckUnderstandingAction,
-  EvidenceBoardUpdateAction,
 } from '@openmaic/lib/types/action';
 import type { CodeLine } from '@openmaic/dsl';
 import katex from 'katex';
@@ -86,19 +84,16 @@ export class ActionEngine {
   private audioPlayer: AudioPlayer | null;
   private effectTimer: ReturnType<typeof setTimeout> | null = null;
   private widgetMessageCallback: WidgetMessageCallback | null = null;
-  private waitForUnderstandingCheck: boolean;
 
   constructor(
     stageStore: StageStore,
     audioPlayer?: AudioPlayer | null,
     widgetMessageCallback?: WidgetMessageCallback | null,
-    waitForUnderstandingCheck = true,
   ) {
     this.stageStore = stageStore;
     this.stageAPI = createStageAPI(stageStore);
     this.audioPlayer = audioPlayer ?? null;
     this.widgetMessageCallback = widgetMessageCallback ?? null;
-    this.waitForUnderstandingCheck = waitForUnderstandingCheck;
   }
 
   /** Set callback for sending messages to widget iframe */
@@ -177,19 +172,6 @@ export class ActionEngine {
         return this.executeWidgetAnnotation(action as WidgetAnnotationAction);
       case 'widget_reveal':
         return this.executeWidgetReveal(action as WidgetRevealAction);
-      case 'check_understanding':
-        if (this.waitForUnderstandingCheck) {
-          return useTeachingToolsStore
-            .getState()
-            .presentCheck(action as CheckUnderstandingAction);
-        }
-        useTeachingToolsStore.getState().openCheck(action as CheckUnderstandingAction);
-        return;
-      case 'evidence_board_update':
-        useTeachingToolsStore
-          .getState()
-          .updateEvidenceBoard(action as EvidenceBoardUpdateAction);
-        return;
     }
   }
 
@@ -343,6 +325,12 @@ export class ActionEngine {
 
   // ==================== Synchronous — Whiteboard ====================
 
+  private getActiveWhiteboard() {
+    return this.stageAPI.whiteboard.get(
+      whiteboardIdForScene(this.stageStore.getState().currentSceneId),
+    );
+  }
+
   /** Auto-open the whiteboard if it's not already open */
   private async ensureWhiteboardOpen(): Promise<void> {
     if (!useCanvasStore.getState().whiteboardOpen) {
@@ -352,14 +340,14 @@ export class ActionEngine {
 
   private async executeWbOpen(): Promise<void> {
     // Ensure a whiteboard exists
-    this.stageAPI.whiteboard.get();
+    this.getActiveWhiteboard();
     useCanvasStore.getState().setWhiteboardOpen(true);
     // Wait for open animation to complete (slow spring: stiffness 120, damping 18, mass 1.2)
     await delay(2000);
   }
 
   private async executeWbDrawText(action: WbDrawTextAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     const fontSize = action.fontSize ?? 18;
@@ -391,7 +379,7 @@ export class ActionEngine {
   }
 
   private async executeWbDrawShape(action: WbDrawShapeAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     this.stageAPI.whiteboard.addElement(
@@ -417,7 +405,7 @@ export class ActionEngine {
   }
 
   private async executeWbDrawChart(action: WbDrawChartAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     this.stageAPI.whiteboard.addElement(
@@ -441,7 +429,7 @@ export class ActionEngine {
   }
 
   private async executeWbDrawLatex(action: WbDrawLatexAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     try {
@@ -477,7 +465,7 @@ export class ActionEngine {
   }
 
   private async executeWbDrawTable(action: WbDrawTableAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     const rows = action.data.length;
@@ -533,7 +521,7 @@ export class ActionEngine {
   }
 
   private async executeWbDrawLine(action: WbDrawLineAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     // Calculate bounding box — left/top is the minimum of start/end coordinates
@@ -566,7 +554,7 @@ export class ActionEngine {
   }
 
   private async executeWbDrawCode(action: WbDrawCodeAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     const lines = codeToLines(action.code);
@@ -596,7 +584,7 @@ export class ActionEngine {
   }
 
   private async executeWbEditCode(action: WbEditCodeAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     const elementResult = this.stageAPI.whiteboard.getElement(action.elementId, wb.data.id);
@@ -658,7 +646,7 @@ export class ActionEngine {
   }
 
   private async executeWbDelete(action: WbDeleteAction): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     this.stageAPI.whiteboard.deleteElement(action.elementId, wb.data.id);
@@ -666,7 +654,7 @@ export class ActionEngine {
   }
 
   private async executeWbClear(): Promise<void> {
-    const wb = this.stageAPI.whiteboard.get();
+    const wb = this.getActiveWhiteboard();
     if (!wb.success || !wb.data) return;
 
     const elementCount = wb.data.elements?.length || 0;

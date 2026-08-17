@@ -6,25 +6,19 @@ describe('native classroom teaching tools', () => {
     expect(
       getNativeTeachingToolNames([
         'wb_draw_line',
-        'check_understanding',
-        'evidence_board_update',
         'not_a_tool',
       ]),
-    ).toEqual(['wb_draw_line', 'check_understanding', 'evidence_board_update']);
+    ).toEqual(['wb_draw_line']);
   });
 
-  it('builds AI SDK tools for whiteboard, formative check, evidence, and simulation actions', () => {
+  it('builds AI SDK tools for whiteboard and simulation actions', () => {
     const tools = createNativeTeachingTools([
       'wb_draw_text',
-      'check_understanding',
-      'evidence_board_update',
       'widget_setState',
     ]);
 
     expect(Object.keys(tools)).toEqual([
       'wb_draw_text',
-      'check_understanding',
-      'evidence_board_update',
       'widget_setState',
     ]);
   });

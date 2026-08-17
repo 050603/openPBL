@@ -3,7 +3,6 @@
 import {
   Image as ImageIcon,
   Mic2,
-  MousePointerClick,
   Send,
   Settings2,
   Video,
@@ -22,6 +21,7 @@ import {
   resolveQuickClassroomActiveArtifactId,
   type QuickClassroomGenerationSnapshot,
 } from "@/lib/course-generation/quick-artifacts";
+import { resolveLatestCompletedArtifactId } from "@/lib/course-design/active-artifact";
 import { readJsonResponse } from "@/lib/http/read-json-response";
 import type { Course, CourseDesignGenerationArtifact, CourseDesignGenerationTraceEntry } from "@/lib/session/types";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
@@ -69,7 +69,6 @@ type ClassroomGenerationResponse = {
 };
 
 type GenerationOptions = {
-  interactiveMode: boolean;
   enableImageGeneration: boolean;
   enableTTS: boolean;
   enableVideoGeneration: boolean;
@@ -93,13 +92,13 @@ export function FastCourseGenerator({
   const [classroomJob, setClassroomJob] = useState<ClassroomGenerationResponse["job"]>(null);
   const [backgroundEnabled, setBackgroundEnabled] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [classroomRetrying, setClassroomRetrying] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [outlinePreview, setOutlinePreview] = useState<SceneOutline[]>([]);
   const [outlineReviewOpen, setOutlineReviewOpen] = useState(false);
   const autoOpenedClassroomId = useRef<string | null>(null);
   const [options, setOptions] = useState<GenerationOptions>({
-    interactiveMode: false,
     enableImageGeneration: true,
     enableTTS: true,
     enableVideoGeneration: false,
@@ -113,8 +112,24 @@ export function FastCourseGenerator({
   const applyPayload = useCallback((payload: ResponsePayload) => {
     setBackgroundEnabled(payload.backgroundEnabled);
     setJob(payload.job);
+    const savedBrief = payload.job?.requestPreview?.teacherBrief;
+    if (savedBrief) setBrief(savedBrief);
+    const savedOptions = payload.job?.requestPreview?.options;
+    if (savedOptions) {
+      setOptions({
+        enableImageGeneration: savedOptions.enableImageGeneration !== false,
+        enableTTS: savedOptions.enableTTS !== false,
+        enableVideoGeneration: savedOptions.enableVideoGeneration === true,
+      });
+    }
     if (payload.outlinePreview?.length) setOutlinePreview(payload.outlinePreview);
-    if (payload.job?.status === "failed") setError(payload.job.error || "快速生成未完成，请重试。");
+    if (payload.job?.status === "failed") {
+      setError(`${payload.job.error || "快速生成遇到系统或网络错误，请稍后重试。"} 教师要求和已完成内容均已保存，可直接重试或修改要求后继续。`);
+    } else if (payload.job && ["queued", "running", "review_available", "paused", "completed"].includes(payload.job.status)) {
+      // Correctable quality issues remain inside the managed Agent loop. Clear
+      // stale transport errors as soon as the durable task resumes.
+      setError(undefined);
+    }
     if (payload.job?.status === "cancelled") setError("本次快速生成已中断，可以修改要求后重新开始。");
   }, []);
 
@@ -139,7 +154,8 @@ export function FastCourseGenerator({
     setBackgroundEnabled(payload.backgroundEnabled);
     setClassroomJob(payload.job);
     if (payload.job?.status === "failed") setError(payload.job.error || "最终课程内容生成未完成，请重试。");
-    if (payload.job?.status === "cancelled") setError("本次最终课程内容生成已中断，可以返回后重新生成。");
+    else if (payload.job?.status === "cancelled") setError("本次最终课程内容生成已中断，可以返回后重新生成。");
+    else if (payload.job) setError(undefined);
     return payload;
   }, [course.id]);
 
@@ -240,6 +256,26 @@ export function FastCourseGenerator({
     }
   }
 
+  async function resumeClassroomGeneration() {
+    setClassroomRetrying(true);
+    setError(undefined);
+    try {
+      const response = await fetch(`/api/courses/${course.id}/generation`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume-from-checkpoints" }),
+      });
+      const payload = await readJsonResponse<ClassroomGenerationResponse>(response, "续生成请求没有得到响应，请稍后重试。");
+      if (!response.ok) throw new Error(payload.error || "无法从已完成页面继续生成");
+      setBackgroundEnabled(payload.backgroundEnabled);
+      setClassroomJob(payload.job);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法从已完成页面继续生成");
+    } finally {
+      setClassroomRetrying(false);
+    }
+  }
+
   async function reviewOutline() {
     try {
       if (job?.status === "review_available") {
@@ -289,19 +325,22 @@ export function FastCourseGenerator({
   );
 
   const classroomCompleted = classroomJob?.status === "completed" && Boolean(classroomJob.result?.id);
+  const classroomFailed = classroomJob?.status === "failed";
   const overallProgress = job?.status === "completed"
     ? combineQuickGenerationProgress(100, classroomJob?.progress ?? 0, classroomCompleted)
     : combineQuickGenerationProgress(job?.progress ?? 0, 0, false);
   const activeArtifactId = job?.status === "completed"
     ? resolveQuickClassroomActiveArtifactId(classroomJob)
-    : artifacts.at(-1)?.id;
+    : resolveLatestCompletedArtifactId(artifacts);
   const activeMessage = job?.status === "completed"
     ? classroomJob?.message || "课程设计已完成，正在衔接课堂内容生成"
     : job?.message || "正在分析课程信息";
   const activeRemaining = job?.status === "completed"
     ? classroomJob?.estimatedRemainingSeconds
     : job?.estimatedRemainingSeconds;
-  const activeStartedAt = job?.startedAt ?? classroomJob?.startedAt ?? null;
+  const activeStartedAt = job?.status === "completed"
+    ? classroomJob?.startedAt ?? job.startedAt ?? null
+    : job?.startedAt ?? null;
   const showGenerationCanvas = running || job?.status === "completed" || classroomRunning || classroomCompleted;
 
   useEffect(() => {
@@ -325,15 +364,19 @@ export function FastCourseGenerator({
         cancelling={job?.status === "cancelling" || classroomJob?.status === "cancelling"}
         confirmCancel={confirmCancel}
         completed={classroomCompleted}
+        failed={classroomFailed}
+        failureMessage={classroomJob?.error || error}
         message={activeMessage}
         onCancel={() => void cancelGeneration()}
         onOpenCourse={() => {
           if (classroomJob?.result?.id) router.push(`/teacher/prepare/${course.id}/preview?classroomId=${classroomJob.result.id}`);
         }}
+        onRetry={() => void resumeClassroomGeneration()}
         onReview={() => void reviewOutline()}
         paused={job?.status === "paused"}
         progress={overallProgress}
-        remainingLabel={classroomCompleted ? "全部内容已经生成并自动保存" : formatDuration(activeRemaining)}
+        remainingLabel={classroomCompleted ? "全部内容已经生成并自动保存" : classroomFailed ? "已完成页面均已保存，可从断点继续" : formatDuration(activeRemaining)}
+        retrying={classroomRetrying}
         reviewAvailable={job?.status === "review_available" || job?.status === "paused"}
         startedAt={activeStartedAt}
       />
@@ -377,18 +420,18 @@ export function FastCourseGenerator({
 
           <div className="flex flex-wrap items-end justify-between gap-3 px-3 pb-3 pt-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <OptionToggle active={options.interactiveMode} description="提高互动、探究和学生操作页面比例" icon={MousePointerClick} label="丰富互动" onClick={() => setOptions((current) => ({ ...current, interactiveMode: !current.interactiveMode }))} />
               <OptionToggle active={options.enableImageGeneration} description="为适合的课堂页面生成配图" icon={ImageIcon} label="图片" onClick={() => setOptions((current) => ({ ...current, enableImageGeneration: !current.enableImageGeneration }))} />
               <OptionToggle active={options.enableTTS} description="为授课内容生成中文语音" icon={Volume2} label="语音" onClick={() => setOptions((current) => ({ ...current, enableTTS: !current.enableTTS }))} />
               <OptionToggle active={options.enableVideoGeneration} description="在适合的页面尝试生成视频资源" icon={Video} label="视频" onClick={() => setOptions((current) => ({ ...current, enableVideoGeneration: !current.enableVideoGeneration }))} />
             </div>
 
             <button
-              aria-label="开始生成课程"
+              aria-label={job?.status === "failed" ? "从已保存内容继续生成" : "开始生成课程"}
               className="grid size-11 shrink-0 place-items-center rounded-full bg-stone-950 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-wait disabled:opacity-45 motion-reduce:transform-none"
               disabled={submitting || !brief.trim()}
               onClick={() => void start()}
               type="button"
+              title={job?.status === "failed" ? "从已保存内容继续生成" : "开始生成课程"}
             >
               {submitting ? <CourseGenerationGlyph className="size-5" /> : <Send className="size-4.5" />}
             </button>

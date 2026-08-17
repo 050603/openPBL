@@ -2,15 +2,27 @@
 
 import { useState } from "react";
 import {
+  Archive,
   Bot,
+  CheckCircle2,
+  Circle,
   FilePenLine,
   HandHelping,
   Inbox,
+  Library,
+  PanelRightClose,
   Send,
+  ShieldCheck,
   Square,
+  Undo2,
   X,
 } from "lucide-react";
 import { getCompanion, type AiCompanionId } from "@/lib/ai-companions";
+import {
+  parseWorkspaceOperation,
+  revertCompanionWorkspaceOperation,
+  type CompanionWorkspaceOperation,
+} from "@/lib/companion/workspace-operation";
 import {
   getStageMissionDefinition,
   resolveCourseLearningPreset,
@@ -23,8 +35,11 @@ import { cn } from "@/lib/utils";
 import type { CompanionRuntimeContextValue } from "./companion-runtime";
 import { AiDecisionInbox } from "./evidence-task/ai-decision-inbox";
 import { EvidenceStageWorkspace } from "./evidence-task/stage-workspace";
+import { StudioProcessArchive } from "./studio-process-archive";
+import { StudioResourceLibrary } from "./studio-resource-library";
 
 const STAGE_NUMBER_LABEL = ["一", "二", "三", "四", "五", "六"];
+export type WorkbenchView = "editor" | "resources" | "archive" | "suggestions";
 
 export function StudioProjectWorkbench({
   course,
@@ -32,22 +47,20 @@ export function StudioProjectWorkbench({
   runtime,
   onAskCompanion,
   onStopCompanion,
+  initialView = "editor",
 }: {
   course: Course;
   stageKey: string;
   runtime?: CompanionRuntimeContextValue;
   onAskCompanion?: (text: string, companionIds?: AiCompanionId[]) => Promise<boolean>;
   onStopCompanion?: () => void;
+  initialView?: WorkbenchView;
 }) {
   const session = useSession();
   const studentId = session.studentId ?? "";
   const readiness = deriveStageReadiness(course, studentId, stageKey);
   const preset = resolveCourseLearningPreset(course);
-  const mission = getStageMissionDefinition(
-    stageKey,
-    preset,
-    readiness.missingEvidenceKinds,
-  );
+  const mission = getStageMissionDefinition(stageKey, preset, readiness.missingEvidenceKinds);
   const pendingAiDecisions = (course.aiContributions ?? []).filter(
     (item) =>
       item.studentId === studentId
@@ -55,6 +68,11 @@ export function StudioProjectWorkbench({
       && item.status === "pending-decision"
       && (item.impact === "high" || Boolean(item.proposedChange)),
   );
+  const appliedEditCount = (course.companionConfirmations ?? []).filter((item) =>
+    item.studentId === studentId
+    && item.stageKey === stageKey
+    && item.status === "confirmed"
+    && Boolean(parseWorkspaceOperation(item.payload))).length;
   const stageIndex = course.stages.findIndex((stage) => stage.key === stageKey);
   const stageTitle = course.stages[stageIndex]?.label ?? "当前阶段";
   const pageTitle = stageIndex >= 0
@@ -65,8 +83,8 @@ export function StudioProjectWorkbench({
     && item.stageKey === stageKey
     && item.kind === "student-help-request"
     && item.status === "open");
-  const [showingAiInbox, setShowingAiInbox] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [view, setView] = useState<WorkbenchView>(initialView);
+  const [assistantOpen, setAssistantOpen] = useState(true);
   const [assistantDraft, setAssistantDraft] = useState("");
   const eligibleCompanions = (runtime?.available ?? []).filter((companion) =>
     mission.allowedCompanionIds.includes(companion.id));
@@ -78,42 +96,61 @@ export function StudioProjectWorkbench({
   )
     ? assistantTargetId
     : eligibleCompanions[0]?.id ?? null;
+
   async function askCompanion() {
     const question = assistantDraft.trim();
     if (!question || !resolvedAssistantTargetId || !onAskCompanion) return;
     const ok = await onAskCompanion(
-      `我正在完成“${mission.currentAction.label}”。我的具体问题是：${question}`,
+      [
+        `我正在完成“${mission.currentAction.label}”。`,
+        `我的具体任务是：${question}`,
+        "操作约束：仅当上面的任务明确提出草稿字段变更时，才使用共编能力；不要替我提交。",
+      ].join("\n"),
       [resolvedAssistantTargetId],
     );
     if (ok) setAssistantDraft("");
   }
 
+  function undoWorkspaceEdit(
+    confirmationId: string,
+    operation: CompanionWorkspaceOperation,
+  ): { ok: boolean; message: string } {
+    const result = revertCompanionWorkspaceOperation({ course, operation });
+    if (result.status !== "applied") return { ok: false, message: result.reason };
+    session.upsertLearningEvidence(result.evidence);
+    session.resolveCompanionConfirmation(course.id, confirmationId, "rejected");
+    session.addCompanionProcessRecord({
+      courseId: course.id,
+      studentId,
+      stageKey,
+      title: `撤销了 AI 对“${operation.label}”的编辑`,
+      summary: "只恢复了这一个字段的编辑前内容，其他草稿和版本未改变。",
+      source: "student",
+      companionId: operation.companionId,
+      taskId: operation.taskId,
+      evidenceIds: [operation.evidenceId],
+    });
+    return { ok: true, message: `已撤销“${operation.label}”的 AI 编辑。` };
+  }
+
+  const viewCopy: Record<WorkbenchView, { title: string; description: string }> = {
+    editor: { title: pageTitle, description: mission.currentAction.description },
+    resources: { title: `${pageTitle} · 资料角`, description: "查找来源、打开原文，并把需要核对的线索交给知知。" },
+    archive: { title: `${pageTitle} · 过程档案`, description: "查看项目变化、AI 编辑和提交记录，并撤销仍可安全回退的编辑。" },
+    suggestions: { title: `${pageTitle} · 待确认建议`, description: "这些高影响建议没有直接写入工作台，需要你作出决定。" },
+  };
+
   return (
     <div className="studio-workbench studio-workbench--single">
       <header className="studio-workbench__single-header">
         <div className="studio-workbench__single-title">
-          <span className="studio-workbench__mark" aria-hidden="true">
-            <FilePenLine size={19} />
-          </span>
-          <div>
-            <h1>{showingAiInbox ? "AI建议" : pageTitle}</h1>
-            <p>{showingAiInbox ? "选择采纳、修改或拒绝。" : mission.currentAction.description}</p>
-          </div>
+          <span className="studio-workbench__mark" aria-hidden="true"><FilePenLine size={19} /></span>
+          <div><h1>{viewCopy[view].title}</h1><p>{viewCopy[view].description}</p></div>
         </div>
         <div className="studio-workbench__single-actions">
           <span className="studio-workbench__readiness" data-status={readiness.status}>
             {STAGE_READINESS_LABEL[readiness.status]}
           </span>
-          {pendingAiDecisions.length ? (
-            <button
-              className={cn("studio-workbench__inbox-toggle", showingAiInbox && "is-active")}
-              onClick={() => setShowingAiInbox((value) => !value)}
-              type="button"
-            >
-              <Inbox size={15} />
-              {showingAiInbox ? "返回任务" : `AI建议 ${pendingAiDecisions.length}`}
-            </button>
-          ) : null}
           {runtime && onAskCompanion && eligibleCompanions.length ? (
             <button
               aria-expanded={assistantOpen}
@@ -122,8 +159,8 @@ export function StudioProjectWorkbench({
               onClick={() => setAssistantOpen((value) => !value)}
               type="button"
             >
-              <Bot size={15} />
-              <span>AI协作</span>
+              {assistantOpen ? <PanelRightClose size={15} /> : <Bot size={15} />}
+              <span>AI 协作</span>
               {runtime.isActive ? <i aria-label="AI正在回应" /> : null}
             </button>
           ) : null}
@@ -140,6 +177,67 @@ export function StudioProjectWorkbench({
       </header>
 
       <main aria-live="polite" className="studio-workbench__single-canvas">
+        <div className={cn("studio-workbench__desktop-grid", !assistantOpen && "is-ai-closed")}>
+          <aside aria-label="工作台导航" className="studio-workbench__context-rail">
+            <section>
+              <span>当前任务</span>
+              <strong>{mission.currentAction.label}</strong>
+              <p>{mission.currentAction.doneWhen}</p>
+            </section>
+            <nav>
+              <button aria-pressed={view === "editor"} onClick={() => setView("editor")} type="button"><FilePenLine size={16} /><span>共享编辑</span></button>
+              <button aria-pressed={view === "resources"} onClick={() => setView("resources")} type="button"><Library size={16} /><span>资料角</span></button>
+              <button aria-pressed={view === "archive"} onClick={() => setView("archive")} type="button"><Archive size={16} /><span>过程档案</span>{appliedEditCount ? <b>{appliedEditCount}</b> : null}</button>
+              {pendingAiDecisions.length ? <button aria-pressed={view === "suggestions"} onClick={() => setView("suggestions")} type="button"><Inbox size={16} /><span>待确认建议</span><b>{pendingAiDecisions.length}</b></button> : null}
+            </nav>
+            <section className="studio-workbench__checks">
+              <span>完成条件</span>
+              {readiness.checks.map((check) => (
+                <div key={check.id}>{check.satisfied ? <CheckCircle2 size={14} /> : <Circle size={14} />}<p>{check.label}{check.detail ? <small>{check.detail}</small> : null}</p></div>
+              ))}
+            </section>
+            <section className="studio-workbench__responsibility">
+              <span><ShieldCheck size={13} /> 协作边界</span>
+              <p>AI 可直接改草稿；你负责核验事实和最终提交。每次 AI 编辑都能在档案中查看与撤销。</p>
+            </section>
+          </aside>
+
+          <div className="studio-workbench__canvas-body">
+            <section hidden={view !== "editor"}>
+              <EvidenceStageWorkspace
+                course={course}
+                embedded
+                focusActionId={mission.currentAction.id}
+                showAiInbox={false}
+                showMission={false}
+                stageKey={stageKey}
+              />
+            </section>
+            {onAskCompanion ? (
+              <section hidden={view !== "resources"}>
+                <StudioResourceLibrary
+                  course={course}
+                  disabled={!eligibleCompanions.some((item) => item.id === "knowledge")}
+                  onAsk={onAskCompanion}
+                  stageKey={stageKey}
+                />
+              </section>
+            ) : null}
+            <section hidden={view !== "archive"}>
+              <StudioProcessArchive
+                course={course}
+                messages={runtime?.messages ?? []}
+                onUndo={undoWorkspaceEdit}
+                stageKey={stageKey}
+                studentId={studentId}
+              />
+            </section>
+            {pendingAiDecisions.length ? (
+              <section hidden={view !== "suggestions"}>
+                <AiDecisionInbox course={course} stageKey={stageKey} studentId={studentId} />
+              </section>
+            ) : null}
+          </div>
 
           {assistantOpen && runtime && onAskCompanion ? (
             <WorkbenchAiPanel
@@ -151,28 +249,11 @@ export function StudioProjectWorkbench({
               onTargetChange={setAssistantTargetId}
               runtime={runtime}
               selectedTargetId={resolvedAssistantTargetId}
+              stageKey={stageKey}
               targets={eligibleCompanions.map((companion) => companion.id)}
             />
           ) : null}
-
-          <div className="studio-workbench__canvas-body">
-            {showingAiInbox ? (
-              <AiDecisionInbox
-                course={course}
-                stageKey={stageKey}
-                studentId={studentId}
-              />
-            ) : (
-              <EvidenceStageWorkspace
-                course={course}
-                embedded
-                focusActionId={mission.currentAction.id}
-                showAiInbox={false}
-                showMission={false}
-                stageKey={stageKey}
-              />
-            )}
-          </div>
+        </div>
       </main>
     </div>
   );
@@ -182,6 +263,7 @@ function WorkbenchAiPanel({
   runtime,
   targets,
   selectedTargetId,
+  stageKey,
   draft,
   onTargetChange,
   onChangeDraft,
@@ -192,6 +274,7 @@ function WorkbenchAiPanel({
   runtime: CompanionRuntimeContextValue;
   targets: AiCompanionId[];
   selectedTargetId: AiCompanionId | null;
+  stageKey: string;
   draft: string;
   onTargetChange: (id: AiCompanionId) => void;
   onChangeDraft: (value: string) => void;
@@ -199,96 +282,60 @@ function WorkbenchAiPanel({
   onStop?: () => void;
   onClose: () => void;
 }) {
-  const recentReplies = runtime.messages
-    .filter((message) => message.role === "assistant")
-    .slice(-2);
+  const recentReplies = runtime.messages.filter((message) => message.role === "assistant").slice(-2);
+  const taskStarters = stageKey === "make"
+    ? ["把我刚才说的测试观察整理到工作台", "根据现有结果补充一条测试局限，不要修改其他字段"]
+    : ["把我刚才说的风险补充到工作台", "根据现有方案完善下一步，不要修改其他字段"];
 
   return (
     <aside aria-label="AI伴学协作" className="studio-workbench__ai-panel">
       <header>
         <div>
-          <span><Bot size={14} /> AI伴学协作</span>
-          <strong>
-            {runtime.generatingCompanionId
-              ? `${getCompanion(runtime.generatingCompanionId).name}正在思考`
-              : runtime.currentSpeaker
-                ? `${getCompanion(runtime.currentSpeaker).name}正在回应`
-                : "围绕当前任务提问"}
-          </strong>
+          <span><Bot size={14} /> AI 组员</span>
+          <strong>{runtime.generatingCompanionId ? `${getCompanion(runtime.generatingCompanionId).name}正在思考` : runtime.currentSpeaker ? `${getCompanion(runtime.currentSpeaker).name}正在回应` : "可以对话，也可以直接编辑"}</strong>
         </div>
         <button aria-label="关闭AI协作" onClick={onClose} type="button"><X size={16} /></button>
       </header>
+
+      <p className="studio-workbench__coedit-status"><Undo2 size={13} /> 直接编辑已开启 · 每次改动可撤销</p>
 
       <div className="studio-workbench__ai-targets" aria-label="选择AI角色" role="group">
         {targets.map((id) => {
           const companion = getCompanion(id);
           return (
-            <button
-              aria-pressed={selectedTargetId === id}
-              key={id}
-              onClick={() => onTargetChange(id)}
-              title={companion.description}
-              type="button"
-            >
-              <span style={{ background: companion.color }}>{companion.shortName}</span>
-              {companion.name}
+            <button aria-pressed={selectedTargetId === id} key={id} onClick={() => onTargetChange(id)} title={companion.description} type="button">
+              <span style={{ background: companion.color }}>{companion.shortName}</span>{companion.name}
             </button>
           );
         })}
       </div>
 
+      <div className="studio-workbench__task-starters">
+        {taskStarters.map((prompt) => <button key={prompt} onClick={() => onChangeDraft(prompt)} type="button">{prompt}</button>)}
+      </div>
+
       <div className="studio-workbench__ai-messages" aria-live="polite">
         {recentReplies.length ? recentReplies.map((message, index) => {
-          const companion = message.companionId
-            ? getCompanion(message.companionId)
-            : null;
-          return (
-            <article key={`${message.ts}-${index}`}>
-              <strong>{companion?.name ?? "伴学伙伴"}</strong>
-              <p>{message.content}</p>
-            </article>
-          );
-        }) : (
-          <p className="studio-workbench__ai-empty">
-            写下你在当前任务中的具体卡点，选择一位伙伴协助。
-          </p>
-        )}
-        {runtime.streamingText ? (
-          <article className="is-streaming">
-            <strong>正在回应</strong>
-            <p>{runtime.streamingText}</p>
-          </article>
-        ) : null}
+          const companion = message.companionId ? getCompanion(message.companionId) : null;
+          return <article key={`${message.ts}-${index}`}><strong>{companion?.name ?? "伴学伙伴"}</strong><p>{message.content}</p></article>;
+        }) : <p className="studio-workbench__ai-empty">可以问问题，也可以直接指派“补充、修改、整理到工作台”等局部编辑任务。</p>}
+        {runtime.streamingText ? <article className="is-streaming"><strong>正在回应</strong><p>{runtime.streamingText}</p></article> : null}
         {runtime.error ? <p className="studio-workbench__ai-error">{runtime.error}</p> : null}
       </div>
 
-      <form
-        className="studio-workbench__ai-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSend();
-        }}
-      >
+      <form className="studio-workbench__ai-composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}>
         <textarea
           aria-label="给当前AI伙伴的问题"
           disabled={runtime.isActive}
           onChange={(event) => onChangeDraft(event.target.value)}
-          placeholder="例如：我的测试方法哪里还不清楚？"
-          rows={2}
+          placeholder="描述问题，或指派一项具体的编辑任务…"
+          rows={3}
           value={draft}
         />
         {runtime.isActive ? (
-          <button aria-label="停止AI回应" className="is-stop" onClick={onStop} type="button">
-            <Square fill="currentColor" size={12} />
-          </button>
+          <button aria-label="停止AI回应" className="is-stop" onClick={onStop} type="button"><Square fill="currentColor" size={12} /></button>
         ) : (
-          <button
-            aria-label="发送给AI伙伴"
-            disabled={!draft.trim() || !selectedTargetId}
-            type="submit"
-          >
-            <Send size={15} />
-          </button>
+          <button aria-label="发送给AI伙伴" disabled={!draft.trim() || !selectedTargetId} type="submit"><Send size={15} /></button>
         )}
       </form>
     </aside>
