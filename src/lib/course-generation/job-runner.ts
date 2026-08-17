@@ -658,16 +658,20 @@ export async function requeueCourseGenerationFromCheckpoints(
   const job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
   if (!job || job.status !== "failed") return job;
   const completedPageCount = await prisma.courseGenerationPageCheckpoint.count({
-    where: { jobId: job.id },
-  });
-  if (completedPageCount <= 0) return job;
+    where: { jobId: job.id } });
+  // 早期失败(如大纲校验)可能没有任何已完成页面或 checkpoint;此时仍需
+  // 重新入队并保留原请求,否则"从已完成页面继续"会静默无效果。
+  // 若之前已持久化过大纲(preparedOutlines),续跑会自动复用它们。
+  const message = completedPageCount > 0
+    ? `正在从 ${completedPageCount} 个已完成页面继续生成`
+    : "正在重新开始课程内容生成（此前尚无已完成的页面）";
   const request = job.request as unknown as PersistedCourseGenerationRequest;
   await prisma.courseGenerationJob.updateMany({
     where: { id: job.id, status: "failed" },
     data: {
       status: "queued",
       step: "recovering_scenes",
-      message: `正在从 ${completedPageCount} 个已完成页面继续生成`,
+      message,
       request: {
         ...request,
         managedRecoveryCount: 0,

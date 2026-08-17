@@ -348,6 +348,41 @@ export function attachTtsTimingPlans(
   });
 }
 
+/**
+ * 修复学生 AI 授知页面缺失的知识点关联。
+ *
+ * 备课阶段的大纲校验只要求"知识点全覆盖",允许导学等概述型页面不带
+ * knowledgePointIds;而课堂内容生成的校验(requireReferences)要求每个
+ * 学生授知页面都必须关联知识点。两级校验不一致会让已通过备课并经教师
+ * 确认的大纲在制作计划阶段硬失败,且重试也无法恢复(确认的大纲不变)。
+ * 这里在校验前把缺失关联的页面自动继承其所属课程模块的知识点;模块也
+ * 没有知识点时回退为关联全部已确认知识点,保证后续父模块一致性校验通过。
+ */
+function repairPblKnowledgeReferences(
+  outlines: SceneOutline[],
+  input: GenerateClassroomInput,
+): SceneOutline[] {
+  if (input.pblProfile?.generationTemplate !== 'pbl-six-stage') return outlines;
+  const catalog = input.pblActivityCatalog ?? [];
+  let repaired = 0;
+  const result = outlines.map((outline) => {
+    if (outline.audience !== 'student' || outline.stageKey !== 'ai-learning') return outline;
+    if ((outline.knowledgePointIds ?? []).length > 0) return outline;
+    const parent = catalog.find((activity) => activity.activityId === outline.parentActivityId);
+    const inherited = (parent?.knowledgePointIds ?? []).filter(Boolean);
+    const fallbackIds = inherited.length > 0
+      ? inherited
+      : (input.knowledgePoints ?? []).map((point) => point.id).filter(Boolean);
+    if (fallbackIds.length === 0) return outline;
+    repaired += 1;
+    return { ...outline, knowledgePointIds: fallbackIds };
+  });
+  if (repaired > 0) {
+    log.info(`Repaired ${repaired} outline(s) missing knowledge point references (inherited from parent module)`);
+  }
+  return result;
+}
+
 function validateConfirmedPblDetails(
   outlines: SceneOutline[],
   input: GenerateClassroomInput,
@@ -757,9 +792,12 @@ export async function generateClassroom(
     speed: input.ttsSpeed,
     language: input.ttsLanguage,
   });
-  const outlines = attachTtsTimingPlans(
-    normalizeSceneOutlinesForDuration(baseOutlines),
-    ttsTimingSelection,
+  const outlines = repairPblKnowledgeReferences(
+    attachTtsTimingPlans(
+      normalizeSceneOutlinesForDuration(baseOutlines),
+      ttsTimingSelection,
+    ),
+    input,
   );
   throwIfAborted(options.signal);
   validateConfirmedPblDetails(outlines, input);

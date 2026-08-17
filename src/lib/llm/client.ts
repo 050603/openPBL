@@ -1317,6 +1317,33 @@ function parseWeight(dimension: Record<string, unknown>): number {
   return 0;
 }
 
+/**
+ * 补全 AI 授知页面缺失的知识点关联。
+ *
+ * 与 classroom-generation 的 repairPblKnowledgeReferences 同理:分步生成的
+ * 大纲校验只要求知识点全覆盖,允许导学等概述页面不带 knowledgePointIds,
+ * 而完整课程校验(requireReferences)要求每个授知页面都有关联。两级校验
+ * 不一致会导致同一份大纲在后续阶段硬失败,这里统一在强校验前补全:优先
+ * 继承所属课程模块的知识点,无父模块时回退关联全部知识点。
+ */
+function repairMissingKnowledgeReferences(
+  details: LessonOutlineSection[],
+  teachingOutline: TeachingOutlineSection[],
+  knowledgePoints: CourseContent["knowledgePoints"],
+): LessonOutlineSection[] {
+  return details.map((detail) => {
+    if (detail.stageKey !== "ai-learning") return detail;
+    if ((detail.knowledgePointIds ?? []).length > 0) return detail;
+    const parent = teachingOutline.find((activity) => activity.id === detail.parentActivityId);
+    const inherited = (parent?.knowledgePointIds ?? []).filter(Boolean);
+    const fallbackIds = inherited.length > 0
+      ? inherited
+      : knowledgePoints.map((point) => point.id).filter(Boolean);
+    if (fallbackIds.length === 0) return detail;
+    return { ...detail, knowledgePointIds: fallbackIds };
+  });
+}
+
 function validateFullCourse(json: unknown, input: GenerateInput): CourseContent {
   const data = json && typeof json === "object" ? json as Partial<CourseContent> : {};
   const { knowledgePoints, knowledgeGraph } = normalizeKnowledgeGraphOutput(
@@ -1326,12 +1353,13 @@ function validateFullCourse(json: unknown, input: GenerateInput): CourseContent 
   const teachingOutline = data.teachingOutline
     ? validateTeachingOutline(data.teachingOutline, input, { knowledgePoints, knowledgeGraph })
     : [];
-  const lessonOutline = validateLessonOutline(data.lessonOutline, input, {
+  let lessonOutline = validateLessonOutline(data.lessonOutline, input, {
     knowledgePoints,
     knowledgeGraph,
     teachingOutline,
   });
   if (input.pblConfig?.generationTemplate === "pbl-six-stage") {
+    lessonOutline = repairMissingKnowledgeReferences(lessonOutline, teachingOutline, knowledgePoints);
     const activityIds = new Set(teachingOutline.map((activity) => activity.id));
     const orphanDetails = lessonOutline.filter(
       (detail) => !detail.parentActivityId || !activityIds.has(detail.parentActivityId),
