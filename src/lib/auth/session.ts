@@ -144,7 +144,7 @@ export function clearAuthCookies(role?: AuthRole): Array<{ name: string; value: 
     path: "/",
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureCookieDeployment(),
   }));
 }
 
@@ -159,11 +159,20 @@ export interface CookieOptions {
 export function getAuthCookieOptions(maxAge: number): CookieOptions {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureCookieDeployment(),
     sameSite: "lax",
     path: "/",
     maxAge,
   };
+}
+
+// Secure cookie 仅在 HTTPS 部署下启用:浏览器不会在明文 HTTP 连接上保存
+// 带 Secure 标志的 cookie,内网 IP 直访(如 http://172.16.x.x)会导致登录
+// 成功但会话丢失。判断依据 PUBLIC_BASE_URL 协议而非 NODE_ENV。
+function isSecureCookieDeployment(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  const base = process.env.PUBLIC_BASE_URL?.trim();
+  return !base || base.startsWith("https://");
 }
 
 /**

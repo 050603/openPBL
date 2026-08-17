@@ -86,6 +86,7 @@
     "@tiptap/starter-kit": "^3.27.1",
     "@tldraw/sync": "5.2.5",
     "@tldraw/sync-core": "5.2.5",
+    "@tldraw/tlschema": "5.2.5",
     "@tweenjs/tween.js": "25.0.0",
     "@xyflow/react": "^12.11.2",
     "ai": "^6.0.168",

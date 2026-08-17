@@ -83,6 +83,8 @@ Dockerfile
 docker-compose*.yml
 .dockerignore
 deploy
+# container-entrypoint.sh is COPY'd by the Dockerfile (migrator/runner stages)
+!deploy/container-entrypoint.sh
 
 # ---- Examples / sample data ----
 *.example.yml

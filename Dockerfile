@@ -31,10 +31,10 @@ COPY packages/ ./packages/
 
 # `postinstall` builds the workspace packages (mathml2omml, pptxgenjs,
 # @openmaic/*) and runs `prisma generate`. The latter requires the schema, so
-# copy the prisma directory too. `scripts/sync-maic-importer.mjs` is invoked
-# by postinstall and must also be present.
+# copy the prisma directory too. `scripts/sync-maic-importer.mjs` and
+# `scripts/run-prisma.mjs` are invoked by postinstall and must also be present.
 COPY prisma ./prisma
-COPY scripts/sync-maic-importer.mjs ./scripts/sync-maic-importer.mjs
+COPY scripts/sync-maic-importer.mjs scripts/run-prisma.mjs ./scripts/
 
 # Install with the frozen lockfile. `--ignore-scripts` is NOT used because
 # postinstall builds the workspace packages the app imports at runtime.
@@ -90,11 +90,12 @@ LABEL org.opencontainers.image.title="openpbl-app" \
 
 # Runtime dependencies:
 #   - libvips: required by `sharp` for image optimization at runtime.
+#     (renamed from `libvips` to `vips` in Alpine 3.24)
 #   - wget: used by the HEALTHCHECK directive.
 #   - tini: tiny init that reaps zombies and forwards signals (Next.js server
 #     is a single process so this is mostly defensive; STOPSIGNAL below still
 #     works without tini).
-RUN apk add --no-cache libvips wget tini su-exec
+RUN apk add --no-cache vips wget tini su-exec
 
 WORKDIR /app
 

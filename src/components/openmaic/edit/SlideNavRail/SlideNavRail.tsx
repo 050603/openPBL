@@ -10,6 +10,7 @@ import { useStageStore } from '@openmaic/lib/store';
 import { useSettingsStore } from '@openmaic/lib/store/settings';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { useDeletedSceneRecycle } from '@openmaic/lib/edit/deleted-scene-recycle';
+import { clientUUID } from '@/lib/uuid';
 import { createBlankSlideScene, duplicateSlideScene } from '@openmaic/lib/edit/slide-defaults';
 import { SCENE_CREATION_ENABLED } from '@openmaic/lib/edit/scene-creation-enabled';
 import { CHROME_DURATION_MS, CHROME_EASE, CHROME_EASE_CSS } from '@openmaic/lib/edit/transitions';
@@ -246,7 +247,7 @@ export function SlideNavRail() {
           ? duplicateSlideScene(source, t('edit.nav.copySuffix'), newOrder)
           : {
               ...source,
-              id: crypto.randomUUID(),
+              id: clientUUID(),
               title: `${source.title} ${t('edit.nav.copySuffix')}`,
               order: newOrder,
               createdAt: Date.now(),

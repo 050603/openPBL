@@ -9,8 +9,10 @@ const ProductionEnvironmentSchema = z.object({
   REDIS_URL: z.string().url().refine((value) => value.startsWith("redis://") || value.startsWith("rediss://"), {
     message: "REDIS_URL must use redis:// or rediss://",
   }),
-  PUBLIC_BASE_URL: z.string().url().refine((value) => value.startsWith("https://"), {
-    message: "PUBLIC_BASE_URL must use HTTPS",
+  PUBLIC_BASE_URL: z.string().url().refine((value) => value.startsWith("https://") || value.startsWith("http://"), {
+    // 允许 http:// 用于无域名/无证书的内网 IP 直访部署(如 http://172.16.x.x),
+    // 公网域名部署仍应使用 https://
+    message: "PUBLIC_BASE_URL must use http:// or https://",
   }),
   JWT_SECRET: z.string().min(43),
   PROVIDER_ENCRYPTION_KEY: z.string().refine(isBase64Key, {

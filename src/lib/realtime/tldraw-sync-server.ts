@@ -9,7 +9,10 @@ import {
   SQLiteSyncStorage,
   TLSocketRoom,
 } from "@tldraw/sync-core";
-import { createTLSchema, type TLRecord } from "tldraw";
+// 使用纯 schema 包而非 tldraw 主包:主包依赖 radix-ui 等 React UI 库,
+// 会在生产 standalone 的 react-server 条件下于服务端 instrumentation
+// 加载时崩溃(createContext is not a function)
+import { createTLSchema, type TLRecord } from "@tldraw/tlschema";
 import {
   STUDENT_COOKIE_NAME,
   TEACHER_COOKIE_NAME,

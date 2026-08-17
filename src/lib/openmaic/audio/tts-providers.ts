@@ -696,11 +696,16 @@ async function generateQwenTTS(config: TTSModelConfig, text: string): Promise<TT
   // speed 1.0 = rate 0, speed 2.0 = rate 500, speed 0.5 = rate -250
   const rate = Math.round(((config.speed || 1.0) - 1.0) * 500);
 
+  // 优先使用 SSE 流式模式:音频以 Base64 PCM(24kHz/16bit/mono)直接随响应
+  // 返回,无需再从 OSS 结果 CDN 下载完整音频。部分网络环境(如仅 IPv6 出站
+  // 的校园网)无法访问 IPv4-only 的 dashscope-result CDN,会拿到门户劫持页
+  // 而非音频字节,导致客户端"音频无法解码"。
   const response = await fetch(`${baseUrl}/services/aigc/multimodal-generation/generation`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       'Content-Type': 'application/json; charset=utf-8',
+      'X-DashScope-SSE': 'enable',
     },
     body: JSON.stringify({
       model: config.modelId || 'qwen3-tts-flash',
@@ -721,27 +726,156 @@ async function generateQwenTTS(config: TTSModelConfig, text: string): Promise<TT
     throw new Error(`Qwen TTS API error: ${errorText}`);
   }
 
-  const data = await response.json();
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('text/event-stream') && response.body) {
+    const pcm = await collectQwenSsePcm(response.body);
+    if (pcm.length > 0) {
+      return { audio: pcmToWav(pcm, 24000, 16, 1), format: 'wav' };
+    }
+    // 未收到任何 PCM(异常情况),回退到非流式逻辑重新请求。
+    const fallback = await fetch(`${baseUrl}/services/aigc/multimodal-generation/generation`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        model: config.modelId || 'qwen3-tts-flash',
+        input: {
+          text,
+          voice: config.voice,
+          language_type: 'Chinese',
+        },
+        parameters: {
+          rate, // Speech rate from -500 to 500
+        },
+      }),
+    });
+    if (!fallback.ok) {
+      throwIfTtsRateLimited('Qwen', fallback.status);
+      const errorText = await fallback.text().catch(() => fallback.statusText);
+      throw new Error(`Qwen TTS API error: ${errorText}`);
+    }
+    return {
+      audio: normalizePlayableWav(await downloadQwenAudio(await fallback.json())),
+      format: 'wav', // Qwen3 TTS returns WAV format
+    };
+  }
 
-  // Check for audio URL in response
-  if (!data.output?.audio?.url) {
+  const data = await response.json();
+  const inline = data?.output?.audio?.data;
+  if (typeof inline === 'string' && inline.length > 0) {
+    return { audio: pcmToWav(decodeBase64(inline), 24000, 16, 1), format: 'wav' };
+  }
+  return {
+    audio: normalizePlayableWav(await downloadQwenAudio(data)),
+    format: 'wav', // Qwen3 TTS returns WAV format
+  };
+}
+
+/** 解析 DashScope SSE 流,拼接所有 chunk 的 Base64 PCM 片段。 */
+async function collectQwenSsePcm(body: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: Uint8Array[] = [];
+  let buffer = '';
+
+  const handleEvent = (payload: string) => {
+    if (!payload || payload === '[DONE]') return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    const data = (parsed as { output?: { audio?: { data?: unknown } } })?.output?.audio?.data;
+    if (typeof data === 'string' && data.length > 0) {
+      chunks.push(decodeBase64(data));
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newlineIndex).replace(/\r$/, '');
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line.startsWith('data:')) handleEvent(line.slice(5).trim());
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.startsWith('data:')) handleEvent(buffer.slice(5).trim());
+
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
+}
+
+/** PCM 裸流封装为可播放的 WAV(小端)。 */
+function pcmToWav(pcm: Uint8Array, sampleRate: number, bitsPerSample: number, channels: number): Uint8Array {
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const header = new Uint8Array(44);
+  const view = new DataView(header.buffer);
+  const writeAscii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + pcm.length, true);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeAscii(36, 'data');
+  view.setUint32(40, pcm.length, true);
+  const out = new Uint8Array(44 + pcm.length);
+  out.set(header, 0);
+  out.set(pcm, 44);
+  return out;
+}
+
+function decodeBase64(base64: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(base64, 'base64'));
+}
+
+/** 从 DashScope 响应提取 OSS 音频 URL 并下载,校验确为音频字节。 */
+async function downloadQwenAudio(data: unknown): Promise<Uint8Array> {
+  const audioUrl = (data as { output?: { audio?: { url?: unknown } } })?.output?.audio?.url;
+  if (!audioUrl) {
     throw new Error(`Qwen TTS error: No audio URL in response. Response: ${JSON.stringify(data)}`);
   }
 
   // Download audio from URL
-  const audioUrl = data.output.audio.url;
-  const audioResponse = await fetch(audioUrl);
+  const audioResponse = await fetch(audioUrl as string);
 
   if (!audioResponse.ok) {
     throw new Error(`Failed to download audio from URL: ${audioResponse.statusText}`);
   }
 
   const arrayBuffer = await audioResponse.arrayBuffer();
-
-  return {
-    audio: normalizePlayableWav(new Uint8Array(arrayBuffer)),
-    format: 'wav', // Qwen3 TTS returns WAV format
-  };
+  const bytes = new Uint8Array(arrayBuffer);
+  // 网关/门户劫持会以 200 返回 HTML 页面;RIFF/ID3/ftyp/OggS 均不是 HTML,
+  // 以 '<' 开头的基本可断定不是音频。明确报错优于把 HTML 当音频下发。
+  if (bytes[0] === 0x3c /* '<' */ || bytes[0] === 0x0a) {
+    const preview = Buffer.from(bytes.slice(0, 64)).toString('latin1').replace(/\s+/g, ' ');
+    throw new Error(
+      `Qwen TTS error: audio download returned non-audio content (likely a captive portal page). First bytes: ${JSON.stringify(preview)}`,
+    );
+  }
+  return bytes;
 }
 
 /**

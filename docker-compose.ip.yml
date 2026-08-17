@@ -1,0 +1,103 @@
+# IP 直访(HTTP)+ host 网络部署覆盖 —— 与 docker-compose.prod.yml 叠加使用:
+#   docker compose --env-file deploy/.deploy.env \
+#     -f docker-compose.prod.yml -f docker-compose.ip.yml \
+#     --profile blue up -d
+#
+# 本机网络背景:
+#   - 校园网屏蔽 IPv4 出站,仅 IPv6 出站可用;Docker 默认桥接网络为 IPv4-only,
+#     容器内无法访问 npm/apk/LLM API 等外部服务
+#   - 因此全部服务使用 network_mode: host,直接复用宿主机网络栈(IPv6 出站正常)
+#
+# 端口规划(均已避开现有服务 5432/6379/8080/8081/4000/11434 等):
+#   - nginx:        0.0.0.0:80(公网入口)
+#   - app(Next.js): 127.0.0.1:3000(仅经 Nginx 访问)
+#   - WebSocket:    3001;tldraw sync: 3002
+#   - postgres:     127.0.0.1:15432
+#   - redis:        127.0.0.1:16379
+#
+# 其他差异:
+#   - PUBLIC_BASE_URL 为 http://172.16.185.157(原为 https://${PUBLIC_HOST})
+#   - Nginx 使用 HTTP 模板(原模板强制 HTTPS + Let's Encrypt 证书)
+#   - postgres 使用官方镜像并关闭 WAL 归档(未启用 S3 备份 profile,
+#     归档命令持续失败会导致 pg_wal 无限堆积)
+services:
+  app-blue:
+    network_mode: host
+    environment:
+      PUBLIC_BASE_URL: http://172.16.185.157
+      REDIS_URL: redis://127.0.0.1:16379
+      HOSTNAME: 127.0.0.1
+
+  app-green:
+    network_mode: host
+    environment:
+      PUBLIC_BASE_URL: http://172.16.185.157
+      REDIS_URL: redis://127.0.0.1:16379
+      HOSTNAME: 127.0.0.1
+
+  nginx:
+    network_mode: host
+    volumes:
+      - ./deploy/nginx/openpbl-http.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports: !override []
+    # 原生产 Compose 的自定义 command(/bin/sh ...)会让镜像入口脚本跳过
+    # 模板 envsubst(仅当 $1 为 nginx 时才执行),这里显式先渲染模板再启动
+    command: !override
+      - /bin/sh
+      - -ec
+      - |
+        /docker-entrypoint.d/20-envsubst-on-templates.sh
+        (while sleep 21600; do nginx -s reload; done) &
+        exec nginx -g 'daemon off;'
+
+  postgres:
+    image: postgres:16.9-alpine
+    build: !reset null
+    network_mode: host
+    command: !override
+      - postgres
+      - -h
+      - 127.0.0.1
+      - -p
+      - "15432"
+      - -c
+      - max_connections=120
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - maintenance_work_mem=256MB
+    healthcheck: !override
+      test: ["CMD-SHELL", "pg_isready -U openpbl -d openpbl -p 15432"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    network_mode: host
+    command: !override
+      - redis-server
+      - --port
+      - "16379"
+      - --bind
+      - 127.0.0.1
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --timeout
+      - "0"
+    healthcheck: !override
+      test: ["CMD", "redis-cli", "-p", "16379", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    network_mode: host

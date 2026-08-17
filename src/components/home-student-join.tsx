@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { JoinClassForm } from "@/components/join-class-form";
+import { clientUUID } from "@/lib/uuid";
 import { useSession } from "@/lib/session/store";
 
 /**
@@ -26,7 +27,7 @@ export function HomeStudentJoin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requestId: crypto.randomUUID(),
+          requestId: clientUUID(),
           inviteCode: code,
           studentName: name,
         }),

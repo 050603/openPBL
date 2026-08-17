@@ -14,6 +14,7 @@ import {
 import { DashboardShell } from "@/components/dashboard-shell";
 import { JoinClassForm } from "@/components/join-class-form";
 import { useSession, useHydrated } from "@/lib/session/store";
+import { clientUUID } from "@/lib/uuid";
 
 export default function StudentEntryPage() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function StudentEntryPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requestId: crypto.randomUUID(),
+          requestId: clientUUID(),
           inviteCode: code,
           studentName: name,
         }),

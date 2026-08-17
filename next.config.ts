@@ -51,6 +51,10 @@ const nextConfig: NextConfig = {
       "./node_modules/katex/dist/**/*",
       "./node_modules/pyodide/**/*",
     ],
+    // sharp 的 prebuilt 二进制在运行时 dlopen vendored libvips 共享库,
+    // NFT 追踪不到这些 .so(只带上了 .node 本体),导致 standalone 镜像里
+    // 图像处理报 ERR_DLOPEN_FAILED。显式包含整个 @img 目录。
+    "/**": ["./node_modules/@img/**"],
   },
   // Stage 9: standalone output for minimal Docker images.
   // Produces `.next/standalone` with only the files needed to run the

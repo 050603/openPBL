@@ -54,6 +54,7 @@ import type {
   WorkPlanItem,
 } from "./types";
 import type { ActionAck } from "@/lib/courses/contracts";
+import { clientUUID } from "@/lib/uuid";
 import { DEFAULT_EVALUATION_FLOWS, DEFAULT_STAGES } from "./types";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import {
@@ -179,12 +180,14 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
   return applySessionAction(state, action);
 }
 
+// crypto.randomUUID 仅在安全上下文(HTTPS/localhost)可用,内网 IP 直访
+// 需降级,详见 @/lib/uuid。
 function makeCourseId(): string {
-  return crypto.randomUUID();
+  return clientUUID();
 }
 
 function makeStudentId(): string {
-  return crypto.randomUUID();
+  return clientUUID();
 }
 
 function makeEmptyHydratedState(): SessionState {
@@ -480,7 +483,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSaveState("saving");
     setSaveError(undefined);
     pendingCommitsRef.current++;
-    const requestId = crypto.randomUUID();
+    const requestId = clientUUID();
     const run = async () => {
       const ack = await postSessionActionWithRetry(action, stateRef.current, requestId);
       const courseId = courseIdForAction(action);
