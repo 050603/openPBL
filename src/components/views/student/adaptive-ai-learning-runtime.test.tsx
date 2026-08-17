@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Course, StudentAdaptiveLearningState } from "@/lib/session/types";
+import type { AdaptiveBranchOutline, Course, StudentAdaptiveLearningState } from "@/lib/session/types";
 
 vi.mock("@/components/openmaic-bridge/student-stage-host", () => ({
   prefetchAdaptiveClassroom: vi.fn(async () => ({
@@ -95,6 +95,11 @@ const course = {
       updatedAt: "2026-07-26T00:00:00.000Z",
       timeBudgetMin: 8,
       thresholds: { enrichmentMasteryMin: 80 },
+      prerequisiteSemanticReview: {
+        status: "passed",
+        summary: "当前方案的先修边界已通过独立审校。",
+        decisions: [],
+      },
       pretest: {
         title: "先决知识检查",
         introduction: "",
@@ -177,6 +182,129 @@ describe("AdaptiveAiLearningRuntime seamless sequencing", () => {
     expect(screen.getByText("main-classroom")).toBeTruthy();
     expect(screen.getAllByTestId("stage-host")).toHaveLength(1);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does not mount the main player while a persisted prerequisite gap is being queued", async () => {
+    const courseWithGap = structuredClone(course) as Course;
+    const plan = courseWithGap.content.adaptiveLearningPlan!;
+    plan.pretest.questions = [{
+      id: "q-prerequisite",
+      type: "single-choice",
+      prompt: "哪一项属于可靠的分类特征？",
+      options: ["可观察特征", "随机猜测"],
+      correctOptionIndex: 0,
+      knowledgePointIds: ["prereq-classification"],
+    }];
+    const matchingBranch: AdaptiveBranchOutline = {
+      ...plan.branches[0],
+      id: "prerequisite-resource",
+      kind: "prerequisite",
+      prerequisiteKnowledgePointIds: ["prereq-classification"],
+      anchorKnowledgePointIds: ["reinforcement-learning"],
+      noveltyStatement: "补充主课未讲授、但理解后续分类任务必需的可观察特征基础。",
+      trigger: {
+        placement: "before-main-course",
+        evidenceRule: "pretest-gap",
+        minimumRemainingSec: 120,
+      },
+    };
+    plan.branches = [
+      {
+        ...matchingBranch,
+        id: "unrelated-prerequisite-resource",
+        title: "不相关的先决知识回顾",
+        prerequisiteKnowledgePointIds: ["prereq-unrelated"],
+        preparedResource: { status: "ready", classroomId: "unrelated-classroom", scenesCount: 1 },
+      },
+      matchingBranch,
+    ];
+    const stateWithGap: StudentAdaptiveLearningState = {
+      ...adaptiveState,
+      pretestScore: 0,
+      pretestWeakKnowledgePointIds: ["prereq-classification"],
+      pretestMasteredKnowledgePointIds: [],
+    };
+    courseWithGap.aiLearningProgress!["student-1"].adaptiveLearning = stateWithGap;
+    let releaseRequest: (() => void) | undefined;
+    const firstRequest = new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      await firstRequest;
+      return { ok: true, json: async () => ({ state: stateWithGap }) } as Response;
+    }));
+
+    render(
+      <AdaptiveAiLearningRuntime
+        backHref="/student/course-1"
+        classroomId="main-classroom"
+        course={courseWithGap}
+        studentId="student-1"
+        studentName="张三"
+      />,
+    );
+
+    expect(screen.queryByTestId("stage-host")).toBeNull();
+    expect(screen.getByText("正在准备必需的先决知识回顾")).toBeTruthy();
+    releaseRequest?.();
+    await waitFor(() => expect(screen.getByTestId("stage-host")).toBeTruthy());
+    expect(screen.getByTestId("stage-host").getAttribute("data-insertions")).toBe("1");
+  });
+
+  it("enters the main course directly when prerequisite analysis explicitly requires no pretest", () => {
+    const courseWithoutPretest = structuredClone(course) as Course;
+    delete courseWithoutPretest.aiLearningProgress!["student-1"].adaptiveLearning!.pretestCompletedAt;
+    courseWithoutPretest.content.adaptiveLearningPlan!.pretest.questions = [];
+    courseWithoutPretest.content.adaptiveLearningPlan!.prerequisiteKnowledgePoints = [];
+    courseWithoutPretest.content.adaptiveLearningPlan!.prerequisiteAnalysis = {
+      summary: "本课从必要基础开始教学。",
+      decisions: [{
+        targetKnowledgePointId: "reinforcement-learning",
+        decision: "teach-in-main-course",
+        prerequisiteKnowledgePointIds: [],
+        rationale: "这是本课新授内容。",
+      }],
+    };
+
+    render(
+      <AdaptiveAiLearningRuntime
+        backHref="/student/course-1"
+        classroomId="main-classroom"
+        course={courseWithoutPretest}
+        studentId="student-1"
+        studentName="张三"
+      />,
+    );
+
+    expect(screen.getByTestId("stage-host")).toBeTruthy();
+    expect(screen.queryByText("开始学习")).toBeNull();
+  });
+
+  it("does not expose a legacy pretest that never passed prerequisite-boundary review", () => {
+    const legacyCourse = structuredClone(course) as Course;
+    delete legacyCourse.content.adaptiveLearningPlan!.prerequisiteSemanticReview;
+    delete legacyCourse.aiLearningProgress!["student-1"].adaptiveLearning!.pretestCompletedAt;
+    legacyCourse.content.adaptiveLearningPlan!.pretest.questions = [{
+      id: "legacy-fake-pretest",
+      type: "single-choice",
+      prompt: "‘猫喜欢鱼’中的‘喜欢’是什么词性？",
+      options: ["名词", "动词", "形容词", "副词"],
+      correctOptionIndex: 1,
+      knowledgePointIds: ["fake-prerequisite"],
+    }];
+
+    render(
+      <AdaptiveAiLearningRuntime
+        backHref="/student/course-1"
+        classroomId="main-classroom"
+        course={legacyCourse}
+        studentId="student-1"
+        studentName="张三"
+      />,
+    );
+
+    expect(screen.getByTestId("stage-host")).toBeTruthy();
+    expect(screen.queryByText("‘猫喜欢鱼’中的‘喜欢’是什么词性？")).toBeNull();
   });
 
   it("restores a ready companion micro lesson inside the same main player", () => {

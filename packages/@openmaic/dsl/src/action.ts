@@ -15,6 +15,8 @@
  * No runtime dependencies. Pure types + plain data constants only.
  */
 
+import type { AssetRef } from './storage.js';
+
 // ==================== Base ====================
 
 export interface ActionBase {
@@ -45,8 +47,18 @@ export interface LaserAction extends ActionBase {
 export interface SpeechAction extends ActionBase {
   type: 'speech';
   text: string;
-  audioId?: string;
-  audioUrl?: string; // Server-generated TTS audio URL
+  /**
+   * An asset reference for narration audio. Documents converted by the app-side
+   * reference converter (#1007 part 2, step c) hold allocated asset ids here.
+   * Unconverted legacy documents may still carry TTS-derived ids until they are
+   * opened and converted; such values are foreign to the asset pool and resolve
+   * through the app's legacy read fallbacks.
+   */
+  audioId?: AssetRef;
+  /** Legacy OpenPBL TTS URL retained until all persisted classrooms use asset refs. */
+  audioUrl?: string;
+  /** Prevent legacy derived-id fallback after an edit invalidates old narration. */
+  audioInvalidated?: boolean;
   voice?: string;
   speed?: number; // default 1.0
 }

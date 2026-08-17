@@ -51,10 +51,7 @@ export function createCourseBasicsDraft(course: Course): CourseBasicsDraft {
     priorKnowledge: course.learnerProfile?.priorKnowledge ?? "",
     learningNeeds: course.learnerProfile?.learningNeeds ?? "",
     familiarContexts: course.learnerProfile?.familiarContexts ?? "",
-    drivingQuestions:
-      course.pblConfig?.inquiryQuestions?.length
-        ? [...course.pblConfig.inquiryQuestions]
-        : [course.drivingQuestion || ""],
+    drivingQuestions: [course.drivingQuestion || course.pblConfig?.inquiryQuestions?.[0] || ""],
     outcomeArtifact: course.pblConfig?.outcome.artifact ?? DEFAULT_PBL_OUTCOME.artifact,
     outcomePresentation:
       course.pblConfig?.outcome.presentation ?? DEFAULT_PBL_OUTCOME.presentation,
@@ -89,7 +86,7 @@ export function buildCourseBasicsPatch(course: Course, draft: CourseBasicsDraft)
     drivingQuestion: drivingQuestions[0] ?? "",
     pblConfig: normalizePblCourseConfig({
       ...course.pblConfig,
-      inquiryQuestions: drivingQuestions,
+      inquiryQuestions: drivingQuestions.slice(0, 1),
       evidenceRequirements:
         course.pblConfig?.evidenceRequirements ??
         DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((item) => item.required),

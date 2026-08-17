@@ -18,6 +18,11 @@ export const ROOTS = {
   Action: 'action.schema.json',
 };
 
+// Historical stored PBL documents may carry app-owned runtime fields on these
+// contract nodes. Keep their TypeScript interfaces precise for consumers, then
+// open exactly these JSON Schema definitions for backward-compatible reads.
+const OPEN_PBL_DEFINITIONS = ['PBLProject', 'PBLMilestone', 'PBLMicrotask', 'PBLThreadSeat'];
+
 // One generator over the whole tsconfig program, built lazily and reused for
 // every root — parses/type-builds the program once instead of per type.
 // `createSchema(typeName)` still walks from each root, so each schema only
@@ -28,6 +33,11 @@ function getGenerator() {
     tsconfig: resolve(pkgRoot, 'tsconfig.json'),
     skipTypeCheck: true,
     topRef: true,
+    // `extended` parses annotation tags — notably `@default`, which carries the
+    // canonical static element defaults (see slides.ts / normalize.ts) onto the
+    // emitted schema so non-TS consumers ship them too. It is the generator's
+    // default; pinned here because the contract now depends on it.
+    jsDoc: 'extended',
   });
   return generator;
 }
@@ -35,7 +45,11 @@ function getGenerator() {
 /** Generate the JSON Schema object for one root type (in-memory). */
 export function generateSchema(typeName) {
   if (!(typeName in ROOTS)) throw new Error(`unknown schema root: ${typeName}`);
-  return getGenerator().createSchema(typeName);
+  const schema = getGenerator().createSchema(typeName);
+  for (const name of OPEN_PBL_DEFINITIONS) {
+    if (schema.definitions?.[name]) schema.definitions[name].additionalProperties = true;
+  }
+  return schema;
 }
 
 function main() {

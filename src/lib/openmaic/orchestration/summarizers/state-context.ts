@@ -95,7 +95,8 @@ export function summarizeElements(elements: any[]): string {
  * Build context string from store state
  */
 export function buildStateContext(storeState: StatelessChatRequest['storeState']): string {
-  const { stage, scenes, currentSceneId, mode, whiteboardOpen, quizResults } = storeState;
+  const { stage, scenes, currentSceneId, mode, whiteboardOpen, quizResults } =
+    storeState;
 
   const lines: string[] = [];
 

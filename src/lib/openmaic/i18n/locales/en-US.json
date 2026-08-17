@@ -36,9 +36,7 @@
     "ttsTitle": "Text-to-Speech",
     "ttsHint": "Choose a voice for the AI teacher",
     "ttsPreview": "Preview",
-    "ttsPreviewing": "Playing...",
-    "interactiveModeHint": "Enable interactive-first mode for more hands-on content",
-    "interactiveModeLabel": "Interactive Mode"
+    "ttsPreviewing": "Playing..."
   },
   "export": {
     "pptx": "Export PPTX",

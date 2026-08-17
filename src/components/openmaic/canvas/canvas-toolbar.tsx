@@ -20,6 +20,7 @@ import { cn } from '@openmaic/lib/utils';
 import { useStageStore } from '@openmaic/lib/store';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@openmaic/components/ui/tooltip';
+import { whiteboardIdForScene } from '@openmaic/lib/api/stage-api-whiteboard';
 
 export interface CanvasToolbarProps {
   readonly currentSceneIndex: number;
@@ -117,7 +118,13 @@ export function CanvasToolbar({
   const showPlayPause = !isLiveSession;
 
   const whiteboardElementCount = useStageStore(
-    (s) => s.stage?.whiteboard?.[0]?.elements?.length || 0,
+    (s) => {
+      const activeWhiteboardId = whiteboardIdForScene(s.currentSceneId);
+      const whiteboard = activeWhiteboardId
+        ? s.stage?.whiteboard?.find((item) => item.id === activeWhiteboardId)
+        : s.stage?.whiteboard?.at(-1);
+      return whiteboard?.elements?.length || 0;
+    },
   );
 
   // Volume slider hover state

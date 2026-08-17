@@ -288,6 +288,74 @@ describe("PBL outline fallbacks", () => {
     });
   });
 
+  it("keeps repaired knowledge coverage inside each AI-learning parent activity", () => {
+    const result = enforcePblOutlineContract(
+      [
+        {
+          id: "learning-a",
+          type: "slide",
+          title: "概念 A",
+          description: "讲解概念 A。",
+          keyPoints: ["A1"],
+          order: 0,
+          stageKey: "ai-learning",
+          audience: "student",
+          generationPurpose: "knowledge-teaching",
+          parentActivityId: "activity-a",
+          knowledgePointIds: ["a-1", "b-1"],
+        },
+        {
+          id: "learning-b",
+          type: "slide",
+          title: "概念 B",
+          description: "讲解概念 B。",
+          keyPoints: ["B1"],
+          order: 1,
+          stageKey: "ai-learning",
+          audience: "student",
+          generationPurpose: "knowledge-teaching",
+          parentActivityId: "activity-b",
+          knowledgePointIds: [],
+        },
+      ],
+      {
+        requirement: "test",
+        pblProfile: DEFAULT_PBL_COURSE_CONFIG,
+        pblActivityCatalog: [
+          {
+            activityId: "activity-a",
+            stageKey: "ai-learning",
+            title: "知识模块 A",
+            durationMin: 10,
+            knowledgePointIds: ["a-1", "a-2"],
+          },
+          {
+            activityId: "activity-b",
+            stageKey: "ai-learning",
+            title: "知识模块 B",
+            durationMin: 10,
+            knowledgePointIds: ["b-1", "b-2"],
+          },
+        ],
+        knowledgePoints: [
+          { id: "a-1", name: "A1" },
+          { id: "a-2", name: "A2" },
+          { id: "b-1", name: "B1" },
+          { id: "b-2", name: "B2" },
+        ],
+      },
+    );
+
+    expect(result.find((outline) => outline.id === "learning-a")?.knowledgePointIds).toEqual([
+      "a-1",
+      "a-2",
+    ]);
+    expect(result.find((outline) => outline.id === "learning-b")?.knowledgePointIds).toEqual([
+      "b-1",
+      "b-2",
+    ]);
+  });
+
   it("keeps an explicit AI-learning PPT as a slide even if stale widget metadata remains", () => {
     const [result] = enforcePblOutlineContract(
       [

@@ -36,9 +36,7 @@
     "ttsTitle": "音声合成",
     "ttsHint": "AI教師の声を選択",
     "ttsPreview": "プレビュー",
-    "ttsPreviewing": "再生中...",
-    "interactiveModeHint": "インタラクティブ優先モードを有効にして、より実践的なコンテンツを生成",
-    "interactiveModeLabel": "インタラクティブモード"
+    "ttsPreviewing": "再生中..."
   },
   "export": {
     "pptx": "PPTXエクスポート",

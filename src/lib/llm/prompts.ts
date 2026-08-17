@@ -90,10 +90,10 @@ const SCHEMA_HINT = `
 返回 JSON 形如：
 {
   "pblOutline": "string",
-  "knowledgePoints": [{ "id": "kp-1", "name": "string", "description": "string", "keyInfo": "string", "level": "foundation|core|application|extension", "relatedIds": ["kp-2"] }],
+  "knowledgePoints": [{ "id": "kp-1", "name": "string", "description": "string", "keyInfo": "string", "masteryBoundary": "string", "objectiveIndexes": [0], "level": "foundation|core|application|extension", "relatedIds": ["kp-2"] }],
   "knowledgeGraph": {
-    "nodes": [{ "id": "kp-1", "label": "string", "description": "string", "keyInfo": "string", "level": "foundation|core|application|extension" }],
-    "edges": [{ "id": "edge-1", "source": "kp-1", "target": "kp-2", "label": "先修|支撑|应用|对比|迁移" }]
+    "nodes": [{ "id": "kp-1", "label": "string", "description": "string", "keyInfo": "string", "level": "foundation|core|application|extension", "instructionalRole": "lesson|prerequisite", "masteryBoundary": "lesson 节点填写", "objectiveIndexes": [0], "priorKnowledgeEvidence": "prerequisite 节点填写", "diagnosticBoundary": "prerequisite 节点填写" }],
+    "edges": [{ "id": "edge-1", "source": "kp-1", "target": "kp-2", "label": "string", "type": "required-prerequisite|supports|application|contrast|transfer", "strength": "required|helpful", "rationale": "string" }]
   },
   "teachingOutline": [{
     "id": "to-1",
@@ -202,7 +202,7 @@ ${stageList}
 
 要求：
 1. 知识点 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个，名称精炼，粒度要比章节标题更细；每个知识点写出本节课关键信息 keyInfo
-2. 生成 knowledgeGraph：节点必须与 knowledgePoints 对齐，边要清晰表达先修、支撑、应用、对比或迁移关系，至少 ${Math.max(1, constraints.recommendedKnowledgePointRange.min - 1)} 条边
+2. knowledgePoints 只包含本课完整讲授并在课后评价的目标；knowledgeGraph 必须另含至少 1 项 instructionalRole=prerequisite 的真实课前先修，推荐 2-4 项、最多 5 项。本平台的“知识启蒙”不代表课程主题没有知识台阶；须按学习者学段和完整知识阶梯反推入口能力。先修必须有 priorKnowledgeEvidence 与 diagnosticBoundary，并通过 required-prerequisite + required 指向受影响的本课目标；仅有帮助的背景使用 supports + helpful，不得进入前测。不得以入门、通识、启蒙、无需编程或空画像输出零先修，也不得用常识题、低龄题、术语记忆题或本课预习题凑数。所有边填写 type、strength 与 rationale；允许真实的独立知识分支，不得为了连通编造因果
 3. teachingOutline 是整节课程的教案级授课大纲，先生成六个宏观课程模块（launch、ai-learning、proposal、make、showcase、reflection），必须写清平台和 AI 负责什么、教师负责什么
 4. AI 授知章节大纲必须参考知识图谱，按先修到应用的关系组织学习路径，并在 objectives/keyPoints 中覆盖核心节点
 5. 评价维度 4-6 个，权重合计 100%，评价项要能检查学生对知识图谱核心节点的理解与迁移应用
@@ -248,7 +248,7 @@ export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: {
   const teacherRequiredKnowledgePoints = (context?.teacherRequiredKnowledgePoints ?? [])
     .map((point) => point.trim())
     .filter(Boolean);
-  const user = `请基于以下课程信息，生成本课知识点与知识图谱。知识点要比普通条目更精细，能够支撑后续 OpenMAIC AI 授知内容生成。
+  const user = `请基于以下课程信息，生成“课程体系先修 → 本课知识建构 → 应用迁移”的知识结构。必须先划定本课负责教会什么，再逆向分析学生进入本课前必须已经掌握什么；不得把二者混为一谈。
 
 课程名称：${input.name}
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
@@ -263,20 +263,24 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
 ${stageList}
 
 要求：
-1. 输出 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个知识点；如果教师指定的知识点较多，可以突破上限但不得遗漏。粒度要具体到概念、方法、模型、工具或判断标准，严格控制在 ${input.grade}、${input.hours} 课时可教可学的范围内。
-2. 教师指定知识点是硬约束：每一项都必须以完全相同的 name 出现在 knowledgePoints 中。可以补充 description、keyInfo、层级和相关知识，但不得删除、合并、偷换概念或改名。
-3. 每个知识点包含唯一 id、唯一 name、完整 description、可直接用于教学的 keyInfo、level、relatedIds；level 必须为 foundation、core、application 或 extension。
-4. knowledgeGraph.nodes 必须与 knowledgePoints 按 id 一一对应，不得多节点、少节点或使用另一个名称。所有节点都必须进入同一个连通图，不能出现孤立节点。
-5. knowledgeGraph.edges 至少达到“节点数 - 1”；source/target 必须引用节点 id，不得自环、重复或形成有向循环。教学顺序沿 foundation → core → application → extension 推进。
-6. 每条边都必须能读成科学、明确的命题。label 使用“是…的前提”“支撑”“用于”“对比”“迁移到”等具体短语，禁止只写“关联”“相关”“关系”。不要把时间先后误写成知识先修，也不要虚构因果关系。
-7. 关系设计至少覆盖：必要的先修、核心概念之间的支撑，以及核心知识在 PBL 成果中的应用；只有确有必要时才加入对比或迁移关系。
-8. 输出前自行检查：事实与术语准确；教师指定项全部保留；节点与知识点一一对应；图连通；无自环、重复边和环路；每条关系的方向与措辞均成立。仅输出检查后的 JSON，不要输出检查过程。
+1. knowledgePoints 只列本课目标节点，即本节课会完整讲授并在课后达标测中评价的内容。输出 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个；教师指定项必须以完全相同的 name 保留，不得删除、合并、偷换概念或改名。每项填写 masteryBoundary（学完可观察到什么）和 objectiveIndexes（对应课程目标的零基索引）。
+2. knowledgeGraph.nodes 必须包含所有本课目标节点并标记 instructionalRole=lesson；另须输出 1-5 个 instructionalRole=prerequisite 的课前先修节点，推荐 2-4 个。先修节点不进入 knowledgePoints，不占用本课知识点数量，也不成为课后达标测目标；不得输出零先修。
+3. 本平台主要服务小学、初中、高中学生，也覆盖大学学习者。“知识启蒙”描述学生仍处于系统学习阶段，不代表课程主题没有前序知识。必须先按学段定位，再判断本课目标在完整知识阶梯中的深度，最后反推课程入口能力。课前先修节点必须是学生在当前学段的课程序列、跨学科基础或概念递进中理应先学习，且缺失会直接阻断本课目标的具体概念、表征、规则或操作。填写 priorKnowledgeEvidence 和 diagnosticBoundary。这里分析的是“课程体系上应先学什么”，不是断言当前学生已经掌握；是否掌握由前测判断。不得虚构具体文件条款。
+4. 不得把本课准备讲授的基础层内容标成课前先修。foundation 表示本课内部的基础层，绝不等于 prerequisite。常识、生活经验、课程导入、激趣背景、仅仅“有助于理解”的内容也不进入前测。
+5. 对每个本课目标反向分析跨章节课程衔接。年级、learnerProfile 或既往课程信息为空表示未知/未填写，应按“K12 学段待确认”审慎判断知识阶梯，不等于学生无需先修；明确标注学段假设和概念递进依据。例如高中自然语言处理课程可能需要核对人工智能的数据、算法、算力基础，机器学习和“数据特征—算法选择”关系，训练集、验证集、测试集，监督学习过程，神经网络基本结构及其应用；计算机视觉对 K12 学生已经是较深主题，若主课直接使用分类器、特征提取、训练或模型评价，应核对人工智能、图像数据与数据集/标注、机器学习、监督学习与数据集划分、特征与算法选择等基础。只保留会直接阻断当前目标者，不得机械照抄示例，也不得用常识题、低龄题、术语记忆题或本课预习题凑数。
+6. 每条边必须填写 type、strength、label、rationale。type 只能是 required-prerequisite、supports、application、contrast、transfer；strength 只能是 required|helpful。只有从 instructionalRole=prerequisite 节点指向 instructionalRole=lesson 节点的 required-prerequisite + required 关系可以触发课前诊断；本课目标之间严禁使用 required-prerequisite。仅有帮助的背景必须用 supports + helpful。
+7. source/target 必须引用节点 id，不得自环、重复或形成有向循环。每个先修节点必须沿 required-prerequisite + required 路径到达至少一个本课目标；本课目标之间仅在存在真实认知依赖时，按 foundation → core → application → extension 表达递进。允许彼此独立但分别映射课程目标的知识分支，不得为了图连通虚构因果。领域入门、通识、启蒙、无需编程或空画像均不能减少到零先修；如果最初未发现，应继续沿知识阶梯回溯至少一项真实课程入口能力。
+8. 每个本课知识点包含唯一 id/name、完整 description、可直接用于讲解的 keyInfo、masteryBoundary、objectiveIndexes、level、relatedIds。每个 prerequisite 节点只表达一个可被独立诊断、也可被独立补授的能力；不要把可能分别缺失的多项能力塞进同一节点。
+9. 输出前自行检查：本课目标覆盖课程目标且不超课时；先修与新授边界清晰；课前先修有课程衔接证据和可诊断边界；必需与有帮助已区分；教师指定项完整；图无伪因果、无环、无模糊关系。仅输出 JSON，不输出检查过程。
 
 仅返回 JSON：{
-  "knowledgePoints": [{ "id": "kp-1", "name": "string", "description": "string", "keyInfo": "string", "level": "foundation", "relatedIds": ["kp-2"] }],
+  "knowledgePoints": [{ "id": "kp-1", "name": "string", "description": "string", "keyInfo": "string", "masteryBoundary": "string", "objectiveIndexes": [0], "level": "foundation", "relatedIds": ["kp-2"] }],
   "knowledgeGraph": {
-    "nodes": [{ "id": "kp-1", "label": "string", "description": "string", "keyInfo": "string", "level": "foundation" }],
-    "edges": [{ "id": "edge-1", "source": "kp-1", "target": "kp-2", "label": "支撑" }]
+    "nodes": [
+      { "id": "kp-1", "label": "string", "description": "string", "keyInfo": "string", "masteryBoundary": "string", "objectiveIndexes": [0], "level": "foundation", "instructionalRole": "lesson" },
+      { "id": "prereq-1", "label": "string", "description": "string", "keyInfo": "string", "level": "foundation", "instructionalRole": "prerequisite", "priorKnowledgeEvidence": "string", "diagnosticBoundary": "string" }
+    ],
+    "edges": [{ "id": "edge-1", "source": "prereq-1", "target": "kp-1", "label": "是理解…的必要前提", "type": "required-prerequisite", "strength": "required", "rationale": "缺失将如何直接阻断目标" }]
   }
 }`;
   return { system: SYSTEM_PREAMBLE, user };
@@ -517,7 +521,7 @@ export function buildEvaluationPlanPrompt(
   system: string;
   user: string;
 } {
-  const user = `请基于以下课程基础信息、知识图谱、六模块时间分配、课程模块和课程大纲，生成项目评价方案（4-6 个维度，AI 与教师各自维度内部权重分别合计 100%，含整体评价说明）。
+  const user = `请基于以下课程基础信息、知识图谱、六模块时间分配、课程模块和课程大纲，生成项目评价方案（4-6 个维度，全部计分维度权重合计 100%，含整体评价说明）。
 
 课程名称：${input.name}
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
@@ -537,16 +541,36 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
 1. 评价维度要能检查学生是否理解知识图谱中的核心节点及节点关系。
 2. 至少一个维度关注知识迁移与项目应用，而不仅是展示表达。
 3. 每个维度必须标记 responsibleRole：AI 负责学习过程、AI 协作健康度、证据迭代、专业知识准确性、方案逻辑与可行性；教师负责现场汇报、答辩回应、成果呈现、课堂规范与通用能力、项目价值理解。
-4. AI 不预测、不建议教师分数。最终成绩由 AI 过程与专业评价 40% + 教师现场汇报评价 60% 合成；学生反思不计分，系统不设置同伴互评。
+4. AI 不预测、不建议教师分数。AI 过程与专业评价、教师现场评价都必须占有正权重，二者合计 100%；具体比例要根据本课程可采集的过程证据、专业判断需求、现场展示与答辩需求自动判断，不得套用固定比例。学生反思不计分，系统不设置同伴互评。
 5. AI 协作健康度不能按 AI 使用次数高低评分，应观察问题是否具体、是否自行推进、是否核验修改、是否产生实际进展、是否比较求证、是否长期索要完整答案或代做；证据不足时该维度记 0 分并明确列出缺口。
-6. overallRubric 明确两部分独立评分、缺一时最终分待完成。
+6. overallRubric 明确本课程为何采用当前 AI/教师权重、两部分独立评分、缺一时最终分待完成。
 7. 评价证据必须优先引用个人项目配置中的 evidenceRequirements；AI 过程评价关注方案选择、修订、测试和 AI 建议采纳/拒绝证据，教师评价关注 artifact 与 presentation，学生 reflection 只评价成长与迁移，不计入计分权重。
 8. 评价维度必须覆盖 foundation/core 理解、application/extension 迁移、项目实践证据、成果表达与反思成长，并标明评价发生在哪个课程模块。
-9. 权重规则：AI 负责的维度权重合计必须为 100，教师负责的维度权重合计也必须为 100。weight 为纯数字（如 20，不要写 "20%"）。
+9. 权重规则：所有 dimensions 的 weight 合计必须为 100；AI 维度合计必须等于 AI flow 的 weight，教师维度合计必须等于 teacher flow 的 weight。weight 为纯数字（如 20，不要写 "20%"）。
 
 仅返回 JSON，结构如下（字段名必须完全一致）：
 {
   "evaluationPlan": {
+    "flows": [
+      {
+        "id": "evaluation-ai",
+        "sourceRole": "ai",
+        "name": "AI 过程与专业评价",
+        "weight": 47,
+        "evidenceRequirements": ["本课程中由系统持续采集的过程与专业证据"],
+        "enabled": true,
+        "scored": true
+      },
+      {
+        "id": "evaluation-teacher",
+        "sourceRole": "teacher",
+        "name": "教师现场评价",
+        "weight": 53,
+        "evidenceRequirements": ["本课程中需要教师现场观察与判断的证据"],
+        "enabled": true,
+        "scored": true
+      }
+    ],
     "dimensions": [
       {
         "id": "ev-1",
@@ -566,6 +590,6 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
     "overallRubric": "整体评价说明字符串"
   }
 }
-注意：dimensions 数组必须包含 4-6 个对象；每个对象必须包含 name（字符串）、weight（数字）、responsibleRole（"ai" 或 "teacher"）；responsibleRole 为 "ai" 的维度 weight 合计 = 100，responsibleRole 为 "teacher" 的维度 weight 合计 = 100。`;
+注意：上面的 47/53 仅用于展示合法 JSON 数字格式，严禁直接照抄。必须根据本课程证据结构重新判断比例。dimensions 数组必须包含 4-6 个对象；每个对象必须包含 name（字符串）、weight（数字）、responsibleRole（"ai" 或 "teacher"）；flows 必须同时包含 ai 与 teacher 且权重都大于 0；flows 与 dimensions 均须合计 100，且各角色维度小计必须与对应 flow 权重一致。`;
   return { system: SYSTEM_PREAMBLE, user };
 }

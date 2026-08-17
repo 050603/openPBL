@@ -7,12 +7,9 @@ import type {
   LearningEvidencePayloadByKind,
 } from "@/lib/learning-evidence/types";
 import { LEARNING_EVIDENCE_SCHEMA_VERSION } from "@/lib/learning-evidence/types";
+import { learningEvidenceRecordId } from "@/lib/learning-evidence/ids";
 import { isLearningEvidenceStructurallyComplete } from "@/lib/learning-evidence/readiness";
 import { useSession } from "@/lib/session/store";
-
-function recordId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 160);
-}
 
 function collectStrings(value: unknown, output: string[]): void {
   if (typeof value === "string" && value.trim()) {
@@ -40,11 +37,7 @@ export function evidenceRecordId(input: {
   kind: LearningEvidenceKind;
   suffix?: string;
 }): string {
-  return recordId(
-    ["evidence", input.courseId, input.studentId, input.kind, input.suffix]
-      .filter(Boolean)
-      .join("-"),
-  );
+  return learningEvidenceRecordId(input);
 }
 
 export type EvidenceDraftState<Kind extends LearningEvidenceKind> = {
@@ -194,4 +187,3 @@ export function useEvidenceDraft<Kind extends LearningEvidenceKind>(input: {
     submit,
   };
 }
-

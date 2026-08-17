@@ -19,6 +19,7 @@ const session = vi.hoisted(() => ({
   upsertAiContribution: vi.fn(),
   recordStudentAiDecision: vi.fn(),
   resolveCompanionConfirmation: vi.fn(),
+  addCompanionProcessRecord: vi.fn(),
   requestTeacherHelp: vi.fn(),
 }));
 
@@ -183,6 +184,16 @@ describe("evidence-driven student workflow", () => {
 
   });
 
+  it("keeps unsaved shared-editor text mounted while checking the archive", () => {
+    render(<StudioProjectWorkbench course={makeCourse()} stageKey="proposal" />);
+    const concept = screen.getByRole<HTMLTextAreaElement>("textbox", { name: /你的方案构想/ });
+    fireEvent.change(concept, { target: { value: "保留这段尚未自动保存的方案" } });
+    fireEvent.click(screen.getByRole("button", { name: /过程档案/ }));
+    fireEvent.click(screen.getByRole("button", { name: "共享编辑" }));
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: /你的方案构想/ }).value)
+      .toBe("保留这段尚未自动保存的方案");
+  });
+
   it("shows AI help inside the whiteboard and routes the question to one role", async () => {
     const onAskCompanion = vi.fn().mockResolvedValue(true);
     const runtime = {
@@ -204,7 +215,6 @@ describe("evidence-driven student workflow", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "打开AI协作" }));
     expect(screen.getByRole("complementary", { name: "AI伴学协作" })).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "给当前AI伙伴的问题" }), {
       target: { value: "帮我检查这个概念有没有真正转化成约束" },
@@ -215,6 +225,84 @@ describe("evidence-driven student workflow", () => {
       expect.stringContaining("形成一份可实施的项目方案"),
       ["critic"],
     ));
+  });
+
+  it("shows applied AI edits in the process archive and restores only the edited field", () => {
+    const evidenceId = "evidence-course-1-student-1-plan-version";
+    const course = makeCourse({
+      learningEvidence: [{
+        id: evidenceId,
+        schemaVersion: 1,
+        courseId: "course-1",
+        studentId: "student-1",
+        stageKey: "proposal",
+        kind: "plan-version",
+        title: "项目方案 v1",
+        summary: "样本数量不足",
+        payload: {
+          versionLabel: "v1",
+          changeSummary: "制作节水提示器",
+          nextActions: ["制作原型"],
+          validationMethod: "用户测试",
+          risks: ["样本数量不足"],
+          aiBoundary: "AI 只整理资料",
+        },
+        status: "draft",
+        source: "system",
+        countsTowardReadiness: true,
+        evidenceRefs: [],
+        artifactSnapshotIds: [],
+        createdAt: "2026-08-13T00:00:00.000Z",
+        updatedAt: "2026-08-13T00:00:01.000Z",
+      }],
+      companionConfirmations: [{
+        id: "workspace-edit-task-1-proposal.risks",
+        courseId: "course-1",
+        studentId: "student-1",
+        stageKey: "proposal",
+        action: "edit-workspace",
+        title: "问问编辑了风险与应对",
+        summary: "补充样本风险。请核对真实情况。",
+        taskId: "task-1",
+        status: "confirmed",
+        createdAt: "2026-08-13T00:00:01.000Z",
+        resolvedAt: "2026-08-13T00:00:01.000Z",
+        payload: {
+          kind: "direct-workspace-edit",
+          operationId: "workspace-edit-task-1-proposal.risks",
+          evidenceId,
+          evidenceKind: "plan-version",
+          target: "proposal.risks",
+          payloadKey: "risks",
+          label: "风险与应对",
+          mode: "append",
+          beforeValue: [],
+          afterValue: ["样本数量不足"],
+          afterUpdatedAt: "2026-08-13T00:00:01.000Z",
+          companionId: "critic",
+          taskId: "task-1",
+          reviewInstruction: "请核对真实情况",
+        },
+      }],
+    });
+
+    render(<StudioProjectWorkbench course={course} stageKey="proposal" />);
+    fireEvent.click(screen.getByRole("button", { name: /过程档案/ }));
+    expect(screen.getByText("看清是谁改了什么，也能回到修改前")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "撤销这次编辑" }));
+
+    expect(session.upsertLearningEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      id: evidenceId,
+      payload: expect.objectContaining({ risks: [] }),
+    }));
+    expect(session.resolveCompanionConfirmation).toHaveBeenCalledWith(
+      "course-1",
+      "workspace-edit-task-1-proposal.risks",
+      "rejected",
+    );
+    expect(session.addCompanionProcessRecord).toHaveBeenCalledWith(expect.objectContaining({
+      title: "撤销了 AI 对“风险与应对”的编辑",
+    }));
   });
 
   it("requires an actual later evidence version before adopting an AI suggestion", () => {

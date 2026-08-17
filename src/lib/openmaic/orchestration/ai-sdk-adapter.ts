@@ -10,7 +10,7 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
 import { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager';
 import { ChatResult } from '@langchain/core/outputs';
-import type { LanguageModel } from 'ai';
+import { stepCountIs, type LanguageModel, type ToolSet } from 'ai';
 
 import { callLLM, streamLLM } from '@openmaic/lib/ai/llm';
 import type { ThinkingConfig } from '@openmaic/lib/types/provider';
@@ -128,21 +128,69 @@ export class AISdkLangGraphAdapter extends BaseChatModel {
    */
   async *streamGenerate(
     messages: BaseMessage[],
-    options?: { tools?: Record<string, unknown>; signal?: AbortSignal },
+    options?: { tools?: ToolSet; signal?: AbortSignal },
   ): AsyncGenerator<StreamChunk> {
     const aiMessages = this.convertMessages(messages);
 
+    const hasTools = Boolean(options?.tools && Object.keys(options.tools).length > 0);
     const result = streamLLM(
       {
         model: this.languageModel,
         messages: aiMessages,
         abortSignal: options?.signal,
+        ...(hasTools
+          ? {
+              tools: options!.tools,
+              toolChoice: 'auto' as const,
+              stopWhen: stepCountIs(8),
+            }
+          : {}),
       },
       'chat-adapter-stream',
       this.thinking,
     );
 
     let fullContent = '';
+
+    if (hasTools) {
+      for await (const rawPart of result.fullStream as AsyncIterable<Record<string, unknown>>) {
+        const partType = rawPart.type;
+        if (partType === 'text-delta') {
+          const content =
+            (rawPart.text as string | undefined) ??
+            (rawPart.textDelta as string | undefined) ??
+            '';
+          if (content) {
+            fullContent += content;
+            yield { type: 'delta', content };
+          }
+        } else if (partType === 'tool-call') {
+          const toolCallId = String(rawPart.toolCallId ?? `tool-${Date.now()}`);
+          const toolName = String(rawPart.toolName ?? '');
+          if (!toolName) continue;
+          yield {
+            type: 'tool_calls',
+            toolCalls: [
+              {
+                id: toolCallId,
+                index: 0,
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: JSON.stringify(rawPart.input ?? {}),
+                },
+              },
+            ],
+          };
+        } else if (partType === 'error') {
+          const error = rawPart.error;
+          throw error instanceof Error ? error : new Error(String(error ?? 'LLM stream error'));
+        }
+      }
+
+      yield { type: 'done', content: fullContent };
+      return;
+    }
 
     for await (const chunk of result.textStream) {
       if (chunk) {

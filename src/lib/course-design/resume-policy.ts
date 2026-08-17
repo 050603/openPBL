@@ -1,0 +1,89 @@
+import { evaluateLessonOutlines } from "@/lib/course-design/quality-gates";
+import type { PblActivityCatalogEntry, SceneOutline } from "@/lib/openmaic/types/generation";
+
+function hasCompletedStep(trace: unknown, step: string): boolean {
+  if (!Array.isArray(trace)) return false;
+  return trace.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = entry as { step?: unknown; status?: unknown };
+    return event.step === step
+      && (event.status === "completed" || event.status === "warning");
+  });
+}
+
+export function canResumeAfterValidatedStage(input: {
+  trace: unknown;
+  step: string;
+  qualityPassed: boolean;
+}): boolean {
+  return input.qualityPassed && hasCompletedStep(input.trace, input.step);
+}
+
+export function canResumeAfterValidatedPositioning(input: {
+  trace: unknown;
+  positioningPassed: boolean;
+}): boolean {
+  return input.positioningPassed && hasCompletedStep(input.trace, "base");
+}
+
+export function canResumeAfterValidatedLessonOutline(input: {
+  trace: unknown;
+  outlines: ReadonlyArray<SceneOutline>;
+  activityCatalog?: ReadonlyArray<PblActivityCatalogEntry>;
+}): boolean {
+  return hasCompletedStep(input.trace, "lessonOutline")
+    && input.outlines.length > 0
+    && evaluateLessonOutlines(input.outlines, input.activityCatalog).passed;
+}
+
+export function canResumeAfterValidatedTeachingOutline(input: {
+  trace: unknown;
+  positioningPassed: boolean;
+  projectDesignPassed: boolean;
+  evaluationPlanPassed: boolean;
+  knowledgePointCount: number;
+  knowledgeGraphNodeCount: number;
+  teachingOutlineCount: number;
+  timingPlanConfirmed: boolean;
+}): boolean {
+  return hasCompletedStep(input.trace, "teachingOutline")
+    && input.positioningPassed
+    && input.projectDesignPassed
+    && input.evaluationPlanPassed
+    && input.knowledgePointCount > 0
+    && input.knowledgeGraphNodeCount >= input.knowledgePointCount
+    && input.teachingOutlineCount === 6
+    && input.timingPlanConfirmed;
+}
+
+function normalizedRequest(value: unknown): {
+  courseId: string;
+  teacherBrief: string;
+  enableImageGeneration: boolean;
+  enableTTS: boolean;
+  enableVideoGeneration: boolean;
+} | null {
+  if (!value || typeof value !== "object") return null;
+  const request = value as Record<string, unknown>;
+  const options = request.options && typeof request.options === "object"
+    ? request.options as Record<string, unknown>
+    : {};
+  if (typeof request.courseId !== "string" || typeof request.teacherBrief !== "string") return null;
+  return {
+    courseId: request.courseId,
+    teacherBrief: request.teacherBrief.trim(),
+    enableImageGeneration: options.enableImageGeneration !== false,
+    enableTTS: options.enableTTS !== false,
+    enableVideoGeneration: options.enableVideoGeneration === true,
+  };
+}
+
+export function isSameCourseDesignRequest(left: unknown, right: unknown): boolean {
+  const normalizedLeft = normalizedRequest(left);
+  const normalizedRight = normalizedRequest(right);
+  return Boolean(
+    normalizedLeft
+    && normalizedRight
+    && JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight),
+  );
+}

@@ -155,12 +155,55 @@ export function buildStructuredPrompt(
     lengthGuidelines: buildLengthGuidelines(agentConfig.role),
     whiteboardGuidelines: buildWhiteboardGuidelines(agentConfig.role),
     discussionContextSection: buildDiscussionContextSection(discussionContext, agentResponses),
+    structuredOutputMode: true,
+    nativeToolMode: false,
   };
 
   const prompt = buildPrompt(PROMPT_IDS.AGENT_SYSTEM, vars);
   if (!prompt) {
     throw new Error('agent-system template not found');
   }
+  return prompt.system;
+}
+
+/** Build the live-classroom prompt used with native AI SDK tool calls. */
+export function buildNativeToolPrompt(
+  agentConfig: AgentConfig,
+  storeState: StatelessChatRequest['storeState'],
+  discussionContext?: DiscussionContext,
+  whiteboardLedger?: WhiteboardActionRecord[],
+  userProfile?: { nickname?: string; bio?: string },
+  agentResponses?: AgentTurnSummary[],
+): string {
+  const currentScene = storeState.currentSceneId
+    ? storeState.scenes.find((scene) => scene.id === storeState.currentSceneId)
+    : undefined;
+  const effectiveActions = getEffectiveActions(agentConfig.allowedActions, currentScene?.type);
+  const hasSlideActions =
+    effectiveActions.includes('spotlight') || effectiveActions.includes('laser');
+  const vars = {
+    agentName: agentConfig.name,
+    persona: agentConfig.persona,
+    roleGuideline: ROLE_GUIDELINES[agentConfig.role] || ROLE_GUIDELINES.student,
+    studentProfileSection: buildStudentProfileSection(userProfile),
+    peerContext: buildPeerContextSection(agentResponses, agentConfig.name),
+    languageConstraint: buildLanguageConstraint(storeState.stage?.languageDirective),
+    formatExample: '',
+    orderingPrinciples: '',
+    spotlightExamples: '',
+    actionDescriptions: getActionDescriptions(effectiveActions),
+    slideActionGuidelines: hasSlideActions ? SLIDE_ACTION_GUIDELINES : '',
+    mutualExclusionNote: hasSlideActions ? MUTUAL_EXCLUSION_NOTE : '',
+    stateContext: buildStateContext(storeState),
+    virtualWhiteboardContext: buildVirtualWhiteboardContext(storeState, whiteboardLedger),
+    lengthGuidelines: buildLengthGuidelines(agentConfig.role),
+    whiteboardGuidelines: buildWhiteboardGuidelines(agentConfig.role),
+    discussionContextSection: buildDiscussionContextSection(discussionContext, agentResponses),
+    structuredOutputMode: false,
+    nativeToolMode: true,
+  };
+  const prompt = buildPrompt(PROMPT_IDS.AGENT_SYSTEM, vars);
+  if (!prompt) throw new Error('agent-system template not found');
   return prompt.system;
 }
 
@@ -177,10 +220,10 @@ function buildLengthGuidelines(role: string): string {
 - Speak conversationally and naturally — this is a live classroom, not a textbook. Use oral language, not written prose.`;
 
   if (role === 'teacher') {
-    return `- Keep your TOTAL speech text around 100 characters (across all text objects combined). Prefer 2-3 short sentences over one long paragraph.
+    return `- Complete one coherent teaching beat before yielding: establish the idea, explain why it works, and connect it to a concrete example or visible evidence. For Chinese delivery this is typically 180-320 characters across several short text objects; use less for a transition and more only when the concept genuinely requires it.
 ${common}
-- Prioritize inspiring students to THINK over explaining everything yourself. Ask questions, pose challenges, give hints — don't just lecture.
-- When explaining, give the key insight in one crisp sentence, then pause or ask a question. Avoid exhaustive explanations.`;
+- Do not replace instruction with a chain of questions. Teach unfamiliar foundations explicitly before asking students to predict, operate, or apply.
+- Break explanation into paced steps. When a step depends on a process, comparison, transformation, causal link, formula, or code change, call a whiteboard or widget tool and synchronize the visual with the corresponding speech.`;
   }
 
   if (role === 'assistant') {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -42,7 +42,11 @@ import { requestCourseCoverImage } from "@/lib/course-cover";
 import { PblModuleTimingPanel } from "@/components/teacher/pbl-module-timing-panel";
 import { useSettingsStore } from "@/lib/openmaic/store/settings";
 import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
-import { selectAdaptiveBranchesForGeneration } from "@/lib/teacher/adaptive-resource-generation";
+import { buildAdaptiveResourceRequirement } from "@/lib/adaptive-learning";
+import {
+  adaptiveBranchGenerationSignature,
+  selectAdaptiveBranchesForGeneration,
+} from "@/lib/teacher/adaptive-resource-generation";
 import {
   CourseGenerationStage,
   type CourseGenerationProgressStep,
@@ -243,6 +247,8 @@ function lessonSectionToSceneOutline(
 export default function GenerateCoursePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoStartRef = useRef(searchParams.get("autostart") === "1");
   const session = useSession();
   const { user, updateCourse } = session;
   const course = useCourse(params?.id);
@@ -268,15 +274,14 @@ export default function GenerateCoursePage() {
   const [enableImageGeneration, setEnableImageGeneration] = useState(true);
   const [enableVideoGeneration, setEnableVideoGeneration] = useState(false);
   const [enableTTS, setEnableTTS] = useState(true);
-  // 互动模式：从备课阶段读取，不在生成页面修改
-  const interactiveMode = course?.content.interactiveMode ?? true;
   // 是否已点击"开始生成"按钮（控制配置面板与生成状态的切换）
   const [started, setStarted] = useState(false);
   const coverGenerationCourseRef = useRef<string | null>(null);
   const pblCoverage = checkPblStageCoverage(course ? buildConfirmedSceneOutlines() : []);
   const adaptiveBranchCount =
     course?.content.adaptiveLearningPlan?.enabled &&
-    course.content.adaptiveLearningPlan.status === "teacher-confirmed"
+    course.content.adaptiveLearningPlan.status === "teacher-confirmed" &&
+    course.content.adaptiveLearningPlan.prerequisiteSemanticReview?.status === "passed"
       ? course.content.adaptiveLearningPlan.branches.filter(
           (branch) => branch.enabled !== false && branch.status === "teacher-confirmed",
         ).length
@@ -328,6 +333,10 @@ export default function GenerateCoursePage() {
         if (cancelled) return;
         setBackgroundEnabled(payload.backgroundEnabled);
         if (!payload.job) return;
+        // A queued request-bound job may have been prepared by quick design.
+        // The quick canvas starts it explicitly; the detailed generator keeps
+        // showing its normal controls until the teacher starts this mode.
+        if (!payload.backgroundEnabled && payload.job.status === "queued") return;
         applyBackgroundJob(payload.job);
       } catch {
         if (!cancelled) setBackgroundEnabled(false);
@@ -393,7 +402,6 @@ export default function GenerateCoursePage() {
       enableImageGeneration,
       enableVideoGeneration,
       enableTTS,
-      interactiveMode,
       ttsProviderId,
       ttsModelId,
       ttsVoice: ttsVoiceId,
@@ -406,6 +414,18 @@ export default function GenerateCoursePage() {
   async function prepareAdaptiveBranches(): Promise<AdaptiveLearningPlan | undefined> {
     const plan = course?.content.adaptiveLearningPlan;
     if (!course || !plan?.enabled || plan.status !== "teacher-confirmed") return plan;
+    if (plan.prerequisiteSemanticReview?.status !== "passed") {
+      setSteps((previous) => [
+        ...previous,
+        {
+          step: "跳过未审校个性化路径",
+          progress: 98,
+          message: "先修边界尚未通过独立语义审校；本次保留完整主课，不生成或插入旧的前测与补学资源。",
+          ts: Date.now(),
+        },
+      ]);
+      return plan;
+    }
     const activeCourse = course;
     const confirmedBranches = plan.branches.filter(
       (branch) => branch.enabled !== false && branch.status === "teacher-confirmed",
@@ -471,17 +491,7 @@ export default function GenerateCoursePage() {
         try {
           const generated = await generateAdaptiveClassroom({
             title: `${activeCourse.name} · ${branch.title}`,
-            requirement: [
-              `生成一份可由教师预览、可在同一播放器中连续插入主课程的${branch.kind === "prerequisite" ? "先决知识回顾" : "额外学习"}资源。`,
-              `主课程：${activeCourse.name}`,
-              `分支目标：${branch.objective}`,
-              `知识要点：${branch.keyPoints.join("；")}`,
-              `相对主课新增价值：${branch.noveltyStatement}`,
-              `潜在重叠主课页：${branch.mainCourseOverlapSceneIds.join("、") || "无"}。不得复述这些页面已经讲过的定义、回顾、例题和结论。`,
-              `教师指导：${branch.generationGuidance || "遵循分支目标与课程原有教学风格。"}`,
-              `总时长控制在 ${branch.targetDurationSec} 秒左右，结尾自然返回主课程。`,
-              "必须生成完整 PPT/互动内容、讲稿和 TTS，使用与主课程相同的播放管线。",
-            ].join("\n"),
+            requirement: buildAdaptiveResourceRequirement(activeCourse.name, branch, plan),
             stageKey: "ai-learning",
             requestRole: "teacher",
             scenes: [{
@@ -514,6 +524,7 @@ export default function GenerateCoursePage() {
             classroomId: generated.classroomId,
             scenesCount: generated.scenesCount,
             generatedAt: new Date().toISOString(),
+            sourceSignature: adaptiveBranchGenerationSignature(branch),
           });
         } catch (cause) {
           const error = cause instanceof Error ? cause.message : "分支生成失败";
@@ -786,6 +797,16 @@ export default function GenerateCoursePage() {
     void startGeneration();
   }
 
+  useEffect(() => {
+    if (!autoStartRef.current || !hydrated || !course || backgroundEnabled === null) return;
+    autoStartRef.current = false;
+    beginGeneration();
+    // The auto-start request is consumed once. beginGeneration intentionally
+    // remains outside the dependency list so media-option changes cannot
+    // trigger a second generation run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backgroundEnabled, course, hydrated]);
+
   if (!hydrated) {
     return (
       <DashboardShell role="teacher" userName={user.name} variant="bare">
@@ -877,7 +898,7 @@ export default function GenerateCoursePage() {
             <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
               ["课程大纲资源", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
               ["互动活动", "按教学活动配置"], ["知识检查", "覆盖学习目标"],
-              ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.openMaicUse !== "student-ai-learning").length ?? 0} 组`],
+              ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.stageKey !== "ai-learning").length ?? 0} 组`],
               ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
             ].map(([label, value]) => <div className="border-t border-[var(--pbl-border)] pt-3" key={label}><dt className="text-xs text-[var(--pbl-text-muted)]">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
 
@@ -903,14 +924,12 @@ export default function GenerateCoursePage() {
                 </label>
               ))}
 
-              {interactiveMode ? (
-                <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3 md:col-span-2">
-                  <div className="text-sm font-bold text-stone-800">互动模式 · 已开启</div>
-                  <div className="mt-1 text-xs leading-5 text-stone-500">
-                    最终生成严格遵循已确认大纲中的 PPT、测验与互动类型，不会在此阶段再次转换。项目启动和后续教师资源仍为 PPT/讲稿。
-                  </div>
+              <div className="rounded-[8px] border border-[var(--pbl-ai)]/25 bg-[var(--pbl-ai-soft)]/20 px-4 py-3 md:col-span-2">
+                <div className="text-sm font-bold text-stone-800">深度互动教学</div>
+                <div className="mt-1 text-xs leading-5 text-stone-500">
+                  课堂会先完成基础讲解，再安排非评分互动巩固，并以一次主课达标测形成按知识点记录的学习证据。
                 </div>
-              ) : null}
+              </div>
             </div>
             </details>
 

@@ -674,6 +674,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const role = getClientRole();
     if (!role) return;
     const configuredUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL?.trim();
+    // `next dev` does not expose the standalone WebSocket server on `/ws`.
+    // Without an explicit development URL, polling is the intended transport;
+    // repeatedly opening a socket here only produces noisy browser errors.
+    if (process.env.NODE_ENV === "development" && !configuredUrl) {
+      switchToPolling();
+      return;
+    }
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = new URL(
       configuredUrl || `${protocol}//${window.location.host}/ws`,
@@ -726,9 +733,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    ws.onerror = (err) => {
-      console.warn("[session] WebSocket error:", err);
-    };
+    // Browsers expose WebSocket failures as an opaque Event. `onclose` below
+    // owns the actionable fallback/retry path, so logging the Event here adds
+    // noise without diagnostic information.
+    ws.onerror = () => {};
 
     ws.onclose = () => {
       wsRef.current = null;
@@ -905,6 +913,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           uiState: {},
           createdAt: now,
           updatedAt: now,
+          version: 1,
         };
         commit({ type: "CREATE_COURSE", payload: course });
         return course;
@@ -981,7 +990,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             };
 
         // Update the user object so the top-right avatar shows the student's
-        // name and role, not the default "寮犺€佸笀".
+        // name and role, not the default teacher identity.
         const studentUser = { role: "student" as const, name: student.name };
         // Pre-seed the identity cache so the next polling refresh cannot
         // drop the just-joined student from course.students before the

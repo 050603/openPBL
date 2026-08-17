@@ -124,6 +124,7 @@ export function CanvasArea({
             </SceneProvider>
           </div>
 
+
           {/* Scene Content */}
           {currentScene && !whiteboardOpen && (
             <div className="absolute inset-0">

@@ -29,7 +29,7 @@ export class LlmRateLimitError extends Error {
 }
 
 /**
- * Thrown when the request exceeds the 60s timeout.
+ * Thrown when the request exceeds its standard or long-generation deadline.
  * Distinct from a caller-initiated abort so the UI can say "timeout" instead
  * of "cancelled".
  */

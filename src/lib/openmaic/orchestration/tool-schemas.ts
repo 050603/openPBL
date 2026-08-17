@@ -7,6 +7,13 @@
 
 import { SLIDE_ONLY_ACTIONS } from '@openmaic/lib/types/action';
 
+const WIDGET_ACTIONS = new Set([
+  'widget_highlight',
+  'widget_setState',
+  'widget_annotation',
+  'widget_reveal',
+]);
+
 // ==================== Effective Actions ====================
 
 /**
@@ -14,9 +21,11 @@ import { SLIDE_ONLY_ACTIONS } from '@openmaic/lib/types/action';
  * Slide-only actions (spotlight, laser) are removed for non-slide scenes.
  */
 export function getEffectiveActions(allowedActions: string[], sceneType?: string): string[] {
-  if (!sceneType || sceneType === 'slide') return allowedActions;
   return allowedActions.filter(
-    (a) => !SLIDE_ONLY_ACTIONS.includes(a as (typeof SLIDE_ONLY_ACTIONS)[number]),
+    (action) =>
+      (sceneType === 'slide' ||
+        !SLIDE_ONLY_ACTIONS.includes(action as (typeof SLIDE_ONLY_ACTIONS)[number])) &&
+      (sceneType === 'interactive' || !WIDGET_ACTIONS.has(action)),
   );
 }
 
@@ -26,8 +35,7 @@ export function getEffectiveActions(allowedActions: string[], sceneType?: string
  * Get text descriptions of allowed actions for inclusion in system prompts.
  * Used when the model generates structured output with JSON array format.
  */
-export function getActionDescriptions(allowedActions: string[]): string {
-  const descriptions: Record<string, string> = {
+export const ACTION_DESCRIPTIONS: Record<string, string> = {
     spotlight:
       'Focus attention on a single key element by dimming everything else. Use sparingly — max 1-2 per response. Parameters: { elementId: string, dimOpacity?: number }',
     laser:
@@ -55,18 +63,28 @@ export function getActionDescriptions(allowedActions: string[]): string {
     wb_delete:
       'Delete a specific element from the whiteboard by its ID. Use to remove an outdated, incorrect, or overlapping element without clearing the entire board. Parameters: { elementId: string }',
     wb_close:
-      'Close the whiteboard and return to the slide view. Always close after you finish drawing. Parameters: {}',
+      'Close the whiteboard and return to the slide view. Only use when the next teaching action needs the slide canvas; otherwise leave the board open for students to read. Parameters: {}',
     play_video:
       'Start playback of a video element on the current slide. Synchronous — blocks until the video finishes playing. Use a speech action before this to introduce the video. Parameters: { elementId: string }',
+    widget_highlight:
+      'Highlight a meaningful control or result inside the current interactive simulation. Parameters: { target: string, content?: string }',
+    widget_setState:
+      'Set state variables in the current interactive simulation. Use to demonstrate a controlled change, not to complete the learner task for them. Parameters: { state: object, content?: string }',
+    widget_annotation:
+      'Attach a short explanatory annotation to a control or result in the current interactive simulation. Parameters: { target: string, content?: string }',
+    widget_reveal:
+      'Reveal a hidden part of the current interactive simulation after the learner has made a prediction or attempt. Parameters: { target: string, content?: string }',
   };
+
+export function getActionDescriptions(allowedActions: string[]): string {
 
   if (allowedActions.length === 0) {
     return 'You have no actions available. You can only speak to students.';
   }
 
   const lines = allowedActions
-    .filter((action) => descriptions[action])
-    .map((action) => `- ${action}: ${descriptions[action]}`);
+    .filter((action) => ACTION_DESCRIPTIONS[action])
+    .map((action) => `- ${action}: ${ACTION_DESCRIPTIONS[action]}`);
 
   return lines.join('\n');
 }

@@ -421,7 +421,6 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
         log.info('Stage already loaded in memory, skipping IndexedDB load:', stageId);
         return;
       }
-
       const { loadStageData } = await import('@openmaic/lib/utils/stage-storage');
       const data = await loadStageData(stageId);
 

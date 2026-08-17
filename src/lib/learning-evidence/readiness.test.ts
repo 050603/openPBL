@@ -12,7 +12,6 @@ import {
 } from "./ai-policy";
 import { getStageMissionDefinition, inferLearningPreset } from "./missions";
 import type {
-  ArtifactSnapshot,
   LearningEvidence,
   LearningEvidenceKind,
   LearningEvidencePayloadByKind,
@@ -95,16 +94,16 @@ const projectIntent = evidence("project-intent", "launch", {
 });
 
 describe("learning preset and mission definitions", () => {
-  it("uses the same concise work submission task for all three presets", () => {
+  it("uses preset-specific iteration targets with explicit testing tasks", () => {
     expect(inferLearningPreset("小学五年级")).toBe("guided");
     expect(inferLearningPreset("初二")).toBe("standard");
     expect(inferLearningPreset("本科二年级")).toBe("research");
 
-    expect(getStageMissionDefinition("make", "guided").requiredIterations).toBe(0);
-    expect(getStageMissionDefinition("make", "standard").requiredIterations).toBe(0);
-    expect(getStageMissionDefinition("make", "research").targetIterations).toBe(0);
+    expect(getStageMissionDefinition("make", "guided").requiredIterations).toBe(1);
+    expect(getStageMissionDefinition("make", "standard").requiredIterations).toBe(2);
+    expect(getStageMissionDefinition("make", "research").targetIterations).toBe(3);
     expect(getStageMissionDefinition("make", "research").actions.map((item) => item.id))
-      .toEqual(["project-work"]);
+      .toEqual(["project-work", "test-result", "revision-decision"]);
   });
 });
 
@@ -175,7 +174,7 @@ describe("stage readiness derives only from valid evidence", () => {
     expect(readiness.teacherCalibration).toBe("not-required");
   });
 
-  it("marks project making ready after one work upload and keeps later versions", () => {
+  it("requires submitted test and revision cycles in addition to a work upload", () => {
     const upload = {
       id: "work-v1",
       courseId: "course-1",
@@ -190,14 +189,34 @@ describe("stage readiness derives only from valid evidence", () => {
       createdAt: now,
     };
     const one = deriveStageReadiness(makeCourse({ uploads: [upload] }), "student-1", "make");
-    expect(one.completedIterations).toBe(1);
-    expect(one.status).toBe("ready");
+    expect(one.completedIterations).toBe(0);
+    expect(one.status).toBe("working");
 
-    const two = deriveStageReadiness(makeCourse({
-      uploads: [upload, { ...upload, id: "work-v2", url: "/uploads/work-v2" }],
+    const cycleEvidence = [1, 2].flatMap((iteration) => [
+      evidence("test-result", "make", {
+        iterationId: `cycle-${iteration}`,
+        method: "任务测试",
+        target: "3 名同学",
+        observation: "记录完成时间与停顿位置",
+        result: "第二轮完成时间缩短",
+        limitation: "样本较少",
+      }),
+      evidence("revision-decision", "make", {
+        iterationId: `cycle-${iteration}`,
+        interpretation: "步骤提示影响完成时间",
+        decision: "revise",
+        reason: "多数停顿发生在第二步",
+        plannedChange: "补充第二步提示",
+        nextGoal: "再次测试完成时间",
+      }),
+    ]);
+    const ready = deriveStageReadiness(makeCourse({
+      uploads: [upload],
+      learningEvidence: cycleEvidence,
     }), "student-1", "make");
-    expect(two.completedIterations).toBe(2);
-    expect(two.status).toBe("ready");
+    expect(ready.completedIterations).toBe(2);
+    expect(ready.requiredIterations).toBe(2);
+    expect(ready.status).toBe("ready");
   });
 
   it("accepts a concise reflection workstation submission without a word-count threshold", () => {

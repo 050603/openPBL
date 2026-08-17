@@ -116,7 +116,6 @@ export async function POST(request: NextRequest) {
     enableImageGeneration = false,
     enableVideoGeneration = false,
     enableTTS = false,
-    interactiveMode = false,
     ttsProviderId,
     ttsModelId,
     ttsVoice,
@@ -138,7 +137,6 @@ export async function POST(request: NextRequest) {
     enableImageGeneration?: boolean;
     enableVideoGeneration?: boolean;
     enableTTS?: boolean;
-    interactiveMode?: boolean;
     ttsProviderId?: string;
     ttsModelId?: string;
     ttsVoice?: string;
@@ -240,7 +238,6 @@ export async function POST(request: NextRequest) {
     enableImageGeneration,
     enableVideoGeneration,
     enableTTS,
-    interactiveMode,
     ttsProviderId: typeof ttsProviderId === 'string' ? ttsProviderId : undefined,
     ttsModelId: typeof ttsModelId === 'string' ? ttsModelId : undefined,
     ttsVoice: typeof ttsVoice === 'string' ? ttsVoice : undefined,

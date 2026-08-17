@@ -31,9 +31,14 @@ export async function register(): Promise<void> {
     const { startCourseGenerationWorker, stopCourseGenerationWorker } = await import(
       "@/lib/course-generation/job-runner"
     );
+    const { startCourseDesignWorker, stopCourseDesignWorker } = await import(
+      "@/lib/course-design/job-runner"
+    );
     const { registerShutdownHook } = await import("@/lib/runtime/lifecycle");
     await startCourseGenerationWorker();
+    await startCourseDesignWorker();
     registerShutdownHook("course-generation-worker", stopCourseGenerationWorker);
+    registerShutdownHook("course-design-worker", stopCourseDesignWorker);
   }
 
   if (process.env.ENABLE_WEBSOCKET === "true") {

@@ -76,12 +76,19 @@ export const WHITEBOARD_ACTIONS = [
 
 export const SLIDE_ACTIONS = ['spotlight', 'laser', 'play_video'];
 
+export const WIDGET_ACTIONS = [
+  'widget_highlight',
+  'widget_setState',
+  'widget_annotation',
+  'widget_reveal',
+];
+
 /**
  * Maps agent roles to their allowed action sets.
  * Teachers get slide + whiteboard control; others get whiteboard only.
  */
 export const ROLE_ACTIONS: Record<string, string[]> = {
-  teacher: [...SLIDE_ACTIONS, ...WHITEBOARD_ACTIONS],
+  teacher: [...SLIDE_ACTIONS, ...WHITEBOARD_ACTIONS, ...WIDGET_ACTIONS],
   assistant: [...WHITEBOARD_ACTIONS],
   student: [...WHITEBOARD_ACTIONS],
 };

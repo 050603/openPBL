@@ -17,6 +17,7 @@ import type {
   PblDetailKind,
   PblTtsPolicy,
   SceneResourceType,
+  TeachingToolPlanItem,
 } from '@openmaic/lib/types/generation';
 import type { PBLProjectConfig } from '@openmaic/lib/pbl/types';
 import type { PBLProjectV2 } from '@openmaic/lib/pbl/v2/types';
@@ -117,6 +118,8 @@ export type PblSceneMetadata = {
   ttsPolicy?: PblTtsPolicy;
   timingPlan?: TtsTimingPlan;
   resourceTypes?: SceneResourceType[];
+  narrationMode?: 'standalone-course' | 'embedded-segment';
+  teachingToolPlan?: TeachingToolPlanItem[];
 };
 
 /**

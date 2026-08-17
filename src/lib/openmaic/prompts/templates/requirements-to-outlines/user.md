@@ -70,6 +70,13 @@ Never return a bare array. Never omit `languageDirective` or `courseTitle`. All 
   "title": "Scene Title",
   "description": "Teaching purpose description",
   "keyPoints": ["Point 1", "Point 2", "Point 3"],
+  "teachingToolPlan": [{
+    "tool": "whiteboard | spotlight | laser-pointer | interactive-widget",
+    "trigger": "spoken-content cue",
+    "purpose": "specific learning benefit",
+    "content": ["exact visible notes or relationships"],
+    "required": true
+  }],
   "order": 1
 }
 ```
@@ -91,9 +98,10 @@ Never return a bare array. Never omit `languageDirective` or `courseTitle`. All 
    - Select widgetType based on concept: simulation (physics/chem), diagram (processes), code (programming), game (practice), visualization3d (3D models)
    - Provide appropriate widgetOutline for the widget type
 - **Scene count**: Based on inferred duration, typically 1-2 scenes per minute
-- **Quiz placement**: Split knowledge teaching into coherent blocks and end every block with a short quiz using the same `knowledgePointIds`; never postpone all assessment until the final AI-learning scene
+- **Quiz placement**: Teach and practise every confirmed knowledge point first, then use exactly one terminal mastery quiz covering the taught `knowledgePointIds`. Never add a quiz after each block or append a second final quiz.
 - **Quiz design**: choose supported formats according to the objective: recognition (`single`/`true_false`), evidence classification (`multiple`), concept completion (`fill_blank`), explanation (`short_answer`), or transfer (`scenario_task`). Do not request matching, drag, line, ordering, or sorting because those components are not supported.
 - **Teaching progression**: activate prerequisites before introducing new terminology; explain each unfamiliar term before using it in examples or assessment; move from concrete familiar contexts to mechanism and then application.
+- **Teaching tools**: use `teachingToolPlan` for a purposeful whiteboard/canvas/widget moment, not as a quota. A long or abstract oral explanation is a strong signal to externalize steps, relationships, examples, formulae, or code on the whiteboard. The plan must tell the teacher which page triggers it and what students will actually see.
 - **Language**: Infer from the user's requirement text and context, then output all content in the inferred language
 - **If web search results are provided**, reference specific findings and sources in scene descriptions and keyPoints. The search results provide up-to-date information — incorporate it to make the course content current and accurate.
 

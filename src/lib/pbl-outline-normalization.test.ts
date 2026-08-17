@@ -4,10 +4,29 @@ import {
   assessPblTeachingOutlineStructure,
   createPblTimingSkeleton,
   normalizePblTeachingOutline,
+  normalizeTeachingModuleResourceTypes,
 } from './pbl-outline-normalization';
 import { buildPblModuleTimingPlan } from './pbl-time-model';
 
 describe('PBL teaching outline normalization', () => {
+  it('keeps only resource choices that the fixed six-stage runtime can consume', () => {
+    const ordinary = createPblTimingSkeleton({ totalMinutes: 60 })[0]!;
+    const aiLearning = createPblTimingSkeleton({ totalMinutes: 60 })[1]!;
+
+    expect(normalizeTeachingModuleResourceTypes({
+      ...ordinary,
+      resourceTypes: ['interactive-demo', 'worksheet', 'project-brief'],
+    })).toEqual(['ppt', 'script']);
+    expect(normalizeTeachingModuleResourceTypes({
+      ...aiLearning,
+      resourceTypes: ['ppt', 'interactive-demo', 'code-interactive', 'script', 'rubric'],
+    })).toEqual(['ppt', 'interactive-demo', 'code-interactive']);
+    expect(normalizeTeachingModuleResourceTypes({
+      ...aiLearning,
+      resourceTypes: ['worksheet', 'rubric', 'project-brief'],
+    })).toEqual(['ppt', 'interactive-demo', 'code-interactive']);
+  });
+
   it('does not manufacture canonical modules for an empty draft', () => {
     expect(normalizePblTeachingOutline([], { totalMinutes: 60 })).toEqual([]);
   });

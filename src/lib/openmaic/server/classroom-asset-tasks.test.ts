@@ -42,4 +42,29 @@ describe("runIndependentClassroomAssetTasks", () => {
     expect(events).toContain("tts:done");
     expect(events.at(-1)).toBe("persist");
   });
+
+  it("waits for the independent task and persists partial results before surfacing a failure", async () => {
+    const media = deferred();
+    const events: string[] = [];
+    const running = runIndependentClassroomAssetTasks({
+      media: async () => {
+        events.push("media:start");
+        await media.promise;
+        events.push("media:done");
+      },
+      tts: async () => {
+        events.push("tts:failed");
+        throw new Error("one TTS segment failed");
+      },
+      persistMergedState: async () => {
+        events.push("persist");
+      },
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["media:start", "tts:failed"]);
+    media.resolve();
+    await expect(running).rejects.toThrow("Classroom asset generation incomplete");
+    expect(events).toEqual(["media:start", "tts:failed", "media:done", "persist"]);
+  });
 });

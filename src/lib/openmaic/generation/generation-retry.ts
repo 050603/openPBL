@@ -118,7 +118,7 @@ function messageFrom(value: unknown): string {
 
 function retryableByMessage(value: unknown): boolean {
   const message = messageFrom(value);
-  return /rate limit|too many requests|timeout|timed out|fetch failed|network|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EPIPE|socket hang up/i.test(
+  return /rate limit|too many requests|timeout|timed out|调用超时|请求超时|fetch failed|network|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EPIPE|socket hang up|inference engine abort|model serving.*(?:abort|unknown)|finish reason:\s*\[?unknown/i.test(
     message,
   );
 }
@@ -160,7 +160,12 @@ export function isRetryableGenerationError(error: unknown, seen = new Set<unknow
     return nested.some((nestedError) => isRetryableGenerationError(nestedError, seen));
   }
 
-  if (isRecord(error) && stringField(error, 'name') === 'TimeoutError') return true;
+  const errorName = isRecord(error) ? stringField(error, 'name') : undefined;
+  if (
+    errorName === 'TimeoutError'
+    || errorName === 'LlmTimeoutError'
+    || errorName === 'LlmEmptyResponseError'
+  ) return true;
   if (error instanceof Error && error.name === 'TimeoutError') return true;
 
   return retryableByMessage(error);

@@ -9,8 +9,8 @@ below with mode `0600`; never commit that directory.
 - `grafana_admin_password.txt`: a unique Grafana administrator password.
 - `s3_access_key.txt` and `s3_secret_key.txt`: restricted credentials for the
   backup bucket only.
-- `restic_password.txt`: a separate high-entropy password for upload and
-  whiteboard snapshots.
+- `restic_password.txt`: a separate high-entropy password for upload,
+  whiteboard, and generated-classroom snapshots.
 - `load_test_admin_token.txt`: at least 32 random characters. It is only
   accepted when the candidate environment explicitly enables the load-test
   API and Nginx allows the independent load-generator IP.

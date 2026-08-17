@@ -326,7 +326,7 @@ export function LectureSubtitleDock({
               <div className="pointer-events-none h-full w-full">
                 <KnowledgeGraphFlow
                   activeNodeId={activeKnowledgePointId}
-                  activeZoom={0.68}
+                  activeZoom={0.76}
                   appearance="teaching-rail"
                   focusActiveNode
                   graph={graph}
@@ -427,12 +427,14 @@ export function LectureSubtitleDock({
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>课程知识图谱</DialogTitle>
             <DialogDescription>
-              当前讲授的知识点会自动高亮，可拖动、缩放并浏览完整关联路径。
+              知识沿真实依赖关系自动展开；当前讲授节点及其直接路径会保持清晰高亮。
             </DialogDescription>
           </DialogHeader>
           <div className="h-[min(68vh,620px)] min-h-[420px] border-t border-slate-100 dark:border-white/8">
             <KnowledgeGraphFlow
               activeNodeId={activeKnowledgePointId}
+              activeZoom={0.82}
+              focusActiveNode
               graph={graph}
               height={520}
               points={points}

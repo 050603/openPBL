@@ -42,6 +42,16 @@ const nextConfig: NextConfig = {
       "./*.yaml",
     ],
   },
+  // Interactive Python scenes load these executable assets through a
+  // same-origin route. They are read with fs at request time, so explicitly
+  // retain them in the standalone image.
+  outputFileTracingIncludes: {
+    "/api/openmaic/interactive-runtime/*": [
+      "./node_modules/codemirror/**/*",
+      "./node_modules/katex/dist/**/*",
+      "./node_modules/pyodide/**/*",
+    ],
+  },
   // Stage 9: standalone output for minimal Docker images.
   // Produces `.next/standalone` with only the files needed to run the
   // production server (no `node_modules` install required at runtime).

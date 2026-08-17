@@ -48,11 +48,12 @@ import {
 } from '@openmaic/lib/generation/generation-retry';
 import { mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
 import { getClassroomSceneConcurrency } from '@openmaic/lib/server/provider-config';
+import { resolveLlmRequestTimeoutMs } from '@/lib/llm/request-policy';
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
 import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-planner';
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
-import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { applyDeepInteractionPolicy } from '@openmaic/lib/generation/deep-interaction-policy';
 import { addStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
 import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
@@ -90,7 +91,6 @@ export interface GenerateClassroomInput {
   enableImageGeneration?: boolean;
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
-  interactiveMode?: boolean;
   ttsProviderId?: string;
   ttsModelId?: string;
   ttsVoice?: string;
@@ -137,6 +137,27 @@ export interface GenerateClassroomResult {
     isPblCourse: boolean;
     ttsTimingSelection: ServerTtsTimingSelection;
   };
+}
+
+export interface GenerateClassroomOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
+  /** Final normalized/media-planned/timed outlines from an interrupted run. */
+  preparedOutlines?: SceneOutline[];
+  /** Persist final outlines before the first page starts. */
+  onOutlinesPrepared?: (outlines: SceneOutline[]) => Promise<void> | void;
+  /** Restore an exact-fingerprint completed page, if one exists. */
+  loadSceneCheckpoint?: (
+    outline: SceneOutline,
+    index: number,
+    stageId: string,
+  ) => Promise<Scene | null> | Scene | null;
+  /** Persist only a fully assembled page, after its timing correction pass. */
+  onSceneCompleted?: (
+    outline: SceneOutline,
+    scene: Scene,
+    index: number,
+  ) => Promise<void> | void;
 }
 
 function createInMemoryStore(stage: Stage): StageStore {
@@ -371,8 +392,21 @@ function validateConfirmedPblDetails(
       );
     }
     const parentKnowledgeViolations = studentDetails.flatMap((detail) => {
-      const parent = catalog.find((activity) => activity.activityId === outlines.find((outline) => outline.id === detail.id)?.parentActivityId);
-      const allowedIds = new Set(parent?.knowledgePointIds ?? []);
+      const sourceOutline = outlines.find((outline) => outline.id === detail.id);
+      const parent = catalog.find(
+        (activity) => activity.activityId === sourceOutline?.parentActivityId,
+      );
+      const isTerminalMasteryAssessment = sourceOutline?.type === 'quiz'
+        && outlines.filter(
+          (outline) => outline.audience === 'student'
+            && outline.stageKey === 'ai-learning'
+            && outline.type === 'quiz',
+        ).length === 1;
+      const allowedIds = new Set(
+        isTerminalMasteryAssessment
+          ? input.knowledgePoints?.map((point) => point.id)
+          : parent?.knowledgePointIds ?? [],
+      );
       if (allowedIds.size === 0) return [];
       const invalidIds = (detail.knowledgePointIds ?? []).filter((id) => !allowedIds.has(id));
       return invalidIds.length > 0 ? [{ detail, invalidIds }] : [];
@@ -440,10 +474,7 @@ Return a JSON object with this exact structure:
 
 export async function generateClassroom(
   input: GenerateClassroomInput,
-  options: {
-    signal?: AbortSignal;
-    onProgress?: (progress: ClassroomGenerationProgress) => Promise<void> | void;
-  },
+  options: GenerateClassroomOptions,
 ): Promise<GenerateClassroomResult> {
   const { requirement, pdfContent } = input;
 
@@ -504,10 +535,21 @@ export async function generateClassroom(
   };
 
   const sceneAiCall: AICallFn = async (systemPrompt, userPrompt, _images) => {
+    // A single pathological page must not hold the entire classroom job
+    // indefinitely. Deep-thinking models can legitimately need several minutes
+    // for a complex interactive page, so use the conservative long-generation
+    // policy instead of the former hard-coded 150-second cutoff. Checkpoint-level
+    // recovery will still retry only the missing page if this bounded call fails.
+    const pageTimeoutSignal = AbortSignal.timeout(
+      resolveLlmRequestTimeoutMs('long-generation'),
+    );
+    const pageSignal = options.signal
+      ? AbortSignal.any([options.signal, pageTimeoutSignal])
+      : pageTimeoutSignal;
     const result = await callLLM(
       {
         model: languageModel,
-        abortSignal: options.signal,
+        abortSignal: pageSignal,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         maxOutputTokens: modelInfo?.outputWindow,
@@ -543,7 +585,6 @@ export async function generateClassroom(
     pblActivityCatalog: input.pblActivityCatalog,
     knowledgePoints: input.knowledgePoints,
     teachingConstraints: input.teachingConstraints,
-    interactiveMode: input.interactiveMode ?? false,
   };
   const vocationalActive = resolveVocationalActive(requirements);
   const pdfText = pdfContent?.text || undefined;
@@ -621,18 +662,19 @@ export async function generateClassroom(
     scenesGenerated: 0,
   });
 
+  const preparedOutlines = normalizeSceneOutlinesForGeneration(options.preparedOutlines);
   const confirmedOutlines = normalizeSceneOutlinesForGeneration(input.sceneOutlines);
   const isStructuredPbl =
     input.pblProfile?.generationTemplate === 'pbl-six-stage' ||
     Boolean(input.pblActivityCatalog?.length);
-  if (isStructuredPbl && confirmedOutlines.length === 0) {
+  if (isStructuredPbl && preparedOutlines.length === 0 && confirmedOutlines.length === 0) {
     throw new Error('课程生成必须使用已确认的课程大纲，当前未收到有效课程大纲内容。');
   }
 
   let generatedLanguageDirective = '';
   let generatedCourseTitle: string | undefined;
   let generatedOutlines: SceneOutline[] = [];
-  if (confirmedOutlines.length === 0) {
+  if (preparedOutlines.length === 0 && confirmedOutlines.length === 0) {
     const outlinesResult = await generateSceneOutlinesFromRequirements(
       requirements,
       pdfText,
@@ -660,23 +702,32 @@ export async function generateClassroom(
   const languageDirective = input.languageDirective || generatedLanguageDirective;
   const courseTitle = input.courseTitle || generatedCourseTitle;
   let baseOutlines = enforcePblOutlineContract(
-    confirmedOutlines.length > 0 ? confirmedOutlines : generatedOutlines,
+    preparedOutlines.length > 0
+      ? preparedOutlines
+      : confirmedOutlines.length > 0
+        ? confirmedOutlines
+        : generatedOutlines,
     requirements,
   );
-  const outlineSource = confirmedOutlines.length > 0 ? 'confirmed' : 'generated';
-  // Interactive mode is allowed to repair only an unconfirmed model-generated
+  const outlineSource = preparedOutlines.length > 0
+    ? 'prepared'
+    : confirmedOutlines.length > 0
+      ? 'confirmed'
+      : 'generated';
+  // Deep interaction is allowed to repair only an unconfirmed model-generated
   // plan. A teacher-confirmed outline is authoritative: PPT, quiz, and
   // interactive markers must survive final classroom generation unchanged.
-  if (input.interactiveMode && outlineSource === 'generated') {
+  if (outlineSource === 'generated') {
     const beforeCount = baseOutlines.filter((o) => o.type === 'interactive').length;
-    baseOutlines = applyInteractiveModePolicy(baseOutlines, true, outlineSource);
+    baseOutlines = applyDeepInteractionPolicy(baseOutlines, outlineSource);
     const afterCount = baseOutlines.filter((o) => o.type === 'interactive').length;
     if (afterCount > beforeCount) {
-      log.info(`Interactive mode: converted ${afterCount - beforeCount} slide(s) to interactive widgets`);
+      log.info(`Deep interaction: added ${afterCount - beforeCount} interactive practice page(s)`);
     }
   }
   if (
-    confirmedOutlines.length > 0
+    preparedOutlines.length === 0
+    && confirmedOutlines.length > 0
     && (input.enableImageGeneration || input.enableVideoGeneration)
   ) {
     try {
@@ -712,10 +763,12 @@ export async function generateClassroom(
   );
   throwIfAborted(options.signal);
   validateConfirmedPblDetails(outlines, input);
+  await options.onOutlinesPrepared?.(outlines);
+  throwIfAborted(options.signal);
   log.info(
-    confirmedOutlines.length > 0
-      ? `Using ${outlines.length} confirmed scene outlines (courseTitle: ${courseTitle ?? 'n/a'})`
-      : `Generated ${outlines.length} scene outlines (languageDirective: ${languageDirective}, courseTitle: ${courseTitle ?? 'n/a'})`,
+    outlineSource === 'generated'
+      ? `Generated ${outlines.length} scene outlines (languageDirective: ${languageDirective}, courseTitle: ${courseTitle ?? 'n/a'})`
+      : `Using ${outlines.length} ${outlineSource} scene outlines (courseTitle: ${courseTitle ?? 'n/a'})`,
   );
 
     await reportProgress({
@@ -773,9 +826,6 @@ export async function generateClassroom(
         }),
   };
 
-  const store = createInMemoryStore(stage);
-  const api = createStageAPI(store);
-
   log.info('Stage 2: Generating scene content and actions...');
   const sceneConcurrency = getClassroomSceneConcurrency();
   log.info(`Generating scenes with bounded concurrency: ${sceneConcurrency}`);
@@ -802,6 +852,19 @@ export async function generateClassroom(
         scenesGenerated: 0,
         totalScenes: outlines.length,
       });
+
+      const checkpoint = await options.loadSceneCheckpoint?.(safeOutline, index, stageId);
+      if (checkpoint) {
+        generatedSceneDrafts += 1;
+        await reportProgress({
+          step: 'generating_scenes',
+          progress: completedSceneGenerationProgress(generatedSceneDrafts, outlines.length),
+          message: `Restored ${generatedSceneDrafts}/${outlines.length} completed scenes`,
+          scenesGenerated: generatedSceneDrafts,
+          totalScenes: outlines.length,
+        });
+        return { outline: safeOutline, scene: checkpoint, index };
+      }
 
       const reportSceneRetry = async (
         phase: 'content' | 'actions',
@@ -831,6 +894,7 @@ export async function generateClassroom(
           }),
         {
           label: `scene ${index + 1}/${outlines.length} content`,
+          maxRetries: 1,
           signal: options.signal,
           shouldRetryResult: (result) => result === null,
           onRetry: (event) => reportSceneRetry('content', event),
@@ -853,6 +917,7 @@ export async function generateClassroom(
           }),
         {
           label: `scene ${index + 1}/${outlines.length} actions`,
+          maxRetries: 1,
           signal: options.signal,
           onRetry: (event) => reportSceneRetry('actions', event),
         },
@@ -917,6 +982,17 @@ export async function generateClassroom(
       }
 
       log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
+      // Keep the canonical assembler so restored and fresh pages have the
+      // exact same timing pauses, PBL metadata and outline identity.
+      const pageStore = createInMemoryStore(stage);
+      const pageApi = createStageAPI(pageStore);
+      const sceneId = createSceneWithActions(safeOutline, content, actions, pageApi);
+      const scene = sceneId
+        ? pageStore.getState().scenes.find((candidate) => candidate.id === sceneId) ?? null
+        : null;
+      if (!scene) return null;
+      await options.onSceneCompleted?.(safeOutline, scene, index);
+      throwIfAborted(options.signal);
       generatedSceneDrafts += 1;
       await reportProgress({
         step: 'generating_scenes',
@@ -925,7 +1001,7 @@ export async function generateClassroom(
         scenesGenerated: generatedSceneDrafts,
         totalScenes: outlines.length,
       });
-      return { outline: safeOutline, content, actions, index };
+      return { outline: safeOutline, scene, index };
     },
     { shouldContinue: () => !options.signal?.aborted },
   );
@@ -940,30 +1016,20 @@ export async function generateClassroom(
     failedTitles: failedContentTitles,
     phase: 'content',
   });
-  let generatedScenes = 0;
-  const failedAssemblyTitles: string[] = [];
-  for (const draft of sceneDrafts) {
-    if (!draft) continue;
-    const sceneId = createSceneWithActions(draft.outline, draft.content, draft.actions, api);
-    if (!sceneId) {
-      log.warn(`Skipping scene "${draft.outline.title}" — scene creation failed`);
-      failedAssemblyTitles.push(draft.outline.title);
-      continue;
-    }
-
-    generatedScenes += 1;
-  }
+  const assembledScenes = sceneDrafts.flatMap((draft) => draft ? [draft.scene] : []);
 
   assertCompleteSceneGeneration({
     expectedCount: outlines.length,
-    generatedCount: generatedScenes,
-    failedTitles: failedAssemblyTitles,
+    generatedCount: assembledScenes.length,
+    failedTitles: sceneDrafts.flatMap((draft, index) => (
+      draft ? [] : [outlines[index]?.title ?? `scene-${index + 1}`]
+    )),
     phase: 'assembly',
   });
 
   const qualityResult = auditAndRepairGeneratedCourse(
     outlines,
-    store.getState().scenes,
+    assembledScenes,
     requirements.teachingConstraints,
   );
   const scenes = qualityResult.scenes;

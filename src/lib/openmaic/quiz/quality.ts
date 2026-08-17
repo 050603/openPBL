@@ -99,8 +99,17 @@ function choiceAnalysis(options: QuizOption[], answers: string[], original: stri
   return `正确答案为${labels.join('、')}。判断时应回到题目对应的核心概念，说明这些选项为什么符合条件，并辨析其他选项所反映的常见误解。`;
 }
 
-export function normalizeQuizQuestions(input: unknown): QuizNormalizationResult {
+export function normalizeQuizQuestions(
+  input: unknown,
+  config: {
+    allowedKnowledgePointIds?: readonly string[];
+    fallbackKnowledgePointIds?: readonly string[];
+  } = {},
+): QuizNormalizationResult {
   const issues: string[] = [];
+  const allowedKnowledgePointIds = config.allowedKnowledgePointIds
+    ? new Set(config.allowedKnowledgePointIds)
+    : undefined;
   const rawQuestions = Array.isArray(input) ? input : [];
   const questions = rawQuestions.flatMap((value, index): QuizQuestion[] => {
     const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -111,6 +120,17 @@ export function normalizeQuizQuestions(input: unknown): QuizNormalizationResult 
     }
     const rawType = text(record.type) || 'single';
     const id = text(record.id) || `q_${index + 1}`;
+    const requestedKnowledgePointIds = Array.isArray(record.knowledgePointIds)
+      ? record.knowledgePointIds.map(text).filter(Boolean)
+      : [];
+    const validKnowledgePointIds = Array.from(new Set(requestedKnowledgePointIds.filter((knowledgePointId) =>
+      !allowedKnowledgePointIds || allowedKnowledgePointIds.has(knowledgePointId),
+    )));
+    const knowledgePointIds = validKnowledgePointIds.length > 0
+      ? validKnowledgePointIds
+      : Array.from(new Set(config.fallbackKnowledgePointIds ?? [])).filter((knowledgePointId) =>
+          !allowedKnowledgePointIds || allowedKnowledgePointIds.has(knowledgePointId),
+        );
     const pointsValue = Number(record.points);
     const points = Number.isFinite(pointsValue) && pointsValue > 0 ? Math.min(100, Math.round(pointsValue)) : 10;
     const originalAnalysis = text(record.analysis) || text(record.explanation);
@@ -120,6 +140,7 @@ export function normalizeQuizQuestions(input: unknown): QuizNormalizationResult 
       const structure = explainUnsupported(record);
       return [{
         id,
+        knowledgePointIds,
         type: 'short_answer',
         format: 'scenario_task',
         question: structure ? `${question}\n请用“对象—对应关系/顺序—理由”的方式作答。可参考待处理项目：${structure}` : `${question}\n请写出完整关系或顺序，并说明理由。`,
@@ -134,6 +155,7 @@ export function normalizeQuizQuestions(input: unknown): QuizNormalizationResult 
     if (format === 'fill_blank' || format === 'short_answer' || format === 'scenario_task') {
       return [{
         id,
+        knowledgePointIds,
         type: 'short_answer',
         format,
         question,
@@ -164,6 +186,7 @@ export function normalizeQuizQuestions(input: unknown): QuizNormalizationResult 
       issues.push(`question ${index + 1}: invalid choice structure downgraded to short_answer`);
       return [{
         id,
+        knowledgePointIds,
         type: 'short_answer',
         format: 'short_answer',
         question,
@@ -180,6 +203,7 @@ export function normalizeQuizQuestions(input: unknown): QuizNormalizationResult 
     }
     return [{
       id,
+      knowledgePointIds,
       type,
       format: type === 'multiple' ? 'multiple_choice' : format,
       question,

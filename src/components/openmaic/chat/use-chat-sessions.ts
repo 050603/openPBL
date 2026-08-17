@@ -16,6 +16,7 @@ import { useStageStore } from '@openmaic/lib/store';
 import { useCanvasStore } from '@openmaic/lib/store/canvas';
 import { useSettingsStore } from '@openmaic/lib/store/settings';
 import { useUserProfileStore } from '@openmaic/lib/store/user-profile';
+import { useWidgetIframeStore } from '@openmaic/lib/store/widget-iframe';
 import { useAgentRegistry } from '@openmaic/lib/orchestration/registry/store';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { getCurrentModelConfig } from '@openmaic/lib/utils/model-config';
@@ -374,7 +375,15 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
 
             // Execute the action via ActionEngine (fire-and-forget for visual effects)
             try {
-              const actionEngine = new ActionEngine(useStageStore);
+              const sceneId = useStageStore.getState().currentSceneId;
+              const actionEngine = new ActionEngine(
+                useStageStore,
+                null,
+                (type, payload) => {
+                  if (!sceneId) return;
+                  useWidgetIframeStore.getState().getSendMessage(sceneId)?.(type, payload);
+                },
+              );
               const action = {
                 id: data.actionId,
                 type: data.actionName,

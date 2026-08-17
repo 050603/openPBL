@@ -4,22 +4,21 @@ import type { UserRequirements } from '@openmaic/lib/types/generation';
 
 export type OutlinePromptPlan = {
   promptId: PromptId;
-  interactiveMode: boolean;
 };
 
 /** Keep prompt selection and conditional mode variables identical in streaming and batch generation. */
 export function resolveOutlinePromptPlan(
-  requirements: Pick<UserRequirements, 'interactiveMode' | 'pblProfile'>,
+  requirements: Pick<UserRequirements, 'pblProfile'>,
   taskEngineMode = false,
 ): OutlinePromptPlan {
-  const interactiveMode = requirements.interactiveMode === true;
+  // Deep interaction is the product's default teaching contract. The legacy
+  // flag is still accepted so older persisted requests remain readable, but a
+  // caller can no longer downgrade a newly generated lesson to slide-only mode.
   const promptId = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
     ? PROMPT_IDS.PBL_COURSE
     : taskEngineMode
       ? PROMPT_IDS.TASK_ENGINE_OUTLINES
-      : interactiveMode
-        ? PROMPT_IDS.INTERACTIVE_OUTLINES
-        : PROMPT_IDS.REQUIREMENTS_TO_OUTLINES;
+      : PROMPT_IDS.INTERACTIVE_OUTLINES;
 
-  return { promptId, interactiveMode };
+  return { promptId };
 }

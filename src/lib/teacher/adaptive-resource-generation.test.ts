@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AdaptiveBranchOutline } from "@/lib/session/types";
 import {
+  adaptiveBranchGenerationSignature,
   hasReusableAdaptiveResource,
   selectAdaptiveBranchesForGeneration,
 } from "@/lib/teacher/adaptive-resource-generation";
@@ -60,5 +61,23 @@ describe("adaptive resource generation selection", () => {
     const draft = branch("draft", { status: "draft" });
 
     expect(selectAdaptiveBranchesForGeneration([draft])).toEqual([]);
+  });
+
+  it("marks a changed branch signature without coupling it to placement-only edits", () => {
+    const original = branch("signature");
+    expect(adaptiveBranchGenerationSignature({
+      ...original,
+      trigger: { placement: "before-main-course", evidenceRule: "pretest-gap", minimumRemainingSec: 240 },
+    })).toBe(adaptiveBranchGenerationSignature(original));
+    expect(adaptiveBranchGenerationSignature({ ...original, objective: "新的教学目标" }))
+      .not.toBe(adaptiveBranchGenerationSignature(original));
+  });
+
+  it("does not reuse a stale classroom but keeps it identifiable for preview", () => {
+    const stale = branch("stale", {
+      preparedResource: { status: "stale", classroomId: "classroom-old" },
+    });
+    expect(hasReusableAdaptiveResource(stale)).toBe(false);
+    expect(selectAdaptiveBranchesForGeneration([stale])).toEqual([stale]);
   });
 });

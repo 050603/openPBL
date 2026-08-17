@@ -42,6 +42,16 @@ describe('instructional presentation prompt contract', () => {
     expect(prompt?.system).toContain('wb_draw_latex');
     expect(prompt?.system).toContain('Close and return to PPT');
     expect(prompt?.system).toContain('Do not use the whiteboard merely to copy the slide');
+    expect(prompt?.system).toContain('choose a visual tool before adding more speech');
+    expect(prompt?.system).toContain('Never place two long speech segments back-to-back');
+  });
+
+  it('biases the live teacher toward tools when prose would stay abstract', () => {
+    const prompt = buildPrompt(PROMPT_IDS.AGENT_SYSTEM_WB_TEACHER, {});
+
+    expect(prompt?.system).toContain('tool-use checkpoint');
+    expect(prompt?.system).toContain('use the whiteboard before adding a third explanatory sentence');
+    expect(prompt?.system).toContain('Do not merely say that you could draw it');
   });
 
   it('keeps the shared decision policy semantic instead of hard-coding the motivating example', () => {

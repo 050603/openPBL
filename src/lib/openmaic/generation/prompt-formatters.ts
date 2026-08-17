@@ -24,7 +24,11 @@ export function buildCourseContext(ctx?: SceneGenerationContext): string {
     'IMPORTANT: All pages belong to the SAME class session. A new section may receive a brief section opening, but must not restart or re-introduce the whole course. When referencing content from earlier pages, say "we just covered" or "as mentioned on page N" — NEVER say "last class" or "previous session" because there is no previous session.',
   );
   lines.push('');
-  if (ctx.pageIndex === 1) {
+  if (ctx.narrationMode === 'embedded-segment') {
+    lines.push('Position: This classroom is an INSERTED SEGMENT inside an ongoing main lesson, even when this is page 1 of the generated segment.');
+    lines.push('Continuity: Start directly with the knowledge or task. Never greet, welcome learners, introduce a new course, or describe this as a separate lesson. Never use “last class/previous lesson” for the immediately preceding main-course page.');
+    lines.push('Ending: Do not thank the audience, say goodbye, or formally close a course. End with a concise learning takeaway or a natural bridge such as “Now let us continue with the next part.”');
+  } else if (ctx.pageIndex === 1) {
     lines.push('Position: This is the FIRST page. Open with a greeting and course introduction.');
   } else if (ctx.sectionPosition === 'section-first') {
     lines.push('Position: This is the FIRST page of a new section. Briefly open the section and connect it to prior learning; do not restart the whole course.');
@@ -52,6 +56,7 @@ export function buildCourseContext(ctx?: SceneGenerationContext): string {
     lines.push('');
     lines.push('Narration continuity context (authoritative):');
     lines.push(`- Section position: ${ctx.sectionPosition || 'continuation'}`);
+    lines.push(`- Narration mode: ${ctx.narrationMode || 'standalone-course'}`);
     if (ctx.previousPageTitle) lines.push(`- Previous page topic: ${ctx.previousPageTitle}`);
     if (ctx.previousPageSummary) lines.push(`- Previous page content summary: ${ctx.previousPageSummary}`);
     if (ctx.currentTeachingObjective) lines.push(`- Current page teaching objective: ${ctx.currentTeachingObjective}`);

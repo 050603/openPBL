@@ -120,8 +120,6 @@ Initiate classroom discussion, suitable for segments requiring student reflectio
 - **IMPORTANT**: discussion MUST be the **last** action in the array. Do NOT place any text or action objects after a discussion. Wrap up your speech BEFORE the discussion action.
 - **FREQUENCY**: Do NOT add a discussion to every page. Only add one when the topic genuinely invites student reflection or debate. A typical course should have at most 1-2 discussions total. Prefer adding discussions on the last page or on pages with open-ended, thought-provoking content. Most pages should have NO discussion.
 
----
-
 ## Design Requirements
 
 ### 1. Speech Content

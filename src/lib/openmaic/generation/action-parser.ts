@@ -10,7 +10,7 @@
  */
 
 import type { Action, ActionType } from '@openmaic/lib/types/action';
-import { SLIDE_ONLY_ACTIONS } from '@openmaic/lib/types/action';
+import { isActionType, SLIDE_ONLY_ACTIONS } from '@openmaic/lib/types/action';
 import { nanoid } from 'nanoid';
 import { parse as parsePartialJson, Allow } from 'partial-json';
 import { jsonrepair } from 'jsonrepair';
@@ -105,13 +105,17 @@ export function parseActionsFromStructuredOutput(
       try {
         // Support both new format (name/params) and legacy format (tool_name/parameters)
         const actionName = typedItem.name || typedItem.tool_name;
+        if (!isActionType(actionName)) {
+          log.warn(`Unknown action type, skipping: ${String(actionName)}`);
+          continue;
+        }
         const actionParams = (typedItem.params || typedItem.parameters || {}) as Record<
           string,
           unknown
         >;
         const action = {
           id: (typedItem.action_id || typedItem.tool_id || `action_${nanoid(8)}`) as string,
-          type: actionName as Action['type'],
+          type: actionName,
           ...actionParams,
         } as Action;
         // `widget_setState.state` is required by the type, but the LLM may omit it.

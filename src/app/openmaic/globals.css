@@ -510,7 +510,7 @@ body[data-maic-editor='true'] .editable-element-text li,
   }
 }
 
-/* Breathing animation for interactive mode button */
+/* Breathing animation for active teaching controls */
 @keyframes interactive-mode-breathe {
   0%,
   100% {

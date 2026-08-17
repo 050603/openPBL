@@ -477,10 +477,15 @@ async function executeLegacyWithReservation(
     envelope.action.type !== "CREATE_COURSE" &&
     envelope.expectedVersion === undefined
   ) {
+    const current = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { version: true },
+    });
     throw new CourseActionError(
       "EXPECTED_VERSION_REQUIRED",
       "Teacher mutations require expectedVersion.",
       428,
+      { currentVersion: current?.version },
     );
   }
   try {

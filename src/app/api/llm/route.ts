@@ -7,6 +7,7 @@
 
 import { NextRequest } from "next/server";
 import { generateCourseContent, isActiveLlmConfigured } from "@/lib/llm/client";
+import { generateReviewedKnowledgeStructure } from "@/lib/knowledge-structure-generation";
 import type { LlmCallRequest } from "@/lib/llm/types";
 import {
   LlmCallFailedError,
@@ -32,7 +33,26 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "MISSING_FIELDS" }, { status: 400 });
   }
   try {
-    const result = await generateCourseContent(body);
+    let result;
+    if (body.action === "knowledgeGraph") {
+      const structure = await generateReviewedKnowledgeStructure(
+        body.input,
+        body.context,
+        { abortSignal: req.signal },
+      );
+      result = {
+        content: {
+          pblOutline: "",
+          knowledgePoints: structure.knowledgePoints,
+          knowledgeGraph: structure.knowledgeGraph,
+          lessonOutline: [],
+          evaluationPlan: { dimensions: [], overallRubric: "" },
+        },
+        source: "llm" as const,
+      };
+    } else {
+      result = await generateCourseContent(body, { signal: req.signal });
+    }
     return Response.json({
       ...result,
       llmConfigured: await isActiveLlmConfigured(),

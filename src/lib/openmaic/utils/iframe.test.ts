@@ -31,3 +31,39 @@ describe('patchHtmlForIframe activity bridge', () => {
     expect(patched).not.toContain("document.addEventListener('submit'");
   });
 });
+
+describe('patchHtmlForIframe interactive runtimes', () => {
+  it('routes generated Pyodide and CodeMirror assets through the same-origin runtime service', () => {
+    const html = `<!doctype html><html><head>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+      <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    </head><body><script>
+      const runtime = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/' });
+    </script></body></html>`;
+
+    const patched = patchHtmlForIframe(html);
+
+    expect(patched).toContain('/api/openmaic/interactive-runtime/codemirror/lib/codemirror.css');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/codemirror/lib/codemirror.js');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/codemirror/mode/python/python.js');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/pyodide/pyodide.js');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/katex/katex.min.css');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/katex/contrib/auto-render.min.js');
+    expect(patched).toContain("indexURL: '/api/openmaic/interactive-runtime/pyodide/'");
+    expect(patched).not.toContain('cdnjs.cloudflare.com');
+    expect(patched).not.toContain('cdn.jsdelivr.net/pyodide');
+    expect(patched).not.toContain('cdn.jsdelivr.net/npm/katex');
+  });
+
+  it('does not rewrite generated program logic while repairing known runtime asset URLs', () => {
+    const source = '<script>const py = await loadPyodide();</script>';
+    const patched = patchHtmlForIframe(`<html><head></head><body>${source}</body></html>`);
+
+    expect(patched).toContain(source);
+    expect(patched).not.toContain('__maicLoadPyodide');
+  });
+});

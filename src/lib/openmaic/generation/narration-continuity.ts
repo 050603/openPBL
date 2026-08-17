@@ -41,6 +41,7 @@ export function buildNarrationContext(
     previousPageTitle: previous?.title,
     previousPageSummary: summarizeOutline(previous),
     currentTeachingObjective: summarizeOutline(current),
+    narrationMode: current?.narrationMode ?? 'standalone-course',
   };
 }
 
@@ -50,17 +51,61 @@ export function stripRepeatedNarrationOpening(text: string): string {
   return text.replace(REPEATED_OPENING_PREFIX, '').trimStart();
 }
 
+const FORMAL_FAREWELL_PHRASE = /(?:感谢(?:大家|同学们)?(?:的)?(?:聆听|观看|参与)|谢谢(?:大家|同学们)?|(?:我们)?(?:下次课|下节课|下次|下一堂课)再见|同学们再见|再见)/i;
+const FALSE_SESSION_REFERENCE = /(?:在)?(?:上一节课|上节课|上一堂课|上次课|上次课程)(?:中|里)?/g;
+const FALSE_PREVIOUS_PAGE_LEARNING = /(?:在)?(?:上一页|前一页)(?:中|里)?[，,\s]*我们(?:已经)?(?:看到了?|了解了?|学习了?|认识了?|回顾了?)/g;
+const FALSE_PREVIOUS_PAGE_REFERENCE = /(?:在)?(?:上一页|前一页)(?:中|里)?/g;
+const COURSE_GREETING = /(?:大家好|同学们好|各位同学好|欢迎(?:大家|各位同学|同学们)?来到)/i;
+
+function normalizeCourseFirstOpening(text: string): string {
+  const independentOpening = text
+    .replace(FALSE_PREVIOUS_PAGE_LEARNING, '这节课我们先来了解')
+    .replace(FALSE_PREVIOUS_PAGE_REFERENCE, '在本节课中');
+  return COURSE_GREETING.test(independentOpening)
+    ? independentOpening
+    : `同学们好，欢迎来到今天的课堂。${independentOpening.trimStart()}`;
+}
+
+export function stripFormalNarrationFarewell(text: string): string {
+  const match = FORMAL_FAREWELL_PHRASE.exec(text);
+  if (!match || match.index === undefined) return text.trimEnd();
+  return text.slice(0, match.index).replace(/[，,\s]+$/, '').trimEnd();
+}
+
 /** Deterministic final guard for model outputs that ignore the continuity prompt. */
 export function enforceNarrationContinuity(
   actions: ReadonlyArray<Action>,
   context?: SceneGenerationContext,
 ): Action[] {
-  if (!context || context.sectionPosition !== 'continuation') return [...actions];
-  let firstSpeechHandled = false;
-  return actions.map((action) => {
-    if (firstSpeechHandled || action.type !== 'speech') return { ...action };
-    firstSpeechHandled = true;
-    const cleaned = stripRepeatedNarrationOpening(action.text);
+  if (!context) return actions.map((action) => ({ ...action }));
+  const speechIndexes = actions.flatMap((action, index) => action.type === 'speech' ? [index] : []);
+  const firstSpeechIndex = speechIndexes[0];
+  const lastSpeechIndex = speechIndexes.at(-1);
+  const shouldStripOpening = context.narrationMode === 'embedded-segment'
+    || context.sectionPosition !== 'course-first';
+  return actions.map((action, index) => {
+    if (action.type !== 'speech') return { ...action };
+    let cleaned = context.pageIndex > 1
+      ? action.text.replace(FALSE_SESSION_REFERENCE, '刚才')
+      : action.text;
+    if (
+      index === firstSpeechIndex
+      && context.sectionPosition === 'course-first'
+      && context.narrationMode === 'standalone-course'
+    ) {
+      cleaned = normalizeCourseFirstOpening(cleaned);
+    }
+    if (index === firstSpeechIndex && shouldStripOpening) {
+      cleaned = stripRepeatedNarrationOpening(cleaned);
+    }
+    if (index === lastSpeechIndex && context.narrationMode === 'embedded-segment') {
+      const withoutFarewell = stripFormalNarrationFarewell(cleaned);
+      if (withoutFarewell !== cleaned) {
+        cleaned = withoutFarewell
+          ? `${withoutFarewell} 接下来，让我们继续后面的学习。`
+          : '接下来，让我们继续后面的学习。';
+      }
+    }
     return {
       ...action,
       text: cleaned || context.currentTeachingObjective || context.allTitles[context.pageIndex - 1] || action.text,

@@ -6,15 +6,24 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 
 > 当前开发分支包含较大范围的架构、安全、数据一致性、课程生成和 UI 改造。部署前必须完成本文的“服务器迁移检查清单”，不要直接复用早期版本的数据库、环境变量、镜像或 Compose 启动方式。
 
-## 2026-08-10 版本迁移摘要
+## 2026-08-11 版本迁移摘要
 
 自 README 上次修订（2026-07-28，`1694b9a`）以来，核心变化集中在以下方面：
 
 - **证据驱动课堂**：课程新增学习证据、作品快照、AI 贡献、学生 AI 决策和 AI 评价建议等数据契约；启动、方案、实践、汇报和反思阶段统一为可追踪的证据任务。
 - **课堂运行体验**：教师授课控制台、学生任务界面、AI 授知播放器和字幕系统重新设计；增加课程时间预算、语音时长校准、页面切换恢复和沉浸式伴学角色动作。
+- **原生课堂工具**：AI 授课现在可以通过与课堂动作一致的 OpenMAIC Action DSL 调用白板、随堂检测、证据看板更新和嵌入式组件；同一套动作进入校验、播放和状态持久化链路，可通过 `OPENMAIC_NATIVE_CLASSROOM_TOOLS=false` 临时回退。
 - **备课与生成质量**：重构课程大纲、知识图谱、教学活动与六模块时间分配；加强中文生成契约、提示词质量检查、知识点覆盖和内容去重。
-- **持久后台生成**：生产环境中课程生成改为 PostgreSQL 持久任务。教师离开页面后任务继续运行，重新进入时续接同一个任务，完成后自动进入课程预览，避免重复生成。
+- **持久后台生成与自动存档**：生产环境中课程生成使用 PostgreSQL 持久任务。教师离开页面后任务继续运行，重新进入时续接同一个任务，避免重复生成。学生课堂和教师资源在任务标记完成前就关联并保存到课程，不依赖“发布课程”操作。
+- **逐页检查点恢复**：最终课堂生成会持久化规范化大纲和每个页面的完成检查点；进程重启、蓝绿切换或瞬态故障后只重做尚未完成或大纲指纹已变化的页面，不再整课从头生成。
+- **双模式课程设计**：新建课程后直接进入极简的“快速生成”输入页；教师也可以单向进入高级分步设计。快速模式不是另一套简化生成器，而是依次调用与分步模式相同的课程定位、知识图谱、项目成果、评价、六阶段架构、OpenMAIC 主课脚本和个性化路径能力，每阶段通过结构检查与 AI 审校后才继续。
+- **代理式自动修订**：快速模式中的 AI 审校意见不会直接作为教师端报错。代理会读取完整阶段结果，自动协调课程目标、驱动问题、成果和固定课时，或按意见重新调用该阶段生成能力；普通内容质量问题经过多轮修订后继续流程，只有必填结构缺失、模型或持久化等不可恢复故障才终止。
+- **快速模式内大纲审阅**：主课脚本生成后，快速页面提供独立审阅弹窗并暂停后台流程，不跳转高级分步页面；教师保存后以最新 scene outlines 继续，未打开则在等待窗口结束后自动继续。丰富互动和教师资源均由共享 OpenMAIC 约束生成，学生 PPT 单页最长 6 分钟。
+- **端到端真实产物画布**：快速生成从课程定位一直连续展示到最终课堂页面、媒体资源和自动保存，不再跳转普通生成页。画布遵循系统暖白表面、教师蓝主色、14px 圆角和细边框规范；主卡自身持续轻微悬浮，左右侧卡通过缩放、透明度、错位和独立运动形成景深，不在主卡正后方增加垫片卡。新旧主卡切换时短暂交叠并连续翻页，避免先消失再出现的空白断帧。知识数据转换为“基础—核心—应用—拓展”的学习逻辑；评价卡使用两层实体嵌套圆环：后方更宽的淡色背景环只按实际权重分成教师评与 AI 评两部分，前方更细的彩色规则环按每条真实评价规则及权重分段，旁侧同步展示规则标题和可观察判据；六阶段时间、成果契约、教学协作、课程大纲、逐页制作、个性化路径、图片/视频、TTS 和存档分别使用不同的高密度构图。侧卡长标题会自动截断，主卡至少停留一段可读时间，但后台生成持续推进；总进度和预计时间覆盖课程设计、最终课堂制作及全部资源后处理。
+- **后台写入并发安全**：快速生成工作器禁止用启动时捕获的完整课程快照覆盖数据库，只把本阶段课程设计字段合并到最新课程版本，保留教师编辑、学生、课堂运行和会话数据。出现乐观并发冲突时会重新读取最新聚合再执行合并。
+- **统一生成动效**：知识图谱、阶段架构、主课脚本和个性化路径统一使用任务专属的翻卡片弹窗。主课脚本在首条流式内容出现前显示弹窗，随后自动回到页面内逐页生成。
 - **准确进度与剩余时间**：进度按已完成课堂页面持续推进，不再长时间停留在固定百分比；初始时间按页面和分层资源数量估算，随后按实际吞吐速度校准。
+- **分阶段模型请求策略**：普通结构化调用与知识图谱、六阶段方案、页面大纲、整课等长输出任务使用不同的超时预算；瞬态超时、限流、网络错误和服务端错误按策略重试，鉴权或结构错误不会盲目重试。
 - **分层学习资源**：教师确认的先决知识和额外学习资源与主课程一并生成、保存，并接入同一播放器。
 - **可靠性与安全**：增强课程版本冲突重试、在线状态、上传权限、教师注册、代码分块加载恢复和生产构建隔离。
 
@@ -24,9 +33,9 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 
 | 项目 | 必须确认的内容 |
 | --- | --- |
-| 数据库 | 先备份，再通过迁移镜像执行全部 Prisma migration；重点确认 `20260731163000_evidence_driven_classroom` 和 `20260809153000_course_generation_jobs` 已应用。 |
+| 数据库 | 先备份，再通过迁移镜像执行全部 Prisma migration；重点确认 `20260731163000_evidence_driven_classroom`、`20260809153000_course_generation_jobs`、`20260810143000_course_design_generation_jobs`、`20260810195000_course_design_outline_review` 和 `20260811100000_course_generation_page_checkpoints` 已应用。 |
 | 镜像 | 应用镜像和 migrator 镜像必须来自同一 Git SHA；禁止混用旧 migrator、新应用或 `latest`。 |
-| 后台生成 | 使用长驻 Node.js/Docker 服务，生产设置 `COURSE_GENERATION_BACKGROUND_ENABLED=true`；不要部署到会在请求结束后冻结进程的纯 Serverless 运行时。 |
+| 后台生成 | 使用长驻 Node.js/Docker 服务，生产设置 `COURSE_GENERATION_BACKGROUND_ENABLED=true`；该开关同时控制快速设计工作器和最终课堂工作器，不要部署到会在请求结束后冻结进程的纯 Serverless 运行时。 |
 | 生成课堂文件 | `/app/data/classrooms` 必须使用所有蓝绿应用实例共享的 `classrooms` 持久卷，其中包含课堂 JSON、图片、视频和语音。 |
 | 其他持久卷 | 同时保留 PostgreSQL、`uploads`、`whiteboards`、证书、监控和备份状态卷；不要在发布时执行 `down -v`。 |
 | Provider 密钥 | 必须保留原 `PROVIDER_ENCRYPTION_KEY`；更换后数据库中已有 Provider 凭据无法解密。 |
@@ -57,6 +66,7 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 - 创建课程，设置学科、年级、课时、驱动问题和分组方式。
 - 通过 AI 生成课程结构、教学场景、课件、语音和配套资源。
 - 生产环境支持课程在后台持续生成；离开页面后仍可继续，返回时自动恢复进度或进入预览。
+- 最终课堂按页面持久化检查点；任务被重新领取后复用已完成且大纲指纹一致的页面。
 - 预览、校验和编辑课程内容后发布课堂。
 - 管理项目启动、阶段推进、工作区开放策略和教师指令。
 - 实时查看学生在线状态、任务完成度、学习证据和异常信号。
@@ -69,6 +79,7 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 - 在统一课堂工作台完成任务、学习、方案、作品、汇报和反思。
 - 使用多角色 AI 伴学助手获取提问、审阅、记录和表达支持。
 - AI 授课采用专注式主播放器；自适应拓展内容直接插入主课程流程，不再跳转到独立学习窗口。
+- AI 可在受控动作链路中调用白板、随堂检测、证据看板和课堂组件，所有工具调用均经过 DSL 校验和播放状态同步。
 - 支持上传过程证据、查看教师反馈、接收课堂指令和断线恢复。
 
 ### 数据一致性与实时协作
@@ -80,6 +91,7 @@ OpenPBL 是面向项目式学习（PBL）课堂的 AI 教学与伴学平台。�
 - 在线状态存放在 Redis，学生端定期续期，避免高频写入数据库。
 - 高频数据已正规化为关系表，包括成员关系、待办完成记录、公告回复和资源下载记录。
 - 课程生成任务保存在 PostgreSQL，每门课程只有一个当前任务；页面重进和网络重试不会创建重复课堂。
+- 课堂大纲与逐页生成检查点保存在 PostgreSQL；任务恢复时会核对页面键、顺序与大纲指纹，仅复用仍然有效的页面。
 - 学习证据、作品快照、AI 贡献、学生 AI 决策和 AI 评价建议作为课程规范数据保存。
 - 白板通过 `@tldraw/sync` / `sync-core` 进行房间同步，并持久化到独立卷。
 
@@ -103,6 +115,9 @@ flowchart LR
     N --> A["Next.js 应用"]
     N --> W["WebSocket / tldraw 同步"]
     A --> G["持久课程生成工作器"]
+    A --> D["持久课程设计工作器"]
+    D --> P
+    D --> G
     G --> P
     A --> P["PostgreSQL"]
     A --> R["Redis"]
@@ -126,8 +141,8 @@ flowchart LR
 | Web | Next.js 16.2、React 19、TypeScript、Tailwind CSS 4 |
 | 数据 | PostgreSQL 16、Prisma 6、Redis 7 |
 | 实时协作 | WebSocket、Redis Pub/Sub、课程事件游标、tldraw sync |
-| AI | Vercel AI SDK、OpenAI/Anthropic/Google 适配器、兼容 OpenAI 的 Provider |
-| 内容 | OpenMAIC DSL/Importer/Renderer、TipTap、PptxGenJS、持久课程生成任务 |
+| AI | Vercel AI SDK、OpenAI/Anthropic/Google 适配器、兼容 OpenAI 的 Provider、分阶段超时与并发策略 |
+| 内容 | OpenMAIC DSL/Importer/Renderer、原生课堂工具、TipTap、PptxGenJS、持久任务与逐页检查点 |
 | 文件存储 | Docker named volumes：上传、白板、生成课堂及其媒体 |
 | 验证 | Vitest、Playwright、k6、ESLint、TypeScript |
 | 运维 | Docker Compose、Nginx、Prometheus、Grafana、pgBackRest、Restic |
@@ -135,17 +150,17 @@ flowchart LR
 
 ## 当前验证状态
 
-截至 2026-08-10，当前工作区验证结果如下：
+截至 2026-08-11，当前工作区验证结果如下：
 
-- TypeScript 类型检查通过。
-- Vitest 完整套件共 159 个测试文件、712 项测试通过。
-- 本次 README、Compose 和后台生成相关文件的定向 ESLint 检查通过。
-- 完整 `pnpm lint:ci` **尚未通过**：`src/components/views/student/evidence-task/make-task.tsx` 有 2 个 React Compiler memoization 依赖错误，`src/lib/learning-evidence/readiness.test.ts` 有 1 个未使用类型警告；发布前必须修复并重新执行。
-- Prisma Schema 校验通过；新增迁移已纳入迁移目录，服务器仍须执行 `migrate deploy` 和 `migrate status`。
-- 生产依赖安全审计和本地健康检查本次未重新执行，发布候选仍须运行对应命令。
-- Next.js 16.2.12 生产构建通过。
+- 完整 `pnpm lint:ci` 零警告通过，`pnpm typecheck` 通过。
+- Vitest 完整套件共 179 个测试文件、761 项测试全部通过。
+- Prisma Schema 校验通过；七个迁移均已纳入迁移目录，服务器仍须执行 `migrate deploy` 和 `migrate status`。
+- `pnpm audit:prod` 未发现已知生产依赖漏洞。
+- Next.js 16.2.12 生产构建通过，29 个静态页面完成生成。
+- Playwright 的学生加入、读取课堂、保存进度和刷新恢复流程通过（1/1）。
+- `pnpm test:classroom-flow` 的 9 项师生权限、幂等、并发和阶段同步检查全部通过。
 
-这些结果表示当前代码通过了类型检查、完整 Vitest 和生产构建，但由于完整 ESLint 仍有上述阻断项，当前工作区不能直接作为发布候选。修复后还需执行 Playwright、`target`、`stress`、`soak`、后台生成离页恢复、蓝绿切换和备份恢复测试。
+以上本机发布门禁已经通过。云端 `target`、`stress`、`soak` 压测、真实 Provider 长流程生成、后台生成离页/进程重启恢复、蓝绿切换和备份恢复仍属于服务器发布验收项，不能由本机结果替代。
 
 ## 目录结构
 
@@ -158,6 +173,7 @@ openPBL/
 │     ├─ auth/                # 登录、JWT、权限与密码
 │     ├─ courses/             # 课程 API 合约、动作与事件
 │     ├─ course-generation/   # 持久生成任务、能力判断与后台工作器
+│     ├─ course-design/       # 快速设计八阶段任务、质量复核与课堂任务交接
 │     ├─ db/                  # Prisma 客户端和数据仓储
 │     ├─ learning-evidence/   # 证据任务、就绪门槛与 AI 使用责任
 │     ├─ observability/       # 日志、指标和健康检查
@@ -235,6 +251,8 @@ TRUST_PROXY_HEADERS=false
 # 本机默认使用页面连接承载生成；只有明确测试后台工作器时才改为 true
 COURSE_GENERATION_BACKGROUND_ENABLED=false
 PARALLEL_SCENE_CONCURRENCY=4
+COURSE_GENERATION_LLM_CONCURRENCY=4
+OPENMAIC_NATIVE_CLASSROOM_TOOLS=true
 
 ENABLE_WEBSOCKET=true
 WEBSOCKET_PORT=3001
@@ -256,11 +274,20 @@ AI 课程生成可通过教师设置页配置 Provider，也可在开发环境�
 OPENPBL_LLM_ENDPOINT=https://your-provider.example/v1
 OPENPBL_LLM_API_KEY=your-api-key
 OPENPBL_LLM_MODEL=your-model
+OPENPBL_LLM_REQUEST_TIMEOUT_MS=180000
+OPENPBL_LLM_QUALITY_REVIEW_TIMEOUT_MS=300000
+OPENPBL_LLM_LONG_REQUEST_TIMEOUT_MS=600000
 ```
 
 未配置 LLM 时可以使用示例内容继续验证非 AI 流程，但真实课程生成、AI 对话、联网搜索或 TTS 需要相应 Provider。
 
+普通结构化模型调用默认超时为 180 秒；独立质量审校默认 300 秒；知识图谱、六阶段架构、逐页主课脚本和整课生成属于长输出任务，默认超时为 600 秒。三个值均可按 Provider 能力调整，系统会限制在 30 秒至 30 分钟之间。课程生成中的瞬态超时、限流、网络错误或 5xx 会自动重试一次，鉴权或结构错误不会盲目重试。
+
 `PARALLEL_SCENE_CONCURRENCY` 支持 `1–5`，默认 `4`。提高并发会缩短课程生成时间，但会同时增加模型请求、限流压力和失败重试量；迁移到新服务器后应先保持默认值，再根据 Provider 配额和实际监控调整。
+
+`COURSE_GENERATION_LLM_CONCURRENCY` 是课程设计、主课页面和个性化分支共同使用的进程级模型请求上限，支持 `1–5`、默认 `4`。它不会限制课堂中的交互式 AI；未配置时沿用 `PARALLEL_SCENE_CONCURRENCY`。
+
+`OPENMAIC_NATIVE_CLASSROOM_TOOLS` 默认启用。它允许模型通过既有 Action DSL 使用白板、随堂检测、证据看板和嵌入式组件；自定义 Provider 出现工具调用兼容问题时可暂时设为 `false`，并结合日志完成排查后再恢复。
 
 本机 `next dev` 默认关闭持久后台生成，生成期间页面会提示不要离开。生产 Compose 默认开启；若要在本机测试完整离页恢复，必须先配置 PostgreSQL，应用迁移后显式设置：
 
@@ -276,7 +303,7 @@ docker compose --env-file .env.local up -d postgres redis
 
 Compose 还会将生成课堂保存到 `openpbl-classrooms` named volume。不要使用 `docker compose down -v` 清理环境，除非确认课程、上传、白板和数据库数据均可删除。
 
-本地演示仍保留无数据库 JSON 存储兼容模式，但它不适用于多人并发、生产部署或可靠恢复。正式开发和验证应使用 PostgreSQL。
+无数据库时只保留早期 JSON 数据读取/迁移所需的兼容存储，不构成完整演示环境；教师认证、持久生成、多人并发和可靠恢复均需要 PostgreSQL。正式开发和验证必须使用 PostgreSQL。
 
 ### 4. 初始化数据库
 
@@ -366,7 +393,11 @@ pnpm dev
 | `POST /api/courses/:courseId/actions` | 提交带 `requestId` 和可选版本号的课程动作 |
 | `GET /api/courses/:courseId/events?after=<cursor>` | 按游标补发断线期间事件 |
 | `GET /api/courses/:courseId/generation` | 获取后台生成能力、当前任务、进度、剩余时间和结果 |
+| `PATCH /api/courses/:courseId/generation` | 本机请求绑定模式下启动已经持久化的最终课堂任务；不会新建重复任务 |
+| `DELETE /api/courses/:courseId/generation` | 安全中断排队中或正在运行的最终课堂生成任务 |
 | `POST /api/courses/:courseId/generation` | 幂等创建或续接课程生成任务；失败任务可由教师明确重试 |
+| `GET /api/courses/:courseId/design-generation` | 获取快速设计任务、八阶段进度、追溯记录和质量报告 |
+| `POST /api/courses/:courseId/design-generation` | 幂等创建或续接快速设计任务；完成后自动排入最终课堂生成队列 |
 | `PUT/DELETE /api/courses/:courseId/presence` | 在线续期与离线 |
 | `POST /api/uploads` | 受权文件上传 |
 | `GET /api/uploads/:id` | 受权文件下载 |
@@ -466,14 +497,21 @@ docker compose \
   run --rm migrate pnpm exec prisma migrate status
 ```
 
-状态输出必须包含以下四个迁移，且全部为已应用：
+状态输出必须包含以下七个迁移，且全部为已应用：
 
 ```text
 20260723091606_init
 20260727090000_production_concurrency_security
 20260731163000_evidence_driven_classroom
 20260809153000_course_generation_jobs
+20260810143000_course_design_generation_jobs
+20260810195000_course_design_outline_review
+20260811100000_course_generation_page_checkpoints
 ```
+
+`pnpm dev` 与 `pnpm dev:next` 会在启动 Next.js 前检查 Prisma Client 的 schema、版本和本地 library 查询引擎；三者一致时直接复用，只有缺失或过期时才重新生成。开发环境连接串继续使用 `postgresql://`；如果再次出现要求 `prisma://` 的 P6001，应先确认没有绕过项目脚本直接运行 `next dev`。
+
+Windows 若提示 `EPERM ... query_engine-windows.dll.node`，说明另一个 Node/Next 进程仍占用 Prisma 查询引擎。先关闭该项目已有的开发服务（双版本环境可运行 `pnpm dev:stop`；普通 `pnpm dev` 请在原终端按 `Ctrl+C`），再启动。不要删除 DLL，也不要把 `DATABASE_URL` 改成 `prisma://`。
 
 启动后应检查 `postgres-data`、`uploads`、`whiteboards` 和 `classrooms` 均为 named volume，并确认应用用户可以写入 `/app/data/classrooms`。不要把该目录只留在容器可写层。
 
@@ -645,7 +683,7 @@ pnpm db:status
 先请求 `GET /api/courses/:courseId/generation`，检查 `backgroundEnabled` 是否为 `true`，然后依次确认：
 
 1. 运行环境设置了 `COURSE_GENERATION_BACKGROUND_ENABLED=true`，并且不是会冻结后台进程的纯 Serverless 部署。
-2. `CourseGenerationJob` 表已经由 `20260809153000_course_generation_jobs` 创建。
+2. `CourseGenerationJob` 和 `CourseDesignGenerationJob` 表已经分别由 `20260809153000_course_generation_jobs`、`20260810143000_course_design_generation_jobs` 创建，并已应用 `20260810195000_course_design_outline_review` 大纲暂停字段及 `20260811100000_course_generation_page_checkpoints` 逐页恢复表。
 3. 应用启动日志中没有生产环境变量校验、Provider 初始化或课程生成工作器错误。
 4. PostgreSQL 中任务状态为 `queued`、`running`、`completed` 或 `failed`；不要直接插入第二条同课程任务。
 5. `/app/data/classrooms` 挂载了共享持久卷且可写，蓝绿实例读取的是同一个卷。
@@ -656,6 +694,7 @@ pnpm db:status
 ### 生成进度长时间不变化或剩余时间不准确
 
 - 课堂页进度按“真正完成的页面数”更新，并发开始多个页面不会被误计为完成。
+- PostgreSQL 中会保存规范化大纲和逐页检查点；任务重启后已完成且大纲指纹一致的页面应被复用。
 - 初始估算基于页面数量、联网搜索和分层资源数量；完成页面后改用实际吞吐速度校准。
 - 检查 `PARALLEL_SCENE_CONCURRENCY` 是否在 `1–5`，以及 Provider 是否触发限流、重试或长时间推理。
 - 对约 14 个普通课堂页面，默认初始估算约 10 分钟；视频生成、Provider 排队或多个分层资源会明显延长时间。
@@ -691,6 +730,10 @@ pnpm dev:next
 - [设计系统](DESIGN-SYSTEM.md)
 - [架构决策记录](docs/adr)
 - [持久课程生成设计](docs/plans/2026-08-09-durable-course-generation.md)
+- [快速课程生成与生成动效](docs/plans/2026-08-10-fast-course-generation-and-motion.md)
+- [课程生成质量与并发架构](docs/adr/0007-quality-preserving-course-generation-pipeline.md)
+- [分阶段超时与设计恢复](docs/adr/0008-stage-aware-llm-deadlines-and-design-resume.md)
+- [基于 Action DSL 的原生课堂工具](docs/adr/0009-native-classroom-tools-over-action-dsl.md)
 - [提示词质量审计](docs/prompt-quality-audit.md)
 
 ## 许可证

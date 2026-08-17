@@ -128,7 +128,11 @@ export async function proxy(req: NextRequest) {
       pathname === "/api/auth/logout" ||
       pathname === "/api/auth/me" ||
       pathname === "/api/auth/register" ||
-      pathname === "/api/health/live";
+      pathname === "/api/health/live" ||
+      // Sandboxed srcdoc iframes have an opaque origin and cannot reliably
+      // attach the teacher/student cookie to runtime subresource requests.
+      // This endpoint exposes only allowlisted, version-pinned static assets.
+      pathname.startsWith("/api/openmaic/interactive-runtime/");
     const internallyProtectedApi =
       pathname === "/api/health/ready" ||
       pathname === "/api/metrics" ||

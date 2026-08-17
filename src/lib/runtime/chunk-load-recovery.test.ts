@@ -3,6 +3,7 @@ import {
   CHUNK_RECOVERY_COOLDOWN_MS,
   claimChunkRecovery,
   isChunkLoadError,
+  releaseChunkRecovery,
 } from "@/lib/runtime/chunk-load-recovery";
 
 describe("chunk load recovery", () => {
@@ -31,5 +32,13 @@ describe("chunk load recovery", () => {
         1_000 + CHUNK_RECOVERY_COOLDOWN_MS + 1,
       ),
     ).toBe(true);
+  });
+
+  it("allows future recovery after the reloaded page becomes stable", () => {
+    expect(claimChunkRecovery(window.sessionStorage, 1_000)).toBe(true);
+
+    releaseChunkRecovery(window.sessionStorage);
+
+    expect(claimChunkRecovery(window.sessionStorage, 1_001)).toBe(true);
   });
 });

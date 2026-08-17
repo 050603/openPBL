@@ -1,6 +1,6 @@
 import type { Course } from "@/lib/session/types";
 
-type CourseCoverContext = Pick<Course, "name"> &
+export type CourseCoverContext = Pick<Course, "name"> &
   Partial<
     Pick<
       Course,
@@ -8,7 +8,7 @@ type CourseCoverContext = Pick<Course, "name"> &
     >
   >;
 
-const COVER_STYLE = "modern editorial vector illustration";
+const COVER_STYLE = "warm educational narrative illustration";
 
 /**
  * All course covers share this output contract. Keeping the dimensions and art
@@ -21,7 +21,7 @@ export const COURSE_COVER_GENERATION_SPEC = {
   height: 576,
   style: COVER_STYLE,
   negativePrompt:
-    "text, words, letters, numbers, typography, captions, labels, logos, watermarks, interface elements, posters, book covers, split panels, photorealism, 3D render, clutter, generic education icons",
+    "text, words, letters, numbers, typography, captions, labels, logos, watermarks, interface elements, posters, book covers, split panels, commercial advertising, cinematic key art, game concept art, neon science fiction, childish cartoon, mascot characters, exaggerated expressions, dark or threatening mood, photorealism, glossy 3D render, clutter, generic education icons, generic classroom backdrop",
 };
 
 function cleanContext(value: string | undefined, maxLength: number): string {
@@ -43,19 +43,22 @@ export function buildCourseCoverPrompt(
   const expectedOutcome = cleanContext(course.expectedOutcome, 120);
 
   const context = [
-    `PRIMARY COURSE THEME: "${name}"`,
+    `COURSE NAME: "${name}"`,
+    drivingQuestion
+      ? `CORE DRIVING QUESTION: "${drivingQuestion}"`
+      : "CORE DRIVING QUESTION: Not provided. Keep the scene provisional and grounded in the course name instead of inventing an unrelated challenge.",
     subject ? `Subject: ${subject}` : null,
     grade ? `Learners: ${grade}` : null,
-    drivingQuestion ? `Project question: ${drivingQuestion}` : null,
     summary ? `Course context: ${summary}` : null,
     expectedOutcome ? `Expected project outcome: ${expectedOutcome}` : null,
   ].filter(Boolean);
 
   return [
-    "Create a cover image whose visible subject is unmistakably derived from the PRIMARY COURSE THEME below. Depict the concrete objects, environment, people or process named or strongly implied by that title. The course title controls the image; the remaining context only improves accuracy. Do not fall back to generic books, classrooms, light bulbs or random educational symbols unless the theme explicitly requires them.",
+    "SCENE BRIEF: Treat the COURSE NAME and CORE DRIVING QUESTION as two equally binding inputs. The course name defines the project subject; the driving question turns it into people, place, concrete challenge, visible action and intended change. Build one specific, believable situation that satisfies both inputs. Never illustrate the title alone and never replace the project situation with generic books, classrooms, light bulbs, graduation symbols or abstract technology imagery.",
     context.join("\n"),
-    `ART DIRECTION: ${COVER_STYLE}; consistent OpenPBL course-cover visual system; clean layered shapes with subtle paper texture; crisp silhouettes; approachable but not childish; restrained shared palette of teal, sky blue, warm amber and coral with warm off-white highlights; soft natural depth; polished editorial finish.`,
-    "COMPOSITION: one clear focal scene, medium visual density, strong subject separation, generous safe margins, no collage and no split panels. Keep important subjects inside the central 80% so the same image remains legible when course cards crop it slightly.",
+    "STORY MOMENT: Silently infer who is affected, where the project takes place, what learners are trying to understand or improve, and what observable evidence or artifact would show progress. Depict one moment of age-appropriate learners, stakeholders or the project environment in action. Prefer learners investigating, making, testing or presenting a tangible response when that follows from the driving question. Every prominent object must help explain the project situation.",
+    `ART DIRECTION: ${COVER_STYLE}; consistent OpenPBL course-cover visual system; suitable for display in a real school classroom—warm, calm, credible and inviting rather than commercial or spectacular; contemporary editorial gouache with clean shapes, lightly visible paper grain and natural human gestures; mature enough for the stated grade; restrained shared palette of chalkboard green, lake blue, terracotta and sunlit cream with small subject-specific accents; clear visual hierarchy and gentle daylight.`,
+    "COMPOSITION: one believable project moment with a clear focal action, medium-low visual density, strong subject separation and generous breathing room; no montage, no split panels and no decorative icon cloud. Keep important subjects inside the central 80% so course-card crops remain legible. Reserve quieter negative space near the edges for interface overlays without drawing a fake title area.",
     "OUTPUT: 16:9 landscape composition at 1024x576. Pure image only. NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY, NO LABELS, NO CAPTIONS, NO LOGOS, NO WATERMARKS, NO UI.",
   ].join("\n\n");
 }
@@ -64,7 +67,15 @@ export async function requestCourseCoverImage(
   course: CourseCoverContext,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const response = await fetch("/api/openmaic/generate/image", {
+  return requestCourseCoverImageAtEndpoint(course, "/api/openmaic/generate/image", signal);
+}
+
+export async function requestCourseCoverImageAtEndpoint(
+  course: CourseCoverContext,
+  endpoint: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -86,5 +97,15 @@ export async function requestCourseCoverImage(
   if (result?.base64) {
     return `data:image/${result.format || "png"};base64,${result.base64}`;
   }
+  return null;
+}
+
+export function courseCoverResultUrl(result: {
+  url?: string;
+  base64?: string;
+  format?: string;
+}): string | null {
+  if (result.url) return result.url;
+  if (result.base64) return `data:image/${result.format || "png"};base64,${result.base64}`;
   return null;
 }

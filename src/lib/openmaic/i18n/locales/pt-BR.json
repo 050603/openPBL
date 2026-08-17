@@ -36,9 +36,7 @@
     "ttsTitle": "Texto para Fala",
     "ttsHint": "Escolha uma voz para o professor de IA",
     "ttsPreview": "Pré-visualizar",
-    "ttsPreviewing": "Reproduzindo...",
-    "interactiveModeHint": "Ative o modo interativo para conteúdos mais práticos",
-    "interactiveModeLabel": "Modo Interativo"
+    "ttsPreviewing": "Reproduzindo..."
   },
   "export": {
     "pptx": "Exportar PPTX",

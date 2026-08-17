@@ -10,6 +10,7 @@ import { createStageAPI } from '@openmaic/lib/api/stage-api';
 import { elementFingerprint } from '@openmaic/lib/utils/element-fingerprint';
 import { toast } from 'sonner';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
+import { whiteboardIdForScene } from '@openmaic/lib/api/stage-api-whiteboard';
 
 interface WhiteboardHistoryProps {
   readonly isOpen: boolean;
@@ -58,7 +59,9 @@ export function WhiteboardHistory({ isOpen, onClose }: WhiteboardHistoryProps) {
     const stageAPI = createStageAPI(stageStore);
 
     // Get or create whiteboard
-    const wbResult = stageAPI.whiteboard.get();
+    const wbResult = stageAPI.whiteboard.get(
+      whiteboardIdForScene(stageStore.getState().currentSceneId),
+    );
     if (!wbResult.success || !wbResult.data) {
       return;
     }

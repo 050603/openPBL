@@ -1,0 +1,80 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Course } from "@/lib/session/types";
+import type { PersistedClassroomData } from "@/lib/openmaic/server/classroom-storage";
+
+const getCourse = vi.fn();
+const readClassroom = vi.fn();
+
+vi.mock("@/lib/session/server-store", () => ({ getCourse }));
+vi.mock("@/lib/openmaic/server/classroom-storage", () => ({ readClassroom }));
+
+describe("final course resource audit", () => {
+  beforeEach(() => {
+    getCourse.mockReset();
+    readClassroom.mockReset();
+  });
+
+  it("reports adaptive, planned-action, TTS, and media gaps before completion", async () => {
+    getCourse.mockResolvedValue({
+      id: "course-1",
+      aiLearningClassroomId: "classroom-1",
+      content: {
+        _openmaicSceneOutlines: [{
+          id: "quiz-1",
+          title: "主课达标测",
+          type: "quiz",
+          teachingToolPlan: [{
+            id: "plan-1",
+            tool: "whiteboard",
+            trigger: "作答前",
+            purpose: "回顾标准",
+            content: ["判断标准"],
+            required: true,
+          }],
+        }],
+        adaptiveLearningPlan: {
+          enabled: true,
+          branches: [{
+            id: "branch-1",
+            title: "机器学习基本概念回顾",
+            enabled: true,
+            status: "teacher-confirmed",
+            preparedResource: { status: "failed", error: "语音未生成" },
+          }],
+        },
+      },
+    } as unknown as Course);
+    readClassroom.mockResolvedValue({
+      id: "classroom-1",
+      createdAt: "2026-08-17T00:00:00.000Z",
+      stage: {},
+      scenes: [{
+        id: "scene-1",
+        outlineId: "quiz-1",
+        title: "主课达标测",
+        type: "quiz",
+        order: 0,
+        ttsPolicy: "target-duration",
+        actions: [{ id: "speech-1", type: "speech", text: "开始测验" }],
+      }],
+      assetGeneration: {
+        status: "partial-failure",
+        requested: 1,
+        completed: 0,
+        failures: [{ elementId: "cover-1", type: "image", error: "provider unavailable" }],
+        updatedAt: "2026-08-17T00:00:00.000Z",
+      },
+    } as unknown as PersistedClassroomData);
+
+    const { auditCourseGeneratedResources } = await import("./resource-audit-server");
+    const audit = await auditCourseGeneratedResources("course-1");
+
+    expect(audit.issues.map((issue) => issue.type)).toEqual([
+      "adaptive-resource",
+      "teaching-tool",
+      "tts",
+      "media",
+    ]);
+    expect(audit.issues.map((issue) => issue.title)).toContain("主课达标测");
+  });
+});

@@ -36,9 +36,7 @@
     "ttsTitle": "語音合成",
     "ttsHint": "選擇 AI 教師的朗讀聲線",
     "ttsPreview": "試聽",
-    "ttsPreviewing": "播放中...",
-    "interactiveModeHint": "開啟深度交互模式，生成更多互動內容",
-    "interactiveModeLabel": "深度交互"
+    "ttsPreviewing": "播放中..."
   },
   "export": {
     "pptx": "匯出 PPTX",

@@ -62,6 +62,10 @@ import { buildNarrationContext, enforceNarrationContinuity } from './narration-c
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { normalizeQuizQuestions, selectQuizFormats } from '@openmaic/lib/quiz/quality';
 import { normalizeWhiteboardActionLifecycle } from './whiteboard-action-lifecycle';
+import {
+  applyPlannedTeachingToolActions,
+  formatTeachingToolPlanForPrompt,
+} from './teaching-tool-plan';
 const log = createLogger('Generation');
 
 const INTERACTIVE_WIDGET_ACTIONS = [
@@ -883,6 +887,7 @@ async function generateSlideContent(
     title: outline.title,
     description: outline.description,
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
+    knowledgePointIds: (outline.knowledgePointIds ?? []).join(', '),
     elements: '（根据要点自动生成）',
     assignedImages: assignedImagesText,
     canvas_width: canvasWidth,
@@ -1065,7 +1070,10 @@ async function generateQuizContent(
 
   log.debug(`Got ${generatedQuestions.length} questions for: ${outline.title}`);
 
-  const normalized = normalizeQuizQuestions(generatedQuestions);
+  const normalized = normalizeQuizQuestions(generatedQuestions, {
+    allowedKnowledgePointIds: outline.knowledgePointIds ?? [],
+    fallbackKnowledgePointIds: outline.knowledgePointIds ?? [],
+  });
   if (normalized.issues.length > 0) {
     log.warn(`Quiz quality repairs for "${outline.title}": ${normalized.issues.join('; ')}`);
   }
@@ -1424,6 +1432,9 @@ export async function generateSceneActions(
 ): Promise<Action[]> {
   const { ctx, agents, userProfile, languageDirective } = options;
   const finalizeActions = (actions: Action[]) => enforceNarrationContinuity(actions, ctx);
+  const finalizeSlideActions = (actions: Action[]) => finalizeActions(
+    normalizeWhiteboardActionLifecycle(applyPlannedTeachingToolActions(outline, actions)),
+  );
   const pblContext = options.pblContext ?? [
     formatPblSceneContext(outline, options.pblProfile),
     formatTeachingConstraintsForPrompt(options.teachingConstraints),
@@ -1453,12 +1464,13 @@ export async function generateSceneActions(
       languageDirective: languageDirective || '',
       pblContext,
       timingBudget: formatCombinedTimingBudget(outline, options.timingCorrection),
+      teachingToolPlan: formatTeachingToolPlanForPrompt(outline),
     });
 
     if (!prompts) {
       const fallback = generateDefaultSlideActions(outline, content.elements);
 
-      return finalizeActions(fallback);
+      return finalizeSlideActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1466,16 +1478,14 @@ export async function generateSceneActions(
 
     if (actions.length > 0) {
       // Validate and fill in Action IDs
-      const processed = normalizeWhiteboardActionLifecycle(
-        processActions(actions, content.elements, agents),
-      );
+      const processed = processActions(actions, content.elements, agents);
 
-      return finalizeActions(processed);
+      return finalizeSlideActions(processed);
     }
 
     const fallback = generateDefaultSlideActions(outline, content.elements);
 
-    return finalizeActions(fallback);
+    return finalizeSlideActions(fallback);
   }
 
   if (outline.type === 'quiz' && 'questions' in content) {
@@ -1497,7 +1507,7 @@ export async function generateSceneActions(
     if (!prompts) {
       const fallback = generateDefaultQuizActions(outline);
 
-      return finalizeActions(fallback);
+      return finalizeSlideActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1506,12 +1516,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       const processed = processActions(actions, [], agents);
 
-      return finalizeActions(processed);
+      return finalizeSlideActions(processed);
     }
 
     const fallback = generateDefaultQuizActions(outline);
 
-    return finalizeActions(fallback);
+    return finalizeSlideActions(fallback);
   }
 
   if (outline.type === 'interactive' && 'html' in content) {
@@ -1535,7 +1545,7 @@ export async function generateSceneActions(
     if (!prompts) {
       const fallback = generateDefaultInteractiveActions(outline);
 
-      return finalizeActions(fallback);
+      return finalizeSlideActions(fallback);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -1548,12 +1558,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       const processed = processActions(actions, [], agents);
 
-      return finalizeActions(processed);
+      return finalizeSlideActions(processed);
     }
 
     const fallback = generateDefaultInteractiveActions(outline);
 
-    return finalizeActions(fallback);
+    return finalizeSlideActions(fallback);
   }
 
   if (outline.type === 'pbl' && 'projectConfig' in content) {
@@ -1795,6 +1805,10 @@ export function createSceneWithActions(
     ...(outline.ttsPolicy ? { ttsPolicy: outline.ttsPolicy } : {}),
     ...(outline.timingPlan ? { timingPlan: outline.timingPlan } : {}),
     ...(outline.resourceTypes?.length ? { resourceTypes: [...outline.resourceTypes] } : {}),
+    ...(outline.narrationMode ? { narrationMode: outline.narrationMode } : {}),
+    ...(outline.teachingToolPlan?.length
+      ? { teachingToolPlan: outline.teachingToolPlan.map((item) => ({ ...item, content: [...item.content] })) }
+      : {}),
   };
 
   if (outline.type === 'slide' && 'elements' in content) {

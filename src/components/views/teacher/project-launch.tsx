@@ -41,11 +41,8 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const joined = course.students.length;
   const rate = Math.min(100, Math.round((joined / totalSeats) * 100));
   const projectSpaces = course.students.filter((student) => course.groups?.some((project) => project.members.some((member) => member.studentId === student.id))).length;
-  const inquiryQuestions = course.pblConfig?.inquiryQuestions?.length
-    ? course.pblConfig.inquiryQuestions
-    : course.drivingQuestion
-      ? [course.drivingQuestion]
-      : [];
+  const coreDrivingQuestion = course.drivingQuestion || course.pblConfig?.inquiryQuestions?.[0] || "";
+  const inquiryQuestions = coreDrivingQuestion ? [coreDrivingQuestion] : [];
   const studentSelections = course.students.map((student) => ({
     student,
     topic: course.groups
@@ -79,13 +76,12 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
 
   function addInquiryQuestion() {
     const question = newInquiryQuestion.trim();
-    if (!question || inquiryQuestions.includes(question)) return;
-    const nextQuestions = [...inquiryQuestions, question];
+    if (!question || inquiryQuestions[0] === question) return;
     session.updateCourse(course.id, {
-      drivingQuestion: course.drivingQuestion || question,
+      drivingQuestion: question,
       pblConfig: normalizePblCourseConfig({
         ...course.pblConfig,
-        inquiryQuestions: nextQuestions,
+        inquiryQuestions: [question],
       }),
     });
     setNewInquiryQuestion("");
@@ -234,13 +230,13 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
       <Card compact>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--pbl-teacher)]">项目问题现场管理</p>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--pbl-teacher)]">项目驱动问题管理</p>
             <h2 className="mt-1 flex items-center gap-2 text-lg font-bold text-stone-900">
-              <Lightbulb className="text-amber-500" size={22} /> 启发问题与学生选题
+              <Lightbulb className="text-amber-500" size={22} /> 核心驱动问题与学生确认
             </h2>
           </div>
           <Pill tone={selectedCount === joined && joined > 0 ? "green" : "blue"}>
-            已选择 {selectedCount}/{joined}
+            已确认 {selectedCount}/{joined}
           </Pill>
         </div>
 
@@ -274,13 +270,13 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
             })}
             {!inquiryQuestions.length ? (
               <div className="rounded-[9px] border border-dashed border-amber-200 bg-amber-50/50 py-8 text-center text-sm text-amber-800">
-                尚未设置项目启发问题，请立即添加。
+                尚未设置项目核心驱动问题，请立即补充。
               </div>
             ) : null}
           </div>
 
           <div className="rounded-[9px] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/35 p-3.5">
-            <h3 className="font-bold text-stone-900">课堂中增加问题</h3>
+            <h3 className="font-bold text-stone-900">更新核心驱动问题</h3>
             <TextArea
               className="mt-3 min-h-20 bg-white"
               onChange={(event) => setNewInquiryQuestion(event.target.value)}
@@ -293,10 +289,10 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               disabled={!newInquiryQuestion.trim() || inquiryQuestions.includes(newInquiryQuestion.trim())}
               onClick={addInquiryQuestion}
             >
-              <Plus size={16} /> 发布到学生选题池
+              <Plus size={16} /> 更新并发布核心问题
             </PrimaryButton>
             <div className="mt-4 border-t border-[var(--pbl-teacher-border)] pt-4">
-              <p className="text-xs font-bold text-stone-600">尚未选择的学生</p>
+              <p className="text-xs font-bold text-stone-600">尚未确认的学生</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {studentSelections
                   .filter(({ topic }) => !topic || !inquiryQuestions.includes(topic))

@@ -26,3 +26,5 @@ For every page, ask:
 1. What must remain visible as the page's durable summary or evidence? Put that on the PPT.
 2. What would be hard to understand by listening alone because students must see a process, change, difference, or relationship? Teach that through a paced whiteboard sequence.
 3. Can a student understand the intended example and conclusion from the visuals plus narration without guessing at omitted evidence? If not, strengthen the PPT or whiteboard plan before output.
+
+Before extending an explanation, choose a visual tool before adding more speech whenever the next idea depends on a relationship, transformation, comparison, or sequence. Never place two long speech segments back-to-back; alternate concise narration with a meaningful visual construction, guided observation, or learner operation.

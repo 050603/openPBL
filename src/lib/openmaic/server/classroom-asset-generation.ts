@@ -107,7 +107,16 @@ export interface ClassroomAssetGenerationInput {
   isPblCourse: boolean;
   ttsTimingSelection: ServerTtsTimingSelection;
   signal?: AbortSignal;
+  onProgress?: (progress: ClassroomAssetGenerationProgress) => Promise<void> | void;
 }
+
+export type ClassroomAssetGenerationProgress = {
+  phase: 'media' | 'tts' | 'persisting';
+  status: 'running' | 'completed' | 'partial-failure';
+  completed: number;
+  total: number;
+  message: string;
+};
 
 function classroomGroups(input: ClassroomAssetGenerationInput): Array<{
   classroomId: string;
@@ -182,6 +191,13 @@ export async function generateClassroomAssets(
     if (!hasMediaGeneration) return;
     try {
       throwIfAborted(input.signal);
+      await input.onProgress?.({
+        phase: 'media',
+        status: 'running',
+        completed: 0,
+        total: requestedMedia.length,
+        message: `正在生成并插入 ${requestedMedia.length} 项图片与视频资源`,
+      });
       await updateAssetStatus('running', 0, []);
       const mediaMap: Record<string, string> = {};
       let failures: MediaFailure[] = [];
@@ -211,6 +227,15 @@ export async function generateClassroomAssets(
 
       const completed = requestedMedia.length - failures.length;
       await updateAssetStatus(failures.length > 0 ? 'partial-failure' : 'completed', completed, failures);
+      await input.onProgress?.({
+        phase: 'media',
+        status: failures.length > 0 ? 'partial-failure' : 'completed',
+        completed,
+        total: requestedMedia.length,
+        message: failures.length > 0
+          ? `已插入 ${completed} / ${requestedMedia.length} 项媒体资源`
+          : `已完成 ${completed} 项图片与视频资源`,
+      });
       log.info(
         `Classroom media backfilled [studentClassroomId=${input.studentClassroomId}, files=${completed}, missing=${failures.length}]`,
       );
@@ -235,10 +260,19 @@ export async function generateClassroomAssets(
       ? groups.filter((group) => group.role === 'student')
       : groups;
 
+    await input.onProgress?.({
+      phase: 'tts',
+      status: 'running',
+      completed: 0,
+      total: ttsGroups.length,
+      message: '正在生成课堂讲授语音',
+    });
+
     // Process split classrooms one at a time so the provider concurrency limit
     // remains global even when a non-PBL classroom has both student and teacher
     // resources. Speech segments inside each call are finite-concurrent.
-    for (const group of ttsGroups) {
+    for (let index = 0; index < ttsGroups.length; index += 1) {
+      const group = ttsGroups[index];
       throwIfAborted(input.signal);
       try {
         await generateTTSForClassroom(
@@ -252,12 +286,23 @@ export async function generateClassroomAssets(
         log.info(
           `Classroom TTS backfilled [classroomId=${group.classroomId}, role=${group.role}]`,
         );
+        await input.onProgress?.({
+          phase: 'tts',
+          status: index === ttsGroups.length - 1 ? 'completed' : 'running',
+          completed: index + 1,
+          total: ttsGroups.length,
+          message: index === ttsGroups.length - 1 ? '课堂讲授语音已经生成并写入页面' : '正在继续生成课堂讲授语音',
+        });
       } catch (error) {
         if (input.signal?.aborted) throw error;
+        // Keep successful segments durable, but surface the remaining missing
+        // audio to the caller so generation cannot be marked fully ready.
+        await updatePersistedClassroomScenes(group.classroomId, group.scenes);
         log.warn(
           `Classroom TTS backfill failed [classroomId=${group.classroomId}]; content remains available:`,
           error,
         );
+        throw error;
       }
     }
   };
@@ -269,6 +314,22 @@ export async function generateClassroomAssets(
   await runIndependentClassroomAssetTasks({
     media: generateMediaAssets,
     tts: generateSpeechAssets,
-    persistMergedState: () => persistSceneGroups(groups),
+    persistMergedState: async () => {
+      await input.onProgress?.({
+        phase: 'persisting',
+        status: 'running',
+        completed: 0,
+        total: groups.length,
+        message: '正在合并并保存课堂资源',
+      });
+      await persistSceneGroups(groups);
+      await input.onProgress?.({
+        phase: 'persisting',
+        status: 'completed',
+        completed: groups.length,
+        total: groups.length,
+        message: '课堂页面与配套资源已经保存',
+      });
+    },
   });
 }

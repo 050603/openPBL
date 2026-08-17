@@ -29,7 +29,9 @@ import {
   enforcePblOutlineContract,
   normalizeSceneOutlinesForDuration,
 } from '@openmaic/lib/generation/outline-generator';
-import { applyInteractiveModePolicy } from '@openmaic/lib/generation/interactive-mode-policy';
+import { applyDeepInteractionPolicy } from '@openmaic/lib/generation/deep-interaction-policy';
+import { ensureTerminalMasteryAssessment } from '@openmaic/lib/generation/terminal-mastery-assessment-policy';
+import { splitLongStudentSlides } from '@openmaic/lib/generation/student-slide-duration-policy';
 import { resolveOutlinePromptPlan } from '@openmaic/lib/generation/outline-prompt-plan';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@openmaic/lib/constants/generation';
 import { nanoid } from 'nanoid';
@@ -403,7 +405,6 @@ export async function POST(req: NextRequest) {
       imageEnabled: imageGenerationEnabled,
       videoEnabled: videoGenerationEnabled,
       mediaEnabled: mediaGenerationEnabled,
-      interactiveMode: promptPlan.interactiveMode,
       teacherContext,
       userProfile: userProfileText,
       pblProfile: requirements.pblProfile
@@ -638,11 +639,12 @@ export async function POST(req: NextRequest) {
             const contractOutlines = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
               ? enforcePblOutlineContract(parsedOutlines, requirements)
               : parsedOutlines;
-            const modeAwareOutlines = applyInteractiveModePolicy(
-              contractOutlines,
-              promptPlan.interactiveMode,
+            const modeAwareOutlines = ensureTerminalMasteryAssessment(
+              applyDeepInteractionPolicy(contractOutlines),
             );
-            const normalizedOutlines = normalizeSceneOutlinesForDuration(modeAwareOutlines);
+            const normalizedOutlines = normalizeSceneOutlinesForDuration(
+              splitLongStudentSlides(modeAwareOutlines),
+            );
             const uniquifiedOutlines = uniquifyMediaElementIds(normalizedOutlines);
             // Send done event with all outlines
             const doneEvent = JSON.stringify({

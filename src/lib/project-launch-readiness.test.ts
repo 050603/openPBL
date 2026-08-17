@@ -105,8 +105,7 @@ describe("project launch readiness", () => {
       },
     });
     expect(buildCourseTopicOptions(course).map((option) => option.value)).toEqual([
-      "我们如何减少校园用水浪费？",
-      "我们如何让雨水被校园重新利用？",
+      "如何减少校园用水浪费？",
     ]);
   });
 

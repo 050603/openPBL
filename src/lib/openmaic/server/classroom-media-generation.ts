@@ -45,12 +45,23 @@ import {
 } from '@openmaic/lib/audio/tts-timing';
 import { throwIfAborted, withGenerationRetry } from '@openmaic/lib/generation/generation-retry';
 import { mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
+import { runWithGlobalTtsProviderSlot } from '@openmaic/lib/server/tts-provider-limiter';
 import {
   hasPblRoutingMetadata,
   isStudentAiLearningScene,
 } from '@openmaic/lib/pbl/scene-routing';
 
 const log = createLogger('ClassroomMedia');
+const TTS_SEGMENT_RETRIES = 2;
+
+class TtsSegmentGenerationError extends Error {
+  readonly isRetryable = true;
+
+  constructor(actionId: string) {
+    super(`TTS generation failed for action ${actionId}: all configured providers failed`);
+    this.name = 'TtsSegmentGenerationError';
+  }
+}
 
 const imageProviderQueue = new Map<ImageProviderId, Promise<void>>();
 const imageProviderLastStartedAt = new Map<ImageProviderId, number>();
@@ -492,7 +503,11 @@ export async function generateTTSForClassroom(
     const sceneOrder = scene.order;
 
     for (const action of scene.actions) {
-      if (action.type !== 'speech' || !(action as SpeechAction).text) continue;
+      if (
+        action.type !== 'speech'
+        || !(action as SpeechAction).text
+        || (action as SpeechAction).audioUrl
+      ) continue;
       const speechAction = action as SpeechAction;
       // Include scene order in audioId to prevent collision across scenes
       const audioId = `tts_s${sceneOrder}_${action.id}`;
@@ -513,48 +528,69 @@ export async function generateTTSForClassroom(
     `Generating TTS with bounded concurrency [classroomId=${classroomId}, segments=${speechTasks.length}, concurrency=${concurrency}]`,
   );
 
-  await mapWithConcurrency(speechTasks, concurrency, async (task) => {
-    throwIfAborted(signal);
-    let generated = false;
-    for (const runtime of runtimes) {
-      try {
+  const outcomes = await mapWithConcurrency(speechTasks, concurrency, async (task) => {
+    try {
+      await withGenerationRetry(async () => {
         throwIfAborted(signal);
-        const result = await generateTTS(
-          {
-            providerId: runtime.providerId,
-            modelId:
-              runtime.providerId === selectedRuntime.providerId && timingOptions.modelId
-                ? timingOptions.modelId
-                : runtime.modelId,
-            apiKey: runtime.apiKey,
-            baseUrl: runtime.baseUrl,
-            voice:
-              runtime.providerId === selectedRuntime.providerId
-                ? timingOptions.voiceId || runtime.voice
-                : runtime.voice,
-            speed: 1,
-          },
-          task.speechAction.text,
-        );
-        throwIfAborted(signal);
-
-        const filename = `${task.audioId}.${result.format || runtime.format}`;
-        await fs.writeFile(path.join(audioDir, filename), result.audio);
-
-        task.speechAction.audioId = task.audioId;
-        task.speechAction.audioUrl = mediaServingUrl(baseUrl, classroomId, `audio/${filename}`);
-        log.info(
-          `Generated TTS via ${runtime.providerId}: ${filename} (${result.audio.length} bytes)`,
-        );
-        generated = true;
-        break;
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        log.warn(`TTS provider "${runtime.providerId}" failed for action ${task.actionId}:`, err);
-      }
-    }
-    if (!generated) {
-      log.warn(`TTS generation failed for action ${task.actionId}: all configured providers failed`);
+        for (const runtime of runtimes) {
+          try {
+            const result = await runWithGlobalTtsProviderSlot(
+              runtime.providerId,
+              getTtsConcurrencyLimit(runtime.providerId),
+              () => generateTTS(
+                {
+                  providerId: runtime.providerId,
+                  modelId:
+                    runtime.providerId === selectedRuntime.providerId && timingOptions.modelId
+                      ? timingOptions.modelId
+                      : runtime.modelId,
+                  apiKey: runtime.apiKey,
+                  baseUrl: runtime.baseUrl,
+                  voice:
+                    runtime.providerId === selectedRuntime.providerId
+                      ? timingOptions.voiceId || runtime.voice
+                      : runtime.voice,
+                  speed: 1,
+                },
+                task.speechAction.text,
+              ),
+              signal,
+            );
+            throwIfAborted(signal);
+            const filename = `${task.audioId}.${result.format || runtime.format}`;
+            await fs.writeFile(path.join(audioDir, filename), result.audio);
+            task.speechAction.audioId = task.audioId;
+            task.speechAction.audioUrl = mediaServingUrl(baseUrl, classroomId, `audio/${filename}`);
+            log.info(
+              `Generated TTS via ${runtime.providerId}: ${filename} (${result.audio.length} bytes)`,
+            );
+            return;
+          } catch (err) {
+            if (signal?.aborted) throw err;
+            log.warn(`TTS provider "${runtime.providerId}" failed for action ${task.actionId}:`, err);
+          }
+        }
+        throw new TtsSegmentGenerationError(task.actionId);
+      }, {
+        label: `tts action ${task.actionId}`,
+        maxRetries: TTS_SEGMENT_RETRIES,
+        signal,
+      });
+      return true;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      log.warn(`TTS generation remained incomplete for action ${task.actionId}`, error);
+      return false;
     }
   });
+
+  const failedActionIds = speechTasks.flatMap((task, index) => outcomes[index] ? [] : [task.actionId]);
+  if (failedActionIds.length > 0) {
+    const error = new Error(
+      `课堂语音仍有 ${failedActionIds.length} 段未生成：${failedActionIds.join(', ')}`,
+    ) as Error & { isRetryable: boolean };
+    error.name = 'ClassroomTtsIncompleteError';
+    error.isRetryable = true;
+    throw error;
+  }
 }

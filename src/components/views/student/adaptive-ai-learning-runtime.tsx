@@ -10,11 +10,13 @@ import {
 } from "@/components/openmaic-bridge/student-stage-host";
 import {
   calculateAdaptiveRemainingBudgetSec,
-  deriveAdaptiveCheckpointSceneIds,
+  calculateKnowledgePointAssessmentScores,
+  deriveMasteryAssessmentSceneIds,
   evaluateAdaptiveBranchDecision,
   resolveAdaptiveSceneIdentity,
 } from "@/lib/adaptive-learning";
 import type {
+  AdaptiveAssessmentAnswer,
   AdaptiveBranchOutline,
   AdaptiveBranchRun,
   Course,
@@ -29,6 +31,21 @@ type QueuedResource = {
   placement: AdaptiveSceneInsertion["placement"];
   anchorSceneId?: string;
 };
+
+function hasUnqueuedPrerequisiteGap(
+  plan: NonNullable<Course["content"]["adaptiveLearningPlan"]> | undefined,
+  state: StudentAdaptiveLearningState,
+): boolean {
+  if (!plan?.enabled || plan.status !== "teacher-confirmed" || !state.pretestCompletedAt) return false;
+  const weakIds = new Set(state.pretestWeakKnowledgePointIds ?? []);
+  const queuedBranchIds = new Set(state.branchRuns.map((run) => run.branchOutlineId));
+  return plan.branches.some((branch) =>
+    branch.enabled !== false
+    && branch.trigger?.placement === "before-main-course"
+    && !queuedBranchIds.has(branch.id)
+    && branch.prerequisiteKnowledgePointIds.some((id) => weakIds.has(id)),
+  );
+}
 
 export function AdaptiveAiLearningRuntime({
   course,
@@ -45,7 +62,13 @@ export function AdaptiveAiLearningRuntime({
   backHref: string;
   variant?: "embedded" | "fullscreen";
 }) {
-  const plan = course.content.adaptiveLearningPlan;
+  const candidatePlan = course.content.adaptiveLearningPlan;
+  // Legacy or manually changed plans may contain plausible-looking questions that
+  // actually test new lesson content. Only independently reviewed prerequisite
+  // boundaries are allowed to alter a student's learning path.
+  const plan = candidatePlan?.prerequisiteSemanticReview?.status === "passed"
+    ? candidatePlan
+    : undefined;
   const initialState = course.aiLearningProgress?.[studentId]?.adaptiveLearning ?? {
     evidence: [],
     branchRuns: [],
@@ -53,9 +76,14 @@ export function AdaptiveAiLearningRuntime({
   };
   const [adaptiveState, setAdaptiveState] = useState<StudentAdaptiveLearningState>(initialState);
   const [insertedResources, setInsertedResources] = useState<QueuedResource[]>([]);
+  const [preCoursePreparing, setPreCoursePreparing] = useState(
+    hasUnqueuedPrerequisiteGap(plan, initialState),
+  );
+  const [preCoursePreparationError, setPreCoursePreparationError] = useState<string>();
+  const restoredPreparationStartedRef = useRef(false);
   const switchingRef = useRef(false);
   const checkpointSceneIds = useMemo(
-    () => new Set(deriveAdaptiveCheckpointSceneIds(course.content._openmaicSceneOutlines ?? [])),
+    () => new Set(deriveMasteryAssessmentSceneIds(course.content._openmaicSceneOutlines ?? [])),
     [course.content._openmaicSceneOutlines],
   );
   const remoteAdaptiveState = course.aiLearningProgress?.[studentId]?.adaptiveLearning;
@@ -216,7 +244,17 @@ export function AdaptiveAiLearningRuntime({
           evaluations: result.evaluations,
         }).catch(() => simulatedState);
       }
-      if (result.decision.action !== "insert") continue;
+      const hasMatchingGap = branch.prerequisiteKnowledgePointIds.some((id) =>
+        state.pretestWeakKnowledgePointIds?.includes(id),
+      );
+      if (result.decision.action !== "insert") {
+        if (hasMatchingGap) {
+          throw new Error(
+            `必需的先决知识补充“${branch.title}”尚未准备完成，请重试后再进入主课。`,
+          );
+        }
+        continue;
+      }
       const resource = toQueuedResource(
         result.decision.branch,
         result.decision.reason,
@@ -237,10 +275,35 @@ export function AdaptiveAiLearningRuntime({
     setInsertedResources((current) => [...current, ...queue]);
   }
 
-  async function handlePretestSubmit(answers: Record<string, number>) {
-    const nextState = await persistState({ action: "submit-pretest", answers });
-    await preparePreCourseResources(nextState);
+  async function handlePretestSubmit(answers: Record<string, AdaptiveAssessmentAnswer>) {
+    setPreCoursePreparing(true);
+    setPreCoursePreparationError(undefined);
+    try {
+      const nextState = await persistState({ action: "submit-pretest", answers });
+      await preparePreCourseResources(nextState);
+    } catch (cause) {
+      setPreCoursePreparationError(cause instanceof Error ? cause.message : "先决知识补充准备失败");
+      throw cause;
+    } finally {
+      setPreCoursePreparing(false);
+    }
   }
+
+  useEffect(() => {
+    if (!preCoursePreparing || !hasUnqueuedPrerequisiteGap(plan, initialState)) return;
+    if (restoredPreparationStartedRef.current) return;
+    restoredPreparationStartedRef.current = true;
+    void preparePreCourseResources(initialState)
+      .catch((cause) => {
+        setPreCoursePreparationError(
+          cause instanceof Error ? cause.message : "先决知识补充准备失败",
+        );
+      })
+      .finally(() => setPreCoursePreparing(false));
+    // This is deliberately a one-shot recovery for a persisted pretest. Live
+    // submissions run through handlePretestSubmit above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleMainSceneComplete(detail: { scene: Scene; quizScore?: number }) {
     if (!plan || adaptiveState.enabled === false || switchingRef.current) return;
@@ -250,12 +313,23 @@ export function AdaptiveAiLearningRuntime({
     const questionResults = submittedQuiz?.kind === "reviewing"
       ? submittedQuiz.results.map((result) => ({ questionId: result.questionId, correct: result.correct }))
       : [];
+    const quizQuestions = detail.scene.content?.type === "quiz"
+      ? detail.scene.content.questions
+      : [];
+    const knowledgePointScores = calculateKnowledgePointAssessmentScores({
+      questions: quizQuestions,
+      results: questionResults,
+      fallbackKnowledgePointIds: anchorKnowledgePointIds,
+    });
     let evidenceState = adaptiveState;
     if (typeof detail.quizScore === "number") {
-      const weakKnowledgePointIds = detail.quizScore < 100 ? anchorKnowledgePointIds : [];
-      const masteredKnowledgePointIds = detail.quizScore >= (plan.thresholds.enrichmentMasteryMin ?? 80)
-        ? anchorKnowledgePointIds
-        : [];
+      const threshold = plan.thresholds.enrichmentMasteryMin ?? 80;
+      const weakKnowledgePointIds = knowledgePointScores
+        .filter((item) => item.score < threshold)
+        .map((item) => item.knowledgePointId);
+      const masteredKnowledgePointIds = knowledgePointScores
+        .filter((item) => item.score >= threshold)
+        .map((item) => item.knowledgePointId);
       evidenceState = await persistState({
         action: "record-node-assessment",
         evidence: {
@@ -266,6 +340,7 @@ export function AdaptiveAiLearningRuntime({
           sceneId: sceneIdentity.stableSceneId,
           knowledgePointIds: anchorKnowledgePointIds,
           questionResults,
+          knowledgePointScores,
           weakKnowledgePointIds,
           masteredKnowledgePointIds,
         },
@@ -282,6 +357,7 @@ export function AdaptiveAiLearningRuntime({
       runtimeSceneId: sceneIdentity.runtimeSceneId,
       completedSceneTitle: detail.scene.title,
       questionResults,
+      knowledgePointScores,
       isAutomaticCheckpoint: checkpointSceneIds.has(sceneIdentity.stableSceneId),
       phase: "after-module",
       remainingBudgetSec: remainingAdaptiveBudgetSec(evidenceState),
@@ -358,9 +434,44 @@ export function AdaptiveAiLearningRuntime({
     plan?.enabled
     && plan.status === "teacher-confirmed"
     && adaptiveState.enabled !== false
+    && plan.pretest.questions.length > 0
     && !adaptiveState.pretestCompletedAt
   ) {
     return <AdaptivePretest plan={plan} onSubmit={handlePretestSubmit} />;
+  }
+
+  if (preCoursePreparing || preCoursePreparationError) {
+    return (
+      <div className="grid min-h-[720px] place-items-center bg-stone-50 p-6">
+        <div className="max-w-md rounded-[12px] border border-cyan-200 bg-white p-6 text-center shadow-sm">
+          {preCoursePreparing ? <Loader2 className="mx-auto animate-spin text-cyan-800" size={28} /> : null}
+          <h2 className="mt-3 text-lg font-bold text-stone-950">
+            {preCoursePreparing ? "正在准备必需的先决知识回顾" : "先决知识回顾暂未准备好"}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-stone-600">
+            {preCoursePreparationError
+              ?? "准备完成后会直接从第一个回顾页面开始，连续学习完毕后再进入主课。"}
+          </p>
+          {preCoursePreparationError ? (
+            <button
+              className="mt-4 rounded-[8px] bg-cyan-950 px-4 py-2 text-sm font-bold text-white"
+              onClick={() => {
+                setPreCoursePreparationError(undefined);
+                setPreCoursePreparing(true);
+                void preparePreCourseResources(adaptiveState)
+                  .catch((cause) => setPreCoursePreparationError(
+                    cause instanceof Error ? cause.message : "先决知识补充准备失败",
+                  ))
+                  .finally(() => setPreCoursePreparing(false));
+              }}
+              type="button"
+            >
+              重新准备
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -400,13 +511,21 @@ function AdaptivePretest({
   onSubmit,
 }: {
   plan: NonNullable<Course["content"]["adaptiveLearningPlan"]>;
-  onSubmit: (answers: Record<string, number>) => Promise<void>;
+  onSubmit: (answers: Record<string, AdaptiveAssessmentAnswer>) => Promise<void>;
 }) {
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<Record<string, AdaptiveAssessmentAnswer>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const questions = plan.pretest.questions.slice(0, 5);
-  const complete = questions.every((question) => answers[question.id] !== undefined);
+  const complete = questions.every((question) => {
+    const answer = answers[question.id];
+    if (question.type !== "matching") return typeof answer === "number";
+    return Boolean(
+      answer
+      && typeof answer === "object"
+      && (question.matchingPairs ?? []).every((pair) => answer[pair.left]),
+    );
+  });
 
   return (
     <div className="min-h-[720px] bg-[radial-gradient(circle_at_top_left,#cffafe_0,transparent_32%),linear-gradient(145deg,#f8fafc,#fff)] p-5 sm:p-8">
@@ -430,7 +549,29 @@ function AdaptivePretest({
                 {questionIndex + 1}. {question.prompt}
               </legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {question.options.map((option, optionIndex) => {
+                {question.type === "matching" ? (
+                  (question.matchingPairs ?? []).map((pair) => {
+                    const current = answers[question.id];
+                    const matches = current && typeof current === "object" ? current : {};
+                    return (
+                      <label className="rounded-[8px] border border-stone-200 bg-stone-50/60 p-3 text-xs" key={`${question.id}-${pair.left}`}>
+                        <span className="mb-2 block font-bold text-stone-800">{pair.left}</span>
+                        <select
+                          aria-label={`为${pair.left}选择匹配项`}
+                          className="w-full rounded-[7px] border border-stone-200 bg-white px-2.5 py-2 text-stone-700 outline-none focus:border-cyan-600"
+                          onChange={(event) => setAnswers((currentAnswers) => ({
+                            ...currentAnswers,
+                            [question.id]: { ...matches, [pair.left]: event.target.value },
+                          }))}
+                          value={matches[pair.left] ?? ""}
+                        >
+                          <option value="">请选择匹配项</option>
+                          {question.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </label>
+                    );
+                  })
+                ) : question.options.map((option, optionIndex) => {
                   const selected = answers[question.id] === optionIndex;
                   return (
                     <button

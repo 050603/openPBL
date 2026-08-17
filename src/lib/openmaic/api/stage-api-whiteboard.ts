@@ -10,6 +10,13 @@ import type { PPTElement } from '@openmaic/dsl';
 import type { StageStore, APIResult } from './stage-api-types';
 import { generateId } from './stage-api-defaults';
 
+const SCENE_WHITEBOARD_PREFIX = 'whiteboard-scene:';
+
+/** Stable page scope for whiteboard content. */
+export function whiteboardIdForScene(sceneId: string | null | undefined): string | undefined {
+  return sceneId ? `${SCENE_WHITEBOARD_PREFIX}${sceneId}` : undefined;
+}
+
 /**
  * Create the whiteboard management API
  *
@@ -23,11 +30,15 @@ export function createWhiteboardAPI(store: StageStore) {
      *
      * @returns Whether successful
      */
-    create(): APIResult<Whiteboard> {
+    create(whiteboardId?: string): APIResult<Whiteboard> {
       try {
         const state = store.getState();
+        const existing = whiteboardId
+          ? state.stage?.whiteboard?.find((item) => item.id === whiteboardId)
+          : undefined;
+        if (existing) return { success: true, data: existing };
         const whiteboard: Whiteboard = {
-          id: generateId('whiteboard'),
+          id: whiteboardId ?? generateId('whiteboard'),
           viewportSize: 1000,
           viewportRatio: 16 / 9,
           elements: [],
@@ -54,9 +65,13 @@ export function createWhiteboardAPI(store: StageStore) {
      *
      * @returns The most recently created whiteboard object
      */
-    get(): APIResult<Whiteboard> {
+    get(whiteboardId?: string): APIResult<Whiteboard> {
       try {
         const state = store.getState();
+        if (whiteboardId) {
+          const scoped = state.stage?.whiteboard?.find((item) => item.id === whiteboardId);
+          return scoped ? { success: true, data: scoped } : whiteboardAPI.create(whiteboardId);
+        }
         if (!state.stage?.whiteboard || state.stage.whiteboard.length === 0) {
           return whiteboardAPI.create();
         }

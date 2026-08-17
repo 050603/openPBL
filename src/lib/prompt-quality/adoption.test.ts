@@ -11,7 +11,7 @@ describe("prompt quality policy adoption", () => {
     ["课程生成", "src/lib/llm/prompts.ts", "JSON_TEACHER_PROMPT_CONTRACT"],
     ["教师支架", "src/lib/teaching-ai/support-engine.ts", "JSON_TEACHER_PROMPT_CONTRACT"],
     ["学生伴学", "src/lib/ai-companions.ts", "STUDENT_CONVERSATION_PROMPT_CONTRACT"],
-    ["自适应大纲", "src/app/api/adaptive-learning/outline/route.ts", "JSON_TEACHER_PROMPT_CONTRACT"],
+    ["课程入口学习包", "src/lib/course-entry-generation.ts", "JSON_TEACHER_PROMPT_CONTRACT"],
     ["微课判断", "src/app/api/adaptive-learning/micro-lesson/route.ts", "JSON_STUDENT_PROMPT_CONTRACT"],
     ["课堂主持", "src/app/api/teaching-ai/facilitation-scaffold/route.ts", "TEACHER_FACING_PROMPT_CONTRACT"],
     ["学生聊天", "src/app/api/chat/student/route.ts", "STUDENT_CONVERSATION_PROMPT_CONTRACT"],

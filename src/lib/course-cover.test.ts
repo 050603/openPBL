@@ -3,6 +3,7 @@ import {
   COURSE_COVER_GENERATION_SPEC,
   buildCourseCoverPrompt,
   requestCourseCoverImage,
+  requestCourseCoverImageAtEndpoint,
 } from "@/lib/course-cover";
 
 const course = {
@@ -19,14 +20,18 @@ afterEach(() => {
 });
 
 describe("course cover generation", () => {
-  it("uses the course name as the primary visual subject and preserves course context", () => {
+  it("uses the course name and core driving question as equal scene constraints", () => {
     const prompt = buildCourseCoverPrompt(course);
 
-    expect(prompt).toContain('PRIMARY COURSE THEME: "校园雨水花园"');
+    expect(prompt).toContain('COURSE NAME: "校园雨水花园"');
+    expect(prompt).toContain(`CORE DRIVING QUESTION: "${course.drivingQuestion}"`);
+    expect(prompt).toContain("two equally binding inputs");
+    expect(prompt).toContain("people, place, concrete challenge, visible action and intended change");
     expect(prompt).toContain("Subject: 科学与地理");
     expect(prompt).toContain("Learners: 八年级");
-    expect(prompt).toContain(course.drivingQuestion);
-    expect(prompt.indexOf(course.name)).toBeLessThan(prompt.indexOf(course.subject));
+    expect(prompt.indexOf(course.name)).toBeLessThan(prompt.indexOf(course.summary));
+    expect(prompt.indexOf(course.drivingQuestion)).toBeLessThan(prompt.indexOf(course.summary));
+    expect(prompt).not.toContain("The course title controls the image");
     expect(prompt).not.toContain("abstract or representational");
   });
 
@@ -40,10 +45,12 @@ describe("course cover generation", () => {
     });
 
     for (const fixedInstruction of [
-      "modern editorial vector illustration",
+      "warm educational narrative illustration",
       "consistent OpenPBL course-cover visual system",
-      "one clear focal scene",
-      "teal, sky blue, warm amber and coral",
+      "suitable for display in a real school classroom",
+      "one believable project moment",
+      "investigating, making, testing or presenting",
+      "chalkboard green, lake blue, terracotta and sunlit cream",
       "16:9 landscape composition",
       "NO TEXT",
     ]) {
@@ -71,5 +78,26 @@ describe("course cover generation", () => {
     expect(body).toMatchObject(COURSE_COVER_GENERATION_SPEC);
     expect(body.prompt).toContain(course.name);
     expect(body.negativePrompt).toContain("text");
+    expect(body.negativePrompt).toContain("commercial advertising");
+    expect(body.negativePrompt).toContain("childish cartoon");
+  });
+
+  it("supports an absolute endpoint for background quick generation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ result: { url: "https://cdn.example.test/quick-cover.webp" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestCourseCoverImageAtEndpoint(
+      course,
+      "https://openpbl.example.test/api/openmaic/generate/image",
+    )).resolves.toBe("https://cdn.example.test/quick-cover.webp");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://openpbl.example.test/api/openmaic/generate/image",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });

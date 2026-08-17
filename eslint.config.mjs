@@ -62,6 +62,7 @@ const eslintConfig = defineConfig([
       // Vendored compatibility packages intentionally preserve upstream API
       // signatures and generated geometry variables.
       "@typescript-eslint/no-unused-vars": "off",
+      "@next/next/no-html-link-for-pages": "off",
       "@next/next/no-img-element": "off",
       "import/no-anonymous-default-export": "off",
     },
