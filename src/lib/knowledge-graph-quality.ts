@@ -15,6 +15,7 @@ export type KnowledgeGraphQualityOptions = {
   objectiveCount?: number;
   requireSemanticReview?: boolean;
   minimumPrerequisites?: number;
+  maximumPrerequisites?: number;
 };
 
 export function normalizeKnowledgePointName(value: string): string {
@@ -39,6 +40,9 @@ export function assessKnowledgeGraphQuality(
   const prerequisiteNodes = nodes.filter((node) => !pointIds.has(node.id));
   if (prerequisiteNodes.length < (options.minimumPrerequisites ?? 0)) {
     issues.push(`课程知识结构至少需要 ${options.minimumPrerequisites} 项真实课前先修；入门、通识、启蒙或无需编程不能作为零先修依据`);
+  }
+  if (typeof options.maximumPrerequisites === "number" && prerequisiteNodes.length > options.maximumPrerequisites) {
+    issues.push(`当前课程入口容量为 ${options.maximumPrerequisites} 项，知识结构包含 ${prerequisiteNodes.length} 项；只保留会直接阻断本课目标的真实先修`);
   }
 
   if (points.length === 0) issues.push("尚未生成知识点");

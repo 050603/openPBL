@@ -62,6 +62,7 @@ import { buildNarrationContext, enforceNarrationContinuity } from './narration-c
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { normalizeQuizQuestions, selectQuizFormats } from '@openmaic/lib/quiz/quality';
 import { normalizeWhiteboardActionLifecycle } from './whiteboard-action-lifecycle';
+import { normalizeWhiteboardActionLayout } from './whiteboard-layout';
 import {
   applyPlannedTeachingToolActions,
   formatTeachingToolPlanForPrompt,
@@ -118,6 +119,8 @@ export interface SceneActionsOptions {
   teachingConstraints?: UserRequirements['teachingConstraints'];
   /** One bounded correction pass when the first action script misses its timing budget. */
   timingCorrection?: string;
+  /** One bounded correction pass when required planned teaching tools were omitted. */
+  teachingToolCorrection?: string;
 }
 
 function formatPageBudgetInstruction(outline: SceneOutline): string {
@@ -1433,7 +1436,9 @@ export async function generateSceneActions(
   const { ctx, agents, userProfile, languageDirective } = options;
   const finalizeActions = (actions: Action[]) => enforceNarrationContinuity(actions, ctx);
   const finalizeSlideActions = (actions: Action[]) => finalizeActions(
-    normalizeWhiteboardActionLifecycle(applyPlannedTeachingToolActions(outline, actions)),
+    normalizeWhiteboardActionLifecycle(
+      normalizeWhiteboardActionLayout(applyPlannedTeachingToolActions(outline, actions)),
+    ),
   );
   const pblContext = options.pblContext ?? [
     formatPblSceneContext(outline, options.pblProfile),
@@ -1464,7 +1469,16 @@ export async function generateSceneActions(
       languageDirective: languageDirective || '',
       pblContext,
       timingBudget: formatCombinedTimingBudget(outline, options.timingCorrection),
-      teachingToolPlan: formatTeachingToolPlanForPrompt(outline),
+      teachingToolPlan: [
+        formatTeachingToolPlanForPrompt(outline),
+        options.teachingToolCorrection
+          ? [
+              '## Required-tool correction (must fix)',
+              options.teachingToolCorrection,
+              '- Return a complete replacement action script containing the real, semantically useful tool actions. Do not add placeholder actions merely to satisfy validation.',
+            ].join('\n')
+          : '',
+      ].filter(Boolean).join('\n\n'),
     });
 
     if (!prompts) {

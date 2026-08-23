@@ -114,7 +114,7 @@ function RelatedEdges({
             <li key={edge.id} className="rounded-[6px] bg-stone-50 px-2.5 py-2 text-xs text-stone-600">
               <span className="font-bold text-stone-800">{edge.label}</span>
               <span className="mx-1 text-stone-300">→</span>
-              {other?.label ?? otherId}
+              {other?.label ?? "关联知识节点"}
             </li>
           );
         })}

@@ -52,7 +52,7 @@ export function validatePblKnowledgeAlignment(
         outlineId: detail.id,
         title: detail.title,
         knowledgePointIds: unknownIds,
-        message: `细化内容“${detail.title || detail.id || '未命名'}”引用了不存在的知识点：${unknownIds.join('、')}`,
+        message: `细化内容“${detail.title || '未命名内容'}”关联了 ${unknownIds.length} 个已失效的知识点，请重新选择。`,
       });
     }
 
@@ -61,7 +61,7 @@ export function validatePblKnowledgeAlignment(
         code: 'missing-knowledge-reference',
         outlineId: detail.id,
         title: detail.title,
-        message: `细化内容“${detail.title || detail.id || '未命名'}”尚未关联备课阶段确认的知识点。`,
+        message: `细化内容“${detail.title || '未命名内容'}”尚未关联备课阶段确认的知识点。`,
       });
     }
   }
@@ -77,7 +77,7 @@ export function validatePblKnowledgeAlignment(
     issues.push({
       code: 'missing-knowledge-coverage',
       knowledgePointIds: unreferencedPointIds,
-      message: `课程大纲尚未覆盖以下已确认知识点：${unreferencedPointIds.join('、')}`,
+      message: `课程大纲尚未覆盖以下已确认知识点：${unreferencedPointIds.map((id) => knowledgePoints.find((point) => point.id === id)?.name || "未命名知识点").join('、')}`,
     });
   }
 

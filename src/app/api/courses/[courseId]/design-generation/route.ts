@@ -144,6 +144,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
           startedAt: null,
           completedAt: null,
           lastHeartbeatAt: null,
+          retryAt: null,
           version: { increment: 1 },
         },
       });

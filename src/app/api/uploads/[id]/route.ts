@@ -6,6 +6,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { authenticateRequest, requireSameOrigin } from "@/lib/auth/request-guards";
 import type { AuthClaims } from "@/lib/auth/session";
+import { randomUUID } from "node:crypto";
+import { publishCourseEvent } from "@/lib/realtime/event-bus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,7 +86,7 @@ export async function DELETE(
     return new Response(null, { status: 404 });
   }
 
-  await prisma.$transaction(async (tx) => {
+  const durableEvent = await prisma.$transaction(async (tx) => {
     const removedResource = await tx.courseResource.deleteMany({
       where: { id: file.id, ...(file.courseId ? { courseId: file.courseId } : {}) },
     });
@@ -93,12 +95,46 @@ export async function DELETE(
       data: { deletedAt: new Date(), referencedBy: [], refCount: 0 },
     });
     if (file.courseId && removedResource.count > 0) {
-      await tx.course.update({
+      const updatedCourse = await tx.course.update({
         where: { id: file.courseId },
         data: { version: { increment: 1 } },
+        select: { version: true },
+      });
+      return tx.courseEvent.create({
+        data: {
+          courseId: file.courseId,
+          requestId: randomUUID(),
+          type: "UPDATE_COURSE",
+          actorId: auth.claims.sub!,
+          actorRole: auth.claims.role,
+          courseVersion: updatedCourse.version,
+          payload: { source: "course-resource-delete", scope: "course" },
+        },
+        select: { cursor: true, courseVersion: true },
       });
     }
+    return null;
   });
+  if (durableEvent && file.courseId) {
+    try {
+      await publishCourseEvent(file.courseId, {
+        type: "course-updated",
+        courseId: file.courseId,
+        at: new Date().toISOString(),
+        payload: {
+          actionType: "UPDATE_COURSE",
+          courseVersion: durableEvent.courseVersion,
+          eventCursor: durableEvent.cursor.toString(),
+        },
+      });
+    } catch (error) {
+      console.error("[uploads] resource deletion publish failed; clients will reconcile by cursor", {
+        courseId: file.courseId,
+        eventCursor: durableEvent.cursor.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   await unlink(
     /* turbopackIgnore: true */ path.join(dataDir, file.storedName),
   ).catch((error) => {

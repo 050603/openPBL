@@ -26,6 +26,8 @@ import {
   Eye,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useI18n } from '@openmaic/lib/hooks/use-i18n';
+import { getActionDisplayName } from '@openmaic/lib/chat/action-translations';
 
 interface InlineActionTagProps {
   actionName: string;
@@ -90,9 +92,10 @@ const ACTION_CONFIG: Record<string, ActionCfg> = {
 // ── Component ─────────────────────────────────────────────────
 
 export function InlineActionTag({ actionName, state }: InlineActionTagProps) {
+  const { t } = useI18n();
   const config = ACTION_CONFIG[actionName];
   const Icon = config?.Icon || Zap;
-  const label = config?.label || actionName;
+  const label = getActionDisplayName(t, actionName);
   const style = config?.style || DEFAULT_STYLE;
   const isWb = config?.wb ?? false;
   const isRunning = state === 'running' || state === 'input-available';

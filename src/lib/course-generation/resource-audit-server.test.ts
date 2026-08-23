@@ -4,14 +4,19 @@ import type { PersistedClassroomData } from "@/lib/openmaic/server/classroom-sto
 
 const getCourse = vi.fn();
 const readClassroom = vi.fn();
+const resolveDurableCourseSceneOutlines = vi.fn();
 
 vi.mock("@/lib/session/server-store", () => ({ getCourse }));
 vi.mock("@/lib/openmaic/server/classroom-storage", () => ({ readClassroom }));
+vi.mock("@/lib/course-generation/course-resource-outlines", () => ({
+  resolveDurableCourseSceneOutlines,
+}));
 
 describe("final course resource audit", () => {
   beforeEach(() => {
     getCourse.mockReset();
     readClassroom.mockReset();
+    resolveDurableCourseSceneOutlines.mockImplementation(async (_courseId, outlines) => outlines);
   });
 
   it("reports adaptive, planned-action, TTS, and media gaps before completion", async () => {
@@ -76,5 +81,9 @@ describe("final course resource audit", () => {
       "media",
     ]);
     expect(audit.issues.map((issue) => issue.title)).toContain("主课达标测");
+    const mediaIssue = audit.issues.find((issue) => issue.type === "media");
+    expect(mediaIssue).toMatchObject({ title: "课程图片", detail: "图片生成未完成，请重新生成" });
+    expect(`${mediaIssue?.title}${mediaIssue?.detail}`).not.toContain("cover-1");
+    expect(`${mediaIssue?.title}${mediaIssue?.detail}`).not.toContain("provider unavailable");
   });
 });

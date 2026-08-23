@@ -14,10 +14,27 @@ export type NavigationTrafficLease = {
 export type NavigationTrafficController = {
   acquire: (isActive?: () => boolean) => Promise<NavigationTrafficLease | null>
 }
+export const classroomNavigationLanes = {
+  // These are also the chair-side entry/exit x coordinates. Sharing one
+  // coordinate prevents a short corrective step before departure or seating.
+  left: 640,
+  right: 756,
+} as const
+export type ClassroomNavigationLane = keyof typeof classroomNavigationLanes
 
 const arrivalTolerance = 6
 const verticalDirectionRatio = 0.72
-const deskExitCommitRatio = 0.5
+const classroomColumnDividerX = 698
+
+export function classroomNavigationLaneForSeatX(
+  seatX: number,
+): ClassroomNavigationLane {
+  return seatX <= classroomColumnDividerX ? 'left' : 'right'
+}
+
+export function classroomNavigationLaneXForSeat(seatX: number): number {
+  return classroomNavigationLanes[classroomNavigationLaneForSeatX(seatX)]
+}
 
 export function compactNavigationRoute(
   from: NavigationPoint,
@@ -100,39 +117,6 @@ export function classroomAisleRoute(
     { x: aisleX, y: to.y },
     to,
   ])
-}
-
-/**
- * Returns the forward clearance point only when it advances toward the
- * destination. Same-row and upward trips leave directly through the side of
- * the desk instead of walking down and immediately doubling back.
- */
-export function deskDepartureWaypoint(
-  seatExit: NavigationPoint,
-  forwardClearance: NavigationPoint,
-  destination: NavigationPoint,
-): NavigationPoint | null {
-  const clearanceVector = {
-    x: forwardClearance.x - seatExit.x,
-    y: forwardClearance.y - seatExit.y,
-  }
-  const clearanceLength = Math.hypot(clearanceVector.x, clearanceVector.y)
-  if (clearanceLength <= arrivalTolerance) {
-    return null
-  }
-
-  const destinationVector = {
-    x: destination.x - seatExit.x,
-    y: destination.y - seatExit.y,
-  }
-  const progressTowardClearance = (
-    destinationVector.x * clearanceVector.x
-    + destinationVector.y * clearanceVector.y
-  ) / clearanceLength
-
-  return progressTowardClearance >= clearanceLength * deskExitCommitRatio
-    ? forwardClearance
-    : null
 }
 
 /**

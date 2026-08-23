@@ -2,7 +2,7 @@
 
 Whiteboard actions are available on slide scenes. Use them only when the Instructional Presentation Policy identifies a genuinely process-oriented visual explanation.
 
-All whiteboard actions use `{"type":"action","name":"wb_...","params":{...}}` inside the same output array. The canvas is 1000 x 563; keep content inside x=20..980 and y=20..543 without overlap.
+All whiteboard actions use `{"type":"action","name":"wb_...","params":{...}}` inside the same output array. Begin in the conventional 1000 x 563 viewport and keep content legible without overlap. Treat existing content as occupied: place later reasoning in a free region or continue below it on the pannable expanding surface; never cover an earlier note.
 
 - Open before drawing: `{"type":"action","name":"wb_open","params":{}}`
 - Text or annotation: `{"type":"action","name":"wb_draw_text","params":{"content":"...","x":60,"y":60,"width":500,"height":50,"fontSize":20,"color":"#333333","elementId":"optional_id"}}`

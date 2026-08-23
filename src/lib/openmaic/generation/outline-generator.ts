@@ -458,7 +458,7 @@ export function enforcePblOutlineContract(
   });
   const requiredKnowledgePoints = requirements.knowledgePoints ?? [];
   const knowledgeNames = new Map(
-    requiredKnowledgePoints.map((point) => [point.id, point.name || point.id]),
+    requiredKnowledgePoints.map((point) => [point.id, point.name || "未命名知识点"]),
   );
   const activityCatalog = requirements.pblActivityCatalog ?? [];
 
@@ -502,7 +502,7 @@ export function enforcePblOutlineContract(
                 (withMetadata[b.index].knowledgePointIds?.length ?? 0),
             )[0] ?? candidates[0];
         const outline = withMetadata[target.index];
-        const knowledgeName = knowledgeNames.get(knowledgeId) || knowledgeId;
+        const knowledgeName = knowledgeNames.get(knowledgeId) || "关联知识点";
         withMetadata[target.index] = {
           ...outline,
           knowledgePointIds: [...(outline.knowledgePointIds ?? []), knowledgeId],
@@ -604,7 +604,10 @@ function normalizePblDetailMetadata(
     ...(detailKind ? { detailKind } : {}),
     ...(targetDurationSec !== undefined ? { targetDurationSec } : {}),
     companionIds: stageCompanionIds?.length ? stageCompanionIds : undefined,
-    ttsPolicy: isStudentKnowledge ? outline.ttsPolicy ?? 'target-duration' : 'none',
+    // A model-supplied `none` is invalid for a student AI-learning page. The
+    // previous nullish fallback preserved that value and produced a completely
+    // silent first page while later pages had server TTS.
+    ttsPolicy: isStudentKnowledge ? 'target-duration' : 'none',
   };
 }
 

@@ -35,6 +35,29 @@ export async function executeCourseAction(
   envelope: ActionEnvelope,
   claims: AuthClaims,
 ): Promise<ActionAck> {
+  let currentEnvelope = envelope;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await executeCourseActionOnce(courseId, currentEnvelope, claims);
+    } catch (error) {
+      const currentVersion = versionConflictCurrentVersion(error);
+      if (claims.role !== "student" || currentVersion === undefined || attempt >= 3) {
+        throw error;
+      }
+      // Student companion turns persist several adjacent records and may race
+      // with realtime/presence writes. The action is identity-scoped and the
+      // requestId remains unchanged, so rebasing it on the latest version is
+      // safe and preserves idempotency without exposing a transient 409.
+      currentEnvelope = { ...currentEnvelope, expectedVersion: currentVersion };
+    }
+  }
+}
+
+async function executeCourseActionOnce(
+  courseId: string,
+  envelope: ActionEnvelope,
+  claims: AuthClaims,
+): Promise<ActionAck> {
   const action = envelope.action;
   if (!isActionAllowed(claims.role, action.type)) {
     throw new CourseActionError("FORBIDDEN_ACTION", "Action is not allowed for this role.", 403);
@@ -54,12 +77,29 @@ export async function executeCourseAction(
 
   if (DIRECT_ACTIONS.has(action.type)) {
     const ack = await executeDirect(courseId, envelope, claims);
-    await publishAckEvent(courseId, action.type, ack);
+    await publishAckEvent(courseId, action, ack);
     return ack;
   }
   const ack = await executeLegacyWithReservation(courseId, envelope, claims);
-  await publishAckEvent(courseId, action.type, ack);
+  await publishAckEvent(courseId, action, ack);
   return ack;
+}
+
+function versionConflictCurrentVersion(error: unknown): number | undefined {
+  if (
+    !(error instanceof CourseActionError)
+    || error.code !== "VERSION_CONFLICT"
+    || error.status !== 409
+    || !error.details
+    || typeof error.details !== "object"
+    || !("currentVersion" in error.details)
+  ) {
+    return undefined;
+  }
+  const currentVersion = error.details.currentVersion;
+  return Number.isSafeInteger(currentVersion) && Number(currentVersion) > 0
+    ? Number(currentVersion)
+    : undefined;
 }
 
 async function executeDirect(
@@ -112,6 +152,9 @@ async function executeDirect(
             actorId: claims.sub!,
             actorRole: claims.role,
             courseVersion: updated.version,
+            ...(envelope.action.type === "UPDATE_STUDENT_PROGRESS"
+              ? { payload: { studentId: envelope.action.payload.studentId } }
+              : {}),
           },
           select: { cursor: true },
         });
@@ -614,19 +657,35 @@ function receiptToAck(receipt: {
 
 async function publishAckEvent(
   courseId: string,
-  type: SessionAction["type"],
+  action: SessionAction,
   ack: ActionAck,
 ): Promise<void> {
-  await publishCourseEvent(courseId, {
-    type: type === "ADVANCE_STAGE" || type === "SET_STAGE" ? "stage-changed" : "course-updated",
-    courseId,
-    at: new Date().toISOString(),
-    payload: {
-      actionType: type,
-      courseVersion: ack.courseVersion,
+  const targetStudentId = action.type === "UPDATE_STUDENT_PROGRESS"
+    ? action.payload.studentId
+    : undefined;
+  try {
+    await publishCourseEvent(courseId, {
+      type: action.type === "ADVANCE_STAGE" || action.type === "SET_STAGE" ? "stage-changed" : "course-updated",
+      courseId,
+      at: new Date().toISOString(),
+      payload: {
+        actionType: action.type,
+        courseVersion: ack.courseVersion,
+        eventCursor: ack.eventCursor,
+        ...(targetStudentId ? { studentId: targetStudentId } : {}),
+      },
+    });
+  } catch (error) {
+    // The database event cursor is the durable source of truth. A Redis or
+    // WebSocket publish failure must not turn an already-committed classroom
+    // mutation into a client-visible write failure.
+    console.error("[course-actions] realtime invalidation failed; clients will reconcile by cursor", {
+      courseId,
+      actionType: action.type,
       eventCursor: ack.eventCursor,
-    },
-  });
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {

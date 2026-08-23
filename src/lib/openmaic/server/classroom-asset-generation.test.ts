@@ -41,7 +41,7 @@ describe('classroom asset repair planning', () => {
     expect(requests[0]?.prompt).toBe('重复请求不应再次生成');
   });
 
-  it('retries only failed media and replaces rejected image prompts with a safe educational prompt', () => {
+  it('retries only failed media without replacing the intended prompt with generic filler', () => {
     const repair = buildMediaRepairOutlines(outlines, [{
       elementId: 'image-detail',
       type: 'image',
@@ -51,8 +51,7 @@ describe('classroom asset repair planning', () => {
     expect(repair).toHaveLength(1);
     expect(repair[0]?.id).toBe('detail');
     expect(repair[0]?.mediaGenerations).toHaveLength(1);
-    expect(repair[0]?.mediaGenerations?.[0]?.prompt).toContain('安全、中性教育课件插图');
-    expect(repair[0]?.mediaGenerations?.[0]?.prompt).toContain('分词与词性标注');
+    expect(repair[0]?.mediaGenerations?.[0]?.prompt).toBe('可能触发审核的原始提示词');
   });
 
   it('does not report completion while any requested file is still missing', () => {

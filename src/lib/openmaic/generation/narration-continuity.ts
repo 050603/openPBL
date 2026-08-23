@@ -53,6 +53,8 @@ export function stripRepeatedNarrationOpening(text: string): string {
 
 const FORMAL_FAREWELL_PHRASE = /(?:感谢(?:大家|同学们)?(?:的)?(?:聆听|观看|参与)|谢谢(?:大家|同学们)?|(?:我们)?(?:下次课|下节课|下次|下一堂课)再见|同学们再见|再见)/i;
 const FALSE_SESSION_REFERENCE = /(?:在)?(?:上一节课|上节课|上一堂课|上次课|上次课程)(?:中|里)?/g;
+const FALSE_FUTURE_SESSION_REFERENCE = /(?:在)?(?:下(?:一)?节课|下(?:一)?堂课|下一课|下次课|下一次课)(?:中|里)?/g;
+const FALSE_FUTURE_SESSION_REFERENCE_EN = /\b(?:in\s+)?(?:the\s+)?next\s+(?:class|lesson|session)\b/gi;
 const FALSE_PREVIOUS_PAGE_LEARNING = /(?:在)?(?:上一页|前一页)(?:中|里)?[，,\s]*我们(?:已经)?(?:看到了?|了解了?|学习了?|认识了?|回顾了?)/g;
 const FALSE_PREVIOUS_PAGE_REFERENCE = /(?:在)?(?:上一页|前一页)(?:中|里)?/g;
 const COURSE_GREETING = /(?:大家好|同学们好|各位同学好|欢迎(?:大家|各位同学|同学们)?来到)/i;
@@ -70,6 +72,12 @@ export function stripFormalNarrationFarewell(text: string): string {
   const match = FORMAL_FAREWELL_PHRASE.exec(text);
   if (!match || match.index === undefined) return text.trimEnd();
   return text.slice(0, match.index).replace(/[，,\s]+$/, '').trimEnd();
+}
+
+export function rewriteFalseFutureSessionReferences(text: string): string {
+  return text
+    .replace(FALSE_FUTURE_SESSION_REFERENCE, '接下来')
+    .replace(FALSE_FUTURE_SESSION_REFERENCE_EN, 'later in this lesson');
 }
 
 /** Deterministic final guard for model outputs that ignore the continuity prompt. */
@@ -105,6 +113,12 @@ export function enforceNarrationContinuity(
           ? `${withoutFarewell} 接下来，让我们继续后面的学习。`
           : '接下来，让我们继续后面的学习。';
       }
+    }
+    if (
+      context.narrationMode === 'embedded-segment'
+      || context.pageIndex < context.totalPages
+    ) {
+      cleaned = rewriteFalseFutureSessionReferences(cleaned);
     }
     return {
       ...action,

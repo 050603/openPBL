@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 
 export const runtime = 'nodejs';
@@ -6,7 +7,15 @@ export const dynamic = 'force-dynamic';
 
 const PYODIDE_VERSION = '0.25.0';
 const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
-const RUNTIME_CACHE_DIR = path.join(process.cwd(), '.openpbl-runtime', 'interactive-runtime');
+// Optional Pyodide wheels are fetched once by the server and cached under the
+// existing writable/persistent data volume. The production container runs as
+// an unprivileged user and cannot safely create arbitrary directories in the
+// application root; `.openpbl-data` is created and chowned by the image.
+const RUNTIME_CACHE_DIR = path.join(
+  process.cwd(),
+  '.openpbl-data',
+  'interactive-runtime-cache',
+);
 const CODEMIRROR_ROOT = path.join(process.cwd(), 'node_modules', 'codemirror');
 const KATEX_ROOT = path.join(process.cwd(), 'node_modules', 'katex', 'dist');
 const PYODIDE_ROOT = path.join(process.cwd(), 'node_modules', 'pyodide');
@@ -88,7 +97,10 @@ async function fetchAndCachePyodideAsset(pathParts: string[]): Promise<Uint8Arra
   const bytes = new Uint8Array(await response.arrayBuffer());
   const filePath = path.resolve(cacheRoot, ...pathParts);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  // Blue/green app containers can share this cache volume. Use a random
+  // suffix so concurrent first requests from processes with the same PID do
+  // not write the same temporary file.
+  const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
   await fs.writeFile(temporaryPath, bytes);
   await fs.rename(temporaryPath, filePath).catch(async () => {
     await fs.rm(temporaryPath, { force: true });

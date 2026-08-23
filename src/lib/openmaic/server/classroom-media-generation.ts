@@ -148,7 +148,23 @@ async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buff
   const downloadSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
-  const resp = await fetch(url, { signal: downloadSignal });
+  let resp: Response;
+  try {
+    resp = await fetch(url, { signal: downloadSignal });
+  } catch (error) {
+    const cause = error instanceof Error
+      ? (error as Error & { cause?: unknown }).cause
+      : undefined;
+    const causeCode = cause && typeof cause === 'object' && 'code' in cause
+      ? String((cause as { code?: unknown }).code ?? '')
+      : '';
+    const reason = error instanceof Error ? error.message : String(error);
+    const hostname = new URL(url).hostname;
+    throw new Error(
+      `Generated resource download failed [host=${hostname}]: ${reason}${causeCode ? ` (${causeCode})` : ''}`,
+      { cause: error },
+    );
+  }
   if (!resp.ok) throw new Error(`Download failed: ${resp.status} ${resp.statusText}`);
   const contentLength = Number(resp.headers.get('content-length') || 0);
   if (contentLength > DOWNLOAD_MAX_SIZE) {
@@ -157,8 +173,12 @@ async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buff
   return Buffer.from(await resp.arrayBuffer());
 }
 
-function mediaServingUrl(baseUrl: string, classroomId: string, subPath: string): string {
-  return `${baseUrl}/api/openmaic/classroom-media/${classroomId}/${subPath}`;
+export function mediaServingUrl(_baseUrl: string, classroomId: string, subPath: string): string {
+  // Classroom assets are served by this application and must remain
+  // same-origin. Persisting the generation request's origin makes an otherwise
+  // healthy course lose audio/images after a hostname, port, reverse-proxy or
+  // HTTP -> HTTPS migration (and can also drop the session cookie/CSP access).
+  return `/api/openmaic/classroom-media/${classroomId}/${subPath}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,8 +340,19 @@ export async function generateMediaForClassroom(
 // Placeholder replacement in scene content
 // ---------------------------------------------------------------------------
 
-export function replaceMediaPlaceholders(scenes: Scene[], mediaMap: Record<string, string>): void {
+export function replaceMediaPlaceholders(
+  scenes: Scene[],
+  mediaMap: Record<string, string>,
+  outlines: ReadonlyArray<SceneOutline> = [],
+): void {
   if (Object.keys(mediaMap).length === 0) return;
+
+  const mediaByOutline = new Map(
+    outlines.map((outline) => [
+      outline.id,
+      (outline.mediaGenerations ?? []).filter((request) => Boolean(mediaMap[request.elementId])),
+    ]),
+  );
 
   for (const scene of scenes) {
     if (scene.type !== 'slide') continue;
@@ -333,6 +364,7 @@ export function replaceMediaPlaceholders(scenes: Scene[], mediaMap: Record<strin
       }
     )?.canvas;
     if (!canvas?.elements) continue;
+    const plannedMedia = scene.outlineId ? (mediaByOutline.get(scene.outlineId) ?? []) : [];
 
     for (const el of canvas.elements) {
       if (
@@ -347,13 +379,100 @@ export function replaceMediaPlaceholders(scenes: Scene[], mediaMap: Record<strin
       if (
         (el.type === 'image' || el.type === 'video') &&
         typeof el.src === 'string' &&
-        isMediaPlaceholder(el.src) &&
-        mediaMap[el.src]
+        isMediaPlaceholder(el.src)
       ) {
-        el.src = mediaMap[el.src];
+        const exactUrl = mediaMap[el.src];
+        if (exactUrl) {
+          el.src = exactUrl;
+          continue;
+        }
+
+        // Some providers occasionally normalize the placeholder back to a
+        // sequential gen_img_1/gen_vid_1 ID instead of echoing the randomized
+        // ID from the confirmed outline. Media planning allows at most one
+        // generated asset per outline, so matching by outline and media type is
+        // deterministic and avoids leaving an empty image in the final page.
+        const matchedPlan = plannedMedia.filter((request) => request.type === el.type);
+        if (matchedPlan.length === 1) el.src = mediaMap[matchedPlan[0]!.elementId]!;
       }
     }
   }
+}
+
+export function findUnresolvedClassroomMedia(
+  outlines: ReadonlyArray<{ id: string; mediaGenerations?: unknown }>,
+  scenes: ReadonlyArray<Scene>,
+): Array<{ elementId: string; type: 'image' | 'video'; error: string }> {
+  const requestsByOutlineId = new Map(outlines.map((outline) => [
+    outline.id,
+    Array.isArray(outline.mediaGenerations)
+      ? outline.mediaGenerations.filter((value): value is MediaGenerationRequest => {
+          if (!value || typeof value !== 'object') return false;
+          const request = value as Partial<MediaGenerationRequest>;
+          return (request.type === 'image' || request.type === 'video')
+            && typeof request.elementId === 'string'
+            && request.elementId.length > 0;
+        })
+      : [],
+  ]));
+  const unresolved = new Map<string, { elementId: string; type: 'image' | 'video'; error: string }>();
+
+  for (const scene of scenes) {
+    if (scene.type !== 'slide') continue;
+    const requests = scene.outlineId ? (requestsByOutlineId.get(scene.outlineId) ?? []) : [];
+    const elements = (
+      scene.content as {
+        canvas?: { elements?: Array<{ src?: string; mediaRef?: string; type?: string }> };
+      }
+    )?.canvas?.elements ?? [];
+
+    for (const request of requests) {
+      const sameTypeRequests = requests.filter((candidate) => candidate.type === request.type);
+      const hasUnresolvedElement = elements.some((element) => {
+        if (element.type !== request.type) return false;
+        if (request.type === 'video' && element.mediaRef === request.elementId) {
+          return !element.src || isMediaPlaceholder(element.src);
+        }
+        if (typeof element.src !== 'string' || !isMediaPlaceholder(element.src)) return false;
+        return element.src === request.elementId || sameTypeRequests.length === 1;
+      });
+      if (!hasUnresolvedElement) continue;
+      unresolved.set(`${request.type}:${request.elementId}`, {
+        elementId: request.elementId,
+        type: request.type,
+        error: '页面仍包含未解析的媒体占位符',
+      });
+    }
+
+    // A raw generation placeholder is itself an integrity failure even when
+    // an older course record lost its media plan. Reporting it prevents an
+    // empty plan from being mistaken for a successfully completed batch.
+    for (const element of elements) {
+      if (element.type !== 'image' && element.type !== 'video') continue;
+      const placeholder = typeof element.src === 'string' && isMediaPlaceholder(element.src)
+        ? element.src
+        : element.type === 'video'
+          && typeof element.mediaRef === 'string'
+          && isMediaPlaceholder(element.mediaRef)
+            ? element.mediaRef
+            : undefined;
+      if (!placeholder) continue;
+      const sameTypeRequests = requests.filter((request) => request.type === element.type);
+      const matchingRequest = sameTypeRequests.find((request) => request.elementId === placeholder)
+        ?? (sameTypeRequests.length === 1 ? sameTypeRequests[0] : undefined);
+      const key = `${element.type}:${matchingRequest?.elementId ?? placeholder}`;
+      if (unresolved.has(key)) continue;
+      unresolved.set(key, {
+        elementId: matchingRequest?.elementId ?? placeholder,
+        type: element.type,
+        error: matchingRequest
+          ? '页面仍包含未解析的媒体占位符'
+          : '媒体生成计划缺失，无法生成真实资源',
+      });
+    }
+  }
+
+  return Array.from(unresolved.values());
 }
 
 // ---------------------------------------------------------------------------

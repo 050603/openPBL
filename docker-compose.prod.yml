@@ -26,6 +26,7 @@ x-app: &app
   volumes:
     - uploads:/app/.openpbl-data/uploads
     - whiteboards:/app/.openpbl-data/whiteboards
+    - interactive-runtime-cache:/app/.openpbl-data/interactive-runtime-cache
     - classrooms:/app/data/classrooms
   expose:
     - "3000"
@@ -449,6 +450,7 @@ volumes:
   pgbackrest-spool:
   uploads:
   whiteboards:
+  interactive-runtime-cache:
   classrooms:
   letsencrypt:
   acme-webroot:

@@ -40,9 +40,9 @@ import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
 import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 import type { StudyZoneId } from "@/pixi/study-zones";
 import PixiStage, { type StudyZoneCommand } from "./companion-studio-pixi-stage";
-import { useCompanionRuntime } from "./companion-runtime";
+import { useCompanionRuntime, type CompanionChatMessage } from "./companion-runtime";
 import { getCompanionStudioGuidance } from "./companion-studio-guidance";
-import { StudioProjectWorkbench, type WorkbenchView } from "./studio-project-workbench";
+import { StudioProjectWorkbench, type WorkbenchLayoutMode, type WorkbenchView } from "./studio-project-workbench";
 import "./companion-studio-workspace.css";
 
 type StudioModal = StudyZoneId | "history" | "micro-lesson" | null;
@@ -137,6 +137,7 @@ function CompanionStudioRuntime({
   const [studyZoneCommand, setStudyZoneCommand] = useState<StudyZoneCommand | null>(null);
   const [railView, setRailView] = useState<RailView>("overview");
   const [railOpen, setRailOpen] = useState(false);
+  const [openedUnreadReplyCount, setOpenedUnreadReplyCount] = useState(0);
   const [ambientMotion, setAmbientMotion] = useState(true);
 
   useEffect(() => {
@@ -204,6 +205,13 @@ function CompanionStudioRuntime({
     setStudioModal(modal);
   }, []);
 
+  const openCurrentTask = useCallback(() => {
+    setWorkbenchInitialView("editor");
+    setWorkspaceExpanded(false);
+    setRailOpen(false);
+    setStudioModal("planning");
+  }, []);
+
   const closeStudioModal = useCallback(() => {
     setStudioModal(null);
     setWorkspaceExpanded(false);
@@ -232,14 +240,16 @@ function CompanionStudioRuntime({
       const task = stageTasks.find((item) => item.companionId === companionId);
       const microLesson = companionId === "knowledge" ? runtime.microLessonTask : null;
       const isCurrentTTS = runtime.tts.currentTTS?.companionId === companionId;
-      const isPreparing = runtime.generatingCompanionId === companionId
-        || runtime.tts.preparingCompanionId === companionId
+      // Audio preparation is a transport detail, not companion work. Treating
+      // a pending TTS request as `working` left one character cycling through
+      // all of its desk gestures indefinitely when that request stalled.
+      const isDoingAgentWork = runtime.generatingCompanionId === companionId
         || microLesson?.lesson.status === "generating";
       let state: PartnerState = "idle";
       if (runtime.error && runtime.selectedCompanionId === companionId) state = "error";
       else if (microLesson?.lesson.status === "failed") state = "error";
       else if (isCurrentTTS) state = runtime.tts.speaking ? "speaking" : "celebrating";
-      else if (isPreparing) state = "working";
+      else if (isDoingAgentWork) state = "working";
       else if (microLesson?.lesson.status === "ready") state = "waiting_user";
       else if (microLesson?.lesson.status === "completed") state = "completed";
       else if (task?.status === "waiting-student" || task?.status === "waiting-confirmation") state = "waiting_user";
@@ -261,7 +271,7 @@ function CompanionStudioRuntime({
             ? "微课已完成，等你开始学习"
           : microLesson?.lesson.status === "completed"
             ? "微课学习已完成"
-          : isPreparing
+          : isDoingAgentWork
             ? "正在准备回应…"
           : latestAssistantById.get(companionId) ?? (isAvailable ? role.intro : "本阶段旁听，暂不参与调度"),
         task: microLesson
@@ -280,7 +290,7 @@ function CompanionStudioRuntime({
       };
       return [role.id, partner];
     })) as Record<AgentId, PartnerRuntime>;
-  }, [activeTaskId, availableIds, runtime.error, runtime.generatingCompanionId, runtime.messages, runtime.microLessonTask, runtime.selectedCompanionId, runtime.tts.currentTTS, runtime.tts.preparingCompanionId, runtime.tts.speaking, stageTasks]);
+  }, [activeTaskId, availableIds, runtime.error, runtime.generatingCompanionId, runtime.messages, runtime.microLessonTask, runtime.selectedCompanionId, runtime.tts.currentTTS, runtime.tts.speaking, stageTasks]);
 
   useEffect(() => {
     if (!activeTaskId) return;
@@ -505,6 +515,13 @@ function CompanionStudioRuntime({
     runtime.setSelectedCompanionId(null);
   }, [runtime]);
 
+  const openActivityRail = useCallback(() => {
+    setOpenedUnreadReplyCount(runtime.unreadCount);
+    setRailView("activity");
+    setRailOpen(true);
+    runtime.markRead();
+  }, [runtime]);
+
   const stageStatus = runtime.microLessonTask?.lesson.status === "generating"
     ? `知知正在制作微课 · ${Math.round(runtime.microLessonTask.progress)}%`
     : runtime.microLessonTask?.lesson.status === "ready"
@@ -545,6 +562,7 @@ function CompanionStudioRuntime({
           paused={fullScreenWorkbenchOpen}
         />
 
+        <div className="studio-command-card">
         <aside aria-label="当前阶段指引" className="studio-stage-peek">
           <div className="studio-stage-peek__status"><i /><span>{stageStatus}</span></div>
           <div className="studio-stage-peek__heading">
@@ -557,7 +575,7 @@ function CompanionStudioRuntime({
             <span>下一步</span>
             <small>{guidance.nextStep}</small>
           </div>
-          <button onClick={() => openStudioModal("planning")} type="button">
+          <button onClick={openCurrentTask} type="button">
             <ListTodo size={14} />
             <span>{guidance.actionLabel}</span>
             <ArrowUpRight size={13} />
@@ -575,7 +593,7 @@ function CompanionStudioRuntime({
           <button
             aria-label="前往当前阶段任务"
             className="studio-scene-tool studio-scene-tool--primary"
-            onClick={() => openStudioModal("planning")}
+            onClick={openCurrentTask}
             type="button"
           >
             <span aria-hidden="true" className="studio-scene-tool__icon"><ListTodo size={17} /></span>
@@ -599,16 +617,17 @@ function CompanionStudioRuntime({
             </button>
           ) : null}
           <button
-            aria-expanded={railOpen && railView === "overview"}
-            aria-label="打开小组动态"
+            aria-expanded={railOpen && railView === "activity"}
+            aria-label={runtime.unreadCount ? `查看动态，${runtime.unreadCount} 条未读伙伴回复` : "查看动态"}
             className="studio-scene-tool studio-overview-trigger"
-            data-active={railOpen && railView === "overview" ? "" : undefined}
-            onClick={() => { setRailView("overview"); setRailOpen(true); }}
+            data-active={railOpen && railView === "activity" ? "" : undefined}
+            onClick={openActivityRail}
+            title={runtime.unreadCount ? `${runtime.unreadCount} 条未读伙伴回复` : "查看伙伴回复、任务和过程记录"}
             type="button"
           >
-            <span aria-hidden="true" className="studio-scene-tool__icon"><LayoutDashboard size={16} /></span>
+            <span aria-hidden="true" className="studio-scene-tool__icon"><Clock3 size={16} /></span>
             <span className="studio-scene-tool__label"><strong>动态</strong></span>
-            {runtime.unreadCount ? <b aria-label={`${runtime.unreadCount} 条未读动态`}>{runtime.unreadCount}</b> : null}
+            {runtime.unreadCount ? <b aria-label={`${runtime.unreadCount} 条未读伙伴回复`}>{runtime.unreadCount}</b> : null}
           </button>
           <button
             aria-expanded={railOpen && railView === "settings"}
@@ -622,6 +641,7 @@ function CompanionStudioRuntime({
             <span className="studio-scene-tool__label"><strong>设置</strong></span>
           </button>
         </nav>
+        </div>
 
         {runtime.microLessonTask ? (
           <aside
@@ -721,7 +741,13 @@ function CompanionStudioRuntime({
             tasks={stageTasks.filter((task) => task.companionId === VISUAL_TO_COMPANION[selectedAgentId])}
           />
         ) : railView === "activity" ? (
-          <ActivityRail onBack={() => setRailView("overview")} records={records} tasks={stageTasks} />
+          <ActivityRail
+            messages={runtime.messages}
+            onBack={() => setRailView("overview")}
+            records={records}
+            tasks={stageTasks}
+            unreadReplyCount={openedUnreadReplyCount}
+          />
         ) : railView === "settings" ? (
           <SettingsRail
             ambientMotion={ambientMotion}
@@ -735,7 +761,7 @@ function CompanionStudioRuntime({
             activeTask={activeTask}
             contextLabel={contextLabel}
             course={course}
-            onOpenActivity={() => setRailView("activity")}
+            onOpenActivity={openActivityRail}
             onOpenModal={openStudioModal}
             onSelectAgent={selectAgent}
             pendingConfirmations={pendingConfirmations}
@@ -755,6 +781,7 @@ function CompanionStudioRuntime({
           <PlanningPanel
             course={course}
             initialView={workbenchInitialView}
+            layoutMode={workspaceExpanded ? "fullscreen" : "sidebar"}
             onAsk={sendRequest}
             onStop={runtime.stop}
             runtime={runtime}
@@ -871,8 +898,55 @@ function AgentRail({ agentId, state, tasks, available, runtime, onBack, onSend }
   );
 }
 
-function ActivityRail({ tasks, records, onBack }: { tasks: CompanionTask[]; records: Course["companionProcessRecords"]; onBack: () => void }) {
-  return <div className="studio-rail-content"><RailHeading eyebrow="LIVE ACTIVITY" onBack={onBack} title="项目动态" /><section className="studio-rail-section"><div className="studio-section-title"><strong>伙伴任务</strong><span>{tasks.length}</span></div>{tasks.length ? <div className="studio-task-list">{tasks.slice(0, 7).map((task) => <TaskItem key={task.id} task={task} />)}</div> : <EmptyLine>还没有伙伴任务。</EmptyLine>}</section><section className="studio-rail-section"><div className="studio-section-title"><strong>过程记录</strong><span>{records?.length ?? 0}</span></div><div className="studio-record-list">{records?.slice(0, 8).map((record) => <article key={record.id}><i /><div><strong>{record.title}</strong><p>{record.summary}</p><small>{formatTime(record.createdAt)}</small></div></article>)}</div></section></div>;
+function ActivityRail({ tasks, records, messages, unreadReplyCount, onBack }: {
+  tasks: CompanionTask[];
+  records: Course["companionProcessRecords"];
+  messages: CompanionChatMessage[];
+  unreadReplyCount: number;
+  onBack: () => void;
+}) {
+  const replies = messages
+    .filter((message) => message.role === "assistant")
+    .slice(-Math.max(6, Math.min(unreadReplyCount, 20)))
+    .reverse();
+  return (
+    <div className="studio-rail-content">
+      <RailHeading eyebrow="LIVE ACTIVITY" onBack={onBack} title="项目动态" />
+      {unreadReplyCount ? (
+        <p className="studio-activity-unread" role="status">
+          已显示并标记 {unreadReplyCount} 条新伙伴回复
+        </p>
+      ) : null}
+      <section className="studio-rail-section">
+        <div className="studio-section-title"><strong>伙伴回复</strong><span>{replies.length} 条</span></div>
+        {replies.length ? (
+          <div className="studio-reply-list">
+            {replies.map((message, index) => {
+              const companion = message.companionId ? getCompanion(message.companionId) : null;
+              const isUnread = index < unreadReplyCount;
+              return (
+                <article className={isUnread ? "is-unread" : undefined} key={`${message.ts}-${index}`}>
+                  <span style={{ background: companion?.color ?? "#667a76" }}>{companion?.shortName ?? "AI"}</span>
+                  <div>
+                    <header><strong>{companion?.name ?? "伴学伙伴"}</strong>{isUnread ? <b>新回复</b> : null}<time>{formatTime(message.ts)}</time></header>
+                    <p>{message.content}</p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : <EmptyLine>当前阶段还没有伙伴回复。</EmptyLine>}
+      </section>
+      <section className="studio-rail-section">
+        <div className="studio-section-title"><strong>伙伴任务</strong><span>{tasks.length}</span></div>
+        {tasks.length ? <div className="studio-task-list">{tasks.slice(0, 7).map((task) => <TaskItem key={task.id} task={task} />)}</div> : <EmptyLine>还没有伙伴任务。</EmptyLine>}
+      </section>
+      <section className="studio-rail-section">
+        <div className="studio-section-title"><strong>过程记录</strong><span>{records?.length ?? 0}</span></div>
+        <div className="studio-record-list">{records?.slice(0, 8).map((record) => <article key={record.id}><i /><div><strong>{record.title}</strong><p>{record.summary}</p><small>{formatTime(record.createdAt)}</small></div></article>)}</div>
+      </section>
+    </div>
+  );
 }
 
 function SettingsRail({ runtime, onBack, onHistory, ambientMotion, onToggleAmbientMotion }: {
@@ -1206,6 +1280,7 @@ function PlanningPanel({
   onAsk,
   onStop,
   initialView,
+  layoutMode,
 }: {
   course: Course;
   stageKey: string;
@@ -1213,11 +1288,13 @@ function PlanningPanel({
   onAsk: (text: string, companionIds?: AiCompanionId[]) => Promise<boolean>;
   onStop: () => void;
   initialView: WorkbenchView;
+  layoutMode: WorkbenchLayoutMode;
 }) {
   return (
     <StudioProjectWorkbench
       course={course}
       initialView={initialView}
+      layoutMode={layoutMode}
       onAskCompanion={onAsk}
       onStopCompanion={onStop}
       runtime={runtime}

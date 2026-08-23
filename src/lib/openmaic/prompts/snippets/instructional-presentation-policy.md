@@ -2,6 +2,12 @@
 
 Design the slide, narration, and whiteboard as one teaching experience. Decide from the **instructional intent and the learner's need to see**, not from subject-specific trigger words.
 
+### Lesson-boundary language: one course, continuous pages
+
+Every generated page, scene, chapter, activity, quiz, and system operation in the supplied course outline belongs to the **current lesson**, unless the input explicitly identifies a separate future course. Never describe a later page or section of this same lesson as a future class. In particular, do not say or display `下节课`, `下一课`, `下一堂课`, `下次课`, `next class`, `next lesson`, `next session`, or any semantic equivalent when referring to content that follows in the current outline.
+
+When a transition is genuinely useful, use same-lesson wording in the output language, such as `接下来`, `下一页`, `后面的环节`, `稍后在本节课中`, “next”, or “later in this lesson”. Do not end every page with a course-level teaser or promise. A page may simply conclude its current idea, bridge to the immediately following page, or give the learner the next operation. Mention a separate future lesson only when the input explicitly establishes that lesson and the current page is the terminal page of the current course; never infer a future lesson from page or chapter boundaries.
+
 ### PPT responsibility: stable visual reference
 
 The slide should preserve the information students need to scan, compare, remember, or revisit:
@@ -17,7 +23,7 @@ The slide should preserve the information students need to scan, compare, rememb
 
 Use the whiteboard when understanding depends on seeing a sequence, transformation, difference, annotation, decomposition, derivation, calculation, proof, process, structure, or causal relationship unfold over time. Reveal only the information needed for the current reasoning step, coordinate each step with narration, and return to the slide after the self-contained process is complete.
 
-Do not use the whiteboard merely to copy the slide, decorate the lesson, or satisfy a subject keyword. Do not force a dynamic demonstration when a stable slide representation communicates the idea more clearly.
+Do not use the whiteboard merely to copy the slide, decorate the lesson, or satisfy a subject keyword. An agenda, objective list, page-title list, future-topic list, vocabulary pile, or recap already visible on the slide does not belong on the board. Do not force a dynamic demonstration when a stable slide representation communicates the idea more clearly.
 
 ### Decision check
 

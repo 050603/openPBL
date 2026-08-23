@@ -7,13 +7,15 @@ import {
 import type { WorkstationController } from './workstation'
 import {
   classroomAisleRoute,
+  classroomNavigationLaneForSeatX,
+  classroomNavigationLanes,
   compactNavigationRoute,
   createNavigationTrafficController,
-  deskDepartureWaypoint,
   walkingActionForVector,
   walkingDurationForAction,
   type NavigationTrafficLease,
   type NavigationPoint,
+  type ClassroomNavigationLane,
 } from './navigation'
 import {
   deskAmbientBehaviors,
@@ -23,16 +25,6 @@ import {
   type DeskAmbientActionName,
   type DeskAmbientBehavior,
 } from './ambient-behavior'
-
-const classroomNavigationLanes = {
-  // Keep enough horizontal separation for two full character silhouettes while
-  // staying inside the clear corridor between the workstation columns.
-  left: 640,
-  right: 756,
-} as const
-const classroomColumnDividerX = 698
-
-type ClassroomNavigationLane = keyof typeof classroomNavigationLanes
 
 type OfficeOrchestratorOptions = {
   random?: () => number
@@ -71,6 +63,7 @@ export function createOfficeOrchestrator(
   const awayAgents = new Set<AgentId>()
   const engagedAgents = new Set<AgentId>()
   const chatPartnerByAgent = new Map<AgentId, AgentId>()
+  const conversationTrafficLeases = new Map<AgentId, NavigationTrafficLease>()
   const idleRoamTimers = new Map<AgentId, number>()
   const idleRoamWaiters = new Map<AgentId, { timerId: number; resolve: (active: boolean) => void }>()
   const idleRoamRequests = new Map<AgentId, number>()
@@ -333,7 +326,6 @@ export function createOfficeOrchestrator(
   async function riseFromDesk(
     agentId: AgentId,
     request: number,
-    destination: NavigationPoint,
   ): Promise<boolean> {
     const workstation = workstations[agentId]
     const exitFacing = workstation.seatExitAnchor.x > workstation.seatAnchor.x ? 'right' : 'left'
@@ -353,15 +345,6 @@ export function createOfficeOrchestrator(
     if (!isCurrentMotion(agentId, request)) return false
     awayAgents.add(agentId)
     workstation.setAway(true)
-    const departureWaypoint = deskDepartureWaypoint(
-      workstation.seatExitAnchor,
-      workstation.homeAnchor,
-      destination,
-    )
-    if (departureWaypoint) {
-      await walkVisualAnchorTo(agentId, departureWaypoint.x, departureWaypoint.y)
-      if (!isCurrentMotion(agentId, request)) return false
-    }
     return true
   }
 
@@ -375,7 +358,7 @@ export function createOfficeOrchestrator(
   }
 
   function navigationLaneForAgent(agentId: AgentId): ClassroomNavigationLane {
-    return workstations[agentId].seatAnchor.x <= classroomColumnDividerX ? 'left' : 'right'
+    return classroomNavigationLaneForSeatX(workstations[agentId].seatAnchor.x)
   }
 
   function navigationAisleXForAgent(agentId: AgentId): number {
@@ -384,15 +367,10 @@ export function createOfficeOrchestrator(
 
   async function sitAtDesk(agentId: AgentId, request: number): Promise<boolean> {
     const workstation = workstations[agentId]
-    // Move behind the furniture before approaching the chair so the desk keeps
-    // its natural foreground occlusion throughout the whole seating motion.
+    // The shared route already ends at the chair-side exit anchor. Move the
+    // body behind the furniture and begin sitting immediately, without an
+    // intermediate arrival pose or a second zero-distance walking segment.
     workstation.setAway(false)
-    await walkVisualAnchorTo(
-      agentId,
-      workstation.seatExitAnchor.x,
-      workstation.seatExitAnchor.y,
-    )
-    if (!isCurrentMotion(agentId, request)) return false
     workstation.person.setFacing(workstation.seatAnchor.x > workstation.seatExitAnchor.x ? 'right' : 'left')
 
     // Mount the authored sitting strip before calculating the chair tween.
@@ -437,6 +415,7 @@ export function createOfficeOrchestrator(
     agentId: AgentId,
     request: number,
     points: readonly NavigationPoint[],
+    options: { playArrival?: boolean } = {},
   ): Promise<boolean> {
     const person = workstations[agentId].person
     const route = compactNavigationRoute(
@@ -451,10 +430,12 @@ export function createOfficeOrchestrator(
       await walkVisualAnchorTo(agentId, point.x, point.y)
       if (!isCurrentMotion(agentId, request)) return false
     }
-    await person.play('turn_arrive', {
-      loop: false,
-      preserveVisualAnchor: 'bottomCenter',
-    })
+    if (options.playArrival ?? true) {
+      await person.play('turn_arrive', {
+        loop: false,
+        preserveVisualAnchor: 'bottomCenter',
+      })
+    }
     return true
   }
 
@@ -596,7 +577,7 @@ export function createOfficeOrchestrator(
     stopZoneInteraction(agentId)
     const workstation = workstations[agentId]
     const target = workstations[targetAgentId]
-    const targetExitDirection = target.homeAnchor.x > target.seatAnchor.x ? 1 : -1
+    const targetExitDirection = target.seatExitAnchor.x > target.seatAnchor.x ? 1 : -1
     const chatPoint = { ...target.conversationAnchor }
     const request = nextMotionRequest(agentId)
     let trafficLease: NavigationTrafficLease | null = null
@@ -607,7 +588,7 @@ export function createOfficeOrchestrator(
     try {
       trafficLease = await acquireNavigationTraffic(agentId, request)
       if (!trafficLease) return
-      if (!await riseFromDesk(agentId, request, chatPoint)) return
+      if (!await riseFromDesk(agentId, request)) return
       const route = classroomAisleRoute(
         workstation.person.getVisualAnchorPosition('bottomCenter'),
         chatPoint,
@@ -615,12 +596,6 @@ export function createOfficeOrchestrator(
       )
       if (!await walkRoute(agentId, request, route)) return
       if (!isCurrentIdleRequest(agentId, idleRequest)) return
-
-      // The shared aisle is clear as soon as the visitor reaches the chat point.
-      // Conversation sprite preparation is local to the destination and must not
-      // keep every other companion waiting behind this visitor.
-      trafficLease.release()
-      trafficLease = null
 
       // The standing visitor is on the far side of the target workstation.
       // Mount only its body behind the desk so the monitor naturally occludes
@@ -649,6 +624,12 @@ export function createOfficeOrchestrator(
         || !isCurrentIdleRequest(agentId, idleRequest)
       ) return
       // Both sprites are mounted and paused on frame zero before either starts.
+      // The visitor is still standing inside this narrow lane, so retain its
+      // traffic lease until the return route has cleared the aisle. Otherwise a
+      // second actor can walk through the conversation and make the visitor
+      // appear frozen while it waits to go home.
+      conversationTrafficLeases.set(agentId, trafficLease)
+      trafficLease = null
       target.person.startBodyAnimation()
       workstation.person.startBodyAnimation()
     } finally {
@@ -831,7 +812,7 @@ export function createOfficeOrchestrator(
       if (!trafficLease) return
       if (
         !awayAgents.has(agentId)
-        && !await riseFromDesk(agentId, request, definition.approachPoint)
+        && !await riseFromDesk(agentId, request)
       ) {
         return
       }
@@ -892,6 +873,8 @@ export function createOfficeOrchestrator(
       ? studyZones.getDefinition(previousZone)
       : null
     const wasAway = awayAgents.has(agentId) || Boolean(previousZone) || movingAgents.has(agentId)
+    const heldConversationLease = conversationTrafficLeases.get(agentId) ?? null
+    conversationTrafficLeases.delete(agentId)
     stopZoneInteraction(agentId)
     zoneActionPlayedForVisit.delete(agentId)
 
@@ -901,6 +884,7 @@ export function createOfficeOrchestrator(
     }
 
     if (!wasAway) {
+      heldConversationLease?.release()
       workstation.person.setPosture('normal')
       workstation.person.setFacing('left')
       awayAgents.delete(agentId)
@@ -912,29 +896,36 @@ export function createOfficeOrchestrator(
     }
 
     movingAgents.add(agentId)
-    let trafficLease: NavigationTrafficLease | null = null
+    let trafficLease = heldConversationLease
     try {
-      trafficLease = await acquireNavigationTraffic(agentId, request)
+      trafficLease ??= await acquireNavigationTraffic(agentId, request)
       if (!trafficLease) return
       workstation.person.setPosture('normal')
+      const current = workstation.person.getVisualAnchorPosition('bottomCenter')
       const route = previousZoneDefinition
         ? [
             previousZoneDefinition.approachPoint,
             ...classroomAisleRoute(
               previousZoneDefinition.approachPoint,
-              workstation.homeAnchor,
+              workstation.seatExitAnchor,
               navigationAisleXForAgent(agentId),
             ),
           ]
-        : [workstation.homeAnchor]
-      if (!await walkRoute(agentId, request, route)) return
+        : classroomAisleRoute(
+            current,
+            workstation.seatExitAnchor,
+            navigationAisleXForAgent(agentId),
+          )
+      // The chair-side anchor is a transition point, not a destination. Keep
+      // the walking cycle alive until sit_down mounts so there is no stop or
+      // turn-in-place at the old lower desk corner.
+      if (!await walkRoute(agentId, request, route, { playArrival: false })) return
 
-      // The home anchor is outside the shared route. Release the aisle before
+      // The chair-side anchor ends shared navigation. Release the aisle before
       // the private sit-down transition so another companion can start moving.
       trafficLease.release()
       trafficLease = null
 
-      workstation.person.setFacing('left')
       if (!await sitAtDesk(agentId, request)) return
       awayAgents.delete(agentId)
       workstation.setAway(false)
@@ -984,6 +975,16 @@ export function createOfficeOrchestrator(
     if (state === 'speaking' && movingAgents.has(agentId)) {
       nextMotionRequest(agentId)
       movingAgents.delete(agentId)
+      // A speech cue can arrive while the off-chair tween is still pending.
+      // At that point Workstation has not committed `awayFromDesk` yet, so a
+      // plain setState would keep (or mount) the seated/walking strip. Commit
+      // the interrupted actor as standing before applying the speaking state;
+      // Workstation will then mount the dedicated viewer-facing standing-talk
+      // action and the post-speech path can safely route the actor home.
+      awayAgents.add(agentId)
+      workstations[agentId].setAway(true)
+      workstations[agentId].person.setPosture('normal')
+      workstations[agentId].person.setFacing('left')
     }
 
     const shouldPlayWakeUp = wasNapping && state !== 'idle'
@@ -1194,6 +1195,8 @@ export function createOfficeOrchestrator(
       speechFinishRequests.clear()
       pendingPostSpeechStates.clear()
       pendingPostSpeechMovements.clear()
+      conversationTrafficLeases.forEach((lease) => lease.release())
+      conversationTrafficLeases.clear()
     },
     setAgentState,
     selectAgent: (agentId) => {

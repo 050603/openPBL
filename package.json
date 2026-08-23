@@ -10,6 +10,7 @@
     "dev:next": "next dev -p 3100",
     "dev:dual": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openpbl-versions.ps1 -Action Start",
     "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openpbl-versions.ps1 -Action Stop",
+    "server:update": "sh deploy/update-server.sh",
     "versions:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openpbl-versions.ps1 -Action Status",
     "promote:new": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/promote-new-version.ps1",
     "build": "node scripts/run-next-production.mjs build",

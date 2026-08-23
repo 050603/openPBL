@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play } from 'lucide-react';
+import { Maximize2, Play } from 'lucide-react';
 import { cn } from '@openmaic/lib/utils';
 import { SceneRenderer } from '@openmaic/components/stage/scene-renderer';
 import { SceneProvider } from '@openmaic/lib/contexts/scene-context';
@@ -58,7 +58,16 @@ export function CanvasArea({
   integrated = false,
 }: CanvasAreaProps) {
   const { t } = useI18n();
+  const whiteboardWasOpened = useRef(false);
+  useEffect(() => {
+    if (whiteboardOpen) whiteboardWasOpened.current = true;
+  }, [whiteboardOpen]);
   const showControls = mode === 'playback' && !whiteboardOpen && !readOnly && !minimalToolbar;
+  const showWhiteboardRestore =
+    !whiteboardOpen &&
+    whiteboardWasOpened.current &&
+    !readOnly &&
+    Boolean(hideToolbar || minimalToolbar);
   const showPlayHint =
     showControls &&
     engineState !== 'playing' &&
@@ -204,6 +213,27 @@ export function CanvasArea({
                   </div>
                 )}
               </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {showWhiteboardRestore && (
+              <motion.button
+                type="button"
+                aria-label="重新打开白板"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.2 }}
+                className="absolute bottom-4 right-4 z-[115] inline-flex h-9 items-center gap-2 rounded-full border border-violet-200 bg-white/95 px-3 text-xs font-semibold text-violet-700 shadow-lg backdrop-blur transition hover:bg-violet-50 focus:outline-none focus:ring-2 focus:ring-violet-400 dark:border-violet-700 dark:bg-gray-800/95 dark:text-violet-300 dark:hover:bg-violet-950/50"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onWhiteboardClose();
+                }}
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+                重新打开白板
+              </motion.button>
             )}
           </AnimatePresence>
 

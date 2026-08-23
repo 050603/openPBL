@@ -17,6 +17,7 @@ import type { TeacherResources } from "@/lib/session/types";
 import { teacherResourceTypeLabel } from "@/lib/openmaic-bridge/teacher-resources";
 import { cn } from "@/lib/utils";
 import { OpenMaicResourcePlayer } from "./openmaic-resource-player";
+import { userFacingName, userFacingStageLabel } from "@/lib/user-facing-labels";
 
 type Tab = "slides" | "script";
 
@@ -104,9 +105,9 @@ export function TeacherResourceViewer({
                   onClick={() => setRequestedSceneId(scene.id)}
                   type="button"
                 >
-                  <span className="block text-xs font-bold">{index + 1}. {scene.title}</span>
+                  <span className="block text-xs font-bold">{index + 1}. {userFacingName(scene.title, "未命名授课资源")}</span>
                   <span className="mt-1 block text-[10px] text-stone-400">
-                    {scene.stageLabel ?? "未标注阶段"}
+                    {userFacingStageLabel(scene.stageKey, scene.stageLabel)}
                   </span>
                 </button>
               ))}
@@ -152,14 +153,14 @@ function ScriptTab({
                 {index + 1}
               </span>
               <div>
-                <div className="text-sm font-bold text-stone-900">{scene.title}</div>
+                <div className="text-sm font-bold text-stone-900">{userFacingName(scene.title, "未命名授课资源")}</div>
                 <div className="text-xs text-stone-500">
                   {scene.role === "introduction"
                     ? "课程引入"
                     : scene.role === "pbl-topic"
                       ? "PBL 题目讲解"
                       : "课堂演示"}{" "}
-                  · {teacherResourceTypeLabel(scene.type)} · {scene.stageLabel ?? "未标注阶段"} · {teacherResourcePurposeLabel(scene.generationPurpose)}
+                  · {teacherResourceTypeLabel(scene.type)} · {userFacingStageLabel(scene.stageKey, scene.stageLabel)} · {teacherResourcePurposeLabel(scene.generationPurpose)}
                 </div>
               </div>
             </div>

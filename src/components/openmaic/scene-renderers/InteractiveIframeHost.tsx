@@ -199,7 +199,7 @@ function PooledIframe({ sceneId, entry, visible, elevatedZIndex }: PooledIframeP
       srcDoc={entry.srcDoc}
       src={entry.srcDoc ? undefined : entry.src}
       style={style}
-      title={`Interactive Scene ${sceneId}`}
+      title="互动学习页面"
       sandbox="allow-scripts allow-forms allow-popups"
     />
   );

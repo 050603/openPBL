@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import type { Action } from '@openmaic/lib/types/action';
 import type {
   SceneOutline,
@@ -6,26 +5,12 @@ import type {
   TeachingToolPlanItem,
 } from '@openmaic/lib/types/generation';
 
-const WHITEBOARD_DRAW_TYPES = new Set<Action['type']>([
-  'wb_draw_text',
-  'wb_draw_shape',
-  'wb_draw_chart',
-  'wb_draw_latex',
-  'wb_draw_table',
-  'wb_draw_line',
-  'wb_draw_code',
-  'wb_edit_code',
-]);
-
 const TOOL_KINDS = new Set<TeachingToolKind>([
   'whiteboard',
   'spotlight',
   'laser-pointer',
   'interactive-widget',
 ]);
-
-const VISUAL_REASONING_PATTERN =
-  /步骤|过程|流程|机制|因果|关系|结构|比较|对比|变化|推导|公式|计算|算法|代码|网络|模型|特征|分类|例子|示例|反例|证据|链路|映射|transform|process|flow|mechanism|compare|formula|algorithm|model|feature/i;
 
 function cleanText(value: unknown, maxLength = 240): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
@@ -58,32 +43,16 @@ export function normalizeTeachingToolPlan(
   });
 }
 
-function autoWhiteboardPlan(outline: SceneOutline): TeachingToolPlanItem[] {
-  const content = (outline.keyPoints ?? [])
-    .map((item) => cleanText(item, 150))
-    .filter(Boolean)
-    .slice(0, 4);
-  if (content.length < 2) return [];
-  return [{
-    id: `whiteboard-${outline.id}`,
-    tool: 'whiteboard',
-    trigger: `讲到“${outline.title}”中需要逐步看清的关系时`,
-    purpose: '把口头推理转成可停留、可指认的视觉结构，降低抽象理解负担。',
-    content,
-    required: true,
-  }];
-}
-
 /**
- * Preserve model-authored plans and add a conservative fallback only for
- * student explanation pages whose content clearly calls for visible reasoning.
- * Consecutive pages are throttled so the whiteboard remains purposeful.
+ * Preserve explicit model-authored plans. We deliberately do not infer a
+ * whiteboard from titles/key points: terms such as "model", "process" or
+ * "comparison" are far too broad and previously turned lesson outlines into
+ * meaningless numbered board notes.
  */
 export function ensureTeachingToolPlans(
   outlines: ReadonlyArray<SceneOutline>,
 ): SceneOutline[] {
-  let lastAutomaticWhiteboardIndex = -3;
-  return outlines.map((outline, index) => {
+  return outlines.map((outline) => {
     const normalized = normalizeTeachingToolPlan(outline.teachingToolPlan);
     if (normalized.length > 0) return { ...outline, teachingToolPlan: normalized };
 
@@ -104,18 +73,7 @@ export function ensureTeachingToolPlans(
       };
     }
 
-    const searchable = [outline.title, outline.description, ...(outline.keyPoints ?? [])].join(' ');
-    const eligible = outline.type === 'slide'
-      && outline.audience === 'student'
-      && outline.generationPurpose === 'knowledge-teaching'
-      && VISUAL_REASONING_PATTERN.test(searchable)
-      && index - lastAutomaticWhiteboardIndex >= 2;
-    if (!eligible) return { ...outline, teachingToolPlan: undefined };
-
-    const teachingToolPlan = autoWhiteboardPlan(outline);
-    if (teachingToolPlan.length === 0) return { ...outline, teachingToolPlan: undefined };
-    lastAutomaticWhiteboardIndex = index;
-    return { ...outline, teachingToolPlan };
+    return { ...outline, teachingToolPlan: undefined };
   });
 }
 
@@ -141,62 +99,78 @@ export function formatTeachingToolPlanForPrompt(outline: SceneOutline): string {
   ].join('\n');
 }
 
-function plannedWhiteboardDrawings(plan: TeachingToolPlanItem): Action[] {
-  const content = plan.content.slice(0, 5);
-  return [
-    { id: `action_${nanoid(8)}`, type: 'wb_open' as const },
-    ...content.map((item, index): Action => ({
-      id: `action_${nanoid(8)}`,
-      type: 'wb_draw_text',
-      elementId: `planned-note-${index + 1}`,
-      content: index === 0 ? `<strong>${item}</strong>` : `${index + 1}. ${item}`,
-      x: index === 0 ? 70 : 90,
-      y: index === 0 ? 48 : 112 + (index - 1) * 86,
-      width: index === 0 ? 840 : 800,
-      height: index === 0 ? 54 : 64,
-      fontSize: index === 0 ? 28 : 22,
-      color: index === 0 ? '#0f766e' : '#1c1917',
-    })),
-  ];
+export type TeachingToolEvidence = {
+  sceneType?: string;
+  content?: unknown;
+  actions?: ReadonlyArray<Action>;
+};
+
+const WHITEBOARD_VISIBLE_ACTIONS = new Set<Action['type']>([
+  'wb_draw_text',
+  'wb_draw_latex',
+  'wb_draw_shape',
+  'wb_draw_line',
+  'wb_draw_code',
+  'wb_edit_code',
+  'wb_draw_table',
+  'wb_draw_chart',
+]);
+
+/**
+ * An interactive page is itself the planned teaching tool. Requiring an
+ * unrelated widget_* control action as proof caused fully generated embedded
+ * activities to be reported as missing resources.
+ */
+export function hasUsableInteractiveSurface(evidence: TeachingToolEvidence): boolean {
+  if (evidence.sceneType !== 'interactive') return false;
+  if (!evidence.content || typeof evidence.content !== 'object') return false;
+  const content = evidence.content as Record<string, unknown>;
+  const html = typeof content.html === 'string' ? content.html.trim() : '';
+  const url = typeof content.url === 'string' ? content.url.trim() : '';
+
+  const hasEmbeddedInteraction = html.length >= 80
+    && /<(?:button|input|select|textarea|canvas|svg|form|script)\b/i.test(html);
+  const hasExternalInteraction = Boolean(url)
+    && url !== '#'
+    && !/^about:blank(?:$|[?#])/i.test(url)
+    && !/^javascript:/i.test(url);
+  return hasEmbeddedInteraction || hasExternalInteraction;
 }
 
 /**
- * Last-resort execution guard: an approved whiteboard plan is part of the
- * lesson contract. If the model forgets all drawing actions, inject a readable
- * semantic board before the main explanation rather than silently dropping it.
+ * Canonical semantic acceptance contract used while generating, restoring
+ * checkpoints and auditing the finished course. Lifecycle-only whiteboard
+ * actions do not count as visible teaching output, and an interactive surface
+ * does not need a fabricated widget action to prove that it exists.
+ */
+export function findMissingRequiredTeachingTools(
+  outline: Pick<SceneOutline, 'teachingToolPlan'>,
+  evidence: TeachingToolEvidence,
+): TeachingToolKind[] {
+  const actions = evidence.actions ?? [];
+  const actual = new Set<TeachingToolKind>();
+  if (actions.some((action) => WHITEBOARD_VISIBLE_ACTIONS.has(action.type))) {
+    actual.add('whiteboard');
+  }
+  if (actions.some((action) => action.type === 'spotlight')) actual.add('spotlight');
+  if (actions.some((action) => action.type === 'laser')) actual.add('laser-pointer');
+  if (hasUsableInteractiveSurface(evidence)) actual.add('interactive-widget');
+
+  return normalizeTeachingToolPlan(outline.teachingToolPlan)
+    .filter((item) => item.required !== false && !actual.has(item.tool))
+    .map((item) => item.tool);
+}
+
+/**
+ * Do not fabricate tool output when generation omitted it. Readiness checks
+ * report a missing required tool and the normal generation retry/error path
+ * handles it with the real model-authored content.
  */
 export function applyPlannedTeachingToolActions(
-  outline: Pick<SceneOutline, 'teachingToolPlan'>,
+  _outline: Pick<SceneOutline, 'teachingToolPlan'>,
   actions: ReadonlyArray<Action>,
 ): Action[] {
-  const plans = normalizeTeachingToolPlan(outline.teachingToolPlan)
-    .filter((item) => item.required !== false);
-  const whiteboardPlan = plans.find((item) => item.tool === 'whiteboard');
-  const widgetPlan = plans.find((item) => item.tool === 'interactive-widget');
-  const missingWhiteboard = Boolean(
-    whiteboardPlan && !actions.some((action) => WHITEBOARD_DRAW_TYPES.has(action.type)),
-  );
-  const missingWidget = Boolean(
-    widgetPlan && !actions.some((action) => action.type.startsWith('widget_')),
-  );
-  if (!missingWhiteboard && !missingWidget) return actions.map((action) => ({ ...action }));
-
-  const plannedActions: Action[] = [
-    ...(missingWhiteboard && whiteboardPlan ? plannedWhiteboardDrawings(whiteboardPlan) : []),
-    ...(missingWidget && widgetPlan ? [{
-      id: `action_${nanoid(8)}`,
-      type: 'widget_highlight' as const,
-      target: 'body',
-      content: widgetPlan.content[0] || widgetPlan.purpose,
-    }] : []),
-  ];
-  const speechIndexes = actions.flatMap((action, index) => action.type === 'speech' ? [index] : []);
-  const insertAt = speechIndexes.length > 1 ? speechIndexes[0] + 1 : Math.max(0, speechIndexes[0] ?? 0);
-  return [
-    ...actions.slice(0, insertAt).map((action) => ({ ...action })),
-    ...plannedActions,
-    ...actions.slice(insertAt).map((action) => ({ ...action })),
-  ];
+  return actions.map((action) => ({ ...action }));
 }
 
 function actualContent(action: Action): string[] {

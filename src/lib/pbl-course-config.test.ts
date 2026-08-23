@@ -6,6 +6,12 @@ import {
 } from "./pbl-course-config";
 
 describe("PBL course configuration", () => {
+  it("defaults legacy courses to LLM resource inquiry and preserves the teacher web-search choice", () => {
+    expect(normalizePblCourseConfig().resourceInquiryMode).toBe("llm");
+    expect(normalizePblCourseConfig({ resourceInquiryMode: "web-search" }).resourceInquiryMode)
+      .toBe("web-search");
+  });
+
   it("defaults to a personal project with a process recorder", () => {
     const config = normalizePblCourseConfig();
 

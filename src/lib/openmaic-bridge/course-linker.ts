@@ -2,7 +2,12 @@
 // 这是 openPBL 侧的逻辑，不修改 OpenMAIC 任何代码
 
 import { updateCourse, getCourse } from '@/lib/session/server-store';
-import type { Course, TeacherResourceScene } from '@/lib/session/types';
+import type {
+  Course,
+  OpenMaicSceneOutlineSnapshot,
+  TeacherResourceScene,
+} from '@/lib/session/types';
+import type { SceneOutline } from '@/lib/openmaic/types/generation';
 import { throwIfAborted } from '@openmaic/lib/generation/generation-retry';
 
 export interface ClassroomLinkInfo {
@@ -10,6 +15,8 @@ export interface ClassroomLinkInfo {
   stageName: string;
   teacherClassroomId?: string;
   teacherResourceScenes?: TeacherResourceScene[];
+  /** Canonical, media-planned outlines used to generate the persisted scenes. */
+  sceneOutlines?: SceneOutline[];
 }
 
 export async function linkClassroomToCourse(
@@ -37,6 +44,12 @@ export async function linkClassroomToCourse(
         ...course.content,
         _openmaicClassroomId: classroomId,
         _openmaicScenesCount: info.scenesCount,
+        ...(info.sceneOutlines
+          ? {
+              _openmaicSceneOutlines:
+                info.sceneOutlines as unknown as OpenMaicSceneOutlineSnapshot[],
+            }
+          : {}),
         ...(info.teacherClassroomId !== undefined
           ? { teacherClassroomId: info.teacherClassroomId || undefined }
           : {}),

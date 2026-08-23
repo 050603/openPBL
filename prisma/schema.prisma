@@ -185,11 +185,13 @@ model CourseDesignGenerationJob {
   startedAt                 DateTime?
   completedAt               DateTime?
   lastHeartbeatAt           DateTime?
+  retryAt                   DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
   version                   Int       @default(1)
 
   @@index([status, createdAt])
+  @@index([status, retryAt])
   @@index([lastHeartbeatAt])
 }
 

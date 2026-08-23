@@ -20,8 +20,19 @@ describe("companion workspace operations", () => {
   it("limits the edit contract to the current stage", () => {
     expect(workspaceTargetsForStage("proposal")).toContain("proposal.risks");
     expect(workspaceTargetsForStage("proposal")).not.toContain("make.result");
+    expect(workspaceTargetsForStage("make")).toEqual(["make.processDraft"]);
+    expect(workspaceTargetsForStage("make")).not.toContain("make.testMethod");
+    expect(workspaceTargetsForStage("make")).not.toContain("make.testTarget");
+    expect(workspaceTargetsForStage("make")).not.toContain("make.interpretation");
     expect(buildWorkspaceEditInstruction("proposal", "把风险补充到工作台"))
       .toContain("proposal.risks");
+  });
+
+  it("keeps pure text work results out of automatic workspace patches", () => {
+    expect(buildWorkspaceEditInstruction(
+      "make",
+      "请整理我的作品记录；只输出纯文本工作结果，不生成工作台补丁",
+    )).toBeUndefined();
   });
 
   it("refuses to enable document tools for cognitive outsourcing requests", () => {

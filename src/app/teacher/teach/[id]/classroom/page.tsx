@@ -56,6 +56,8 @@ import {
   type ClassroomTimingSnapshot,
   type ClassroomTimingState,
 } from "@/lib/classroom/timing";
+import { copyTextToClipboard } from "@/lib/browser/copy-text";
+import { normalizeInviteCode } from "@/lib/session/invite-code";
 
 type ToolPanel = "timer" | "invite" | "students" | null;
 
@@ -318,9 +320,10 @@ export default function TeachClassroomPage() {
     setTargetStageIndex(index);
   }
 
-  function confirmStage(overrideReason?: string) {
+  function confirmStage() {
     if (!course || targetStageIndex === null) return;
     const gate = evaluateStageGate(course);
+    const gateOverridden = targetStageIndex > course.currentStageIndex && !gate.canAdvance;
     const from = course.stages[course.currentStageIndex];
     const to = course.stages[targetStageIndex];
     const transitionAt = new Date().toISOString();
@@ -337,10 +340,9 @@ export default function TeachClassroomPage() {
         id: makeRecordId("transition"),
         fromStageKey: from.key,
         toStageKey: to.key,
-        gateStatus: overrideReason ? "overridden" : "passed",
+        gateStatus: gateOverridden ? "overridden" : "passed",
         blockers: gate.blockers.map((item) => item.message),
         warnings: gate.warnings.map((item) => item.message),
-        overrideReason,
         actor: user.name,
         createdAt: transitionAt,
       }],
@@ -358,9 +360,12 @@ export default function TeachClassroomPage() {
   ) : toolPanel === "invite" ? (
     <InvitePanel
       code={course.inviteCode}
-      onCopy={() => {
-        if (typeof navigator !== "undefined" && navigator.clipboard && course.inviteCode) navigator.clipboard.writeText(course.inviteCode);
-      }}
+      onCopy={() => course.inviteCode
+        ? copyTextToClipboard(normalizeInviteCode(course.inviteCode)).then(
+            () => true,
+            () => false,
+          )
+        : Promise.resolve(false)}
       onRefresh={() => generateNewInviteCode(course.id)}
     />
   ) : toolPanel === "students" ? (
@@ -506,7 +511,7 @@ export default function TeachClassroomPage() {
       </div>
 
       {/* 双栏布局：中主区 + 右数据面板 */}
-      <div className={cn("grid gap-3 pb-8", showDataSidebar && "xl:pr-[340px]")}>
+      <div className={cn("grid gap-3 pb-8", showDataSidebar && "xl:pr-[21.25rem]")}>
         {/* 中间：阶段控制 + 横幅 + 阶段视图 */}
         <div className="min-w-0 space-y-3">
           {course.uiState?.aiAnalysisPending ? (
@@ -538,8 +543,8 @@ export default function TeachClassroomPage() {
         </div>
 
         {/* 右侧：数据面板（完成度分布 + 风险预警 + AI 建议） */}
-        {showDataSidebar ? <div className="relative xl:fixed xl:bottom-[4.5rem] xl:right-0 xl:top-16 xl:z-20 xl:w-[340px]">
-          <aside className="flex h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-white/95 shadow-[0_18px_50px_rgba(30,64,175,0.10)] backdrop-blur xl:h-full xl:rounded-l-2xl xl:rounded-r-none xl:border-r-0">
+        {showDataSidebar ? <div className="relative xl:fixed xl:bottom-[4.5rem] xl:right-0 xl:top-16 xl:z-20 xl:w-[21.25rem] min-[1920px]:right-[4vw]">
+          <aside className="flex h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-white/95 shadow-[0_18px_50px_rgba(30,64,175,0.10)] backdrop-blur xl:h-full">
             <header className="relative overflow-hidden border-b border-blue-100 bg-[linear-gradient(145deg,#eff6ff_0%,#ffffff_60%,#ecfdf5_100%)] px-4 pb-4 pt-3.5">
               <div className="absolute -right-8 -top-10 size-28 rounded-full bg-blue-100/60 blur-2xl" />
               <div className="relative flex items-start justify-between gap-3">
@@ -723,7 +728,7 @@ export default function TeachClassroomPage() {
         </button>
       ) : null}
 
-      {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="mx-auto mb-6 flex max-w-[1440px] items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="mx-auto max-w-[1440px]"><TeacherStageView course={course} onSelectGroup={openProjectInMonitor} onSelectStudent={openCompanionMonitor} view={currentStage.view} /></main></div> : null}
+      {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="pbl-wide-container mb-6 flex items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="pbl-wide-container"><TeacherStageView course={course} onSelectGroup={openProjectInMonitor} onSelectStudent={openCompanionMonitor} view={currentStage.view} /></main></div> : null}
 
       <FlowActionBar
         back={canPrev ? <Button onClick={() => requestStage(course.currentStageIndex - 1)} variant="text">上一步</Button> : null}
@@ -992,9 +997,16 @@ function InvitePanel({
   onRefresh,
 }: {
   code?: string;
-  onCopy: () => void;
+  onCopy: () => Promise<boolean>;
   onRefresh: () => void;
 }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copy() {
+    setCopyState(await onCopy() ? "copied" : "failed");
+    window.setTimeout(() => setCopyState("idle"), 1800);
+  }
+
   return (
     <div>
       <div className="mb-2.5 pr-8">
@@ -1011,10 +1023,11 @@ function InvitePanel({
           <div className="mt-3 grid grid-cols-2 gap-1.5">
             <button
               className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] text-xs font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)]"
-              onClick={onCopy}
+              onClick={() => void copy()}
               type="button"
             >
-              <Copy size={13} /> 复制
+              {copyState === "copied" ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+              {copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : "复制"}
             </button>
             <button
               className="inline-flex h-9 items-center justify-center gap-1 rounded-[var(--radius-xs)] border border-stone-200 bg-white text-xs font-semibold text-stone-600 transition hover:bg-stone-50"

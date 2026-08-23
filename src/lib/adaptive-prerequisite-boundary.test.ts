@@ -97,7 +97,7 @@ describe("strict adaptive prerequisite boundary", () => {
     });
 
     expect(hasCompleteAdaptivePrerequisiteLoop(plan, nlpKnowledgePoints.length)).toBe(false);
-    expect(quality.issues.join("；")).toContain("每门课程必须至少包含 1 项");
+    expect(quality.issues.join("；")).toContain("当前课程至少需要 1 项");
     expect(quality.issues).toContain("前序知识、前测与补缺资源没有形成闭环");
   });
 

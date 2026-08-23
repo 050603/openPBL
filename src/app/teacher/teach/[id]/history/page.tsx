@@ -8,6 +8,12 @@ import {
   getCourseSession,
 } from "@/lib/db/session-repository";
 import { getCourse } from "@/lib/session/server-store";
+import {
+  feedbackKindLabel,
+  submissionTypeLabel,
+  userFacingName,
+  userFacingStageLabel,
+} from "@/lib/user-facing-labels";
 
 // History page — Server Component. Lists all archived classroom sessions for
 // the course and (when ?session=ID is present) shows the detail of one
@@ -50,6 +56,16 @@ function formatDateTime(iso: string | Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
     d.getHours(),
   )}:${pad(d.getMinutes())}`;
+}
+
+function archivedTargetLabel(data: ArchivedData, targetType?: string, targetId?: string): string {
+  if (targetType === "student") {
+    return data.students?.find((student) => student.id === targetId)?.name ?? "未识别学生";
+  }
+  if (targetType === "group") {
+    return data.groups?.find((group) => group.id === targetId)?.name ?? "未识别项目小组";
+  }
+  return "课程整体";
 }
 
 export default async function CourseHistoryPage({
@@ -252,17 +268,17 @@ export default async function CourseHistoryPage({
                         >
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-stone-800">
-                              {sub.title || "(无标题)"}
+                              {userFacingName(sub.title, "无标题学习成果")}
                             </span>
                             {sub.type && (
                               <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-600">
-                                {sub.type}
+                                {submissionTypeLabel(sub.type)}
                               </span>
                             )}
                           </div>
                           <div className="mt-1 text-xs text-stone-500">
                             {sub.studentName || "未知学生"}　·　
-                            {sub.stageKey || "未知阶段"}
+                            {userFacingStageLabel(sub.stageKey)}
                             {sub.createdAt && `　·　${formatDateTime(sub.createdAt)}`}
                           </div>
                         </li>
@@ -285,10 +301,10 @@ export default async function CourseHistoryPage({
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-stone-500">
-                              {fb.sourceName || "教师"}　·　{fb.kind || "comment"}
+                              {fb.sourceName || "教师"}　·　{feedbackKindLabel(fb.kind)}
                             </span>
                             {fb.stageKey && (
-                              <span className="text-xs text-stone-400">{fb.stageKey}</span>
+                              <span className="text-xs text-stone-400">{userFacingStageLabel(fb.stageKey)}</span>
                             )}
                           </div>
                           {fb.content && (
@@ -314,8 +330,8 @@ export default async function CourseHistoryPage({
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-stone-500">
-                              {ev.targetType} {ev.targetId}
-                              {ev.stageKey ? `　·　${ev.stageKey}` : ""}
+                              评价对象：{archivedTargetLabel(selectedArchived, ev.targetType, ev.targetId)}
+                              {ev.stageKey ? `　·　${userFacingStageLabel(ev.stageKey)}` : ""}
                             </span>
                             {typeof ev.score === "number" && (
                               <span className="font-bold text-stone-800">{ev.score} 分</span>

@@ -6,7 +6,13 @@ vi.mock("@openmaic/lib/store/settings", () => ({
     ttsProviderId: "qwen-tts",
     ttsVoice: "default",
     ttsSpeed: 1,
-    ttsProvidersConfig: { "qwen-tts": { enabled: true, modelId: "qwen3-tts-flash" } },
+    ttsProvidersConfig: {
+      "qwen-tts": {
+        enabled: true,
+        isServerConfigured: true,
+        modelId: "qwen3-tts-flash",
+      },
+    },
     agentVoiceOverrides: {},
   }),
 }));
@@ -137,6 +143,25 @@ describe("companion TTS pipeline", () => {
     });
 
     expect(speak).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("leaves voice preparation after a stalled TTS request", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
+    const { result, unmount } = renderHook(() => useCompanionTTS());
+
+    act(() => {
+      result.current.enqueue("这段语音请求不会返回", "knowledge");
+    });
+    expect(result.current.preparingCompanionId).toBe("knowledge");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_001);
+    });
+
+    expect(result.current.preparingCompanionId).toBeNull();
+    expect(result.current.currentTTS?.companionId).toBe("knowledge");
+    expect(result.current.speaking).toBe(true);
     unmount();
   });
 });

@@ -54,6 +54,7 @@ import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-pl
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
 import { applyDeepInteractionPolicy } from '@openmaic/lib/generation/deep-interaction-policy';
+import { findMissingRequiredTeachingTools } from '@openmaic/lib/generation/teaching-tool-plan';
 import { addStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
 import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
 import type { SceneOutline, UserRequirements } from '@openmaic/lib/types/generation';
@@ -893,15 +894,25 @@ export async function generateClassroom(
 
       const checkpoint = await options.loadSceneCheckpoint?.(safeOutline, index, stageId);
       if (checkpoint) {
-        generatedSceneDrafts += 1;
-        await reportProgress({
-          step: 'generating_scenes',
-          progress: completedSceneGenerationProgress(generatedSceneDrafts, outlines.length),
-          message: `Restored ${generatedSceneDrafts}/${outlines.length} completed scenes`,
-          scenesGenerated: generatedSceneDrafts,
-          totalScenes: outlines.length,
+        const missingCheckpointTools = findMissingRequiredTeachingTools(safeOutline, {
+          sceneType: checkpoint.type,
+          content: checkpoint.content,
+          actions: checkpoint.actions,
         });
-        return { outline: safeOutline, scene: checkpoint, index };
+        if (missingCheckpointTools.length === 0) {
+          generatedSceneDrafts += 1;
+          await reportProgress({
+            step: 'generating_scenes',
+            progress: completedSceneGenerationProgress(generatedSceneDrafts, outlines.length),
+            message: `Restored ${generatedSceneDrafts}/${outlines.length} completed scenes`,
+            scenesGenerated: generatedSceneDrafts,
+            totalScenes: outlines.length,
+          });
+          return { outline: safeOutline, scene: checkpoint, index };
+        }
+        log.warn(
+          `Ignoring incomplete scene checkpoint "${safeOutline.title}": missing required tools ${missingCheckpointTools.join(', ')}`,
+        );
       }
 
       const reportSceneRetry = async (
@@ -962,6 +973,45 @@ export async function generateClassroom(
       );
       throwIfAborted(options.signal);
 
+      let missingRequiredTools = findMissingRequiredTeachingTools(safeOutline, {
+        sceneType: safeOutline.type,
+        content,
+        actions,
+      });
+      if (missingRequiredTools.length > 0) {
+        const correction = [
+          `The previous action script omitted these required teaching tools: ${missingRequiredTools.join(', ')}.`,
+          'Implement the planned trigger, purpose and visible content exactly where the narration reaches it.',
+        ].join(' ');
+        log.warn(`Correcting required tools for scene "${safeOutline.title}": ${missingRequiredTools.join(', ')}`);
+        actions = await withGenerationRetry(
+          () => generateSceneActions(safeOutline, content, sceneAiCall, {
+            ctx: buildNarrationContext(outlines, index),
+            agents,
+            languageDirective,
+            pblProfile: requirements.pblProfile,
+            teachingConstraints: requirements.teachingConstraints,
+            teachingToolCorrection: correction,
+          }),
+          {
+            label: `scene ${index + 1}/${outlines.length} required teaching tools`,
+            maxRetries: 1,
+            signal: options.signal,
+            onRetry: (event) => reportSceneRetry('actions', event),
+          },
+        );
+        missingRequiredTools = findMissingRequiredTeachingTools(safeOutline, {
+          sceneType: safeOutline.type,
+          content,
+          actions,
+        });
+        if (missingRequiredTools.length > 0) {
+          throw new Error(
+            `Scene "${safeOutline.title}" is missing required teaching tools after correction: ${missingRequiredTools.join(', ')}`,
+          );
+        }
+      }
+
       // A single bounded correction pass keeps the generated script close to
       // the model-specific narration budget without creating an unbounded loop.
       const timingPlan = safeOutline.timingPlan;
@@ -1005,13 +1055,22 @@ export async function generateClassroom(
             : 0;
           const activityTargetSec =
             timingPlan.activityTargetDurationSec ?? timingPlan.targetDurationSec;
-          if (correctedText && isActivityTimingCorrectionCloser({
+          const correctedMissingTools = findMissingRequiredTeachingTools(safeOutline, {
+            sceneType: safeOutline.type,
+            content,
+            actions: correctedActions,
+          });
+          if (correctedMissingTools.length === 0 && correctedText && isActivityTimingCorrectionCloser({
             activityTargetSec,
             reservedActivitySec,
             firstNarrationSec: firstEstimatedSec,
             correctedNarrationSec: correctedEstimatedSec,
           })) {
             actions = correctedActions;
+          } else if (correctedMissingTools.length > 0) {
+            log.warn(
+              `Rejected timing correction for scene "${safeOutline.title}" because it omitted required tools: ${correctedMissingTools.join(', ')}`,
+            );
           }
           log.warn(
             `Scene timing correction ${safeOutline.title}: activityTarget=${timingPlan.activityTargetDurationSec ?? timingPlan.targetDurationSec}s narrationTarget=${timingPlan.targetDurationSec}s firstTotal=${firstEstimatedSec + reservedActivitySec}s correctedTotal=${correctedEstimatedSec + reservedActivitySec}s`,
@@ -1029,6 +1088,16 @@ export async function generateClassroom(
         ? pageStore.getState().scenes.find((candidate) => candidate.id === sceneId) ?? null
         : null;
       if (!scene) return null;
+      const assembledMissingTools = findMissingRequiredTeachingTools(safeOutline, {
+        sceneType: scene.type,
+        content: scene.content,
+        actions: scene.actions,
+      });
+      if (assembledMissingTools.length > 0) {
+        throw new Error(
+          `Assembled scene "${safeOutline.title}" is missing required teaching tools: ${assembledMissingTools.join(', ')}`,
+        );
+      }
       await options.onSceneCompleted?.(safeOutline, scene, index);
       throwIfAborted(options.signal);
       generatedSceneDrafts += 1;

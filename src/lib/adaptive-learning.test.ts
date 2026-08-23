@@ -651,8 +651,9 @@ describe("adaptive learning evidence model", () => {
       remainingBudgetSec: 480,
     });
     expect(result.decision.action).toBe("insert");
-    expect(result.evaluations[0].conditions.find((condition) => condition.key === "evidence")?.actual)
-      .toContain("supervised-learning");
+    const evidenceText = result.evaluations[0].conditions.find((condition) => condition.key === "evidence")?.actual;
+    expect(evidenceText).toContain("关联先决知识");
+    expect(evidenceText).not.toContain("supervised-learning");
   });
 
   it("requires a matching prerequisite even when the AI teaching budget is exhausted", () => {

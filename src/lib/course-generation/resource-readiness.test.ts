@@ -57,10 +57,73 @@ describe("course resource readiness", () => {
     }]);
   });
 
-  it("repairs only missing planned actions and then passes the readiness check", () => {
+  it("does not fabricate a missing planned action during resource repair", () => {
     const repaired = repairMissingTeachingToolResources([outline], [scene]);
-    expect(repaired.changed).toBe(true);
-    expect(findMissingTeachingToolResources([outline], repaired.scenes)).toEqual([]);
-    expect(repaired.scenes[0]?.actions?.some((action) => action.type === "wb_draw_text")).toBe(true);
+    expect(repaired.changed).toBe(false);
+    expect(findMissingTeachingToolResources([outline], repaired.scenes)).toHaveLength(1);
+    expect(repaired.scenes[0]?.actions?.some((action) => action.type === "wb_draw_text")).toBe(false);
+  });
+
+  it("treats a functional interactive page as the planned interactive widget", () => {
+    const interactiveOutline = {
+      id: "interactive-1",
+      title: "提示词互动实践",
+      type: "interactive",
+      order: 0,
+      teachingToolPlan: [{
+        id: "widget-plan",
+        tool: "interactive-widget",
+        trigger: "讲解后",
+        purpose: "让学生实际操作",
+        content: ["输入提示词并观察结果"],
+        required: true,
+      }],
+    } as SceneOutline;
+    const interactiveScene = {
+      id: "interactive-scene",
+      outlineId: "interactive-1",
+      title: "提示词互动实践",
+      order: 0,
+      type: "interactive",
+      content: {
+        type: "interactive",
+        url: "",
+        html: "<!doctype html><html><body><textarea></textarea><button>运行</button><script>document.querySelector('button')</script></body></html>",
+      },
+      actions: [{ id: "speech", type: "speech", text: "请开始操作。" }],
+    } as Scene;
+
+    expect(findMissingTeachingToolResources([interactiveOutline], [interactiveScene])).toEqual([]);
+  });
+
+  it("still reports a planned widget when the interactive content is empty", () => {
+    const interactiveOutline = {
+      id: "interactive-1",
+      title: "提示词互动实践",
+      type: "interactive",
+      order: 0,
+      teachingToolPlan: [{
+        id: "widget-plan",
+        tool: "interactive-widget",
+        trigger: "讲解后",
+        purpose: "让学生实际操作",
+        content: ["输入提示词并观察结果"],
+        required: true,
+      }],
+    } as SceneOutline;
+    const emptyScene = {
+      id: "interactive-scene",
+      outlineId: "interactive-1",
+      title: "提示词互动实践",
+      order: 0,
+      type: "interactive",
+      content: { type: "interactive", url: "", html: "<html><body></body></html>" },
+      actions: [{ id: "speech", type: "speech", text: "请开始操作。" }],
+    } as Scene;
+
+    expect(findMissingTeachingToolResources([interactiveOutline], [emptyScene])).toMatchObject([{
+      title: "提示词互动实践",
+      tool: "interactive-widget",
+    }]);
   });
 });

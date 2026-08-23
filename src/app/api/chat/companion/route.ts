@@ -360,7 +360,7 @@ export async function POST(req: NextRequest) {
           };
           const learningSignals = [...(current.learningSignals ?? []).filter((signal) => signal.id !== signalId), next];
           return { ...current, learningSignals, classCommonIssues: aggregateCommonIssues(learningSignals, current.students.length) };
-        });
+        }, { targetStudentId: body.studentId! });
       }
     }
     if (body.trigger?.kind === "no-progress") {
@@ -371,7 +371,7 @@ export async function POST(req: NextRequest) {
           const attempts = signal.aiInterventionAttempts + 1;
           return { ...signal, aiInterventionAttempts: attempts, severity: attempts >= 2 ? "high" : signal.severity, lastDetectedAt: new Date().toISOString() };
         }),
-      }));
+      }), { targetStudentId: body.studentId! });
     }
   }
 
@@ -451,7 +451,13 @@ export async function POST(req: NextRequest) {
             { role: "system", content: directorPrompt.system },
             { role: "user", content: directorPrompt.user },
           ],
-          { jsonMode: true, abortSignal: signal },
+          {
+            jsonMode: true,
+            abortSignal: signal,
+            // No partial companion output exists yet, so transient network
+            // failures can be retried without duplicating student-visible data.
+            maxTransientRetries: 2,
+          },
         );
         const parsed = parseLLMJson<DirectorResult>(directorReply);
         const speakers = Array.isArray(parsed.speakers)

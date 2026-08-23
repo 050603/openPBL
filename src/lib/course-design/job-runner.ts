@@ -22,6 +22,8 @@ import {
 import { generateCourseEntryPackage } from "@/lib/course-entry-generation";
 import { generateReviewedKnowledgeStructure } from "@/lib/knowledge-structure-generation";
 import { assessKnowledgeGraphQuality } from "@/lib/knowledge-graph-quality";
+import { userFacingName, userFacingStageLabel } from "@/lib/user-facing-labels";
+import { deriveCourseEntryPolicy } from "@/lib/course-entry-policy";
 import {
   buildPblActivityCatalog,
   buildPblCourseRequirement,
@@ -67,11 +69,14 @@ import {
   canResumeAfterValidatedTeachingOutline,
 } from "@/lib/course-design/resume-policy";
 import {
+  createTransientInfrastructureRecoveryRequest,
   createManagedRecoveryRequest,
   formatFatalCourseDesignError,
+  transientInfrastructureRetryDelayMs,
 } from "@/lib/course-design/failure-policy";
 import { editCourseDesignStage } from "@/lib/course-design/stage-editor";
 import { createLogger } from "@openmaic/lib/logger";
+import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 
 const POLL_INTERVAL_MS = 1_500;
 const STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -84,6 +89,18 @@ const MAX_AGENT_REVIEW_ROUNDS = 4;
 const STEP_ESTIMATES = [180, 720, 180, 240, 360, 600, 180, 120];
 const OUTLINE_REVIEW_WINDOW_MS = 10_000;
 const log = createLogger("CourseDesign");
+
+function entryPolicyForCourse(course: Course, content: CourseContent) {
+  return deriveCourseEntryPolicy({
+    hours: course.hours,
+    grade: course.grade,
+    lessonTargetCount: content.knowledgePoints.length,
+    foundationTargetCount: content.knowledgePoints.filter((point) => point.level === "foundation").length,
+    acceptedPrerequisiteCount: (content.knowledgeGraph?.nodes ?? [])
+      .filter((node) => node.instructionalRole === "prerequisite").length,
+    courseMode: course.pblConfig?.generationTemplate,
+  });
+}
 
 export type QuickDesignRequest = {
   courseId: string;
@@ -98,6 +115,8 @@ export type QuickDesignRequest = {
   managedRecoveryCount?: number;
   /** Last correctable quality failure, fed back into the next Agent run. */
   managedRecoveryFeedback?: string;
+  /** Internal durable retry count for transient network/provider failures. */
+  transientRecoveryCount?: number;
 };
 
 export type QuickDesignTraceEvent = CourseDesignGenerationTraceEntry & {
@@ -426,7 +445,7 @@ async function auditStage(
           output: { passed: true, summary: "string", issues: ["string"] },
         }),
       },
-    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES });
     const parsed = parseLLMJson<{ passed?: unknown; summary?: unknown; issues?: unknown }>(response);
     const issues = Array.isArray(parsed.issues)
       ? parsed.issues.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 6)
@@ -472,7 +491,7 @@ export async function inferCourseSeed(
         output: { name: "string", subject: "string", grade: "string", hours: 2 },
       }),
     },
-  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES });
   const parsed = parseLLMJson<Record<string, unknown>>(response);
   let grade = typeof parsed.grade === "string" && parsed.grade.trim()
     ? parsed.grade.trim().slice(0, 30)
@@ -492,7 +511,7 @@ export async function inferCourseSeed(
           output: { grade: "小学高段|初中|高中|大学通识|职业教育|成人教育" },
         }),
       },
-    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES });
     const repaired = parseLLMJson<Record<string, unknown>>(repairResponse);
     grade = typeof repaired.grade === "string" && repaired.grade.trim()
       ? repaired.grade.trim().slice(0, 30)
@@ -597,7 +616,7 @@ export async function generatePositioningDetails(
         },
       }),
     },
-  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES });
   const fallback = parseLLMJson<Record<string, unknown>>(fallbackResponse);
   const rawProfile = fallback.learnerProfile && typeof fallback.learnerProfile === "object"
     ? fallback.learnerProfile as Record<string, unknown>
@@ -789,7 +808,7 @@ export async function generateProjectDesign(
         },
       }),
     },
-  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+  ], { jsonMode: true, abortSignal: signal, maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES });
   let candidate = applyProjectDesignPayload(course, parseLLMJson<unknown>(response));
   let latestQuality = evaluateProjectDesign(candidate);
   let latestAuditIssues: string[] = [];
@@ -971,7 +990,7 @@ async function generateMainCourseOutlines(
         jsonMode: true,
         abortSignal: signal,
         requestClass: "long-generation",
-        maxTransientRetries: 1,
+        maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
       },
     ),
     undefined,
@@ -1024,6 +1043,7 @@ function evaluateQuality(course: Course): { score: number; summary: string; chec
         knowledgePoints: content.knowledgePoints,
         knowledgeGraph: content.knowledgeGraph,
         mainScenes,
+        courseEntryPolicy: entryPolicyForCourse(course, content),
       })
     : null;
   const checks = [
@@ -1090,7 +1110,7 @@ async function runAiQualityReview(
           output: { score: 0, summary: "string", checks: ["string"] },
         }),
       },
-    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: 1 });
+    ], { jsonMode: true, abortSignal: signal, maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES });
     const parsed = parseLLMJson<{ score?: unknown; summary?: unknown; checks?: unknown }>(response);
     const score = typeof parsed.score === "number" ? Math.max(0, Math.min(100, Math.round(parsed.score))) : deterministic.score;
     const checks = Array.isArray(parsed.checks)
@@ -1118,9 +1138,11 @@ async function generateAdaptivePlan(
         name: course.name,
         subject: course.subject,
         grade: course.grade,
+        hours: course.hours,
         summary: course.summary,
         learningObjectives: course.learningObjectives,
         learnerProfile: course.learnerProfile,
+        pblConfig: course.pblConfig,
       },
       knowledgePoints: content.knowledgePoints,
       knowledgeGraph: content.knowledgeGraph,
@@ -1382,8 +1404,8 @@ async function completeCourseDesignFromTeachingOutline(
       `共 ${sceneOutlines.length} 个页面与资源，按课程阶段排列。可在卡片内滚动预览，或展开详细大纲进行审阅和修改。`,
       "blue",
       sceneOutlines.map((scene) => ({
-        label: scene.stageKey || "课程阶段",
-        value: scene.title,
+        label: userFacingStageLabel(scene.stageKey, scene.stageLabel),
+        value: userFacingName(scene.title, "未命名课程页面"),
         meta: `${scene.audience === "teacher" ? "教师资源" : scene.type === "interactive" ? "互动页面" : scene.type === "quiz" ? "课堂检测" : "学生页面"} · ${Math.max(1, Math.round((scene.targetDurationSec ?? scene.estimatedDuration ?? 60) / 60))} 分钟`,
       })),
     )],
@@ -1427,6 +1449,7 @@ async function completeCourseDesignAfterOutline(
     knowledgePoints: content.knowledgePoints,
     knowledgeGraph: content.knowledgeGraph,
     mainScenes: initialSceneOutlines,
+    courseEntryPolicy: entryPolicyForCourse(course, content),
   });
   const adaptiveIssues = [...adaptiveQuality.issues];
   const adaptiveAudit = await auditStage("个性化学习路径", {
@@ -1565,17 +1588,28 @@ export async function resumeRecoverableCourseDesignJob(
   if (!job || job.status !== "failed" || !job.error) return job;
   const request = job.request as unknown as QuickDesignRequest;
   const managedRecoveryRequest = createManagedRecoveryRequest(request, new Error(job.error));
-  if (!managedRecoveryRequest) return job;
-  const recoveryCount = managedRecoveryRequest.managedRecoveryCount ?? 1;
+  const transientRecoveryRequest = createTransientInfrastructureRecoveryRequest(
+    request,
+    new Error(job.error),
+  );
+  const recoveryRequest = managedRecoveryRequest ?? transientRecoveryRequest;
+  if (!recoveryRequest) return job;
+  const isTransientRecovery = Boolean(transientRecoveryRequest && !managedRecoveryRequest);
+  const recoveryCount = isTransientRecovery
+    ? transientRecoveryRequest?.transientRecoveryCount ?? 1
+    : managedRecoveryRequest?.managedRecoveryCount ?? 1;
   const updated = await prisma.courseDesignGenerationJob.updateMany({
     where: { id: job.id, status: "failed" },
     data: {
       status: "queued",
-      step: "managed_recovery",
-      message: `检测到可修复的生成问题，托管生成 Agent 正在自动恢复（第 ${recoveryCount} 次）`,
-      request: managedRecoveryRequest as unknown as Prisma.InputJsonValue,
+      step: isTransientRecovery ? "infrastructure_retry" : "managed_recovery",
+      message: isTransientRecovery
+        ? `检测到此前的模型服务连接中断，正在从已保存阶段自动恢复（第 ${recoveryCount} 次）`
+        : `检测到可修复的生成问题，托管生成 Agent 正在自动恢复（第 ${recoveryCount} 次）`,
+      request: recoveryRequest as unknown as Prisma.InputJsonValue,
       error: null,
       completedAt: null,
+      retryAt: new Date(),
       estimatedRemainingSeconds: remainingSeconds(
         Math.max(0, Math.min(job.stepIndex, STEP_ESTIMATES.length - 1)),
         request.options,
@@ -1584,7 +1618,7 @@ export async function resumeRecoverableCourseDesignJob(
       version: { increment: 1 },
     },
   });
-  if (updated.count === 1) scheduleManagedCourseDesignRetry(job.id);
+  if (updated.count === 1 && !isTransientRecovery) scheduleManagedCourseDesignRetry(job.id);
   return prisma.courseDesignGenerationJob.findUnique({ where: { id: job.id } });
 }
 
@@ -1676,6 +1710,7 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
     await persistCanonicalContent(request.courseId, course.content, request, job);
 
     let content = course.content;
+    const savedEntryPolicy = entryPolicyForCourse(course, content);
     const savedGraphQuality = assessKnowledgeGraphQuality(
       content.knowledgeGraph,
       content.knowledgePoints,
@@ -1683,7 +1718,8 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       {
         objectiveCount: course.learningObjectives?.length ?? 0,
         requireSemanticReview: true,
-        minimumPrerequisites: 1,
+        minimumPrerequisites: savedEntryPolicy.minimumPrerequisites,
+        maximumPrerequisites: savedEntryPolicy.maximumPrerequisites,
       },
     );
     const reuseKnowledgeStructure = canResumeAfterValidatedStage({
@@ -1704,6 +1740,7 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       knowledgePoints: generated.knowledgePoints,
       knowledgeGraph,
     };
+    const candidateEntryPolicy = entryPolicyForCourse(course, candidate);
     const graphQuality = assessKnowledgeGraphQuality(
       candidate.knowledgeGraph,
       candidate.knowledgePoints,
@@ -1711,7 +1748,8 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       {
         objectiveCount: course.learningObjectives?.length ?? 0,
         requireSemanticReview: true,
-        minimumPrerequisites: 1,
+        minimumPrerequisites: candidateEntryPolicy.minimumPrerequisites,
+        maximumPrerequisites: candidateEntryPolicy.maximumPrerequisites,
       },
     );
     const issues = [
@@ -1979,6 +2017,34 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
       return;
     }
     const managedRecoveryRequest = createManagedRecoveryRequest(request, error);
+    const transientRecoveryRequest = createTransientInfrastructureRecoveryRequest(request, error);
+    if (transientRecoveryRequest) {
+      const recoveryCount = transientRecoveryRequest.transientRecoveryCount ?? 1;
+      const delayMs = transientInfrastructureRetryDelayMs(recoveryCount);
+      log.warn(
+        `Transient infrastructure recovery ${recoveryCount} queued for ${request.courseId} in ${delayMs}ms`,
+        error,
+      );
+      await prisma.courseDesignGenerationJob.update({
+        where: { id: job.id },
+        data: {
+          status: "queued",
+          step: "infrastructure_retry",
+          message: `模型服务连接暂时中断，将在 ${Math.ceil(delayMs / 1_000)} 秒后从已保存阶段继续（第 ${recoveryCount} 次）`,
+          request: transientRecoveryRequest as unknown as Prisma.InputJsonValue,
+          error: null,
+          retryAt: new Date(Date.now() + delayMs),
+          estimatedRemainingSeconds: remainingSeconds(
+            Math.max(0, Math.min(job.stepIndex, STEP_ESTIMATES.length - 1)),
+            request.options,
+          ) + Math.ceil(delayMs / 1_000),
+          completedAt: null,
+          lastHeartbeatAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      return;
+    }
     if (managedRecoveryRequest) {
       const recoveryCount = managedRecoveryRequest.managedRecoveryCount ?? 1;
       log.warn(
@@ -1993,6 +2059,7 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
           message: `质量审校发现可修复问题，托管生成 Agent 正在自动调整（第 ${recoveryCount} 次）`,
           request: managedRecoveryRequest as unknown as Prisma.InputJsonValue,
           error: null,
+          retryAt: null,
           estimatedRemainingSeconds: remainingSeconds(
             Math.max(0, Math.min(job.stepIndex, STEP_ESTIMATES.length - 1)),
             request.options,
@@ -2013,6 +2080,7 @@ async function runCourseDesignJobWithGenerationContext(job: CourseDesignGenerati
         step: "failed",
         message: "快速课程设计未完成",
         error: formatFatalCourseDesignError(error),
+        retryAt: null,
         estimatedRemainingSeconds: null,
         completedAt: new Date(),
         lastHeartbeatAt: new Date(),
@@ -2060,17 +2128,29 @@ export async function cancelCourseDesignJob(courseId: string): Promise<CourseDes
 }
 
 async function claimNextJob(): Promise<CourseDesignGenerationJob | null> {
-  const candidate = await prisma.courseDesignGenerationJob.findFirst({ where: { status: "queued" }, orderBy: { createdAt: "asc" } });
-  if (!candidate) return null;
   const now = new Date();
+  const candidate = await prisma.courseDesignGenerationJob.findFirst({
+    where: {
+      status: "queued",
+      OR: [{ retryAt: null }, { retryAt: { lte: now } }],
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!candidate) return null;
+  const isInfrastructureRecovery = candidate.step === "infrastructure_retry";
   const claimed = await prisma.courseDesignGenerationJob.updateMany({
-    where: { id: candidate.id, status: "queued" },
+    where: {
+      id: candidate.id,
+      status: "queued",
+      OR: [{ retryAt: null }, { retryAt: { lte: now } }],
+    },
     data: {
       status: "running",
-      step: "base",
-      message: "正在分析课程信息",
+      step: isInfrastructureRecovery ? "resuming" : "base",
+      message: isInfrastructureRecovery ? "模型服务连接已恢复，正在从已保存阶段继续" : "正在分析课程信息",
       startedAt: now,
       lastHeartbeatAt: now,
+      retryAt: null,
       error: null,
       attempt: { increment: 1 },
       version: { increment: 1 },

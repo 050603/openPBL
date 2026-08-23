@@ -10,6 +10,23 @@ const widgetPromptIds = [
 ] as const;
 
 describe('widget knowledge-teaching contract', () => {
+  it('keeps code execution on supported same-origin runtimes with recoverable failures', () => {
+    const prompt = buildPrompt(PROMPT_IDS.CODE_CONTENT, {
+      title: 'Python loop explorer',
+      programmingLanguage: 'python',
+      description: 'Observe how loop state changes.',
+      keyPoints: '1. Loop state\n2. Iteration order',
+    });
+    const system = prompt?.system ?? '';
+
+    expect(system).toContain('/api/openmaic/interactive-runtime/pyodide/pyodide.js');
+    expect(system).toContain('document.baseURI');
+    expect(system).toContain('Do not load `numpy`');
+    expect(system).toContain('provide a retry button');
+    expect(system).toContain('never render an endless loader');
+    expect(system).not.toContain('TypeScript (via Babel CDN transpilation)');
+  });
+
   it.each(widgetPromptIds)('%s requires a complete, non-decorative exploration loop', (promptId) => {
     const prompt = buildPrompt(promptId, {
       title: '测试主题',

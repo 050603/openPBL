@@ -24,6 +24,7 @@ import {
 import { useInteractionSyncStore } from "@openmaic/lib/store/interaction-sync";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui";
+import { userFacingName, userFacingStageLabel } from "@/lib/user-facing-labels";
 
 function ResourceIcon({ type }: { type: TeacherResourceScene["type"] }) {
   if (type === "interactive") return <MousePointerClick size={16} />;
@@ -175,8 +176,14 @@ export function TeacherStageResources({
 
   async function confirmScaffold() {
     if (!selectedScaffold) return;
-    await fetch("/api/teaching-ai/facilitation-scaffold", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ courseId: course.id, scaffoldId: selectedScaffold.id }) });
-    await refresh();
+    try {
+      const response = await fetch("/api/teaching-ai/facilitation-scaffold", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ courseId: course.id, scaffoldId: selectedScaffold.id }) });
+      if (!response.ok) throw new Error(`主持支架确认失败（HTTP ${response.status}）`);
+      await refresh();
+      toast.success("主持支架已确认");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "主持支架确认失败");
+    }
   }
 
   return (
@@ -240,9 +247,9 @@ export function TeacherStageResources({
                     <ResourceIcon type={resource.type} />
                   </span>
                   <span className="min-w-0">
-                    <span className="line-clamp-2 block text-xs font-bold leading-5">{resource.title}</span>
+                    <span className="line-clamp-2 block text-xs font-bold leading-5">{userFacingName(resource.title, "未命名授课资源")}</span>
                     <span className="mt-0.5 block text-[10px] text-stone-400">
-                      {index + 1} · {resource.stageLabel ?? stageKey} · {teacherResourceTypeLabel(resource.type)}
+                      {index + 1} · {userFacingStageLabel(stageKey, resource.stageLabel)} · {teacherResourceTypeLabel(resource.type)}
                     </span>
                   </span>
                 </button>
@@ -253,10 +260,10 @@ export function TeacherStageResources({
           <div className="flex min-w-0 flex-col border-b border-stone-200 p-3 xl:min-h-0 xl:border-b-0 xl:border-r">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-sm font-bold text-stone-900">{selected?.title}</div>
+                <div className="truncate text-sm font-bold text-stone-900">{userFacingName(selected?.title, "未命名授课资源")}</div>
                 <div className="text-xs text-stone-500">
                   {selected ? teacherResourceTypeLabel(selected.type) : ""}
-                  {selected ? ` · ${selected.stageLabel ?? stageKey}` : ""}
+                  {selected ? ` · ${userFacingStageLabel(stageKey, selected.stageLabel)}` : ""}
                   {selectedIndex >= 0 ? ` · ${selectedIndex + 1}/${resources.length}` : ""}
                 </div>
               </div>

@@ -72,7 +72,7 @@ const EVIDENCE_KIND_LABELS: Record<LearningEvidenceKind, string> = {
   "plan-version": "项目方案版本",
   "artifact-version": "作品版本",
   "test-result": "测试结果",
-  "revision-decision": "修改决定",
+  "revision-decision": "作品过程记录",
   "final-artifact": "最终作品",
   "presentation-claim": "汇报主张与证据",
   "defense-response": "答辩回应",
@@ -97,12 +97,12 @@ export function learningStageLabel(
     ?? "课程学习阶段";
 }
 
-export function learningEvidenceKindLabel(kind: LearningEvidenceKind): string {
-  return EVIDENCE_KIND_LABELS[kind];
+export function learningEvidenceKindLabel(kind: LearningEvidenceKind | string): string {
+  return EVIDENCE_KIND_LABELS[kind as LearningEvidenceKind] ?? "学习证据";
 }
 
-export function learningEvidenceStatusLabel(status: LearningEvidenceStatus): string {
-  return EVIDENCE_STATUS_LABELS[status];
+export function learningEvidenceStatusLabel(status: LearningEvidenceStatus | string): string {
+  return EVIDENCE_STATUS_LABELS[status as LearningEvidenceStatus] ?? "待更新";
 }
 
 const INTERNAL_TERM_LABELS = {

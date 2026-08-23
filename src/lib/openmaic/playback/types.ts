@@ -45,6 +45,7 @@ export interface PlaybackEngineCallbacks {
   /** Reading position within the active lecture speech, normalized to 0-1. */
   onSpeechProgress?: (progress: number) => void;
   onSpeechEnd?: () => void;
+  onError?: (error: Error) => void;
   onTextDelta?: (content: string) => void;
   onSpeakerChange?: (role: string) => void;
   onEffectFire?: (effect: Effect) => void;

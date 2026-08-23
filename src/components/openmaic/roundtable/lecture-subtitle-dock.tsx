@@ -8,7 +8,6 @@ import {
   Play,
   Maximize2,
   MousePointer2,
-  Network,
   Repeat2,
   SkipBack,
   SkipForward,
@@ -55,6 +54,7 @@ interface LectureSubtitleDockProps {
   readonly onPlayPause?: () => void;
   readonly onPreviousCue?: () => boolean;
   readonly onNextCue?: () => boolean;
+  readonly onCueSelect?: (actionIndex: number, startRatio: number) => boolean;
   readonly onToggleMute: () => void;
   readonly onCycleSpeed: () => void;
   readonly onPrevious?: () => void;
@@ -167,6 +167,7 @@ export function LectureSubtitleDock({
   onPlayPause,
   onPreviousCue,
   onNextCue,
+  onCueSelect,
   onToggleMute,
   onCycleSpeed,
   onPrevious,
@@ -223,7 +224,7 @@ export function LectureSubtitleDock({
   return (
     <aside
       aria-label="AI 授课字幕与播放控制"
-      className="relative z-10 flex w-full shrink-0 border-t border-slate-200/80 bg-white/96 dark:border-white/10 dark:bg-slate-950/96 xl:h-full xl:w-[304px] xl:border-l xl:border-t-0"
+      className="relative z-10 flex w-full shrink-0 border-t border-slate-200/80 bg-white/96 dark:border-white/10 dark:bg-slate-950/96 xl:h-full xl:w-[304px] xl:border-l xl:border-t-0 xl:bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(252,254,253,0.97)_48%,rgba(241,249,246,0.94)_76%,rgba(255,255,255,0.98)_100%)] xl:dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.98)_0%,rgba(8,20,31,0.97)_52%,rgba(10,36,34,0.82)_76%,rgba(2,6,23,0.98)_100%)]"
     >
       <div className="flex min-w-0 flex-1 flex-col px-4 py-3 xl:px-5 xl:py-4">
         <header className="flex items-center gap-3 xl:items-start">
@@ -262,83 +263,96 @@ export function LectureSubtitleDock({
 
         <div className="my-3 h-px bg-slate-100 dark:bg-white/8 xl:my-4" />
 
-        <div className="relative min-w-0 flex-1 xl:min-h-0">
-          <div
-            aria-live="polite"
-            className="h-[96px] snap-y snap-mandatory overflow-y-auto pr-1 [scrollbar-width:none] xl:h-full [&::-webkit-scrollbar]:hidden"
-            onPointerDown={revealSubtitleHistory}
-            onTouchMove={revealSubtitleHistory}
-            onWheel={revealSubtitleHistory}
-            ref={scrollRef}
-          >
-            <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
-            {subtitleLines.map((line, index) => {
-              const active = index === activeSubtitleLineIndex;
-              return (
-                <p
-                  className={cn(
-                    'flex min-h-24 snap-center items-center py-3 text-[15px] leading-6 transition-[color,opacity] duration-300',
-                    active
-                      ? 'font-semibold text-slate-900 dark:text-slate-50'
-                      : cn(
-                          'text-slate-400 dark:text-slate-500',
-                          isBrowsingSubtitles
-                            ? index < activeSubtitleLineIndex ? 'opacity-25' : 'opacity-55'
-                            : 'pointer-events-none opacity-0',
-                        ),
-                  )}
-                  data-active-line={active ? 'true' : undefined}
-                  key={`${line.actionIndex}-${index}`}
-                >
-                  {line.text}
-                </p>
-              );
-            })}
-            <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
-          </div>
-        </div>
-
-        {hasKnowledgeGraph ? (
-          <div className="hidden border-t border-slate-100 pt-4 dark:border-white/8 xl:mt-4 xl:block">
-            <div className="mb-2 flex items-center justify-between gap-2 px-1">
-              <div className="min-w-0">
-                <p className="flex items-center gap-2 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-teal-50 text-teal-700 dark:bg-teal-400/10 dark:text-teal-300">
-                    <Network size={12} strokeWidth={1.8} />
-                  </span>
-                  <span>知识脉络</span>
-                </p>
-              </div>
-              <button
-                aria-label="完整浏览知识图谱"
-                className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/8 dark:hover:text-slate-200"
-                onClick={() => setGraphOpen(true)}
-                type="button"
-              >
-                <Maximize2 size={14} />
-              </button>
-            </div>
-            <button
-              className="group relative block h-[164px] w-full overflow-hidden rounded-[18px] bg-[radial-gradient(circle_at_50%_42%,rgba(221,240,234,0.78),rgba(248,251,250,0.46)_58%,transparent_100%)] text-left transition hover:bg-[radial-gradient(circle_at_50%_42%,rgba(210,235,227,0.9),rgba(248,251,250,0.58)_62%,transparent_100%)] dark:bg-[radial-gradient(circle_at_50%_42%,rgba(45,96,84,0.22),rgba(15,23,42,0.02)_65%,transparent_100%)]"
-              onClick={() => setGraphOpen(true)}
-              type="button"
+        <div
+          className={cn(
+            'relative min-w-0 flex-1 xl:min-h-0',
+            hasKnowledgeGraph && 'xl:grid xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]',
+          )}
+          data-teaching-rail-content
+        >
+          <div className="relative min-w-0 xl:min-h-0">
+            <div
+              aria-live="polite"
+              className="h-[96px] snap-y snap-mandatory overflow-y-auto pr-1 [scrollbar-width:none] xl:h-full [&::-webkit-scrollbar]:hidden"
+              onPointerDown={revealSubtitleHistory}
+              onTouchMove={revealSubtitleHistory}
+              onWheel={revealSubtitleHistory}
+              ref={scrollRef}
             >
-              <div className="pointer-events-none h-full w-full">
-                <KnowledgeGraphFlow
-                  activeNodeId={activeKnowledgePointId}
-                  activeZoom={0.76}
-                  appearance="teaching-rail"
-                  focusActiveNode
-                  graph={graph}
-                  height={164}
-                  points={points}
-                  showControls={false}
-                  showMiniMap={false}
-                />
-              </div>
-            </button>
+              <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
+              {subtitleLines.map((line, index) => {
+                const active = index === activeSubtitleLineIndex;
+                return (
+                  <button
+                    aria-label={`从此处重新播放：${line.text}`}
+                    className={cn(
+                      'flex min-h-24 w-full snap-center items-center py-3 text-left text-[15px] leading-6 transition-[color,opacity,background-color] duration-300',
+                      active
+                        ? 'font-semibold text-slate-900 dark:text-slate-50'
+                        : cn(
+                            'text-slate-400 dark:text-slate-500',
+                            isBrowsingSubtitles
+                              ? index < activeSubtitleLineIndex
+                                ? 'cursor-pointer rounded-lg opacity-45 hover:bg-teal-50/70 hover:text-teal-800 hover:opacity-100 dark:hover:bg-teal-400/10 dark:hover:text-teal-200'
+                                : 'cursor-pointer rounded-lg opacity-60 hover:bg-slate-50 hover:opacity-100 dark:hover:bg-white/5'
+                              : 'pointer-events-none opacity-0',
+                          ),
+                    )}
+                    data-active-line={active ? 'true' : undefined}
+                    key={`${line.actionIndex}-${index}`}
+                    onClick={() => {
+                      if (line.actionIndex < 0) return;
+                      const cueLength = Math.max(1, displayCues[line.cueIndex]?.text.length ?? line.end);
+                      if (onCueSelect?.(line.actionIndex, line.start / cueLength)) {
+                        setIsBrowsingSubtitles(false);
+                      }
+                    }}
+                    type="button"
+                  >
+                    {line.text}
+                  </button>
+                );
+              })}
+              <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
+            </div>
           </div>
-        ) : null}
+
+          {hasKnowledgeGraph ? (
+            <div className="hidden min-h-0 xl:-mx-5 xl:block xl:overflow-hidden">
+              <div
+                aria-label="当前课程知识图谱"
+                className="relative h-full min-h-0 w-full overflow-hidden bg-[radial-gradient(ellipse_78%_70%_at_50%_50%,rgba(190,229,217,0.64)_0%,rgba(228,244,238,0.34)_52%,transparent_100%)] dark:bg-[radial-gradient(ellipse_78%_70%_at_50%_50%,rgba(35,111,94,0.3)_0%,rgba(15,54,51,0.16)_54%,transparent_100%)]"
+              >
+                <div className="pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_88%_82%_at_50%_50%,black_48%,rgba(0,0,0,0.72)_68%,transparent_100%)]">
+                  <KnowledgeGraphFlow
+                    activeNodeId={activeKnowledgePointId}
+                    activeZoom={0.76}
+                    appearance="teaching-rail"
+                    autoRestoreView
+                    fillAvailableHeight
+                    focusActiveNode
+                    graph={graph}
+                    points={points}
+                    showControls={false}
+                    showMiniMap={false}
+                  />
+                </div>
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-white/82 to-transparent dark:from-slate-950/72"
+                />
+                <button
+                  aria-label="完整浏览知识图谱"
+                  className="absolute right-4 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/58 text-slate-500 backdrop-blur-md transition hover:scale-105 hover:bg-white/90 hover:text-teal-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:bg-slate-900/42 dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-teal-300"
+                  onClick={() => setGraphOpen(true)}
+                  type="button"
+                >
+                  <Maximize2 size={14} />
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         {interactionAssistance?.active ? (
           <div
@@ -434,6 +448,7 @@ export function LectureSubtitleDock({
             <KnowledgeGraphFlow
               activeNodeId={activeKnowledgePointId}
               activeZoom={0.82}
+              autoRestoreView
               focusActiveNode
               graph={graph}
               height={520}

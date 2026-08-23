@@ -7,6 +7,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
+  Bot,
+  Globe2,
   History,
   PlayCircle,
   RefreshCw,
@@ -18,11 +20,12 @@ import { InviteCodeCard } from "@/components/invite-code-card";
 import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { useCoursePresence } from "@/hooks/use-course-presence";
+import { normalizePblCourseConfig, type ResourceInquiryMode } from "@/lib/pbl-course-config";
 
 export default function TeachSetupPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, startTeaching, generateNewInviteCode, restartTeaching } = useSession();
+  const { user, startTeaching, generateNewInviteCode, restartTeaching, updateCourse } = useSession();
   const course = useCourse(params?.id);
   const hydrated = useHydrated();
   const presence = useCoursePresence({
@@ -43,6 +46,14 @@ export default function TeachSetupPage() {
 
   const inviteCode = course?.inviteCode;
   const isTeaching = course?.status === "teaching";
+  const resourceInquiryMode = normalizePblCourseConfig(course?.pblConfig).resourceInquiryMode;
+
+  function setResourceInquiryMode(mode: ResourceInquiryMode) {
+    if (!course) return;
+    updateCourse(course.id, {
+      pblConfig: normalizePblCourseConfig({ ...course.pblConfig, resourceInquiryMode: mode }),
+    });
+  }
 
   if (!hydrated) {
     return (
@@ -152,6 +163,31 @@ export default function TeachSetupPage() {
               </div>
             </div>
             <p className="mt-4 text-sm leading-6 text-stone-500">每位加入课堂的学生都会自动获得一个私有项目空间。</p>
+          </Card>
+
+          <Card>
+            <h2 className="text-xl font-bold">资料查询方式</h2>
+            <p className="mt-2 text-sm leading-6 text-stone-500">设置学生在 AI 伴学“资料角”输入问题后的回答方式。</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                aria-pressed={resourceInquiryMode === "llm"}
+                className={`rounded-[8px] border p-4 text-left transition ${resourceInquiryMode === "llm" ? "border-violet-400 bg-violet-50 ring-2 ring-violet-100" : "border-stone-200 bg-white hover:border-stone-300"}`}
+                onClick={() => setResourceInquiryMode("llm")}
+                type="button"
+              >
+                <span className="flex items-center gap-2 font-bold text-violet-800"><Bot size={19} />LLM 问答模式</span>
+                <span className="mt-2 block text-sm leading-6 text-stone-600">由大语言模型结合课程主题解释问题，不依赖 Tavily；回答不代表已联网核验。</span>
+              </button>
+              <button
+                aria-pressed={resourceInquiryMode === "web-search"}
+                className={`rounded-[8px] border p-4 text-left transition ${resourceInquiryMode === "web-search" ? "border-blue-400 bg-blue-50 ring-2 ring-blue-100" : "border-stone-200 bg-white hover:border-stone-300"}`}
+                onClick={() => setResourceInquiryMode("web-search")}
+                type="button"
+              >
+                <span className="flex items-center gap-2 font-bold text-blue-800"><Globe2 size={19} />联网搜索模式</span>
+                <span className="mt-2 block text-sm leading-6 text-stone-600">搜索网络并展示来源链接；需先在教师设置的“联网搜索”中配置 Tavily API Key。</span>
+              </button>
+            </div>
           </Card>
 
           <Card>

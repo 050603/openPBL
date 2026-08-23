@@ -11,6 +11,7 @@ import {
   type ScreenActionName,
 } from './status-presentation'
 import type { ActionTextureLoader } from './action-textures'
+import { classroomNavigationLaneXForSeat } from './navigation'
 import { createPersonFactory, type PersonController } from './person'
 import type { SpriteFactory } from './sprite-factory'
 
@@ -24,7 +25,6 @@ export type WorkstationController = {
   roleProfile: AgentRoleProfile
   seatAnchor: { x: number; y: number }
   seatExitAnchor: { x: number; y: number }
-  homeAnchor: { x: number; y: number }
   conversationAnchor: { x: number; y: number }
   setState: (state: PartnerState, options?: { deferBodyActivity?: boolean }) => void
   refreshStateActivity: () => void
@@ -57,6 +57,7 @@ type WorkstationFactoryOptions = {
   textureLoader: ActionTextureLoader
   textures: Record<string, Texture>
   actorLayer: Container
+  feedbackLayer: Container
   classroomTextures: {
     desk: Texture
     chair: Texture
@@ -163,6 +164,7 @@ export function createWorkstationFactory({
   textureLoader,
   textures,
   actorLayer,
+  feedbackLayer,
   classroomTextures,
 }: WorkstationFactoryOptions) {
   const personFactory = createPersonFactory({ textureLoader })
@@ -258,12 +260,8 @@ export function createWorkstationFactory({
       person.container.y += seatedAnchor.y - currentAnchor.y
     }
     const seatAnchor = person.getVisualAnchorPosition('bottomCenter')
-    const exitDirection = roleProfile.deskPosition.x < 700 ? 1 : -1
     const seatExitAnchor = useClassroomFurniture
-      ? { x: seatAnchor.x + exitDirection * 138, y: seatAnchor.y }
-      : seatAnchor
-    const homeAnchor = useClassroomFurniture
-      ? { x: seatExitAnchor.x, y: seatExitAnchor.y + 76 }
+      ? { x: classroomNavigationLaneXForSeat(seatAnchor.x), y: seatAnchor.y }
       : seatAnchor
     // Conversation is a distinct scene pose, not a navigation waiting point.
     // Keeping the visitor's feet close to the seated partner's authored
@@ -291,83 +289,104 @@ export function createWorkstationFactory({
     // Sprite frames use different canvas bounds, so labels must follow the
     // person's measured visual anchor instead of the nominal role position.
     const feedback = new Container()
-    // 角色提示框：圆角暖白背景，去掉原来的左侧竖条装饰。
-    // 角色色彩改由 nameLabel 的彩色文字体现，更柔和也更符合场景风格。
+    const accent = roleAccentNumber(roleProfile.accent)
+    // The compact identity plaque is only shown for an explicitly selected
+    // companion. During speech the bubble header becomes the sole identity,
+    // avoiding the duplicated oversized card seen behind the desks.
     const infoPanel = new Graphics()
-      .roundRect(-104, 2, 208, 72, 12)
-      .fill({ color: 0xfffdf9, alpha: 0.85 })
+      .roundRect(-101, 8, 208, 66, 16)
+      .fill({ color: 0x24343b, alpha: 0.08 })
+      .roundRect(-104, 4, 208, 66, 16)
+      .fill({ color: 0xfffdf9, alpha: 0.96 })
+      .stroke({ color: accent, width: 1, alpha: 0.2 })
     const nameLabel = new Text({
       text: roleProfile.name,
       style: {
-        fill: roleProfile.accent,
+        fill: '#203238',
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
-        fontSize: 22,
+        fontSize: 17,
         fontWeight: '700',
       },
-      anchor: 0.5,
-      x: 0,
-      y: 14,
+      x: -78,
+      y: 12,
     })
     const stateLabel = new Text({
       text: '空闲等待',
       style: {
-        fill: '#53636a',
+        fill: '#627278',
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
-        fontSize: 14,
+        fontSize: 10,
         fontWeight: '600',
       },
-      anchor: 0.5,
-      x: 0,
-      y: 38,
+      x: -78,
+      y: 35,
     })
     const taskLabel = new Text({
       text: '',
       style: {
-        fill: '#53636a',
+        fill: '#899499',
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
-        fontSize: 12,
-        wordWrap: true,
-        wordWrapWidth: 144,
-        align: 'center',
+        fontSize: 9,
       },
-      anchor: 0.5,
-      x: 0,
-      y: 59,
+      x: -78,
+      y: 52,
     })
-    const messageCenterX = roleProfile.deskPosition.x < 700 ? -220 : 220
-    const messageWidth = 256
-    const messageHeight = 124
-    const messageViewportWidth = 222
-    const messageViewportHeight = 78
+    // Speech cards open toward the classroom centre. The previous outward
+    // placement put right-column speech underneath the stage command card and
+    // pushed the top row against the canvas edge.
+    const isLeftColumn = roleProfile.deskPosition.x < 700
+    const isTopRow = roleProfile.deskPosition.y < 150
+    const directionToCentre = isLeftColumn ? 1 : -1
+    const messageCenterX = directionToCentre * 252
+    const messageWidth = 304
+    const messageHeight = 144
+    const messageViewportWidth = 264
+    const messageViewportHeight = 82
     const messageTextX = messageCenterX - messageViewportWidth / 2
-    const messageTop = -166
-    const messageTextTop = messageTop + 35
+    // The first row has enough clear centre space beside the character; align
+    // its card with the upper body instead of dropping it into the next row.
+    const messageTop = isTopRow ? -92 : -190
+    const messageTextTop = messageTop + 47
     const messageNameLabel = new Text({
       text: roleProfile.name,
       style: {
-        fill: '#ffffff',
+        fill: roleProfile.accent,
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
-        fontSize: 12,
+        fontSize: 15,
         fontWeight: '700',
-        letterSpacing: 1,
+        letterSpacing: 0.3,
       },
-      x: messageCenterX - messageViewportWidth / 2,
-      y: messageTop + 11,
+      x: messageCenterX - messageWidth / 2 + 18,
+      y: messageTop + 12,
+    })
+    const messageMetaLabel = new Text({
+      text: '正在发言',
+      style: {
+        fill: '#63747a',
+        fontFamily: 'Avenir Next, PingFang SC, sans-serif',
+        fontSize: 10,
+        fontWeight: '700',
+        letterSpacing: 0.4,
+      },
+      anchor: { x: 1, y: 0 },
+      x: messageCenterX + messageWidth / 2 - 18,
+      y: messageTop + 15,
     })
     const messageText = new Text({
       text: '',
       style: {
         fill: '#18252d',
         fontFamily: 'Avenir Next, PingFang SC, sans-serif',
-        fontSize: 14,
+        fontSize: 15,
         breakWords: true,
         wordWrap: true,
         wordWrapWidth: messageViewportWidth,
-        lineHeight: 20,
+        lineHeight: 22,
       },
       x: messageTextX,
       y: messageTextTop,
     })
+    const messageConnector = new Graphics()
     const messageBubble = new Graphics()
     const messageViewport = new Container()
     const messageScrollbar = new Graphics()
@@ -381,14 +400,16 @@ export function createWorkstationFactory({
         letterSpacing: 0.5,
       },
       anchor: { x: 1, y: 0 },
-      x: messageCenterX + messageViewportWidth / 2,
-      y: messageTop + 12,
+      x: messageCenterX + messageWidth / 2 - 18,
+      y: messageTop + messageHeight - 17,
     })
     const messageMask = new Graphics()
       .rect(messageCenterX - messageViewportWidth / 2, messageTextTop, messageViewportWidth, messageViewportHeight)
       .fill({ color: 0xffffff, alpha: 0.001 })
     messageViewport.addChild(messageText)
     messageViewport.mask = messageMask
+    const messageLayer = new Container()
+    const infoLayer = new Container()
     let currentState: PartnerState | null = null
     let selected = false
     let infoVisible = false
@@ -514,6 +535,7 @@ export function createWorkstationFactory({
     }
 
     function redrawMessage(): void {
+      messageConnector.clear()
       messageBubble.clear()
       if (!messageText.text) {
         return
@@ -521,26 +543,66 @@ export function createWorkstationFactory({
 
       const left = messageCenterX - messageWidth / 2
       const right = messageCenterX + messageWidth / 2
-      const tailEdge = messageCenterX < 0 ? right : left
-      const tailTip = messageCenterX < 0 ? -68 : 68
-      // 角色名药丸：测量文字宽度后画一个彩色圆角背景，白色文字浮在上面。
-      // 替代原来气泡左侧的彩色竖条装饰，更柔和也更符合场景风格。
-      const namePillPadX = 9
-      const namePillWidth = messageNameLabel.width + namePillPadX * 2
-      const namePillHeight = 20
-      const namePillX = messageNameLabel.x - namePillPadX
-      const namePillY = messageTop + 7
+      const cardEdgeX = directionToCentre > 0 ? left : right
+      const speakerOriginX = directionToCentre * 38
+      const speakerOriginY = -82
+      const cardAttachY = isTopRow ? messageTop + 34 : messageTop + messageHeight - 30
+      const firstControlX = directionToCentre * 66
+      const secondControlX = cardEdgeX - directionToCentre * 18
+
+      // A halo-backed connector visibly begins at the character's shoulder and
+      // curves into the inward-facing card. It remains legible above desks and
+      // replaces the detached horizontal wedge used previously.
+      messageConnector
+        .moveTo(speakerOriginX, speakerOriginY)
+        .bezierCurveTo(
+          firstControlX,
+          speakerOriginY,
+          secondControlX,
+          cardAttachY,
+          cardEdgeX,
+          cardAttachY,
+        )
+        .stroke({ color: 0xffffff, width: 8, alpha: 0.9 })
+        .moveTo(speakerOriginX, speakerOriginY)
+        .bezierCurveTo(
+          firstControlX,
+          speakerOriginY,
+          secondControlX,
+          cardAttachY,
+          cardEdgeX,
+          cardAttachY,
+        )
+        .stroke({ color: accent, width: 2.5, alpha: 0.72 })
+        .circle(speakerOriginX, speakerOriginY, 7)
+        .fill({ color: 0xffffff, alpha: 0.98 })
+        .stroke({ color: accent, width: 2, alpha: 0.72 })
+        .circle(speakerOriginX, speakerOriginY, 3)
+        .fill({ color: accent, alpha: 0.92 })
+
       messageBubble
-        .roundRect(left + 3, messageTop + 5, messageWidth, messageHeight, 16)
-        .fill({ color: 0x24343b, alpha: 0.08 })
-        .roundRect(left, messageTop, messageWidth, messageHeight, 16)
-        .fill({ color: 0xfffdf9, alpha: 0.97 })
-        .roundRect(namePillX, namePillY, namePillWidth, namePillHeight, 10)
-        .fill({ color: roleAccentNumber(roleProfile.accent), alpha: 0.92 })
-        .moveTo(tailEdge, messageTop + messageHeight - 47)
-        .lineTo(tailTip, messageTop + messageHeight - 30)
-        .lineTo(tailEdge, messageTop + messageHeight - 17)
-        .fill({ color: 0xfffdf9, alpha: 0.97 })
+        .roundRect(left + 6, messageTop + 9, messageWidth, messageHeight, 22)
+        .fill({ color: 0x24343b, alpha: 0.11 })
+        .roundRect(left + 2, messageTop + 3, messageWidth, messageHeight, 22)
+        .fill({ color: 0x7d9297, alpha: 0.05 })
+        .roundRect(left, messageTop, messageWidth, messageHeight, 20)
+        .fill({ color: 0xfffefa, alpha: 0.99 })
+        .stroke({ color: accent, width: 1, alpha: 0.18 })
+        .circle(right - 84, messageTop + 21, 3)
+        .fill({ color: accent, alpha: 0.9 })
+        .moveTo(left + 18, messageTop + 40)
+        .lineTo(right - 18, messageTop + 40)
+        .stroke({ color: 0x536970, width: 1, alpha: 0.12 })
+    }
+
+    function syncFeedbackVisibility(): void {
+      const speechVisible = (
+        currentState === 'speaking' || currentState === 'celebrating'
+      ) && Boolean(messageText.text)
+      const infoVisibleForSelection = selected && infoVisible && !speechVisible
+      messageLayer.visible = speechVisible
+      infoLayer.visible = infoVisibleForSelection
+      feedback.visible = speechVisible || infoVisibleForSelection
     }
 
     function applyStateVisuals(
@@ -549,7 +611,7 @@ export function createWorkstationFactory({
     ): void {
       const presentation = getStatePresentation(roleProfile.id, state)
       stateLabel.text = `${roleProfile.title} · ${presentation.label}`
-      stateLabel.style.fill = `#${presentation.tone.toString(16).padStart(6, '0')}`
+      stateLabel.style.fill = '#627278'
 
       if (awayFromDesk) {
         screen.clear()
@@ -594,7 +656,7 @@ export function createWorkstationFactory({
       currentState = state
       stopIdleActivity()
       applyStateVisuals(state, options)
-      feedback.visible = state === 'speaking' || state === 'celebrating' || (selected && infoVisible)
+      syncFeedbackVisibility()
     }
 
     function refreshStateActivity(): void {
@@ -609,13 +671,13 @@ export function createWorkstationFactory({
       if (!selected) {
         infoVisible = false
       }
-      feedback.visible = currentState === 'speaking' || currentState === 'celebrating' || (selected && infoVisible)
+      syncFeedbackVisibility()
     }
 
     function setInfoVisible(visible: boolean): void {
       infoVisible = visible
       syncFeedbackPosition()
-      feedback.visible = currentState === 'speaking' || currentState === 'celebrating' || (selected && infoVisible)
+      syncFeedbackVisibility()
     }
 
     function setAway(away: boolean): void {
@@ -623,11 +685,12 @@ export function createWorkstationFactory({
         return
       }
       awayFromDesk = away
-      feedback.visible = currentState === 'speaking' || currentState === 'celebrating' || (selected && infoVisible)
+      syncFeedbackVisibility()
 
       if (away) {
         occludingWorkstation = null
-        actorLayer.addChild(person.container, feedback)
+        actorLayer.addChild(person.container)
+        feedbackLayer.addChild(feedback)
         syncFeedbackPosition()
         stopIdleActivity()
         screen.clear()
@@ -639,14 +702,11 @@ export function createWorkstationFactory({
       if (useClassroomFurniture) {
         const deskIndex = container.getChildIndex(desk)
         container.addChildAt(person.container, deskIndex)
-        const effectIndex = container.getChildIndex(effect.container)
-        container.addChildAt(feedback, effectIndex)
       } else {
-        let chairIndex = container.getChildIndex(chair)
-        container.addChildAt(feedback, chairIndex)
-        chairIndex = container.getChildIndex(chair)
+        const chairIndex = container.getChildIndex(chair)
         container.addChildAt(person.container, chairIndex)
       }
+      feedbackLayer.addChild(feedback)
 
       if (currentState) {
         applyStateVisuals(currentState)
@@ -665,13 +725,14 @@ export function createWorkstationFactory({
       if (workstation && useClassroomFurniture) {
         const deskIndex = workstation.container.getChildIndex(workstation.desk)
         workstation.container.addChildAt(person.container, deskIndex)
-        actorLayer.addChild(feedback)
+        feedbackLayer.addChild(feedback)
         syncFeedbackPosition()
         return
       }
 
       if (awayFromDesk) {
-        actorLayer.addChild(person.container, feedback)
+        actorLayer.addChild(person.container)
+        feedbackLayer.addChild(feedback)
         syncFeedbackPosition()
       }
     }
@@ -715,21 +776,25 @@ export function createWorkstationFactory({
         redrawMessageScrollbar()
       }
       redrawMessage()
+      syncFeedbackVisibility()
     }
 
     function setTask(task: string): void {
-      taskLabel.text = task ? task.slice(0, 44) : ''
-      redrawMessage()
+      taskLabel.text = task ? task.slice(0, 18) : ''
     }
 
     syncFeedbackPosition()
     feedback.visible = false
     if (useClassroomFurniture) {
-      container.addChild(chair, person.container, desk, screen.container, feedback, effect.container)
+      container.addChild(chair, person.container, desk, screen.container, effect.container)
     } else {
-      container.addChild(desk, screen.container, feedback, person.container, chair, effect.container)
+      container.addChild(desk, screen.container, person.container, chair, effect.container)
     }
-    feedback.addChild(messageBubble, messageNameLabel, messageScrollHint, messageViewport, messageMask, messageScrollbar, infoPanel, nameLabel, stateLabel, taskLabel)
+    messageLayer.addChild(messageConnector, messageBubble, messageNameLabel, messageMetaLabel, messageScrollHint, messageViewport, messageMask, messageScrollbar)
+    infoLayer.addChild(infoPanel, nameLabel, stateLabel, taskLabel)
+    feedback.addChild(messageLayer, infoLayer)
+    feedbackLayer.addChild(feedback)
+    syncFeedbackVisibility()
 
     // The workstation itself stays passive so the large desk bounds do not
     // swallow hover events intended for the smaller interactive character.
@@ -745,7 +810,6 @@ export function createWorkstationFactory({
       roleProfile,
       seatAnchor,
       seatExitAnchor,
-      homeAnchor,
       conversationAnchor,
       setState,
       refreshStateActivity,
@@ -763,6 +827,7 @@ export function createWorkstationFactory({
         person.destroy()
         screen.clear()
         effect.clear()
+        feedback.destroy({ children: true })
         container.destroy({ children: true })
       },
     }

@@ -21,6 +21,7 @@ import { decrementRef } from "@/lib/uploads/reference-tracker";
 import { cleanupCourseFiles } from "@/lib/uploads/cleanup";
 import { applyCourseUpdate } from "@/lib/session/course-update";
 import { normalizeFacilitationScaffolds } from "@/lib/teacher-resources/facilitation-scaffolds";
+import { readNestedPayloadEnum } from "./persisted-payload";
 import type {
   Course,
   Student,
@@ -135,6 +136,53 @@ function asNullableJson(
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
+
+const CLASSROOM_SUBMISSION_TYPES = [
+  "idea",
+  "plan",
+  "document",
+  "resource",
+  "showcase",
+  "reflection",
+  "evidence",
+] as const satisfies readonly ClassroomSubmission["type"][];
+
+const TEACHER_FEEDBACK_TARGET_TYPES = [
+  "student",
+  "group",
+  "course",
+] as const satisfies readonly TeacherFeedback["targetType"][];
+
+const TEACHER_FEEDBACK_KINDS = [
+  "comment",
+  "question",
+  "ai-support",
+  "revision",
+  "praise",
+] as const satisfies readonly TeacherFeedback["kind"][];
+
+const TEACHER_INTERVENTION_SCOPES = [
+  "student",
+  "group",
+  "course",
+] as const satisfies readonly TeacherIntervention["scope"][];
+
+const TEACHER_INTERVENTION_ACTIONS = [
+  "guidance",
+  "scope-adjustment",
+  "regroup",
+  "evaluation-requirement",
+  "pause-ai",
+  "request-reasoning",
+  "override-stage",
+] as const satisfies readonly TeacherIntervention["action"][];
+
+const EVALUATION_SOURCE_ROLES = [
+  "ai",
+  "teacher",
+  "peer",
+  "self",
+] as const satisfies readonly EvaluationRecord["sourceRole"][];
 
 // ============================================================================
 // Course → Prisma row mappers
@@ -331,7 +379,12 @@ function rowToSubmission(
     studentName: row.studentName ?? undefined,
     stageKey: row.stageKey,
     groupId: row.groupId ?? undefined,
-    type: (row.payload as ClassroomSubmission["type"]) ?? "document",
+    type: readNestedPayloadEnum(
+      row.payload,
+      "type",
+      CLASSROOM_SUBMISSION_TYPES,
+      "document",
+    ),
     title: asString((row.payload as { title?: unknown } | null)?.title),
     content: asString((row.payload as { content?: unknown } | null)?.content),
     files: (row.payload as { files?: ClassroomSubmission["files"] } | null)?.files,
@@ -348,10 +401,20 @@ function rowToFeedback(
   return {
     id: row.id,
     courseId: row.courseId,
-    targetType: (row.payload as TeacherFeedback["targetType"]) ?? "student",
+    targetType: readNestedPayloadEnum(
+      row.payload,
+      "targetType",
+      TEACHER_FEEDBACK_TARGET_TYPES,
+      "student",
+    ),
     targetId: asString((row.payload as { targetId?: unknown } | null)?.targetId),
     stageKey: asString(row.stageKey),
-    kind: (row.payload as TeacherFeedback["kind"]) ?? "comment",
+    kind: readNestedPayloadEnum(
+      row.payload,
+      "kind",
+      TEACHER_FEEDBACK_KINDS,
+      "comment",
+    ),
     content: row.content,
     sourceRole: (row.payload as { sourceRole?: TeacherFeedback["sourceRole"] } | null)?.sourceRole,
     sourceName: (row.payload as { sourceName?: string } | null)?.sourceName,
@@ -684,11 +747,21 @@ function rowToTeacherIntervention(
   return {
     id: row.id,
     stageKey: asString(row.stageKey),
-    scope: (row.payload as TeacherIntervention["scope"]) ?? "course",
+    scope: readNestedPayloadEnum(
+      row.payload,
+      "scope",
+      TEACHER_INTERVENTION_SCOPES,
+      "course",
+    ),
     targetIds: (row.payload as { targetIds?: string[] } | null)?.targetIds ?? [],
     reason: asString((row.payload as { reason?: unknown } | null)?.reason),
     evidence: (row.payload as { evidence?: string[] } | null)?.evidence ?? [],
-    action: (row.payload as TeacherIntervention["action"]) ?? "notice",
+    action: readNestedPayloadEnum(
+      row.payload,
+      "action",
+      TEACHER_INTERVENTION_ACTIONS,
+      "guidance",
+    ),
     instruction: row.content,
     severity: (row.payload as { severity?: TeacherIntervention["severity"] } | null)?.severity ?? "notice",
     status: (row.payload as { status?: TeacherIntervention["status"] } | null)?.status ?? "open",
@@ -724,7 +797,12 @@ function rowToEvaluation(
     id: row.id,
     courseId: row.courseId,
     stageKey: asString(row.stageKey),
-    sourceRole: (row.payload as EvaluationRecord["sourceRole"]) ?? "ai",
+    sourceRole: readNestedPayloadEnum(
+      row.payload,
+      "sourceRole",
+      EVALUATION_SOURCE_ROLES,
+      "ai",
+    ),
     targetType: (row.payload as { targetType?: EvaluationRecord["targetType"] } | null)?.targetType ?? "student",
     targetId: asString((row.payload as { targetId?: unknown } | null)?.targetId),
     score: (row.payload as { score?: number } | null)?.score,
@@ -2026,7 +2104,12 @@ async function touchCourse(courseId: string): Promise<void> {
 export async function dispatchAction(
   action: SessionAction,
 ): Promise<SessionState> {
-  return dispatchActionUnlocked(action);
+  // Aggregate actions perform a read/reduce/compare-and-swap cycle. A
+  // companion turn legitimately persists several adjacent records while
+  // realtime updates or another tab may touch the same course. Reload and
+  // reapply the pure action on a transient version conflict instead of
+  // leaking CourseVersionConflictError as a generic API 500.
+  return retryCourseVersionConflict(() => dispatchActionUnlocked(action));
 }
 
 /**

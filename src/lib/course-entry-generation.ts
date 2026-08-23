@@ -1,5 +1,10 @@
 import { callLLM, parseLLMJson } from "@/lib/llm/client";
+import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 import { JSON_TEACHER_PROMPT_CONTRACT } from "@/lib/prompt-quality/policy";
+import {
+  deriveCourseEntryPolicy,
+  formatCourseEntryPolicy,
+} from "@/lib/course-entry-policy";
 import {
   deriveAdaptiveEnrichmentTarget,
   deriveMasteryAssessmentSceneIds,
@@ -25,7 +30,7 @@ import type {
 type ModelCall = typeof callLLM;
 
 export type CourseEntryGenerationInput = {
-  course: Pick<Course, "name" | "subject" | "grade" | "summary" | "learningObjectives" | "learnerProfile">;
+  course: Pick<Course, "name" | "subject" | "grade" | "hours" | "summary" | "learningObjectives" | "learnerProfile" | "pblConfig">;
   knowledgePoints: KnowledgePoint[];
   knowledgeGraph?: KnowledgeGraph;
   mainScenes: OpenMaicSceneOutlineSnapshot[];
@@ -100,8 +105,6 @@ type ReviewerEnvelope = {
   finalBlueprint: CourseEntryBlueprint;
 };
 
-const MIN_PREREQUISITES = 1;
-const MAX_PREREQUISITES = 5;
 const MAX_MODEL_CALLS = 3;
 
 function text(value: unknown): string {
@@ -218,8 +221,7 @@ export function normalizeCourseEntryBlueprint(value: unknown): CourseEntryBluepr
     knowledgeLadder,
     prerequisiteAnalysisSummary: text(raw.prerequisiteAnalysisSummary),
     prerequisites: (Array.isArray(raw.prerequisites) ? raw.prerequisites : [])
-      .map(normalizePrerequisite)
-      .slice(0, MAX_PREREQUISITES),
+      .map(normalizePrerequisite),
     extensions: (Array.isArray(raw.extensions) ? raw.extensions : [])
       .map(normalizeExtension)
       .slice(0, 6),
@@ -230,23 +232,16 @@ function includesK12Stage(value: string): boolean {
   return /小学|初中|高中|高一|高二|高三|K12|大学|本科|专科/i.test(value);
 }
 
-const ADVANCED_AI_FOUNDATION_CODES = [
-  "ai-concept",
-  "data-dataset",
-  "machine-learning-concept",
-  "supervised-learning-process",
-  "feature-representation",
-] as const;
-
-function requiredCurriculumFoundationCodes(input: CourseEntryGenerationInput): string[] {
-  const courseCorpus = [
-    input.course.name,
-    input.course.subject,
-    ...input.knowledgePoints.map((point) => point.name),
-  ].join(" ");
-  return /计算机视觉|自然语言处理|图像分类|物体检测|人脸识别|文本分类|情感分析|机器翻译|语音识别/i.test(courseCorpus)
-    ? [...ADVANCED_AI_FOUNDATION_CODES]
-    : [];
+function courseEntryPolicy(input: CourseEntryGenerationInput) {
+  return deriveCourseEntryPolicy({
+    hours: input.course.hours,
+    grade: input.course.grade,
+    lessonTargetCount: input.knowledgePoints.length,
+    foundationTargetCount: input.knowledgePoints.filter((point) => point.level === "foundation").length,
+    acceptedPrerequisiteCount: (input.knowledgeGraph?.nodes ?? [])
+      .filter((node) => node.instructionalRole === "prerequisite").length,
+    courseMode: input.course.pblConfig?.generationTemplate,
+  });
 }
 
 function containsLessonSpecificTerm(value: string, input: CourseEntryGenerationInput): boolean {
@@ -264,6 +259,7 @@ export function validateCourseEntryBlueprint(
   const issues: string[] = [];
   const lessonIds = new Set(input.knowledgePoints.map((point) => point.id));
   const lessonNames = new Set(input.knowledgePoints.map((point) => point.name.trim().toLowerCase()));
+  const entryPolicy = courseEntryPolicy(input);
   if (!blueprint.stageAssumption || !includesK12Stage(blueprint.stageAssumption)) {
     issues.push("缺少明确的小学、初中、高中、K12 待确认或大学学段判断");
   }
@@ -274,13 +270,13 @@ export function validateCourseEntryBlueprint(
     if (!ladderRoles.has(role)) issues.push(`知识阶梯缺少 ${role} 台阶`);
   }
   if (!blueprint.prerequisiteAnalysisSummary) issues.push("缺少课程入口分析结论");
-  const requiredMinimum = input.knowledgePoints.length >= 3 ? 2 : MIN_PREREQUISITES;
+  const requiredMinimum = entryPolicy.minimumPrerequisites;
   if (blueprint.prerequisites.length < requiredMinimum) {
-    issues.push(input.knowledgePoints.length >= 3
-      ? "包含多个本课目标的课程至少需要两项互补的真实先修能力"
-      : "每门课至少需要一项真实先修能力");
+    issues.push(`当前课程入口至少需要 ${requiredMinimum} 项真实先修能力；${entryPolicy.rationale}`);
   }
-  if (blueprint.prerequisites.length > MAX_PREREQUISITES) issues.push("先修能力不得超过五项");
+  if (blueprint.prerequisites.length > entryPolicy.maximumPrerequisites) {
+    issues.push(`当前课程入口容量为 ${entryPolicy.maximumPrerequisites} 项，现有 ${blueprint.prerequisites.length} 项；应保留已审校先修并合并或删除不构成直接阻断的候选项`);
+  }
 
   const disciplinaryPrerequisites = blueprint.prerequisites.filter((point) =>
     point.foundationKind !== "cross-disciplinary-skill" && point.foundationKind !== "unspecified",
@@ -288,8 +284,10 @@ export function validateCourseEntryBlueprint(
   if (disciplinaryPrerequisites.length < Math.min(2, requiredMinimum)) {
     issues.push("课程入口必须由学科概念、学科过程或数据表征基础主导，不能只用数学、语文或工具操作凑成前测");
   }
-  if (blueprint.prerequisites.filter((point) => point.foundationKind === "cross-disciplinary-skill").length > 1) {
-    issues.push("跨学科技能最多保留一项，且只能作为学科先修之外的补充");
+  const crossDisciplinaryCount = blueprint.prerequisites
+    .filter((point) => point.foundationKind === "cross-disciplinary-skill").length;
+  if (crossDisciplinaryCount > disciplinaryPrerequisites.length) {
+    issues.push("跨学科技能只能补充本课入口，不能多于学科概念、学科过程和数据表征先修的总量");
   }
   const prerequisiteNamesInBlueprint = new Set(
     blueprint.prerequisites.map((point) => point.name.trim().toLocaleLowerCase("zh-CN")),
@@ -337,15 +335,6 @@ export function validateCourseEntryBlueprint(
       issues.push(`${label} 的知识回顾必须包含误解定位、短讲解、新例子和衔接检查`);
     }
   });
-
-  const requiredFoundationCodes = requiredCurriculumFoundationCodes(input);
-  if (requiredFoundationCodes.length) {
-    const actualFoundationCodes = new Set(blueprint.prerequisites.map((point) => point.curriculumFoundationCode));
-    const missingFoundationCodes = requiredFoundationCodes.filter((code) => !actualFoundationCodes.has(code as CourseEntryPrerequisiteBlueprint["curriculumFoundationCode"]));
-    if (missingFoundationCodes.length) {
-      issues.push(`K12 人工智能应用主题缺少必要课程台阶：${missingFoundationCodes.join("、")}`);
-    }
-  }
 
   if (input.knowledgePoints.length >= 4) {
     if (!disciplinaryPrerequisites.some((point) => point.unlocksLessonKnowledgePointIds.length >= 2)) {
@@ -432,12 +421,16 @@ function outputSchema(input: CourseEntryGenerationInput) {
 }
 
 function platformContext(input: CourseEntryGenerationInput) {
+  const entryPolicy = courseEntryPolicy(input);
   return {
     primaryAudience: "小学、初中、高中学生，兼顾大学学习者",
     targetStage: input.course.grade?.trim() || "K12 学段待确认",
     enlightenmentMeaning: "学生处在知识启蒙和系统学习阶段；不代表课程主题没有前序知识",
     analysisOrder: ["确定学段", "定位本课在学科知识阶梯中的深度", "反向追踪进入本课所需能力", "排除本课新授、常识题和低龄凑数题"],
-    requiredCurriculumFoundationCodes: requiredCurriculumFoundationCodes(input),
+    entryPolicy: {
+      ...entryPolicy,
+      instruction: formatCourseEntryPolicy(entryPolicy),
+    },
     acceptedPrerequisiteNodes: (input.knowledgeGraph?.nodes ?? [])
       .filter((node) => node.instructionalRole === "prerequisite")
       .map((node) => ({
@@ -458,15 +451,15 @@ export function buildCourseEntryGenerationMessages(input: CourseEntryGenerationI
 必须依次完成：学段定位 → 课程深度定位 → 知识阶梯回溯 → 先修必要性判断 → 前测与补学设计。
 
 硬性规则：
-1. 每门课必须有 1-5 项真实先修能力，推荐 2-4 项。领域入门、通识、知识启蒙、无需编程、年级缺失都不是零先修理由。
+1. 先修能力的数量与时间必须严格遵循 platformContext.entryPolicy。该策略由实际课时、学段、目标数量、课程模式和已审校先修节点计算，不得套用全局固定数量；已审校节点必须保留，新增候选只能用于确实会阻断本课目标的缺口。
 2. 先修能力必须是学生在本课之前理应学过，且缺失会直接阻断一个明确的本课目标；它不能是本课新授内容的同义改写、简化例子或预习题。
 3. 一项先修能力内聚地包含一道前测题和一份知识回顾脚本。禁止跨对象自行维护 ID；程序会统一生成引用。
 4. 前测题必须是有信息量的单项选择题，包含四个互斥且有诊断价值的选项；不得只考术语名称、生活常识或低龄语文常识。
 5. 知识回顾脚本必须依次包含“定位具体误解 → 短讲解 → 同层级新例子 → 衔接检查”，不得提前讲授本课目标。
 6. 课后拓展只在主课最终达标测之后出现。它必须提供主课没有的新例题、迁移任务或概念深化，数量遵循输出结构，不得重复讲解主课。
-7. 对 K12 学生而言，计算机视觉、自然语言处理等属于较深入主题；必须检查人工智能、数据与数据集、机器学习流程、监督学习、特征等可能台阶，但只能选择当前课程目标真正依赖的项目，不能机械套用清单。
-8. 先修组合必须由学科概念、学科过程或数据表征基础主导。数学、语文、阅读或工具操作等跨学科技能最多一项，只能补充，不能构成整个课程入口。包含三个以上本课目标时至少给出两项互补的真实先修，并优先选择能支撑多个本课目标的高杠杆基础。
-9. 如果 platformContext.requiredCurriculumFoundationCodes 非空，必须逐项各设计一项先修，不得用 RGB、小数运算、词性或句子单位替换。其中：ai-concept 要诊断“数据驱动智能与固定程序”的区别；data-dataset 要诊断样本、特征信息和标签；machine-learning-concept 要诊断从数据学习规律而非人工写死全部规则；supervised-learning-process 要诊断训练、验证、测试的职责与数据泄漏；feature-representation 要诊断从原始数据提取可用于判断的信息。题目必须考理解和判断，不能只问名称。
+7. 对 K12 学生而言，计算机视觉、自然语言处理等较深入主题应检查人工智能、数据与数据集、机器学习流程、监督学习、特征等可能台阶，但这些只是语义审查候选，不是数量配额；只保留当前课程目标确实依赖、且上游知识结构能够证明的项目。
+8. 先修组合必须由学科概念、学科过程或数据表征基础主导。数学、语文、阅读或工具操作等跨学科技能只能补充，不能在数量或内容上主导课程入口。实际数量遵循 entryPolicy，并优先选择能支撑多个本课目标的高杠杆基础。
+9. curriculumFoundationCode 用于标记一项真实先修在课程体系中的位置，便于审校和追踪，不用于机械凑齐编码。不得把 RGB、小数运算、词性或句子单位等局部技能伪装成更上游的人工智能基础；题目必须考理解和判断，不能只问名称。
 10. platformContext.acceptedPrerequisiteNodes 来自上一步已经通过硬规则的知识图谱。必须保留这些先修的名称和语义，只为它们补齐题目、回顾资源和入口映射；不得重新判断后删除。
 
 只返回严格 JSON。${JSON_TEACHER_PROMPT_CONTRACT}`,
@@ -498,7 +491,7 @@ export function buildCourseEntryReviewMessages(
 重点修复：确定性规则要求的入口结构缺失；把本课新授内容提前放进前测；明显的常识题、术语记忆题和低龄凑数题；题目与补学资源不一一对应；补学提前教授本课；课后拓展直接重复主课。
 
 还必须检查“选得是否重要”，而不只是“能否勉强成立”：跨学科计算、语文或工具操作不得主导课程入口；优先保留能支撑多个本课目标的学科概念、过程模型和数据表征。对于 K12 计算机视觉或自然语言处理，如果候选只包含小数、百分比、词性、句子单位等局部技能，而没有检查人工智能、数据与数据集、机器学习流程、监督学习、特征等当前目标真正依赖的上游台阶，必须重做 finalBlueprint。
-若 platformContext.requiredCurriculumFoundationCodes 非空，finalBlueprint 必须逐项覆盖全部编码，每个编码恰好由一项先修承担；这是课程体系衔接要求，不是可选建议。
+finalBlueprint 的先修数量和时间必须遵循 platformContext.entryPolicy；课程体系编码用于解释真实依赖，不是逐项凑齐的配额。优先保留上游已审校节点，只删除或合并不构成直接阻断、重复或超出课程容量的候选项。
 platformContext.acceptedPrerequisiteNodes 是已通过硬规则的上游事实，必须保留名称和语义并完成配套题目与回顾资源，不得在本阶段重新审判或删除。
 
 无法从输入中验证的教学取舍不得擅自判错，也不得阻断流程。无论首稿是否合格，你都必须返回一份完整 finalBlueprint，不能只返回意见或局部补丁。finalBlueprint 必须可直接发布；verdict 为 passed 表示原稿实质合格，为 revised 表示你已在 finalBlueprint 中完成修复。
@@ -658,6 +651,7 @@ function compilePlan(
   reviewSummary: string,
   now: string,
 ): AdaptiveLearningPlan {
+  const entryPolicy = courseEntryPolicy(input);
   const studentScenes = summarizedScenes(input.mainScenes);
   const firstMainSceneId = studentScenes[0]?.id;
   const terminalAssessmentId = deriveMasteryAssessmentSceneIds(input.mainScenes).at(-1);
@@ -762,7 +756,10 @@ function compilePlan(
     status: "draft",
     generatedAt: now,
     updatedAt: now,
-    timeBudgetMin: Math.min(20, Math.max(6, prerequisitePoints.length * 3)),
+    timeBudgetMin: Math.min(
+      entryPolicy.remediationTimeBudgetMin,
+      Math.ceil(prerequisitePoints.length * entryPolicy.estimatedMinutesPerRemediation),
+    ),
     thresholds: { enrichmentMasteryMin: 80 },
     prerequisiteKnowledgePoints: prerequisitePoints,
     prerequisiteAnalysis: {
@@ -791,7 +788,12 @@ function compilePlan(
     pretest: {
       title: "课程入口 · 前序能力诊断",
       introduction: "这些题只检查学习本课之前理应掌握的基础。答错不会扣除课程成绩，系统会先安排对应的 AI 知识回顾，再进入本课。",
-      estimatedMinutes: Math.max(1, Math.min(5, Math.ceil(questions.length * 0.75))),
+      estimatedMinutes: questions.length
+        ? Math.min(
+            entryPolicy.pretestTimeBudgetMin,
+            Math.ceil(questions.length * entryPolicy.estimatedMinutesPerQuestion),
+          )
+        : 0,
       questions,
     },
     enrichmentStrategy: {
@@ -822,14 +824,16 @@ export function compileCourseEntryPackage(
 ): Omit<CourseEntryGenerationResult, "revisionCount" | "warnings" | "reviewFindings"> & { warnings: string[]; issues: string[] } {
   const knowledgeGraph = compileKnowledgeGraph(input, blueprint, reviewSummary);
   const plan = compilePlan({ ...input, knowledgeGraph }, blueprint, reviewSummary, now);
+  const entryPolicy = courseEntryPolicy(input);
   const graphQuality = assessKnowledgeGraphQuality(knowledgeGraph, input.knowledgePoints, [], {
     objectiveCount: input.course.learningObjectives?.length ?? 0,
     requireSemanticReview: true,
-    minimumPrerequisites: MIN_PREREQUISITES,
+    minimumPrerequisites: entryPolicy.minimumPrerequisites,
   });
   const planQuality = evaluateAdaptiveLearningPlanQuality(plan, {
     ...input,
     knowledgeGraph,
+    courseEntryPolicy: entryPolicy,
   });
   return {
     plan,
@@ -851,7 +855,7 @@ export async function generateCourseEntryPackage(
     jsonMode: true,
     abortSignal: options.abortSignal,
     requestClass: "long-generation",
-    maxTransientRetries: 1,
+    maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
   });
   const candidateParsed = parseJsonSafely(candidateRaw);
   const candidateBlueprint = normalizeCourseEntryBlueprint(candidateParsed.value);
@@ -863,7 +867,7 @@ export async function generateCourseEntryPackage(
       jsonMode: true,
       abortSignal: options.abortSignal,
       requestClass: "standard",
-      maxTransientRetries: 1,
+      maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
     });
     const parsedReview = parseReviewerEnvelope(reviewRaw);
     if (!parsedReview.envelope) {

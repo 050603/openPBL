@@ -14,6 +14,7 @@ import {
 import {
   generateMediaForClassroom,
   generateTTSForClassroom,
+  findUnresolvedClassroomMedia,
   replaceMediaPlaceholders,
   type ServerTtsTimingSelection,
 } from '@openmaic/lib/server/classroom-media-generation';
@@ -49,15 +50,6 @@ export function collectRequestedClassroomMedia(
   return Array.from(unique.values());
 }
 
-function needsSafeEducationalFallback(error: string): boolean {
-  return /DataInspectionFailed|inappropriate content|content safety|sensitive/i.test(error);
-}
-
-function safeEducationalImagePrompt(outline: SceneOutline): string {
-  const topic = outline.title?.trim() || '人工智能基础知识';
-  return `面向学校课堂的安全、中性教育课件插图，主题为“${topic}”。使用蓝绿色扁平化信息图风格，以抽象数据节点、连接线和简洁几何图形表达概念；无人物肖像、无文字、无品牌、无暴力或敏感内容，画面清晰，16:9。`;
-}
-
 export function buildMediaRepairOutlines(
   outlines: SceneOutline[],
   failures: MediaFailure[],
@@ -69,9 +61,10 @@ export function buildMediaRepairOutlines(
       if (!failure) return [];
       return [{
         ...request,
-        prompt: request.type === 'image' && needsSafeEducationalFallback(failure.error)
-          ? safeEducationalImagePrompt(outline)
-          : request.prompt,
+        // Retry the teacher-confirmed request unchanged. Never replace failed
+        // course media with generic/generated filler that could misrepresent
+        // the intended teaching content.
+        prompt: request.prompt,
       }];
     });
     return mediaGenerations.length > 0 ? [{ ...outline, mediaGenerations }] : [];
@@ -189,6 +182,22 @@ export async function generateClassroomAssets(
 
   const generateMediaAssets = async () => {
     if (!hasMediaGeneration) return;
+    if (requestedMedia.length === 0) {
+      const unplannedFailures = findUnresolvedClassroomMedia([], allScenes);
+      if (unplannedFailures.length === 0) return;
+      await updateAssetStatus('partial-failure', 0, unplannedFailures);
+      await input.onProgress?.({
+        phase: 'media',
+        status: 'partial-failure',
+        completed: 0,
+        total: unplannedFailures.length,
+        message: `检测到 ${unplannedFailures.length} 项媒体生成计划缺失`,
+      });
+      log.error(
+        `Classroom media plan missing [studentClassroomId=${input.studentClassroomId}, placeholders=${unplannedFailures.length}]`,
+      );
+      return;
+    }
     try {
       throwIfAborted(input.signal);
       await input.onProgress?.({
@@ -212,7 +221,7 @@ export async function generateClassroomAssets(
           input.signal,
         );
         Object.assign(mediaMap, result.mediaMap);
-        replaceMediaPlaceholders(allScenes, result.mediaMap);
+        replaceMediaPlaceholders(allScenes, result.mediaMap, input.outlines);
         await persistSceneGroups(groups);
 
         failures = reconcileMediaFailures(requestedMedia, mediaMap, result.failures);

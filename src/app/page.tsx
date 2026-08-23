@@ -124,7 +124,7 @@ export default function Home() {
 function SiteHeader() {
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-bg)_80%,transparent)] backdrop-blur-xl">
-      <div className="mx-auto flex min-h-16 max-w-[1400px] items-center justify-between px-6 md:px-10">
+      <div className="pbl-wide-container flex min-h-16 items-center justify-between px-6 md:px-10">
         <Link
           href="/"
           className="flex items-center transition-opacity hover:opacity-80"
@@ -179,7 +179,7 @@ function Hero() {
       <div className="pbl-dots-light" />
 
       {/* 主内容 */}
-      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-[1400px] flex-col items-center justify-center px-6 py-20 text-center md:px-10">
+      <div className="pbl-wide-container relative z-10 flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-6 py-20 text-center md:px-10">
         {/* 顶部标签 */}
         <div
           className="pbl-hero-text mb-10 inline-flex items-center gap-2 rounded-full border border-[var(--pbl-border-strong)] bg-[var(--pbl-surface)]/80 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--pbl-text-muted)] backdrop-blur-sm"
@@ -203,7 +203,7 @@ function Hero() {
 
         {/* 一句话定位 —— 渐变文字 */}
         <h1
-          className="pbl-hero-text whitespace-nowrap text-[clamp(32px,5.5vw,64px)] font-extrabold leading-[1.08] tracking-tight"
+          className="pbl-hero-text whitespace-nowrap text-[length:clamp(2rem,5.5vw,4rem)] font-extrabold leading-[1.08] tracking-tight"
           style={{ animationDelay: "0.25s" }}
         >
           <span className="pbl-display-gradient">让项目式学习拥有更多可能</span>
@@ -261,7 +261,7 @@ function Hero() {
 function HeroStat({ value, label }: { value: string; label: string }) {
   return (
     <div className="flex flex-col items-center">
-      <div className="pbl-stat-number text-[clamp(32px,5vw,48px)]">{value}</div>
+      <div className="pbl-stat-number text-[length:clamp(2rem,5vw,3rem)]">{value}</div>
       <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--pbl-text-subtle)]">
         {label}
       </div>
@@ -275,7 +275,7 @@ function HeroStat({ value, label }: { value: string; label: string }) {
 function Highlights() {
   return (
     <section className="pbl-light-section border-b border-[var(--pbl-border)] py-20 md:py-24">
-      <div className="mx-auto max-w-[1400px] px-6 md:px-10">
+      <div className="pbl-wide-container px-6 md:px-10">
         <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
           {/* 卡片 1：全流程链路 */}
           <CosmicReveal>
@@ -289,7 +289,7 @@ function Highlights() {
                   全流程链路
                 </div>
                 {/* 标题 */}
-                <h3 className="whitespace-nowrap text-[clamp(26px,3vw,34px)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
+                <h3 className="whitespace-nowrap text-[length:clamp(1.625rem,3vw,2.125rem)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
                   <span className="pbl-display-gradient">覆盖 PBL 全流程链路</span>
                 </h3>
                 {/* 描述 */}
@@ -332,7 +332,7 @@ function Highlights() {
                   新课堂模式
                 </div>
                 {/* 标题 */}
-                <h3 className="whitespace-nowrap text-[clamp(26px,3vw,34px)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
+                <h3 className="whitespace-nowrap text-[length:clamp(1.625rem,3vw,2.125rem)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
                   <span className="pbl-display-gradient">新型人机协同课堂</span>
                 </h3>
                 {/* 描述 */}
@@ -399,13 +399,13 @@ function Features() {
       id="features"
       className="pbl-light-section border-b border-[var(--pbl-border)] py-24 md:py-32"
     >
-      <div className="mx-auto max-w-[1400px] px-6 md:px-10">
+      <div className="pbl-wide-container px-6 md:px-10">
         <CosmicReveal className="mb-16">
           <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--pbl-text-subtle)]">
             <span className="h-px w-8 bg-[var(--pbl-text-strong)]" />
             核心能力
           </div>
-          <h2 className="whitespace-nowrap text-[clamp(32px,5vw,52px)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
+          <h2 className="whitespace-nowrap text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
             一个平台，
             <span className="pbl-display-gradient">人机协同覆盖 PBL 全链路。</span>
           </h2>
@@ -488,10 +488,10 @@ function Workflow() {
         <div className="pbl-aurora-3" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1400px] px-6 md:px-10">
+      <div className="pbl-wide-container relative z-10 px-6 md:px-10">
         <CosmicReveal className="mb-16 max-w-3xl">
           <div className="pbl-cosmic-chapter mb-4">课堂流程</div>
-          <h2 className="text-[clamp(32px,5vw,52px)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
+          <h2 className="text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
             六个阶段，
             <span className="pbl-display-gradient">构成学习闭环。</span>
           </h2>
@@ -572,14 +572,14 @@ function Entry() {
       </div>
       <div className="pbl-dots-light" />
 
-      <div className="relative z-10 mx-auto max-w-[1400px] px-6 md:px-10">
+      <div className="pbl-wide-container relative z-10 px-6 md:px-10">
         <CosmicReveal className="mb-14 text-center">
           <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--pbl-text-subtle)]">
             <span className="h-px w-8 bg-[var(--pbl-text-strong)]" />
             开始使用
             <span className="h-px w-8 bg-[var(--pbl-text-strong)]" />
           </div>
-          <h2 className="text-[clamp(32px,5vw,52px)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
+          <h2 className="text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
             选择身份，
             <span className="pbl-display-gradient">进入课堂。</span>
           </h2>
@@ -698,7 +698,7 @@ function Entry() {
 function SiteFooter() {
   return (
     <footer className="pbl-aurora-light border-t border-[var(--pbl-border)] py-12">
-      <div className="mx-auto max-w-[1400px] px-6 md:px-10">
+      <div className="pbl-wide-container px-6 md:px-10">
         <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
           <div className="flex items-center gap-3">
             <OpenPblLogo variant="horizontal" height={28} />

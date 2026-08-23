@@ -34,6 +34,24 @@ function job(overrides: Partial<QuickClassroomGenerationSnapshot> = {}): QuickCl
 }
 
 describe("buildQuickClassroomArtifacts", () => {
+  it("uses readable fallbacks for malformed generated labels", () => {
+    const artifacts = buildQuickClassroomArtifacts(job({
+      scenesGenerated: 1,
+      totalScenes: 1,
+      requestPreview: {
+        sceneOutlines: [{ id: "scene-1", title: "scene-runtime-1", type: "slide", stageKey: "internal-stage-1" }],
+        enableImageGeneration: false,
+        enableVideoGeneration: false,
+        enableTTS: false,
+      },
+    }));
+
+    expect(artifacts[1]?.items[0]).toMatchObject({
+      label: "课程学习阶段 · 1",
+      value: "未命名课程页面",
+    });
+  });
+
   it("continues the quick canvas with real outline titles and forward-only page batches", () => {
     const artifacts = buildQuickClassroomArtifacts(job());
 

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 
 /* ============================================================
    OpenPBL 基础组件库 v2
@@ -579,14 +580,15 @@ export function Metric({
 }
 
 export function FileBadge({ type }: { type: string }) {
+  const label = courseResourceTypeLabel(type);
   const tone =
-    type === "PDF"
+    label === "PDF"
       ? "bg-[var(--pbl-danger)]"
-      : type === "XLSX"
+      : label === "Excel"
         ? "bg-[var(--pbl-success)]"
-        : type === "PPTX"
+        : label === "PPT"
           ? "bg-[var(--pbl-accent)]"
-          : type === "MP4"
+          : label === "视频"
             ? "bg-[var(--pbl-ai)]"
             : "bg-[var(--pbl-teacher)]";
 
@@ -597,7 +599,7 @@ export function FileBadge({ type }: { type: string }) {
         tone,
       )}
     >
-      {type}
+      {label}
     </span>
   );
 }

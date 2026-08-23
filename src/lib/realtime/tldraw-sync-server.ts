@@ -24,6 +24,7 @@ import { prisma } from "@/lib/db/client";
 import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
 import { hasCurrentSessionVersion } from "@/lib/auth/session-version";
 import { websocketConnectionsActive } from "@/lib/observability/metrics";
+import { isAllowedBrowserOrigin } from "@/lib/network/request-origin";
 
 type SessionMeta = { userId: string; role: AuthRole; roomKey: string };
 type RoomEntry = {
@@ -214,13 +215,16 @@ function readCookie(header: string | undefined, name: string): string | null {
 }
 
 function hasAllowedOrigin(request: IncomingMessage): boolean {
-  const origin = request.headers.origin;
-  if (!origin) return process.env.NODE_ENV !== "production";
-  try {
-    return new URL(origin).origin === new URL(process.env.PUBLIC_BASE_URL!).origin;
-  } catch {
-    return false;
-  }
+  return isAllowedBrowserOrigin({
+    origin: request.headers.origin,
+    host: request.headers.host,
+    forwardedHost: typeof request.headers["x-forwarded-host"] === "string"
+      ? request.headers["x-forwarded-host"]
+      : undefined,
+    forwardedProto: typeof request.headers["x-forwarded-proto"] === "string"
+      ? request.headers["x-forwarded-proto"]
+      : undefined,
+  });
 }
 
 export async function closeTldrawSyncServer(): Promise<void> {

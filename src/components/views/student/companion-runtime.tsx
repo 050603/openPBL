@@ -3,6 +3,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useSettingsStore } from "@openmaic/lib/store/settings";
+import {
+  BROWSER_NATIVE_TTS_PROVIDER_ID,
+  isTTSProviderEnabled,
+} from "@openmaic/lib/audio/provider-enablement";
 import type { AdaptiveMicroLesson, CompanionTriggerKind, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { getCompanion, recommendedCompanions, type AiCompanionId } from "@/lib/ai-companions";
@@ -80,6 +84,7 @@ type CompanionTTSOptions = {
 };
 
 const SPEECH_BUBBLE_HOLD_MS = 2_200;
+const COMPANION_TTS_PREPARE_TIMEOUT_MS = 15_000;
 
 
 /**
@@ -132,19 +137,42 @@ export function useCompanionTTS(options?: CompanionTTSOptions) {
       const effectiveProviderConfig = override?.providerId && override.providerId !== providerId
         ? ttsProvidersConfig?.[override.providerId as keyof typeof ttsProvidersConfig]
         : providerConfig;
-      const response = await fetch("/api/openmaic/generate/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: item.text,
-          audioId: `companion-${item.companionId}-${item.seq}`,
-          ttsProviderId: effectiveProviderId,
-          ttsModelId: override?.modelId || effectiveProviderConfig?.modelId,
-          ttsVoice: effectiveVoice,
-          ttsSpeed: speed,
-          ttsApiKey: effectiveProviderConfig?.apiKey,
-          ttsBaseUrl: effectiveProviderConfig?.baseUrl || effectiveProviderConfig?.customDefaultBaseUrl,
+      // Browser-native speech is handled entirely in the browser, and a
+      // provider without a usable credential/base URL must not hit the API.
+      // Both cases degrade to the existing timed text presentation below.
+      if (
+        effectiveProviderId === BROWSER_NATIVE_TTS_PROVIDER_ID
+        || !isTTSProviderEnabled(effectiveProviderId, effectiveProviderConfig)
+      ) {
+        return null;
+      }
+      const controller = new AbortController();
+      let timeoutId: number | null = null;
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          controller.abort();
+          reject(new Error("TTS preparation timed out"));
+        }, COMPANION_TTS_PREPARE_TIMEOUT_MS);
+      });
+      const response = await Promise.race([
+        fetch("/api/openmaic/generate/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: item.text,
+            audioId: `companion-${item.companionId}-${item.seq}`,
+            ttsProviderId: effectiveProviderId,
+            ttsModelId: override?.modelId || effectiveProviderConfig?.modelId,
+            ttsVoice: effectiveVoice,
+            ttsSpeed: speed,
+            ttsApiKey: effectiveProviderConfig?.apiKey,
+            ttsBaseUrl: effectiveProviderConfig?.baseUrl || effectiveProviderConfig?.customDefaultBaseUrl,
+          }),
+          signal: controller.signal,
         }),
+        timeout,
+      ]).finally(() => {
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
       });
       if (!response.ok) throw new Error(`TTS API error: ${response.status}`);
       const data = await response.json();
@@ -308,6 +336,7 @@ export type CompanionRuntimeContextValue = {
   setAutoInterventionsPaused: (paused: boolean) => void;
   isActive: boolean;
   send: (text?: string, options?: CompanionSendOptions) => Promise<boolean>;
+  requestMicroLesson: (message: string) => Promise<boolean>;
   stop: () => void;
   markRead: () => void;
   tts: ReturnType<typeof useCompanionTTS>;
@@ -492,12 +521,6 @@ export function CompanionRuntimeProvider({
       status: "generating",
       createdAt: new Date().toISOString(),
     };
-    setMicroLessonTask({
-      lesson,
-      progress: 5,
-      message: "知知正在梳理课程结构",
-      taskId,
-    });
     const backgroundController = new AbortController();
     microLessonAbortRef.current?.abort();
     microLessonAbortRef.current = backgroundController;
@@ -534,17 +557,18 @@ export function CompanionRuntimeProvider({
       };
     });
     const acknowledgement = `收到。我会把“${decision.topic}”制作成一节 2–3 分钟微课，你可以继续当前任务，做好后我会提醒你。`;
-    setMessages((current) => appendMessage(current, {
-      role: "assistant",
-      companionId: "knowledge",
-      content: acknowledgement,
-      ts: new Date().toISOString(),
-    }));
-    enqueueTTS(acknowledgement, "knowledge");
-
+    let settleLaunch!: (launched: boolean) => void;
+    let launchSettled = false;
+    const launchResult = new Promise<boolean>((resolve) => {
+      settleLaunch = (launched) => {
+        if (launchSettled) return;
+        launchSettled = true;
+        resolve(launched);
+      };
+    });
     void (async () => {
+      let generationStarted = false;
       try {
-        await persistLesson(lesson);
         const generated = await generateAdaptiveClassroom({
           title: `${courseRef.current.name} · ${decision.topic}微课`,
           requirement: [
@@ -557,6 +581,24 @@ export function CompanionRuntimeProvider({
           stageKey: lessonStageKey,
           scenes: sceneInputs,
           signal: backgroundController.signal,
+          onStarted: async () => {
+            generationStarted = true;
+            setMicroLessonTask({
+              lesson,
+              progress: 5,
+              message: "知知正在梳理课程结构",
+              taskId,
+            });
+            setMessages((current) => appendMessage(current, {
+              role: "assistant",
+              companionId: "knowledge",
+              content: acknowledgement,
+              ts: new Date().toISOString(),
+            }));
+            enqueueTTS(acknowledgement, "knowledge");
+            settleLaunch(true);
+            await persistLesson(lesson);
+          },
           onProgress: ({ progress, message: progressMessage }) =>
             setMicroLessonTask((current) =>
               current?.lesson.id === lesson.id
@@ -586,21 +628,74 @@ export function CompanionRuntimeProvider({
         enqueueTTS(readyText, "knowledge");
       } catch (error) {
         if (backgroundController.signal.aborted) return;
-        const failedLesson: AdaptiveMicroLesson = { ...lesson, status: "failed" };
-        await persistLesson(failedLesson).catch(() => undefined);
-        setMicroLessonTask((current) => current?.lesson.id === lesson.id ? {
-          ...current,
-          lesson: failedLesson,
-          message: error instanceof Error ? error.message : "微课生成失败，请稍后重试",
-        } : current);
+        if (generationStarted) {
+          const failedLesson: AdaptiveMicroLesson = { ...lesson, status: "failed" };
+          await persistLesson(failedLesson).catch(() => undefined);
+          setMicroLessonTask((current) => current?.lesson.id === lesson.id ? {
+            ...current,
+            lesson: failedLesson,
+            message: error instanceof Error ? error.message : "微课生成失败，请稍后重试",
+          } : current);
+        }
       } finally {
+        settleLaunch(false);
         if (microLessonAbortRef.current === backgroundController) {
           microLessonAbortRef.current = null;
         }
       }
     })();
-    return true;
+    return launchResult;
   }, [enqueueTTS, session.studentId, stageKey]);
+
+  const requestMicroLesson = useCallback(async (message: string): Promise<boolean> => {
+    const clean = message.trim();
+    if (
+      !clean
+      || !stageEnabled
+      || !available.some((companion) => companion.id === "knowledge")
+      || abortRef.current
+      || phaseRef.current === "director"
+      || microLessonTask?.lesson.status === "generating"
+    ) return false;
+
+    if (phaseRef.current !== "idle" || ttsBusy) {
+      stopTTS();
+      setCurrentSpeaker(null);
+      setStreamingText("");
+    }
+
+    const requestMessage: CompanionChatMessage = {
+      role: "user",
+      content: clean,
+      ts: new Date().toISOString(),
+    };
+    setMessages((current) => appendMessage(current, requestMessage));
+    setError(null);
+    setPhase("director");
+    phaseRef.current = "director";
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const launched = await tryLaunchMicroLesson(clean, controller.signal);
+      if (!launched) {
+        // A brief resource query belongs in the library result panel rather
+        // than appearing as an unanswered turn in companion history.
+        setMessages((current) => current.filter((item) => item !== requestMessage));
+      }
+      return launched;
+    } catch (microLessonError) {
+      if (!controller.signal.aborted) {
+        console.warn("Resource query micro lesson decision failed; using a text answer:", microLessonError);
+      }
+      setMessages((current) => current.filter((item) => item !== requestMessage));
+      return false;
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      phaseRef.current = "idle";
+      setPhase("idle");
+    }
+  }, [available, microLessonTask?.lesson.status, stageEnabled, stopTTS, tryLaunchMicroLesson, ttsBusy]);
 
   const send = useCallback(async (text?: string, options?: CompanionSendOptions): Promise<boolean> => {
     const message = (text ?? input).trim();
@@ -1081,6 +1176,7 @@ export function CompanionRuntimeProvider({
     // turn while an earlier answer is being read; send() stops that narration.
     isActive: phase === "director",
     send,
+    requestMicroLesson,
     stop,
     markRead: () => setUnreadCount(0),
     tts,

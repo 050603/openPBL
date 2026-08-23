@@ -38,6 +38,13 @@ import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 import type { Course, LearningEvidence } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
+import { AI_COMPANIONS } from "@/lib/ai-companions";
+import {
+  aiAssessmentConfidenceLabel,
+  aiAssessmentStatusLabel,
+  localizeEvaluationText,
+} from "@/lib/evaluation/process-assessment";
+import { actorRoleLabel } from "@/lib/user-facing-labels";
 import { TeacherDirectiveForm } from "./teacher-directive-form";
 
 const READINESS_TONE = {
@@ -534,12 +541,12 @@ export function CompanionMonitor({
                 {selectedAssessment ? (
                   <div className="mt-2 text-sm leading-6 text-violet-900">
                     <p>
-                      状态：{selectedAssessment.status} · 置信度：{selectedAssessment.confidence}
+                      状态：{aiAssessmentStatusLabel(selectedAssessment.status)} · 置信度：{aiAssessmentConfidenceLabel(selectedAssessment.confidence)}
                     </p>
                     <p>
                       证据引用 {selectedAssessment.evidenceIds.length} 项；
                       证据缺口 {selectedAssessment.evidenceGaps.length
-                        ? selectedAssessment.evidenceGaps.join("、")
+                        ? selectedAssessment.evidenceGaps.map(localizeEvaluationText).join("、")
                         : "无"}
                     </p>
                   </div>
@@ -576,7 +583,7 @@ export function CompanionMonitor({
                       {selectedMessages.map((message) => (
                         <li className="border-l-2 border-stone-200 pl-3" key={message.id}>
                           <span className="text-[11px] text-stone-400">
-                            {message.authorName ?? message.companionId ?? message.role}
+                            {message.authorName ?? (message.companionId ? AI_COMPANIONS.find((companion) => companion.id === message.companionId)?.name ?? "AI 伙伴" : actorRoleLabel(message.role))}
                           </span>
                           <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700">
                             {message.content}

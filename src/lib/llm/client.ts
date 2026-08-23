@@ -54,6 +54,7 @@ import { withCourseGenerationLlmSlot } from "@/lib/course-generation/llm-concurr
 import { withGenerationRetry } from "@openmaic/lib/generation/generation-retry";
 import {
   requestClassForCourseContentAction,
+  DURABLE_GENERATION_TRANSIENT_RETRIES,
   resolveLlmRequestTimeoutMs,
   type LlmRequestClass,
 } from "@/lib/llm/request-policy";
@@ -283,7 +284,10 @@ async function callChatCompletions(
     ),
     {
       label: `LLM ${opts.requestClass} request`,
-      maxRetries: Math.max(0, Math.min(2, opts.maxTransientRetries)),
+      maxRetries: Math.max(
+        0,
+        Math.min(DURABLE_GENERATION_TRANSIENT_RETRIES, opts.maxTransientRetries),
+      ),
       baseDelayMs: 2_000,
       maxDelayMs: 10_000,
       signal: opts.abortSignal,
@@ -336,7 +340,17 @@ async function callChatCompletionsWithoutCourseLimit(
     res = await doFetch(opts.jsonMode);
   } catch (err) {
     if (timeoutSignal.aborted) throw new LlmTimeoutError(opts.timeoutMs);
-    throw err;
+    const cause = err instanceof Error
+      ? (err as Error & { cause?: unknown }).cause
+      : undefined;
+    const causeCode = cause && typeof cause === "object" && "code" in cause
+      ? String((cause as { code?: unknown }).code ?? "")
+      : "";
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `LLM request failed [host=${new URL(url).hostname}]: ${reason}${causeCode ? ` (${causeCode})` : ""}`,
+      { cause: err },
+    );
   }
 
   if (!res.ok) {
@@ -1050,7 +1064,7 @@ export function normalizeTeachingOutlineResponse(
     if (!section) return [];
 
     const stageKey = normalizeTeachingOutlineStageKey(section, input, index);
-    const stageLabel = input.stages.find((stage) => stage.key === stageKey)?.label ?? stageKey;
+    const stageLabel = input.stages.find((stage) => stage.key === stageKey)?.label ?? "课程学习阶段";
     const roleRecords = [
       asJsonRecord(section.roles),
       asJsonRecord(section.responsibilities),
@@ -1453,7 +1467,7 @@ export async function generateCourseContent(
       jsonMode: true,
       abortSignal: opts?.signal,
       requestClass: requestClassForCourseContentAction(action),
-      maxTransientRetries: 1,
+      maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
     },
   );
 

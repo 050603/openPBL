@@ -8,6 +8,18 @@ const courseStore = vi.hoisted(() => ({
 const classroomStore = vi.hoisted(() => ({
   classroom: null as null | { scenes: Array<{ id: string; outlineId?: string }> },
 }));
+const auth = vi.hoisted(() => ({
+  authenticateRequest: vi.fn(),
+  requireSameOrigin: vi.fn(),
+}));
+
+vi.mock('@/lib/auth/request-guards', () => ({
+  authenticateRequest: auth.authenticateRequest,
+  requireSameOrigin: auth.requireSameOrigin,
+}));
+vi.mock('@/lib/auth/session', () => ({
+  isAuthConfigured: () => true,
+}));
 
 vi.mock('@/lib/session/server-store', () => ({
   getCourse: vi.fn(async () => courseStore.course),
@@ -25,7 +37,11 @@ function request(body: Record<string, unknown>) {
   return new NextRequest('http://localhost/api/openmaic/progress', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost',
+      'x-openpbl-role': 'student',
+    },
   });
 }
 
@@ -47,6 +63,17 @@ describe('progress route integrity', () => {
         { id: 's2', outlineId: 'outline-ai-2' },
       ],
     };
+    auth.requireSameOrigin.mockReturnValue(null);
+    auth.authenticateRequest.mockResolvedValue({
+      claims: {
+        sub: 'student-1',
+        role: 'student',
+        courseId: 'course-1',
+        studentId: 'student-1',
+        studentName: '测试学生',
+        sv: 1,
+      },
+    });
   });
 
   it('rejects progress written to a classroom not linked to the course', async () => {
@@ -102,5 +129,15 @@ describe('progress route integrity', () => {
       masteryLevel: 'not-started',
       completionModelVersion: 2,
     });
+  });
+
+  it('rejects progress updates for another student identity', async () => {
+    const response = await POST(request({
+      courseId: 'course-1', studentId: 'student-2', classroomId: 'classroom-1',
+      currentSceneIndex: 0, totalScenes: 2, completedScenes: [],
+    }));
+
+    expect(response.status).toBe(403);
+    expect(courseStore.persistStudentAiProgress).not.toHaveBeenCalled();
   });
 });

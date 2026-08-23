@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
+// Install Pixi's CSP-safe shader/uniform synchronisation polyfills before a
+// renderer is created. Production deliberately omits script-src unsafe-eval;
+// the default Pixi fast path otherwise throws during Application.init().
+import 'pixi.js/unsafe-eval'
 import { Application } from 'pixi.js'
 import { agentRoleById } from '@/assets/agent/roles'
 import { type AgentId, type PartnerRuntime } from '@/domain/studio'

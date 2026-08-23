@@ -7,6 +7,7 @@ import { RichTextEditor } from "@/components/rich-text-editor";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
+import { feedbackKindLabel } from "@/lib/user-facing-labels";
 import { StudentActionConfirmationDialog, useStudentActionConfirmation } from "./student-confirmation";
 
 const defaultDoc = "";
@@ -135,7 +136,7 @@ export function WorkspaceView({ course }: { course: Course; embedded?: boolean }
             <div className="space-y-3">
               {feedback.map((item) => (
                 <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3" key={item.id}>
-                  <Pill tone={item.kind === "revision" ? "orange" : item.kind === "praise" ? "green" : "blue"}>{item.kind}</Pill>
+                  <Pill tone={item.kind === "revision" ? "orange" : item.kind === "praise" ? "green" : "blue"}>{feedbackKindLabel(item.kind)}</Pill>
                   <p className="mt-2 text-sm leading-6 text-stone-700">{item.content}</p>
                   <div className="mt-2 text-xs text-stone-400">{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
                 </div>

@@ -1,14 +1,20 @@
 export const MAX_MANAGED_COURSE_DESIGN_RECOVERIES = 2;
+export const MAX_TRANSIENT_INFRASTRUCTURE_RECOVERIES = 3;
 
 type RecoverableRequest = {
   courseId: string;
   teacherBrief: string;
   managedRecoveryCount?: number;
   managedRecoveryFeedback?: string;
+  transientRecoveryCount?: number;
   [key: string]: unknown;
 };
 
-export type CourseDesignFailureKind = "recoverable-generation" | "terminal-quality" | "fatal-infrastructure";
+export type CourseDesignFailureKind =
+  | "recoverable-generation"
+  | "transient-infrastructure"
+  | "terminal-quality"
+  | "fatal-infrastructure";
 
 function errorChain(error: unknown): unknown[] {
   const chain: unknown[] = [];
@@ -26,14 +32,18 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error ?? "");
 }
 
-const INFRASTRUCTURE_ERROR = /(?:ECONN|ENOTFOUND|ETIMEDOUT|调用超时|fetch failed|network|socket|429|rate.?limit|quota|API.?key|unauthori[sz]ed|forbidden|database|prisma|P20\d\d)/i;
+const TRANSIENT_INFRASTRUCTURE_ERROR = /(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|调用超时|请求超时|fetch failed|network|网络|socket hang up|429|rate.?limit|database (?:is )?(?:temporarily )?unavailable|P1001|P1002|P2024)/i;
+const FATAL_INFRASTRUCTURE_ERROR = /(?:quota|API.?key|unauthori[sz]ed|forbidden|invalid credential|401|403|P20(?:00|01|02|03|10|11|12|21|22))/i;
 const RECOVERABLE_GENERATION_ERROR = /(?:代理无法生成结构完整的数据|无法通过独立审校|未通过(?:独立)?(?:审校|质量门|校验)|未能补齐必要结构|未返回可保存的数据|Failed to parse scene outlines response|无法解析.*JSON|生成的数据结构不完整)/i;
 const EXHAUSTED_LOCAL_REPAIR = /(?:目标与知识结构无法通过独立审校|课程入口学习包无法通过发布校验|编辑 Agent 无法完成审校修订)/i;
 
 export function classifyCourseDesignFailure(error: unknown): CourseDesignFailureKind {
   const chain = errorChain(error);
-  if (chain.some((item) => INFRASTRUCTURE_ERROR.test(messageOf(item)))) {
+  if (chain.some((item) => FATAL_INFRASTRUCTURE_ERROR.test(messageOf(item)))) {
     return "fatal-infrastructure";
+  }
+  if (chain.some((item) => TRANSIENT_INFRASTRUCTURE_ERROR.test(messageOf(item)))) {
+    return "transient-infrastructure";
   }
   if (chain.some((item) => EXHAUSTED_LOCAL_REPAIR.test(messageOf(item)))) {
     return "terminal-quality";
@@ -44,6 +54,24 @@ export function classifyCourseDesignFailure(error: unknown): CourseDesignFailure
   return chain.some((item) => RECOVERABLE_GENERATION_ERROR.test(messageOf(item)))
     ? "recoverable-generation"
     : "fatal-infrastructure";
+}
+
+export function createTransientInfrastructureRecoveryRequest<T extends RecoverableRequest>(
+  request: T,
+  error: unknown,
+): T | null {
+  if (classifyCourseDesignFailure(error) !== "transient-infrastructure") return null;
+  const recoveryCount = request.transientRecoveryCount ?? 0;
+  if (recoveryCount >= MAX_TRANSIENT_INFRASTRUCTURE_RECOVERIES) return null;
+  return {
+    ...request,
+    transientRecoveryCount: recoveryCount + 1,
+  };
+}
+
+export function transientInfrastructureRetryDelayMs(recoveryCount: number): number {
+  const boundedCount = Math.max(1, Math.min(MAX_TRANSIENT_INFRASTRUCTURE_RECOVERIES, recoveryCount));
+  return [15_000, 45_000, 120_000][boundedCount - 1] ?? 120_000;
 }
 
 export function createManagedRecoveryRequest<T extends RecoverableRequest>(
@@ -61,12 +89,17 @@ export function createManagedRecoveryRequest<T extends RecoverableRequest>(
 }
 
 export function formatFatalCourseDesignError(error: unknown): string {
-  const messages = errorChain(error).map(messageOf).join(" ");
-  if (INFRASTRUCTURE_ERROR.test(messages)) {
-    return "网络或 AI 服务暂时不可用，快速生成已安全停止；已完成的课程设计内容仍会保留，请稍后重试。";
+  const chainMessages = errorChain(error).map(messageOf).filter(Boolean);
+  const messages = chainMessages.join(" ");
+  if (TRANSIENT_INFRASTRUCTURE_ERROR.test(messages)) {
+    return "网络或 AI 模型服务连接在多轮自动恢复后仍不可用，快速生成已安全停止；已完成的课程设计阶段均已保留，可在服务恢复后直接重试。";
+  }
+  if (FATAL_INFRASTRUCTURE_ERROR.test(messages)) {
+    return "AI 服务配置或访问权限异常，快速生成已停止；请检查模型服务密钥、额度和访问权限后重试。";
   }
   if (EXHAUSTED_LOCAL_REPAIR.test(messages)) {
-    return "当前课程阶段经过多轮定向编辑后仍未通过质量检查，生成已停止且不会整项重跑；此前已经完成的内容仍会保留。";
+    const detail = [...chainMessages].reverse().find((message) => EXHAUSTED_LOCAL_REPAIR.test(message));
+    return `当前课程阶段经过多轮定向编辑后仍未通过质量检查，生成已停止且不会整项重跑；此前已经完成的内容仍会保留。具体原因：${(detail || "本阶段未通过发布校验").slice(0, 1_000)}`;
   }
   return "快速生成遇到无法继续的系统错误，已安全停止；已完成的课程设计内容仍会保留，请稍后重试。";
 }

@@ -1,14 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
   classroomAisleRoute,
+  classroomNavigationLaneForSeatX,
+  classroomNavigationLaneXForSeat,
   compactNavigationRoute,
   createNavigationTrafficController,
-  deskDepartureWaypoint,
   walkingActionForVector,
   walkingDuration,
   walkingDurationForAction,
   walkingSpeedForAction,
 } from './navigation'
+
+describe('classroom navigation lanes', () => {
+  it('uses the same chair-side coordinate as the left and right aisle', () => {
+    expect(classroomNavigationLaneForSeatX(515)).toBe('left')
+    expect(classroomNavigationLaneXForSeat(515)).toBe(640)
+    expect(classroomNavigationLaneForSeatX(866)).toBe('right')
+    expect(classroomNavigationLaneXForSeat(866)).toBe(756)
+  })
+})
 
 describe('compactNavigationRoute', () => {
   it('keeps a direct partner route pointed at the destination', () => {
@@ -42,32 +52,6 @@ describe('classroomAisleRoute', () => {
         { x: 840, y: 720 },
         { x: 920, y: 720 },
       ])
-  })
-})
-
-describe('deskDepartureWaypoint', () => {
-  const seatExit = { x: 653, y: 158 }
-  const forwardClearance = { x: 653, y: 234 }
-
-  it('does not walk down before a same-row or upward trip', () => {
-    expect(deskDepartureWaypoint(
-      seatExit,
-      forwardClearance,
-      { x: 728, y: 172 },
-    )).toBeNull()
-    expect(deskDepartureWaypoint(
-      seatExit,
-      forwardClearance,
-      { x: 420, y: 80 },
-    )).toBeNull()
-  })
-
-  it('uses the forward clearance point when the destination is below the desk', () => {
-    expect(deskDepartureWaypoint(
-      seatExit,
-      forwardClearance,
-      { x: 444, y: 510 },
-    )).toEqual(forwardClearance)
   })
 })
 

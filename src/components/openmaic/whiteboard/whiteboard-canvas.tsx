@@ -406,13 +406,37 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
     const rawElements = whiteboard?.elements;
     const elements = useMemo(() => rawElements ?? [], [rawElements]);
 
-    const canvasWidth = 1000;
-    const canvasHeight = 562.5;
+    // Each scene owns an independent board page. Within that page the surface
+    // grows with the generated notes, so collision avoidance can place later
+    // reasoning below earlier work instead of clipping or covering it.
+    const { canvasWidth, canvasHeight } = useMemo(() => {
+      const bounds = elements.reduce(
+        (current, element) => {
+          const measurable = element as PPTElement & {
+            left?: number;
+            top?: number;
+            width?: number;
+            height?: number;
+          };
+          return {
+            right: Math.max(current.right, (measurable.left ?? 0) + (measurable.width ?? 0)),
+            bottom: Math.max(current.bottom, (measurable.top ?? 0) + (measurable.height ?? 0)),
+          };
+        },
+        { right: 0, bottom: 0 },
+      );
+      return {
+        canvasWidth: Math.max(1000, Math.ceil(bounds.right + 80)),
+        canvasHeight: Math.max(562.5, Math.ceil(bounds.bottom + 80)),
+      };
+    }, [elements]);
 
     const containerScale = useMemo(() => {
       if (containerSize.width === 0 || containerSize.height === 0) return 1;
-      return Math.min(containerSize.width / canvasWidth, containerSize.height / canvasHeight);
-    }, [containerSize.width, containerSize.height, canvasWidth, canvasHeight]);
+      // Preserve the readable scale of one conventional board page; expanded
+      // areas are reached by the existing drag/zoom interaction.
+      return Math.min(containerSize.width / 1000, containerSize.height / 562.5);
+    }, [containerSize.width, containerSize.height]);
 
     useEffect(() => {
       const container = containerRef.current;

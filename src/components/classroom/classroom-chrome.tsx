@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { AlertTriangle, Check, ChevronRight, Circle, ClipboardCheck, UserRoundCheck } from "lucide-react";
 import type { AiSupportRecord, Course, TeacherFeedback } from "@/lib/session/types";
 import { detectInterventionSignals, evaluateStageGate, type InterventionSignal } from "@/lib/classroom/stage-gates";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/overlays";
-import { FormField, Textarea } from "@/components/ui/form";
 
 export function StageProgress({ course, onSelect, readonly = false }: { course: Course; onSelect?: (index: number) => void; readonly?: boolean }) {
   const total = course.stages.length;
@@ -63,14 +62,13 @@ export function StageProgress({ course, onSelect, readonly = false }: { course: 
   );
 }
 
-export function StageGateDialog({ course, onOpenChange, onConfirm, open, targetIndex }: { course: Course; onOpenChange: (open: boolean) => void; onConfirm: (overrideReason?: string) => void; open: boolean; targetIndex: number }) {
-  const [reason, setReason] = useState("");
+export function StageGateDialog({ course, onOpenChange, onConfirm, open, targetIndex }: { course: Course; onOpenChange: (open: boolean) => void; onConfirm: () => void; open: boolean; targetIndex: number }) {
   const movingForward = targetIndex > course.currentStageIndex;
   const gate = useMemo(() => evaluateStageGate(course), [course]);
   const target = course.stages[targetIndex];
   const blocked = movingForward && !gate.canAdvance;
   return (
-    <Dialog onOpenChange={(next) => { if (!next) setReason(""); onOpenChange(next); }} open={open}>
+    <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{movingForward ? "确认进入下一阶段" : "回看上一阶段"}</DialogTitle>
@@ -81,16 +79,11 @@ export function StageGateDialog({ course, onOpenChange, onConfirm, open, targetI
             {gate.completed.length ? <GateSection icon={<Check size={16} />} items={gate.completed} title="已满足" tone="success" /> : null}
             {gate.blockers.length ? <GateSection icon={<AlertTriangle size={16} />} items={gate.blockers.map((item) => item.message)} title="阻断项" tone="danger" /> : null}
             {gate.warnings.length ? <GateSection icon={<Circle size={13} />} items={gate.warnings.map((item) => item.message)} title="需要确认" tone="warning" /> : null}
-            {blocked ? (
-              <FormField description="覆盖会写入阶段切换记录，并成为 AI 后续支架的课堂上下文。" label="教师覆盖理由">
-                {({ id, describedBy, invalid }) => <Textarea aria-describedby={describedBy} aria-invalid={invalid} id={id} onChange={(event) => setReason(event.target.value)} placeholder="说明为何仍然推进，以及接下来如何处理未完成项" value={reason} />}
-              </FormField>
-            ) : null}
           </div>
         ) : null}
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)} variant="secondary">取消</Button>
-          <Button disabled={blocked && reason.trim().length < 8} onClick={() => onConfirm(blocked ? reason.trim() : undefined)}>{blocked ? "记录覆盖并切换" : "确认切换"}</Button>
+          <Button onClick={onConfirm}>{blocked ? "确认并切换" : "确认切换"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

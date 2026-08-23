@@ -7,6 +7,7 @@ import { prisma, isDatabaseConfigured } from "@/lib/db/client";
 import { authenticateRequest, requireSameOrigin } from "@/lib/auth/request-guards";
 import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
 import { rateLimitedResponse } from "@/lib/auth/rate-limit";
+import { publishCourseEvent } from "@/lib/realtime/event-bus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,13 @@ const UploadFieldsSchema = z.object({
   bindAsCourseResource: z.literal("true").optional(),
 });
 
-const ALLOWED_TYPES: Record<string, { detected: string[]; mime: string }> = {
+type AllowedUploadType = {
+  detected?: string[];
+  mime: string;
+  plainText?: boolean;
+};
+
+const ALLOWED_TYPES: Record<string, AllowedUploadType> = {
   ".pdf": { detected: ["pdf"], mime: "application/pdf" },
   ".pptx": {
     detected: ["pptx"],
@@ -37,10 +44,40 @@ const ALLOWED_TYPES: Record<string, { detected: string[]; mime: string }> = {
   },
   ".doc": { detected: ["doc"], mime: "application/msword" },
   ".mp4": { detected: ["mp4", "m4v"], mime: "video/mp4" },
+  ".mov": { detected: ["mov", "mp4", "m4v"], mime: "video/quicktime" },
+  ".webm": { detected: ["webm"], mime: "video/webm" },
+  ".mp3": { detected: ["mp3"], mime: "audio/mpeg" },
+  ".wav": { detected: ["wav"], mime: "audio/wav" },
+  ".m4a": { detected: ["m4a", "mp4"], mime: "audio/mp4" },
+  ".ogg": { detected: ["ogg", "opus"], mime: "audio/ogg" },
   ".png": { detected: ["png"], mime: "image/png" },
   ".jpg": { detected: ["jpg"], mime: "image/jpeg" },
   ".jpeg": { detected: ["jpg"], mime: "image/jpeg" },
   ".webp": { detected: ["webp"], mime: "image/webp" },
+  ".gif": { detected: ["gif"], mime: "image/gif" },
+  ".zip": { detected: ["zip"], mime: "application/zip" },
+  ".rar": { detected: ["rar"], mime: "application/vnd.rar" },
+  ".7z": { detected: ["7z"], mime: "application/x-7z-compressed" },
+  ".txt": { mime: "text/plain", plainText: true },
+  ".md": { mime: "text/markdown", plainText: true },
+  ".markdown": { mime: "text/markdown", plainText: true },
+  ".csv": { mime: "text/csv", plainText: true },
+  ".json": { mime: "application/json", plainText: true },
+  ".py": { mime: "text/x-python", plainText: true },
+  ".js": { mime: "text/javascript", plainText: true },
+  ".jsx": { mime: "text/jsx", plainText: true },
+  ".ts": { mime: "text/typescript", plainText: true },
+  ".tsx": { mime: "text/tsx", plainText: true },
+  ".html": { mime: "text/html", plainText: true },
+  ".css": { mime: "text/css", plainText: true },
+  ".xml": { mime: "application/xml", plainText: true },
+  ".yaml": { mime: "application/yaml", plainText: true },
+  ".yml": { mime: "application/yaml", plainText: true },
+  ".sql": { mime: "application/sql", plainText: true },
+  ".java": { mime: "text/x-java-source", plainText: true },
+  ".c": { mime: "text/x-c", plainText: true },
+  ".cpp": { mime: "text/x-c++src", plainText: true },
+  ".h": { mime: "text/x-c", plainText: true },
 };
 
 export async function POST(request: Request) {
@@ -127,7 +164,13 @@ export async function POST(request: Request) {
     failureStage = "inspect-file";
     const bytes = Buffer.from(await file.arrayBuffer());
     const detected = await fileTypeFromBuffer(bytes).catch(() => null);
-    if (!detected || !expected.detected.includes(detected.ext)) {
+    const isValidPlainText = expected.plainText
+      ? !detected && isUtf8PlainText(bytes)
+      : false;
+    const hasExpectedSignature = expected.detected
+      ? Boolean(detected && expected.detected.includes(detected.ext))
+      : false;
+    if (!isValidPlainText && !hasExpectedSignature) {
       throw new UploadHttpError("FILE_SIGNATURE_MISMATCH", "文件内容与扩展名不匹配，可能是文件已损坏或仅修改了后缀名。", 415);
     }
 
@@ -150,7 +193,7 @@ export async function POST(request: Request) {
     const formattedSize = formatSize(info.size);
     const url = `/api/uploads/${id}`;
     failureStage = "bind-database";
-    await prisma.$transaction(async (tx) => {
+    const durableEvent = await prisma.$transaction(async (tx) => {
       await tx.uploadFile.create({
         data: {
           id,
@@ -178,12 +221,47 @@ export async function POST(request: Request) {
             downloadedBy: [],
           },
         });
-        await tx.course.update({
+        const updatedCourse = await tx.course.update({
           where: { id: courseId },
           data: { version: { increment: 1 } },
+          select: { version: true },
+        });
+        return tx.courseEvent.create({
+          data: {
+            courseId,
+            requestId: randomUUID(),
+            type: "UPDATE_COURSE",
+            actorId: auth.claims.sub!,
+            actorRole: auth.claims.role,
+            courseVersion: updatedCourse.version,
+            payload: { source: "course-resource-upload", scope: "course" },
+          },
+          select: { cursor: true, courseVersion: true },
         });
       }
+      return null;
     });
+
+    if (durableEvent && courseId) {
+      try {
+        await publishCourseEvent(courseId, {
+          type: "course-updated",
+          courseId,
+          at: new Date().toISOString(),
+          payload: {
+            actionType: "UPDATE_COURSE",
+            courseVersion: durableEvent.courseVersion,
+            eventCursor: durableEvent.cursor.toString(),
+          },
+        });
+      } catch (error) {
+        console.error("[uploads] resource publish failed; clients will reconcile by cursor", {
+          courseId,
+          eventCursor: durableEvent.cursor.toString(),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     return Response.json(
       { id, title, fileName: originalName, fileType, size: formattedSize, url, boundToCourse: bindAsCourseResource },
@@ -199,6 +277,16 @@ export async function POST(request: Request) {
     const detail = serializeUploadError(error);
     console.error(`[uploads] Unexpected upload failure ${JSON.stringify({ requestId, failureStage, ...detail })}`);
     return apiError(requestId, "UPLOAD_SERVICE_ERROR", "上传服务暂时不可用，请稍后重试。", 500);
+  }
+}
+
+function isUtf8PlainText(bytes: Buffer): boolean {
+  if (bytes.includes(0)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
   }
 }
 

@@ -18,7 +18,19 @@ export function useRealtimeSync(courseId: string | undefined): RealtimeSyncState
 
   useEffect(() => {
     connectWebSocket(courseId);
-    return disconnectWebSocket;
+    const catchUp = () => connectWebSocket(courseId);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") catchUp();
+    };
+    window.addEventListener("focus", catchUp);
+    window.addEventListener("online", catchUp);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", catchUp);
+      window.removeEventListener("online", catchUp);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      disconnectWebSocket();
+    };
     // SessionProvider owns these functions; only a course switch should
     // replace the subscription.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -180,7 +180,7 @@ export function deriveTeachingConstraints(input: {
     learningObjectives: (input.learningObjectives ?? []).map((item) => item.trim()).filter(Boolean),
     allowedKnowledgePoints: (input.knowledgePoints ?? [])
       .filter((point) => Boolean(point.id))
-      .map((point) => ({ id: point.id, name: point.name?.trim() || point.id, level: point.level })),
+      .map((point) => ({ id: point.id, name: point.name?.trim() || "未命名知识点", level: point.level })),
     terminologyRule: defaults.terminologyRule,
     abstractionRule: defaults.abstractionRule,
     exampleRule: defaults.exampleRule,

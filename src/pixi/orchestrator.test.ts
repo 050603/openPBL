@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentRoleById } from '@/assets/agent/roles'
 import type { AgentId } from '@/domain/studio'
+import { classroomNavigationLaneXForSeat } from './navigation'
 import { createOfficeOrchestrator } from './orchestrator'
 import { studyZoneDefinitions, type StudyZoneController } from './study-zones'
 import type { WorkstationController } from './workstation'
@@ -9,7 +10,7 @@ const agentIds: AgentId[] = ['zhizhi', 'wenwen', 'lingling', 'cece', 'pingping',
 
 type TimelineEvent = {
   agentId: AgentId
-  kind: 'animation-start' | 'animation-stop' | 'conversation' | 'move' | 'place' | 'play'
+  kind: 'animation-start' | 'animation-stop' | 'conversation' | 'facing' | 'move' | 'place' | 'play'
   value: boolean | string | { x: number; y: number }
   at: number
 }
@@ -19,8 +20,10 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
     const column = index % 2
     const row = Math.floor(index / 2)
     const seatAnchor = { x: column === 0 ? 515 : 866, y: 158 + row * 261 }
-    const seatExitAnchor = { x: seatAnchor.x + (column === 0 ? 138 : -138), y: seatAnchor.y }
-    const homeAnchor = { x: seatExitAnchor.x, y: seatExitAnchor.y + 76 }
+    const seatExitAnchor = {
+      x: classroomNavigationLaneXForSeat(seatAnchor.x),
+      y: seatAnchor.y,
+    }
     const conversationAnchor = { x: seatExitAnchor.x, y: seatAnchor.y + 14 }
     let anchor = { ...seatAnchor }
 
@@ -39,7 +42,9 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
       }),
       getVisualAnchorPosition: vi.fn(() => ({ ...anchor })),
       cancelMovement: vi.fn(),
-      setFacing: vi.fn(),
+      setFacing: vi.fn((facing: string) => {
+        timeline.push({ agentId, kind: 'facing', value: facing, at: Date.now() })
+      }),
       setPosture: vi.fn(),
       setAnimationSpeed: vi.fn(),
       startBodyAnimation: vi.fn(() => {
@@ -60,7 +65,6 @@ function createWorkstations(timeline: TimelineEvent[]): Record<AgentId, Workstat
       roleProfile: agentRoleById[agentId],
       seatAnchor,
       seatExitAnchor,
-      homeAnchor,
       conversationAnchor,
       setConversationActive: vi.fn((active: boolean) => {
         timeline.push({ agentId, kind: 'conversation', value: active, at: Date.now() })
@@ -172,8 +176,12 @@ describe('office orchestrator partner conversations', () => {
     const outboundMoves = timeline.slice(0, standingTalkIndex).filter(
       (event) => event.agentId === 'zhizhi' && event.kind === 'move',
     )
+    const obsoleteDeskCorner = {
+      x: workstations.zhizhi.seatExitAnchor.x,
+      y: workstations.zhizhi.seatExitAnchor.y + 76,
+    }
     expect(outboundMoves.some(
-      (event) => JSON.stringify(event.value) === JSON.stringify(workstations.zhizhi.homeAnchor),
+      (event) => JSON.stringify(event.value) === JSON.stringify(obsoleteDeskCorner),
     )).toBe(false)
     expect(outboundMoves.some(
       (event) => typeof event.value === 'object' && event.value.x === 690,
@@ -201,6 +209,29 @@ describe('office orchestrator partner conversations', () => {
     const sittingActionIndex = timeline.findIndex(
       (event) => event.agentId === 'zhizhi' && event.kind === 'play' && event.value === 'sit_down',
     )
+    const returnStartIndex = timeline.findIndex(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'conversation'
+        && event.value === false,
+    )
+    const chairSideArrivalIndex = timeline.findIndex(
+      (event, index) => index > returnStartIndex
+        && event.agentId === 'zhizhi'
+        && event.kind === 'move'
+        && JSON.stringify(event.value) === JSON.stringify(workstations.zhizhi.seatExitAnchor),
+    )
+    expect(chairSideArrivalIndex).toBeGreaterThan(returnStartIndex)
+    expect(sittingActionIndex).toBeGreaterThan(chairSideArrivalIndex)
+    expect(timeline.slice(chairSideArrivalIndex, sittingActionIndex).some(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'play'
+        && event.value === 'turn_arrive',
+    )).toBe(false)
+    expect(timeline.slice(returnStartIndex, sittingActionIndex).some(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'move'
+        && JSON.stringify(event.value) === JSON.stringify(obsoleteDeskCorner),
+    )).toBe(false)
     const chairMoveIndex = timeline.findIndex(
       (event, index) => index > sittingActionIndex
         && event.agentId === 'zhizhi'
@@ -279,6 +310,105 @@ describe('office orchestrator partner conversations', () => {
 
     finishArchiveAction?.()
     await Promise.all([firstVisit, secondVisit])
+    office.destroy()
+  })
+
+  it('leaves each desk through the chair side without stepping toward the old lower corner', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+
+    await office.goToStudyZone('zhizhi', 'archive')
+    await office.goToStudyZone('wenwen', 'planning')
+
+    for (const agentId of ['zhizhi', 'wenwen'] as const) {
+      const seatExit = workstations[agentId].seatExitAnchor
+      const exitMoveIndex = timeline.findIndex(
+        (event) => event.agentId === agentId
+          && event.kind === 'move'
+          && JSON.stringify(event.value) === JSON.stringify(seatExit),
+      )
+      const firstRouteMoveIndex = timeline.findIndex(
+        (event, index) => index > exitMoveIndex
+          && event.agentId === agentId
+          && event.kind === 'move',
+      )
+      const firstRouteMove = timeline[firstRouteMoveIndex]
+      const expectedExitFacing = seatExit.x > workstations[agentId].seatAnchor.x
+        ? 'right'
+        : 'left'
+
+      expect(exitMoveIndex).toBeGreaterThan(-1)
+      expect(timeline.slice(0, exitMoveIndex).findLast(
+        (event) => event.agentId === agentId && event.kind === 'facing',
+      )?.value).toBe(expectedExitFacing)
+      expect(firstRouteMove?.value).toEqual(expect.objectContaining({ x: seatExit.x }))
+      expect(timeline.slice(exitMoveIndex + 1, firstRouteMoveIndex).some(
+        (event) => event.agentId === agentId && event.kind === 'facing',
+      )).toBe(false)
+      expect(timeline.some(
+        (event) => event.agentId === agentId
+          && event.kind === 'move'
+          && JSON.stringify(event.value) === JSON.stringify({
+            x: seatExit.x,
+            y: seatExit.y + 76,
+          }),
+      )).toBe(false)
+    }
+
+    office.destroy()
+  })
+
+  it('returns from a study zone straight to the chair side and sits without an arrival pause', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+
+    for (const agentId of ['lingling', 'wenwen'] as const) {
+      await office.goToStudyZone(agentId, 'planning')
+      timeline.length = 0
+      await office.returnAgentToDesk(agentId)
+
+      const seatExit = workstations[agentId].seatExitAnchor
+      const seat = workstations[agentId].seatAnchor
+      const chairSideMoveIndex = timeline.findIndex(
+        (event) => event.agentId === agentId
+          && event.kind === 'move'
+          && JSON.stringify(event.value) === JSON.stringify(seatExit),
+      )
+      const sitDownIndex = timeline.findIndex(
+        (event) => event.agentId === agentId
+          && event.kind === 'play'
+          && event.value === 'sit_down',
+      )
+      const expectedSitFacing = seat.x > seatExit.x ? 'right' : 'left'
+
+      expect(chairSideMoveIndex).toBeGreaterThan(-1)
+      expect(sitDownIndex).toBeGreaterThan(chairSideMoveIndex)
+      expect(timeline.slice(chairSideMoveIndex + 1, sitDownIndex).filter(
+        (event) => event.agentId === agentId && event.kind === 'facing',
+      ).map((event) => event.value)).toEqual([expectedSitFacing])
+      expect(timeline.slice(chairSideMoveIndex, sitDownIndex).some(
+        (event) => event.kind === 'play' && event.value === 'turn_arrive',
+      )).toBe(false)
+      expect(timeline.slice(chairSideMoveIndex + 1, sitDownIndex).some(
+        (event) => event.kind === 'move',
+      )).toBe(false)
+      expect(timeline.some(
+        (event) => event.kind === 'move'
+          && JSON.stringify(event.value) === JSON.stringify({
+            x: seatExit.x,
+            y: seatExit.y + 76,
+          }),
+      )).toBe(false)
+      expect(workstations[agentId].person.getVisualAnchorPosition('bottomCenter'))
+        .toEqual(seat)
+    }
+
     office.destroy()
   })
 
@@ -409,6 +539,61 @@ describe('office orchestrator partner conversations', () => {
     office.destroy()
   })
 
+  it('keeps a conversation lane reserved until the visitor has cleared the aisle', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.99,
+      idleStartDelays: {
+        zhizhi: 0,
+        wenwen: 60_000,
+        lingling: 60_000,
+        cece: 60_000,
+        pingping: 60_000,
+        jiji: 60_000,
+      },
+    })
+
+    agentIds.forEach((agentId) => office.setAgentState(agentId, 'idle'))
+    await vi.advanceTimersByTimeAsync(2_200)
+    expect(timeline.some(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'conversation'
+        && event.value === true,
+    )).toBe(true)
+
+    const queuedRoute = office.goToStudyZone('lingling', 'archive')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(timeline.some(
+      (event) => event.agentId === 'lingling' && event.kind === 'move',
+    )).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await queuedRoute
+    expect(timeline.some(
+      (event) => event.agentId === 'lingling' && event.kind === 'move',
+    )).toBe(true)
+
+    const conversationEndedAt = timeline.findIndex(
+      (event) => event.agentId === 'zhizhi'
+        && event.kind === 'conversation'
+        && event.value === false,
+    )
+    const visitorClearedAt = timeline.findIndex(
+      (event, index) => index > conversationEndedAt
+        && event.agentId === 'zhizhi'
+        && event.kind === 'move'
+        && JSON.stringify(event.value) === JSON.stringify(workstations.zhizhi.seatExitAnchor),
+    )
+    const queuedRouteStartedAt = timeline.findIndex(
+      (event) => event.agentId === 'lingling' && event.kind === 'move',
+    )
+    expect(visitorClearedAt).toBeGreaterThan(-1)
+    expect(queuedRouteStartedAt).toBeGreaterThan(visitorClearedAt)
+
+    office.destroy()
+  })
+
   it('does not touch destroyed workstations when an idle conversation settles late', async () => {
     const timeline: TimelineEvent[] = []
     const workstations = createWorkstations(timeline)
@@ -483,6 +668,40 @@ describe('office orchestrator partner conversations', () => {
       expect.anything(),
     )
 
+    office.destroy()
+  })
+
+  it('turns an interrupted walk into a standing speech before applying the speaking state', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    let releaseOffChairMove = () => {}
+    const offChairMove = new Promise<void>((resolve) => {
+      releaseOffChairMove = resolve
+    })
+    vi.mocked(workstations.zhizhi.person.moveVisualAnchorTo).mockImplementationOnce(async () => {
+      await offChairMove
+    })
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+
+    const route = office.goToStudyZone('zhizhi', 'library')
+    await Promise.resolve()
+    await Promise.resolve()
+    vi.mocked(workstations.zhizhi.person.cancelMovement).mockClear()
+
+    office.setAgentState('zhizhi', 'speaking')
+
+    expect(workstations.zhizhi.person.cancelMovement).toHaveBeenCalledOnce()
+    expect(workstations.zhizhi.setAway).toHaveBeenCalledWith(true)
+    expect(workstations.zhizhi.person.setPosture).toHaveBeenCalledWith('normal')
+    expect(workstations.zhizhi.person.setFacing).toHaveBeenCalledWith('left')
+    expect(workstations.zhizhi.setState).toHaveBeenCalledWith('speaking')
+    expect(vi.mocked(workstations.zhizhi.setAway).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(workstations.zhizhi.setState).mock.invocationCallOrder[0])
+
+    releaseOffChairMove()
+    await route
     office.destroy()
   })
 

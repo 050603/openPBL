@@ -19,6 +19,15 @@ describe("linkClassroomToCourse", () => {
       stageName: "人工智能项目课",
       teacherClassroomId: "teacher-classroom",
       teacherResourceScenes: [{ id: "teacher-scene", title: "教师引导" }] as never,
+      sceneOutlines: [{
+        id: "outline-1",
+        type: "slide",
+        title: "课程导入",
+        description: "导入课程主题",
+        keyPoints: [],
+        order: 0,
+        mediaGenerations: [{ type: "image", elementId: "gen_img_1", prompt: "真实课程插图" }],
+      }],
     });
 
     expect(store.updateCourse).toHaveBeenCalledWith("course-1", expect.any(Function));
@@ -28,6 +37,7 @@ describe("linkClassroomToCourse", () => {
     expect(saved.teacherClassroomId).toBe("teacher-classroom");
     expect(saved.content._openmaicClassroomId).toBe("student-classroom");
     expect(saved.content._openmaicScenesCount).toBe(8);
+    expect(saved.content._openmaicSceneOutlines?.[0]?.mediaGenerations).toHaveLength(1);
     expect(saved.content.teacherResources?.scenes).toHaveLength(1);
   });
 });

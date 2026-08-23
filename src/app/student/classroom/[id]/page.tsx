@@ -108,6 +108,7 @@ export default function StudentClassroomPage() {
       variant="bare"
       wide={currentStage?.key === "ai-learning"}
       immersive={isTeaching && workspaceMode === "companions"}
+      viewportLocked={isTeaching && activeStageKey === "ai-learning"}
       hideCourseSwitcher
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
       currentStage={currentStage ? { index: course.currentStageIndex, total, label: currentStage.label } : undefined}
@@ -140,7 +141,7 @@ export default function StudentClassroomPage() {
       ) : currentStage ? (
         <>
           {workspaceMode === "task" ? (
-            <div className="space-y-3">
+            <div className={activeStageKey === "ai-learning" ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3"}>
               {forcedProjection ? <StudentProjectedTeacherResource projection={forcedProjection} /> : null}
               {optionalProjection ? (
                 <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/80">
@@ -151,7 +152,9 @@ export default function StudentClassroomPage() {
                   {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
                 </div>
               ) : null}
-              <section className="overflow-hidden rounded-[var(--radius-lg)]">
+              <section className={activeStageKey === "ai-learning"
+                ? "min-h-0 flex-1 overflow-hidden rounded-[var(--radius-lg)]"
+                : "overflow-hidden rounded-[var(--radius-lg)]"}>
                 <StudentStageView
                   course={course}
                   view={currentStage.view}
@@ -227,7 +230,7 @@ function ProjectedResourceOverlay({
       <section
         aria-labelledby="student-projection-title"
         aria-modal="true"
-        className="relative z-10 flex h-full w-full max-w-[1480px] flex-col overflow-hidden rounded-2xl border border-white/80 bg-stone-50 shadow-[0_28px_90px_rgba(15,23,42,.28)] sm:rounded-[24px]"
+        className="pbl-wide-container relative z-10 flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/80 bg-stone-50 shadow-[0_28px_90px_rgba(15,23,42,.28)] sm:rounded-[1.5rem]"
         role="dialog"
       >
         <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-stone-200 bg-white/95 px-4 backdrop-blur sm:px-6">

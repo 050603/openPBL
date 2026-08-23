@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  DURABLE_GENERATION_TRANSIENT_RETRIES,
   requestClassForCourseContentAction,
   resolveLlmRequestTimeoutMs,
 } from "./request-policy";
 
 describe("LLM request timeout policy", () => {
+  it("keeps durable generation retries bounded while spanning a transient outage", () => {
+    expect(DURABLE_GENERATION_TRANSIENT_RETRIES).toBe(4);
+  });
   it("gives long structured course outputs substantially more time", () => {
     expect(resolveLlmRequestTimeoutMs("standard", {})).toBe(180_000);
     expect(resolveLlmRequestTimeoutMs("quality-review", {})).toBe(300_000);

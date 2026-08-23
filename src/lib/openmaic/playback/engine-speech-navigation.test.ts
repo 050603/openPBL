@@ -6,12 +6,13 @@ import type { ActionEngine } from '@openmaic/lib/action/engine';
 import type { AudioPlayer } from '@openmaic/lib/utils/audio-player';
 
 describe('PlaybackEngine speech navigation', () => {
-  it('restarts audio and subtitles from the selected speech action', () => {
+  it('restores the whiteboard and restarts audio at the selected subtitle position', async () => {
     const onSpeechStart = vi.fn();
     const onSpeechProgress = vi.fn();
     const actionEngine = {
       clearEffects: vi.fn(),
       execute: vi.fn().mockResolvedValue(undefined),
+      restoreWhiteboard: vi.fn().mockResolvedValue(undefined),
     } as unknown as ActionEngine;
     const audioPlayer = {
       play: vi.fn().mockResolvedValue(true),
@@ -40,14 +41,16 @@ describe('PlaybackEngine speech navigation', () => {
       onSpeechProgress,
     });
 
-    expect(engine.playSpeechAt(2)).toBe(true);
+    expect(engine.playSpeechAt(2, 0.4)).toBe(true);
     expect(audioPlayer.stop).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpeechStart).toHaveBeenCalled());
+    expect(actionEngine.restoreWhiteboard).toHaveBeenCalledWith((scene.actions ?? []).slice(0, 2));
     expect(onSpeechStart).toHaveBeenCalledWith('第二句', {
       sceneId: 'lesson',
       actionIndex: 2,
     });
-    expect(onSpeechProgress).toHaveBeenCalledWith(0);
-    expect(audioPlayer.play).toHaveBeenCalledWith('', '/second.mp3');
+    expect(onSpeechProgress).toHaveBeenCalledWith(0.4);
+    expect(audioPlayer.play).toHaveBeenCalledWith('', '/second.mp3', 0.4);
   });
 
   it('rejects a non-speech action', () => {

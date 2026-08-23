@@ -84,6 +84,7 @@ export class ActionEngine {
   private audioPlayer: AudioPlayer | null;
   private effectTimer: ReturnType<typeof setTimeout> | null = null;
   private widgetMessageCallback: WidgetMessageCallback | null = null;
+  private restoringWhiteboard = false;
 
   constructor(
     stageStore: StageStore,
@@ -182,6 +183,34 @@ export class ActionEngine {
       this.effectTimer = null;
     }
     useCanvasStore.getState().clearAllEffects();
+  }
+
+  /**
+   * Rebuild the current scene's board as a projection of the action timeline.
+   * This is used by subtitle seeking: content after the target disappears,
+   * content before it is restored exactly once, and normal playback can then
+   * continue without duplicate elements.
+   */
+  async restoreWhiteboard(actions: ReadonlyArray<Action>): Promise<void> {
+    const wb = this.getActiveWhiteboard();
+    if (!wb.success || !wb.data) {
+      throw new Error('Unable to restore the active whiteboard');
+    }
+    this.stageAPI.whiteboard.update({ elements: [] }, wb.data.id);
+    useCanvasStore.getState().setWhiteboardClearing(false);
+    useCanvasStore.getState().setWhiteboardOpen(false);
+    this.restoringWhiteboard = true;
+    try {
+      for (const action of actions) {
+        if (action.type.startsWith('wb_')) await this.execute(action);
+      }
+    } finally {
+      this.restoringWhiteboard = false;
+    }
+  }
+
+  private async waitForWhiteboardVisual(ms: number): Promise<void> {
+    if (!this.restoringWhiteboard) await delay(ms);
   }
 
   /** Schedule auto-clear for fire-and-forget effects */
@@ -343,7 +372,7 @@ export class ActionEngine {
     this.getActiveWhiteboard();
     useCanvasStore.getState().setWhiteboardOpen(true);
     // Wait for open animation to complete (slow spring: stiffness 120, damping 18, mass 1.2)
-    await delay(2000);
+    await this.waitForWhiteboardVisual(2000);
   }
 
   private async executeWbDrawText(action: WbDrawTextAction): Promise<void> {
@@ -375,7 +404,7 @@ export class ActionEngine {
     );
 
     // Wait for element fade-in animation
-    await delay(800);
+    await this.waitForWhiteboardVisual(800);
   }
 
   private async executeWbDrawShape(action: WbDrawShapeAction): Promise<void> {
@@ -401,7 +430,7 @@ export class ActionEngine {
     );
 
     // Wait for element fade-in animation
-    await delay(800);
+    await this.waitForWhiteboardVisual(800);
   }
 
   private async executeWbDrawChart(action: WbDrawChartAction): Promise<void> {
@@ -425,7 +454,7 @@ export class ActionEngine {
       wb.data.id,
     );
 
-    await delay(800);
+    await this.waitForWhiteboardVisual(800);
   }
 
   private async executeWbDrawLatex(action: WbDrawLatexAction): Promise<void> {
@@ -461,7 +490,7 @@ export class ActionEngine {
       return;
     }
 
-    await delay(800);
+    await this.waitForWhiteboardVisual(800);
   }
 
   private async executeWbDrawTable(action: WbDrawTableAction): Promise<void> {
@@ -517,7 +546,7 @@ export class ActionEngine {
       wb.data.id,
     );
 
-    await delay(800);
+    await this.waitForWhiteboardVisual(800);
   }
 
   private async executeWbDrawLine(action: WbDrawLineAction): Promise<void> {
@@ -550,7 +579,7 @@ export class ActionEngine {
     );
 
     // Wait for element fade-in animation
-    await delay(800);
+    await this.waitForWhiteboardVisual(800);
   }
 
   private async executeWbDrawCode(action: WbDrawCodeAction): Promise<void> {
@@ -580,7 +609,7 @@ export class ActionEngine {
 
     // Wait for typing animation: base 800ms + 50ms per line, capped at 3s
     const animMs = Math.min(800 + lines.length * 50, 3000);
-    await delay(animMs);
+    await this.waitForWhiteboardVisual(animMs);
   }
 
   private async executeWbEditCode(action: WbEditCodeAction): Promise<void> {
@@ -642,7 +671,7 @@ export class ActionEngine {
     );
 
     // Wait for edit animation
-    await delay(600);
+    await this.waitForWhiteboardVisual(600);
   }
 
   private async executeWbDelete(action: WbDeleteAction): Promise<void> {
@@ -650,7 +679,7 @@ export class ActionEngine {
     if (!wb.success || !wb.data) return;
 
     this.stageAPI.whiteboard.deleteElement(action.elementId, wb.data.id);
-    await delay(300);
+    await this.waitForWhiteboardVisual(300);
   }
 
   private async executeWbClear(): Promise<void> {
@@ -660,15 +689,17 @@ export class ActionEngine {
     const elementCount = wb.data.elements?.length || 0;
     if (elementCount === 0) return;
 
-    // Save snapshot before AI clear (mirrors UI handleClear in index.tsx)
-    useWhiteboardHistoryStore.getState().pushSnapshot(wb.data.elements!);
+    // Timeline restoration must not pollute the learner's manual undo history.
+    if (!this.restoringWhiteboard) {
+      useWhiteboardHistoryStore.getState().pushSnapshot(wb.data.elements!);
+    }
 
     // Trigger cascade exit animation
-    useCanvasStore.getState().setWhiteboardClearing(true);
+    if (!this.restoringWhiteboard) useCanvasStore.getState().setWhiteboardClearing(true);
 
     // Wait for cascade: base 380ms + 55ms per element, capped at 1400ms
     const animMs = Math.min(380 + elementCount * 55, 1400);
-    await delay(animMs);
+    await this.waitForWhiteboardVisual(animMs);
 
     // Actually remove elements
     this.stageAPI.whiteboard.update({ elements: [] }, wb.data.id);
@@ -678,7 +709,7 @@ export class ActionEngine {
   private async executeWbClose(): Promise<void> {
     useCanvasStore.getState().setWhiteboardOpen(false);
     // Wait for close animation (500ms ease-out tween)
-    await delay(700);
+    await this.waitForWhiteboardVisual(700);
   }
 
   // ==================== Widget Actions ====================

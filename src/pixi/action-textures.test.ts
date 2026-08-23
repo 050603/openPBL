@@ -82,4 +82,148 @@ describe('getRoleScarfShade', () => {
     expect(mask[1 * width + 4]).toBe(0)
     expect(mask[3 * width + 7]).toBe(0)
   })
+
+  it('recovers lightened scarf highlights without walking into the blue-gray body', () => {
+    const width = 6
+    const height = 3
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    const put = (x: number, y: number, rgba: readonly number[]) => {
+      const index = (y * width + x) * 4
+      pixels.set(rgba, index)
+    }
+
+    put(1, 1, [46, 107, 203, 255])
+    // Real atlas highlight sampled from the outer edge of the scarf tail. It
+    // is too pale for the strict core ratio but keeps the master scarf hue.
+    put(2, 1, [95, 136, 201, 255])
+    put(3, 1, [70, 90, 145, 255])
+
+    const mask = buildRoleScarfMask(
+      pixels,
+      width,
+      height,
+      [{ x: 0, y: 0, w: width, h: height }],
+    )
+
+    expect(mask[1 * width + 1]).toBe(2)
+    expect(mask[1 * width + 2]).toBe(2)
+    expect(mask[1 * width + 3]).toBe(0)
+  })
+
+  it('recovers a nearby bright highlight separated from the scarf core by an outline', () => {
+    const width = 12
+    const height = 3
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    const put = (x: number, y: number, rgba: readonly number[]) => {
+      const index = (y * width + x) * 4
+      pixels.set(rgba, index)
+    }
+
+    put(1, 1, [46, 107, 203, 255])
+    put(2, 1, [42, 48, 57, 255])
+    put(3, 1, [102, 143, 208, 255])
+    put(4, 1, [99, 137, 196, 255])
+    // The same highlight color far from a confirmed scarf region is protected.
+    put(10, 1, [102, 143, 208, 255])
+
+    const mask = buildRoleScarfMask(
+      pixels,
+      width,
+      height,
+      [{ x: 0, y: 0, w: width, h: height }],
+    )
+
+    expect(mask[1 * width + 1]).toBe(2)
+    expect(mask[1 * width + 2]).toBe(0)
+    expect(mask[1 * width + 3]).toBe(2)
+    expect(mask[1 * width + 4]).toBe(2)
+    expect(mask[1 * width + 10]).toBe(0)
+  })
+
+  it('fills a compressed blue pinhole only when scarf pixels surround it', () => {
+    const width = 7
+    const height = 5
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    const put = (x: number, y: number, rgba: readonly number[]) => {
+      const index = (y * width + x) * 4
+      pixels.set(rgba, index)
+    }
+    const scarf = [46, 107, 203, 255] as const
+
+    put(1, 1, scarf)
+    put(2, 1, scarf)
+    put(3, 1, scarf)
+    put(1, 2, scarf)
+    put(3, 2, scarf)
+    put(2, 2, [58, 75, 121, 255])
+    // The same residual color touches the component from only one side.
+    put(4, 2, [58, 75, 121, 255])
+
+    const mask = buildRoleScarfMask(
+      pixels,
+      width,
+      height,
+      [{ x: 0, y: 0, w: width, h: height }],
+    )
+
+    expect(mask[2 * width + 2]).toBe(2)
+    expect(mask[2 * width + 4]).toBe(0)
+  })
+
+  it('covers multi-pixel semi-transparent WebP fringe without crossing into opaque art', () => {
+    const width = 8
+    const height = 3
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    const put = (x: number, y: number, rgba: readonly number[]) => {
+      const index = (y * width + x) * 4
+      pixels.set(rgba, index)
+    }
+
+    put(1, 1, [46, 107, 203, 255])
+    // Chroma subsampling can make the outer fringe blue, magenta, or nearly
+    // neutral even though every pixel belongs to the same scarf silhouette.
+    put(2, 1, [75, 102, 168, 96])
+    put(3, 1, [112, 71, 104, 42])
+    put(4, 1, [31, 38, 29, 6])
+    put(5, 1, [70, 90, 145, 255])
+    put(7, 1, [112, 71, 104, 42])
+
+    const mask = buildRoleScarfMask(
+      pixels,
+      width,
+      height,
+      [{ x: 0, y: 0, w: width, h: height }],
+    )
+
+    expect(mask[1 * width + 1]).toBe(2)
+    expect(mask[1 * width + 2]).toBe(2)
+    expect(mask[1 * width + 3]).toBe(2)
+    expect(mask[1 * width + 4]).toBe(2)
+    expect(mask[1 * width + 5]).toBe(0)
+    expect(mask[1 * width + 7]).toBe(0)
+  })
+
+  it('recolors an opaque purple-blue compression speck on the scarf silhouette', () => {
+    const width = 6
+    const height = 3
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    const put = (x: number, y: number, rgba: readonly number[]) => {
+      const index = (y * width + x) * 4
+      pixels.set(rgba, index)
+    }
+
+    put(1, 1, [46, 107, 203, 255])
+    put(2, 1, [91, 83, 164, 255])
+    put(3, 1, [70, 90, 145, 255])
+
+    const mask = buildRoleScarfMask(
+      pixels,
+      width,
+      height,
+      [{ x: 0, y: 0, w: width, h: height }],
+    )
+
+    expect(mask[1 * width + 2]).toBe(2)
+    expect(mask[1 * width + 3]).toBe(0)
+  })
 })

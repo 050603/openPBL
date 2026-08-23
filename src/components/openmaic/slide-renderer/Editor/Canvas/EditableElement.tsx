@@ -227,7 +227,7 @@ export function EditableElement({
         }}
       >
         <div className="p-2 bg-gray-100 border border-gray-300 text-xs text-gray-500">
-          {elementInfo.type} element (not implemented)
+          此内容类型暂不支持编辑
         </div>
       </div>
     );

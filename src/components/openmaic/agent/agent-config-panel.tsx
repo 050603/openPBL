@@ -13,6 +13,7 @@ import { Badge } from '@openmaic/components/ui/badge';
 import { ScrollArea } from '@openmaic/components/ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from '@openmaic/components/ui/avatar';
 import { PlusIcon, Trash2Icon, EditIcon } from 'lucide-react';
+import { actorRoleLabel } from '@/lib/user-facing-labels';
 
 export function AgentConfigPanel() {
   const { listAgents, deleteAgent } = useAgentRegistry();
@@ -73,7 +74,7 @@ export function AgentConfigPanel() {
                     </Avatar>
                     <div>
                       <CardTitle className="text-base">{agent.name}</CardTitle>
-                      <CardDescription className="text-sm">{agent.role}</CardDescription>
+                      <CardDescription className="text-sm">{actorRoleLabel(agent.role)}</CardDescription>
                     </div>
                   </div>
                   <div className="flex gap-2">

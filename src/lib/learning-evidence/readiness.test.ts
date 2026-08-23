@@ -3,6 +3,7 @@ import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 import {
   deriveStageReadiness,
+  isLearningEvidenceStructurallyComplete,
   isSnapshotInspectable,
 } from "./readiness";
 import {
@@ -94,16 +95,16 @@ const projectIntent = evidence("project-intent", "launch", {
 });
 
 describe("learning preset and mission definitions", () => {
-  it("uses preset-specific iteration targets with explicit testing tasks", () => {
+  it("keeps preset inference while presenting one simple making task", () => {
     expect(inferLearningPreset("小学五年级")).toBe("guided");
     expect(inferLearningPreset("初二")).toBe("standard");
     expect(inferLearningPreset("本科二年级")).toBe("research");
 
     expect(getStageMissionDefinition("make", "guided").requiredIterations).toBe(1);
-    expect(getStageMissionDefinition("make", "standard").requiredIterations).toBe(2);
-    expect(getStageMissionDefinition("make", "research").targetIterations).toBe(3);
+    expect(getStageMissionDefinition("make", "standard").requiredIterations).toBe(1);
+    expect(getStageMissionDefinition("make", "research").targetIterations).toBe(1);
     expect(getStageMissionDefinition("make", "research").actions.map((item) => item.id))
-      .toEqual(["project-work", "test-result", "revision-decision"]);
+      .toEqual(["make-workbench"]);
   });
 });
 
@@ -215,8 +216,44 @@ describe("stage readiness derives only from valid evidence", () => {
       learningEvidence: cycleEvidence,
     }), "student-1", "make");
     expect(ready.completedIterations).toBe(2);
-    expect(ready.requiredIterations).toBe(2);
+    expect(ready.requiredIterations).toBe(1);
     expect(ready.status).toBe("ready");
+  });
+
+  it("accepts the compact three-part making records without legacy duplicate fields", () => {
+    const testRecord = evidence("test-result", "make", {
+      iterationId: "cycle-1",
+      method: "让 3 名同学完成任务并记录耗时",
+      target: "",
+      observation: "2 人在第二步停顿",
+      result: "第二步提示仍不清楚",
+      limitation: "",
+    });
+    const revisionRecord = evidence("revision-decision", "make", {
+      iterationId: "cycle-1",
+      interpretation: "",
+      decision: "revise",
+      reason: "2 人在第二步停顿",
+      plannedChange: "缩短第二步文字并加图标",
+      nextGoal: "",
+    });
+
+    expect(isLearningEvidenceStructurallyComplete(testRecord)).toBe(true);
+    expect(isLearningEvidenceStructurallyComplete(revisionRecord)).toBe(true);
+  });
+
+  it("accepts one student-authored making work draft as process evidence", () => {
+    const processDraft = evidence("revision-decision", "make", {
+      iterationId: "cycle-1",
+      interpretation: "",
+      decision: "revise",
+      reason: "",
+      plannedChange: "",
+      nextGoal: "",
+      processDraft: "这次完成了原型首页，目前需要继续调整操作提示。",
+    });
+
+    expect(isLearningEvidenceStructurallyComplete(processDraft)).toBe(true);
   });
 
   it("accepts a concise reflection workstation submission without a word-count threshold", () => {

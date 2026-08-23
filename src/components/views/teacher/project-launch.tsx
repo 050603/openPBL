@@ -25,6 +25,7 @@ import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import { cn } from "@/lib/utils";
+import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 import {
   isProjectLaunchTodo,
 } from "@/lib/project-launch-readiness";
@@ -179,7 +180,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
           {(course.resources ?? []).map((resource) => (
             <div className="group flex min-w-0 items-center gap-2 rounded-[8px] border border-stone-200 bg-white p-1.5 pl-2.5 transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]/30" key={resource.id}>
               <a className="flex min-w-0 flex-1 items-center gap-2.5" href={resource.url || "#"} rel="noreferrer" target="_blank">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[7px] bg-[var(--pbl-teacher-soft)] text-[10px] font-black text-[var(--pbl-teacher)]">{resource.type.slice(0, 4)}</span>
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[7px] bg-[var(--pbl-teacher-soft)] text-[10px] font-black text-[var(--pbl-teacher)]">{courseResourceTypeLabel(resource.type)}</span>
                 <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-stone-900">{resource.title}</span><span className="mt-0.5 block text-xs text-stone-500">{resource.size}</span></span>
                 <ExternalLink className="shrink-0 text-stone-400" size={14} />
               </a>

@@ -437,12 +437,14 @@ export function AdaptiveAiLearningRuntime({
     && plan.pretest.questions.length > 0
     && !adaptiveState.pretestCompletedAt
   ) {
-    return <AdaptivePretest plan={plan} onSubmit={handlePretestSubmit} />;
+    return <AdaptivePretest plan={plan} onSubmit={handlePretestSubmit} variant={variant} />;
   }
 
   if (preCoursePreparing || preCoursePreparationError) {
     return (
-      <div className="grid min-h-[720px] place-items-center bg-stone-50 p-6">
+      <div className={variant === "fullscreen"
+        ? "grid h-dvh place-items-center overflow-y-auto bg-stone-50 p-6"
+        : "grid h-full min-h-0 place-items-center overflow-y-auto bg-stone-50 p-6"}>
         <div className="max-w-md rounded-[12px] border border-cyan-200 bg-white p-6 text-center shadow-sm">
           {preCoursePreparing ? <Loader2 className="mx-auto animate-spin text-cyan-800" size={28} /> : null}
           <h2 className="mt-3 text-lg font-bold text-stone-950">
@@ -475,7 +477,7 @@ export function AdaptiveAiLearningRuntime({
   }
 
   return (
-    <div className="relative">
+    <div className="relative h-full min-h-0">
       <span className="sr-only" aria-live="polite">
         Adaptive resources play in the main course player.
       </span>
@@ -509,9 +511,11 @@ export function AdaptiveAiLearningRuntime({
 function AdaptivePretest({
   plan,
   onSubmit,
+  variant,
 }: {
   plan: NonNullable<Course["content"]["adaptiveLearningPlan"]>;
   onSubmit: (answers: Record<string, AdaptiveAssessmentAnswer>) => Promise<void>;
+  variant: "embedded" | "fullscreen";
 }) {
   const [answers, setAnswers] = useState<Record<string, AdaptiveAssessmentAnswer>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -528,7 +532,7 @@ function AdaptivePretest({
   });
 
   return (
-    <div className="min-h-[720px] bg-[radial-gradient(circle_at_top_left,#cffafe_0,transparent_32%),linear-gradient(145deg,#f8fafc,#fff)] p-5 sm:p-8">
+    <div className={`${variant === "fullscreen" ? "h-dvh" : "h-full min-h-0"} overflow-y-auto bg-[radial-gradient(circle_at_top_left,#cffafe_0,transparent_32%),linear-gradient(145deg,#f8fafc,#fff)] p-5 sm:p-8`}>
       <div className="mx-auto max-w-3xl">
         <div className="flex items-start gap-3">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-cyan-950 text-white">

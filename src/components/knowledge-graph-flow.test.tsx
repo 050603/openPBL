@@ -25,6 +25,7 @@ describe("KnowledgeGraphFlow", () => {
       <KnowledgeGraphFlow
         activeNodeId="target"
         appearance="teaching-rail"
+        autoRestoreView
         focusActiveNode
         graph={graph}
         height={164}
@@ -33,8 +34,24 @@ describe("KnowledgeGraphFlow", () => {
       />,
     );
 
-    expect(screen.getByRole("application")).toBeTruthy();
+    const application = screen.getByRole("application");
+    expect(application).toBeTruthy();
+    expect(application.closest(".knowledge-graph-canvas")?.className).toContain("bg-transparent");
+    expect(application.closest(".knowledge-graph-canvas")?.getAttribute("data-auto-restore-view")).toBe("true");
     expect(screen.queryByText("依赖方向")).toBeNull();
     expect(screen.queryByRole("button", { name: "Zoom In" })).toBeNull();
+  });
+
+  it("can inherit a proportionally sized teaching region without a fixed minimum height", () => {
+    render(
+      <KnowledgeGraphFlow
+        fillAvailableHeight
+        graph={graph}
+        showMiniMap={false}
+      />,
+    );
+
+    const canvas = screen.getByRole("application").closest(".knowledge-graph-canvas") as HTMLElement;
+    expect(canvas.style.minHeight).toBe("");
   });
 });

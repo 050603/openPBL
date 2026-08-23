@@ -1,4 +1,5 @@
 import type { CourseDesignGenerationArtifact } from "@/lib/session/types";
+import { userFacingName, userFacingStageLabel } from "@/lib/user-facing-labels";
 
 export type QuickClassroomGenerationEvent = {
   step: string;
@@ -82,8 +83,8 @@ export function buildQuickClassroomArtifacts(
       accent: milestone % 2 === 0 ? "blue" : "violet",
       items: pages.length > 0
         ? pages.map((page, index) => ({
-            label: `${STAGE_LABELS[page.stageKey ?? ""] ?? page.stageLabel ?? "课堂页面"} · ${start + index + 1}`,
-            value: page.title,
+            label: `${STAGE_LABELS[page.stageKey ?? ""] ?? userFacingStageLabel(page.stageKey, page.stageLabel)} · ${start + index + 1}`,
+            value: userFacingName(page.title, "未命名课程页面"),
             meta: `${resourceLabel(page.type)} · ${formatDuration(page.estimatedDuration)}`,
           }))
         : [{ label: "页面进度", value: `${completedCount} 个页面已经完成` }],
@@ -262,12 +263,12 @@ function parseAdaptiveMessage(message: string): { title?: string; progress?: str
 function summarizeStages(outlines: QuickClassroomScenePreview[]): CourseDesignGenerationArtifact["items"] {
   const counts = new Map<string, number>();
   for (const outline of outlines) {
-    const key = outline.stageKey ?? outline.stageLabel ?? "课堂内容";
+    const key = userFacingStageLabel(outline.stageKey, outline.stageLabel);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   if (counts.size === 0) return [{ label: "课堂页面", value: "正在整理课程结构", meta: "学生课堂与教师资源" }];
   return [...counts.entries()].map(([stage, count]) => ({
-    label: STAGE_LABELS[stage] ?? stage,
+    label: STAGE_LABELS[stage] ?? userFacingStageLabel(undefined, stage),
     value: `${count} 个课堂页面`,
     meta: "学生页面、互动活动与教师资源",
   }));

@@ -69,6 +69,12 @@ import {
   retryVersionConflict,
   SessionActionRequestError,
 } from "./action-version-retry";
+import {
+  COURSE_EVENT_POLL_INTERVAL_MS,
+  COURSE_SYNC_FAILURE_NOTICE_THRESHOLD,
+  latestEventCursor,
+  type RealtimeTransportMode,
+} from "@/lib/realtime/sync-policy";
 
 const IDENTITY_KEY = "openpbl.identity.v1";
 // Separate identity keys per role to prevent teacher/student identity cross-contamination
@@ -346,6 +352,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const wsModeRef = useRef<"websocket" | "polling">("polling");
   const eventCursorRef = useRef<Record<string, string>>({});
   const courseRefreshTimerRef = useRef<number | null>(null);
+  const coursePollTimerRef = useRef<number | null>(null);
+  const coursePollInFlightRef = useRef(false);
+  const coursePollFailuresRef = useRef(0);
   const [realtimeMode, setRealtimeMode] = useState<"websocket" | "polling">("polling");
 
   useEffect(() => {
@@ -565,10 +574,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // ---- Stage 4: WebSocket realtime sync ----
   // The WebSocket server runs on a separate port (default 3001). Clients
   // try to connect once on mount; on 5 consecutive failures they give up
-  // and stay on the 5s long-polling fallback indefinitely. The first
-  // successful connection switches wsModeRef to "websocket" and stops the
-  // 1.5s polling churn — patches pushed by the server trigger refresh()
-  // on demand, so polling becomes unnecessary.
+  // and stay on the durable per-course event polling fallback. The first
+  // successful connection switches wsModeRef to "websocket" while retaining
+  // a lower-frequency durable cursor check for cross-instance correctness.
   function teardownWebSocket() {
     if (courseRefreshTimerRef.current !== null) {
       window.clearTimeout(courseRefreshTimerRef.current);
@@ -578,6 +586,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(wsRetryTimerRef.current);
       wsRetryTimerRef.current = null;
     }
+    stopCoursePolling();
     const ws = wsRef.current;
     if (!ws) return;
     try {
@@ -592,26 +601,98 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     wsRef.current = null;
   }
 
+  function stopCoursePolling() {
+    if (coursePollTimerRef.current !== null) {
+      window.clearInterval(coursePollTimerRef.current);
+      coursePollTimerRef.current = null;
+    }
+  }
+
+  function recordCourseSyncSuccess() {
+    if (coursePollFailuresRef.current >= COURSE_SYNC_FAILURE_NOTICE_THRESHOLD) {
+      toast.success("课堂实时同步已恢复", { id: "course-sync-error" });
+    }
+    coursePollFailuresRef.current = 0;
+  }
+
+  function recordCourseSyncFailure(error: unknown) {
+    coursePollFailuresRef.current += 1;
+    console.error("[session] Course synchronization failed:", error);
+    if (coursePollFailuresRef.current === COURSE_SYNC_FAILURE_NOTICE_THRESHOLD) {
+      toast.error("课堂实时同步中断", {
+        id: "course-sync-error",
+        description: "无法从服务器读取最新课堂状态，系统正在自动重试。",
+      });
+    }
+  }
+
+  function startCoursePolling(
+    courseId: string | undefined,
+    mode: RealtimeTransportMode = wsModeRef.current,
+  ) {
+    stopCoursePolling();
+    if (!courseId) return;
+
+    const poll = async () => {
+      if (coursePollInFlightRef.current || pendingCommitsRef.current > 0) return;
+      coursePollInFlightRef.current = true;
+      try {
+        // Seed the durable cursor from the current course snapshot. Afterwards
+        // only the lightweight event endpoint is polled. This is independent
+        // of process-local WebSocket delivery and therefore remains reliable
+        // behind reverse proxies, Redis outages, and blue/green instances.
+        if (eventCursorRef.current[courseId] === undefined) {
+          await refreshCourse(courseId);
+        } else {
+          await catchUpCourseEvents(courseId);
+        }
+        recordCourseSyncSuccess();
+      } catch (error) {
+        recordCourseSyncFailure(error);
+      } finally {
+        coursePollInFlightRef.current = false;
+      }
+    };
+
+    void poll();
+    coursePollTimerRef.current = window.setInterval(
+      () => void poll(),
+      COURSE_EVENT_POLL_INTERVAL_MS[mode],
+    );
+  }
+
   function switchToPolling() {
     pollingRef.current = true;
     if (wsModeRef.current !== "polling") {
       wsModeRef.current = "polling";
       setRealtimeMode("polling");
     }
+    startCoursePolling(wsCourseIdRef.current, "polling");
   }
 
-  async function refreshCourse(courseId: string, cursor?: string) {
-    if (pendingCommitsRef.current > 0) return;
+  async function refreshCourse(courseId: string, cursor?: string): Promise<boolean> {
+    if (pendingCommitsRef.current > 0) return false;
     const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/state`, {
       cache: "no-store",
       headers: { "X-OpenPBL-Role": getClientRole() ?? "student" },
     });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error(`COURSE_STATE_FAILED_${response.status}`);
     const body = (await response.json()) as {
       course: Course;
       eventCursor: string;
     };
+    // A local action may have started while the request was in flight. Never
+    // overwrite that optimistic state with an older server snapshot.
+    if (pendingCommitsRef.current > 0) return false;
     const current = stateRef.current;
+    const currentCourse = current.courses.find((course) => course.id === courseId);
+    if (
+      typeof currentCourse?.version === "number"
+      && typeof body.course.version === "number"
+      && currentCourse.version > body.course.version
+    ) {
+      return false;
+    }
     const found = current.courses.some((course) => course.id === courseId);
     const next = applyIdentity({
       ...current,
@@ -621,9 +702,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       updatedAt: body.course.updatedAt,
       hydrated: true,
     });
-    eventCursorRef.current[courseId] = cursor ?? body.eventCursor;
+    eventCursorRef.current[courseId] = latestEventCursor(
+      eventCursorRef.current[courseId],
+      cursor,
+      body.eventCursor,
+    );
     stateRef.current = next;
     dispatch({ type: "HYDRATE", payload: next });
+    return true;
   }
 
   function scheduleCourseRefresh(courseId: string, cursor?: string) {
@@ -632,8 +718,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     courseRefreshTimerRef.current = window.setTimeout(() => {
       courseRefreshTimerRef.current = null;
-      void refreshCourse(courseId, cursor);
-    }, 250);
+      void refreshCourse(courseId, cursor)
+        .then((refreshed) => {
+          if (refreshed) recordCourseSyncSuccess();
+        })
+        .catch(recordCourseSyncFailure);
+    }, 100 + Math.floor(Math.random() * 250));
   }
 
   async function catchUpCourseEvents(courseId: string) {
@@ -642,20 +732,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       `/api/courses/${encodeURIComponent(courseId)}/events?after=${encodeURIComponent(after)}`,
       { cache: "no-store", headers: { "X-OpenPBL-Role": getClientRole() ?? "student" } },
     );
-    if (!response.ok) return;
+    if (!response.ok) throw new Error(`COURSE_EVENTS_FAILED_${response.status}`);
     const body = (await response.json()) as {
       events: unknown[];
       nextCursor: string;
       hasMore: boolean;
+      requiresReconciliation?: boolean;
+      courseVersion?: number;
     };
-    if (body.events.length > 0) {
-      await refreshCourse(courseId, body.nextCursor);
+    const localVersion = stateRef.current.courses.find(
+      (course) => course.id === courseId,
+    )?.version ?? 0;
+    const versionGap = body.requiresReconciliation === true
+      && typeof body.courseVersion === "number"
+      && body.courseVersion > localVersion;
+    if (body.events.length > 0 || versionGap) {
+      const refreshed = await refreshCourse(courseId, body.nextCursor);
+      if (!refreshed) return;
+    } else {
+      eventCursorRef.current[courseId] = latestEventCursor(
+        eventCursorRef.current[courseId],
+        body.nextCursor,
+      );
     }
     if (body.hasMore) await catchUpCourseEvents(courseId);
   }
 
   function connectWebSocket(courseId: string | undefined) {
     if (typeof window === "undefined") return;
+    const previousCourseId = wsCourseIdRef.current;
     wsCourseIdRef.current = courseId;
     if (!courseId) {
       teardownWebSocket();
@@ -666,9 +771,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
         wsRef.current.send(JSON.stringify({ type: "subscribe", courseId }));
+        startCoursePolling(courseId, "websocket");
+        void catchUpCourseEvents(courseId)
+          .then(recordCourseSyncSuccess)
+          .catch(recordCourseSyncFailure);
       } catch {
         /* noop */
       }
+      return;
+    }
+    if (
+      wsRef.current
+      && wsRef.current.readyState === WebSocket.CONNECTING
+      && previousCourseId === courseId
+    ) {
+      startCoursePolling(courseId, "polling");
       return;
     }
     // Tear down any half-open socket before retrying.
@@ -700,19 +817,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     wsRef.current = ws;
+    // Keep the durable event-cursor fallback active while the upgrade is in
+    // flight. A proxy can leave a failed upgrade pending for several seconds.
+    startCoursePolling(courseId);
 
     ws.onopen = () => {
       wsFailureCountRef.current = 0;
       pollingRef.current = false;
-      try {
-        ws.send(JSON.stringify({ type: "subscribe", courseId }));
-        void catchUpCourseEvents(courseId);
-      } catch {
-        /* noop */
-      }
       if (wsModeRef.current !== "websocket") {
         wsModeRef.current = "websocket";
         setRealtimeMode("websocket");
+      }
+      // Keep a low-frequency durable cursor reconciliation active even while
+      // the socket is healthy. This covers cross-instance delivery gaps when
+      // Redis or reverse-proxy routing is unavailable.
+      startCoursePolling(courseId, "websocket");
+      try {
+        ws.send(JSON.stringify({ type: "subscribe", courseId }));
+        void catchUpCourseEvents(courseId)
+          .then(recordCourseSyncSuccess)
+          .catch(recordCourseSyncFailure);
+      } catch {
+        /* noop */
       }
     };
 
@@ -785,7 +911,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Poll only while the current route can legitimately access course
       // data. A client-side route change tears this interval down.
       intervalId = window.setInterval(() => {
-        if (pollingRef.current) void refresh(role);
+        // Classroom views already reconcile a lightweight per-course event
+        // cursor. Avoid downloading the full cross-course session as well.
+        if (pollingRef.current && !wsCourseIdRef.current) void refresh(role);
       }, 5000);
     }
 
@@ -799,13 +927,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Auto-connect to the WebSocket server on mount, and re-subscribe when
-  // the joined course changes. Connections fail silently — the 5s polling
-  // fallback in the effect above keeps the UI fresh regardless.
-  // Tear down WebSocket on unmount.
+  // Classroom pages subscribe through useRealtimeSync. Connections fail
+  // silently and the per-course event cursor keeps the UI fresh regardless.
+  // Tear down both transports on unmount.
   useEffect(() => {
     return () => teardownWebSocket();
+    // The provider owns one socket lifecycle; render-local function identity
+    // changes must not tear it down and recreate it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function disconnectRealtime() {
+    wsCourseIdRef.current = undefined;
+    pollingRef.current = true;
+    teardownWebSocket();
+    if (wsModeRef.current !== "polling") {
+      wsModeRef.current = "polling";
+      setRealtimeMode("polling");
+    }
+  }
 
   useEffect(() => {
     // Persist identity per-browser so refreshes keep the joined student context.
@@ -1651,7 +1791,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       refresh,
       connectWebSocket,
-      disconnectWebSocket: teardownWebSocket,
+      disconnectWebSocket: disconnectRealtime,
       realtimeMode,
     };
   // The API is rebuilt for every session-state change. refresh and

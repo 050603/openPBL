@@ -4,6 +4,7 @@ import type { SceneOutline } from '../types/generation';
 import {
   buildNarrationContext,
   enforceNarrationContinuity,
+  rewriteFalseFutureSessionReferences,
   stripRepeatedNarrationOpening,
   stripFormalNarrationFarewell,
 } from './narration-continuity';
@@ -92,6 +93,27 @@ describe('narration continuity', () => {
       type: 'speech',
       text: '刚才我们认识了变量，现在继续看关系。',
     });
+  });
+
+  it('rewrites future-class wording when it actually points to a later page in this lesson', () => {
+    const actions: Action[] = [{
+      id: 's1',
+      type: 'speech',
+      text: '这一页先认识变量，下节课我们再打开系统完成操作。',
+    }];
+
+    expect(enforceNarrationContinuity(actions, buildNarrationContext(outlines, 0))[0]).toMatchObject({
+      type: 'speech',
+      text: '同学们好，欢迎来到今天的课堂。这一页先认识变量，接下来我们再打开系统完成操作。',
+    });
+    expect(rewriteFalseFutureSessionReferences('In the next lesson, we will try the system.'))
+      .toBe('later in this lesson, we will try the system.');
+  });
+
+  it('does not rewrite an explicitly planned future lesson on the terminal course page', () => {
+    const actions: Action[] = [{ id: 's1', type: 'speech', text: '下节课我们将学习新的主题。' }];
+
+    expect(enforceNarrationContinuity(actions, buildNarrationContext(outlines, 2))).toEqual(actions);
   });
 
   it('recognizes formal farewells without removing the learning takeaway', () => {

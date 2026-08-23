@@ -81,6 +81,7 @@ async function describeAudioBlob(blob: Blob): Promise<string> {
  */
 export class AudioPlayer {
   private audio: HTMLAudioElement | null = null;
+  private objectUrl: string | null = null;
   private onEndedCallback: (() => void) | null = null;
   private muted: boolean = false;
   private volume: number = 1;
@@ -95,6 +96,7 @@ export class AudioPlayer {
   public async play(
     audioId: string,
     audioUrl?: string,
+    startRatio: number = 0,
   ): Promise<boolean> {
     try {
       // 1. Try audioUrl first (server-generated TTS)
@@ -106,6 +108,7 @@ export class AudioPlayer {
         else this.audio.volume = this.volume;
         this.audio.defaultPlaybackRate = this.playbackRate;
         this.audio.playbackRate = this.playbackRate;
+        await this.seekToRatioWhenReady(this.audio, startRatio);
         this.audio.addEventListener('ended', () => {
           this.onEndedCallback?.();
         });
@@ -119,20 +122,22 @@ export class AudioPlayer {
           const sourceBlob = await response.blob();
           const normalizedBlob = await normalizeAudioBlob(sourceBlob, audioUrl.split('.').pop());
           const blobUrl = URL.createObjectURL(normalizedBlob);
+          this.objectUrl = blobUrl;
           this.audio = new Audio();
           this.audio.src = blobUrl;
           if (this.muted) this.audio.volume = 0;
           else this.audio.volume = this.volume;
           this.audio.defaultPlaybackRate = this.playbackRate;
           this.audio.playbackRate = this.playbackRate;
+          await this.seekToRatioWhenReady(this.audio, startRatio);
           this.audio.addEventListener('ended', () => {
-            URL.revokeObjectURL(blobUrl);
+            this.revokeObjectUrl();
             this.onEndedCallback?.();
           });
           try {
             await this.audio.play();
           } catch (retryError) {
-            URL.revokeObjectURL(blobUrl);
+            this.revokeObjectUrl();
             log.error(
               `Retry failed for audioUrl=${audioUrl}; ${await describeAudioBlob(normalizedBlob)}`,
               retryError,
@@ -160,6 +165,7 @@ export class AudioPlayer {
       // Set audio source
       const playableBlob = await normalizeAudioBlob(audioRecord.blob, audioRecord.format);
       const blobUrl = URL.createObjectURL(playableBlob);
+      this.objectUrl = blobUrl;
       this.audio.src = blobUrl;
       if (this.muted) this.audio.volume = 0;
       else this.audio.volume = this.volume;
@@ -167,10 +173,11 @@ export class AudioPlayer {
       // Apply playback rate
       this.audio.defaultPlaybackRate = this.playbackRate;
       this.audio.playbackRate = this.playbackRate;
+      await this.seekToRatioWhenReady(this.audio, startRatio);
 
       // Set ended callback
       this.audio.addEventListener('ended', () => {
-        URL.revokeObjectURL(blobUrl);
+        this.revokeObjectUrl();
         this.onEndedCallback?.();
       });
 
@@ -180,7 +187,7 @@ export class AudioPlayer {
       try {
         await this.audio.play();
       } catch (playError) {
-        URL.revokeObjectURL(blobUrl);
+        this.revokeObjectUrl();
         log.error(
           `IndexedDB audio failed for audioId=${audioId}; format=${audioRecord.format}; ${await describeAudioBlob(
             playableBlob,
@@ -215,6 +222,7 @@ export class AudioPlayer {
       this.audio.currentTime = 0;
       this.audio = null;
     }
+    this.revokeObjectUrl();
     // Note: onEndedCallback intentionally NOT cleared here because play()
     // calls stop() internally — clearing would break the callback chain.
     // Stale callbacks are harmless: engine mode check prevents processNext().
@@ -304,6 +312,47 @@ export class AudioPlayer {
   public destroy(): void {
     this.stop();
     this.onEndedCallback = null;
+  }
+
+  private revokeObjectUrl(): void {
+    if (!this.objectUrl) return;
+    URL.revokeObjectURL(this.objectUrl);
+    this.objectUrl = null;
+  }
+
+  /** Seek after metadata is available so subtitle clicks start at that sentence. */
+  private async seekToRatioWhenReady(audio: HTMLAudioElement, ratio: number): Promise<void> {
+    const normalizedRatio = Math.max(0, Math.min(0.999, ratio));
+    if (normalizedRatio <= 0) return;
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      audio.currentTime = audio.duration * normalizedRatio;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out while loading audio metadata for subtitle seek'));
+      }, 8_000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        audio.removeEventListener('loadedmetadata', onMetadata);
+        audio.removeEventListener('error', onError);
+      };
+      const onMetadata = () => {
+        cleanup();
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          audio.currentTime = audio.duration * normalizedRatio;
+        }
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error('Audio metadata could not be loaded for subtitle seek'));
+      };
+      audio.addEventListener('loadedmetadata', onMetadata, { once: true });
+      audio.addEventListener('error', onError, { once: true });
+      audio.load();
+    });
   }
 }
 

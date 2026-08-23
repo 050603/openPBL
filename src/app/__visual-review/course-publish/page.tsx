@@ -110,7 +110,7 @@ const plan: AdaptiveLearningPlan = {
 export default function CoursePublishVisualReviewPage() {
   return (
     <main className="min-h-screen bg-[var(--pbl-bg)] px-5 py-8 text-[var(--pbl-text)]">
-      <div className="mx-auto max-w-[1280px]">
+      <div className="pbl-dashboard-container">
         <CoursePublishPathPreview mainScenes={scenes} onPreviewBranch={() => undefined} plan={plan} />
       </div>
     </main>

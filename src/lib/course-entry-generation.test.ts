@@ -13,9 +13,11 @@ const input: CourseEntryGenerationInput = {
     name: "数据分类入门",
     subject: "信息科技",
     grade: "高一",
+    hours: 1,
     summary: "理解图像分类如何从图片数据中学习规律。",
     learningObjectives: [],
     learnerProfile: { priorKnowledge: "学过人工智能和机器学习入门。" },
+    pblConfig: undefined,
   },
   knowledgePoints: [
     {
@@ -188,6 +190,37 @@ describe("course entry generation", () => {
     expect(result.revisionCount).toBe(2);
   });
 
+  it("revises an oversized entry against the course-specific capacity instead of appending quota items", async () => {
+    const base = validBlueprint();
+    const oversized: CourseEntryBlueprint = {
+      ...base,
+      prerequisites: [
+        ...base.prerequisites,
+        ...Array.from({ length: 3 }, (_, index) => ({
+          ...base.prerequisites[0],
+          name: `额外候选 ${index + 1}`,
+          question: {
+            ...base.prerequisites[0].question,
+            prompt: `为了检查第 ${index + 1} 项额外候选，下面哪一种处理方式能够提供可靠依据？`,
+          },
+          reviewResource: {
+            ...base.prerequisites[0].reviewResource,
+            title: `额外候选 ${index + 1} 回顾`,
+          },
+        })),
+      ],
+    };
+    const modelCall = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify(oversized))
+      .mockResolvedValueOnce(reviewerResponse(base, "revised"));
+
+    const result = await generateCourseEntryPackage(input, { modelCall, maxModelCalls: 2 });
+
+    expect(modelCall).toHaveBeenCalledTimes(2);
+    expect(result.plan.prerequisiteKnowledgePoints).toHaveLength(2);
+    expect(result.reviewFindings).toEqual([]);
+  });
+
   it("never returns a successful zero-prerequisite package", async () => {
     const empty = { ...validBlueprint(), prerequisites: [] };
     const modelCall = vi.fn()
@@ -195,7 +228,7 @@ describe("course entry generation", () => {
       .mockResolvedValueOnce(reviewerResponse(empty, "revised"));
 
     await expect(generateCourseEntryPackage(input, { modelCall, maxModelCalls: 2 }))
-      .rejects.toThrow("每门课至少需要一项真实先修能力");
+      .rejects.toThrow("当前课程入口至少需要 1 项真实先修能力");
   });
 
   it("normalizes malformed optional collections without inventing prerequisites", () => {
@@ -206,7 +239,7 @@ describe("course entry generation", () => {
       prerequisiteAnalysisSummary: "需要继续回溯",
     });
     expect(blueprint.prerequisites).toEqual([]);
-    expect(validateCourseEntryBlueprint(blueprint, input)).toContain("每门课至少需要一项真实先修能力");
+    expect(validateCourseEntryBlueprint(blueprint, input).some((issue) => issue.includes("当前课程入口至少需要 1 项真实先修能力"))).toBe(true);
   });
 
   it("owns knowledge-ladder roles deterministically instead of spending another model retry", () => {
@@ -222,16 +255,15 @@ describe("course entry generation", () => {
     ]);
   });
 
-  it("requires the complete AI curriculum ladder for K12 computer vision", () => {
+  it("treats AI curriculum codes as semantic labels instead of a fixed quota", () => {
     const computerVisionInput: CourseEntryGenerationInput = {
       ...input,
       course: { ...input.course, name: "计算机视觉", subject: "人工智能通识" },
     };
     const issues = validateCourseEntryBlueprint(validBlueprint(), computerVisionInput);
 
-    expect(issues.some((issue) => issue.includes("ai-concept"))).toBe(true);
-    expect(issues.some((issue) => issue.includes("machine-learning-concept"))).toBe(true);
-    expect(issues.some((issue) => issue.includes("feature-representation"))).toBe(true);
+    expect(issues.some((issue) => issue.includes("必要课程台阶"))).toBe(false);
+    expect(issues.some((issue) => issue.includes("ai-concept"))).toBe(false);
   });
 
   it("does not require prerequisites to mechanically cover half of a large lesson graph", () => {

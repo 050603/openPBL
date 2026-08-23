@@ -1,6 +1,11 @@
 import { aggregateCommonIssues, analyzeStudentLearning } from "@/lib/learning-analytics/analyzer";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
 import type { Course, LearningEvent, LearningSignal } from "@/lib/session/types";
+import {
+  authenticateRequest,
+  requireSameOrigin,
+} from "@/lib/auth/request-guards";
+import { isAuthConfigured } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +50,13 @@ function enrichContentReference(event: LearningEvent, course: Course): LearningE
 }
 
 export async function POST(request: Request) {
+  const csrfError = requireSameOrigin(request);
+  if (csrfError) return csrfError;
+  const auth = isAuthConfigured()
+    ? await authenticateRequest(request, "student")
+    : null;
+  if (auth && "response" in auth) return auth.response;
+
   let body: LearningEventsRequest;
   try {
     body = (await request.json()) as LearningEventsRequest;
@@ -56,6 +68,16 @@ export async function POST(request: Request) {
   const studentId = body.studentId?.trim();
   if (!courseId || !studentId || !Array.isArray(body.events) || body.events.length === 0) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
+  }
+  if (
+    auth
+    && !("response" in auth)
+    && (
+      auth.claims.courseId !== courseId
+      || auth.claims.studentId !== studentId
+    )
+  ) {
+    return Response.json({ error: "STUDENT_SCOPE_MISMATCH" }, { status: 403 });
   }
 
   const course = await getCourse(courseId);
@@ -131,7 +153,7 @@ export async function POST(request: Request) {
         learningSignals: derivedSignals,
         classCommonIssues: commonIssues,
       };
-    });
+    }, { targetStudentId: studentId });
   }
 
   return Response.json({

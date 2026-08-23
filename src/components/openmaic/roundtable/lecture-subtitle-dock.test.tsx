@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { TeachingKnowledgeGraphProvider } from '@/components/openmaic-bridge/knowledge-graph-context';
 import {
   buildSubtitleLines,
+  LectureSubtitleDock,
   resolveActiveCueIndex,
   resolveActiveSubtitleLineIndex,
   splitSubtitleText,
@@ -63,5 +66,48 @@ describe('long subtitle paging', () => {
     const activeIndex = resolveActiveSubtitleLineIndex(lines, 1, 0);
 
     expect(lines[activeIndex]?.actionIndex).toBe(2);
+  });
+});
+
+describe('teaching rail layout', () => {
+  it('shares the available height between subtitles and the knowledge graph by ratio', () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(
+      <TeachingKnowledgeGraphProvider
+        graph={{
+          nodes: [{ id: 'point-1', label: '核心概念', description: '核心概念说明', level: 'core' }],
+          edges: [],
+        }}
+        points={[]}
+      >
+        <LectureSubtitleDock
+          activeActionIndex={0}
+          autoPlay
+          canGoNext
+          canGoNextCue={false}
+          canGoPrevious={false}
+          canGoPreviousCue={false}
+          cues={[{ actionIndex: 0, text: '当前字幕。' }]}
+          currentText="当前字幕。"
+          engineMode="paused"
+          muted={false}
+          onCycleSpeed={vi.fn()}
+          onToggleAutoPlay={vi.fn()}
+          onToggleMute={vi.fn()}
+          playbackSpeed={1}
+          sceneIndex={0}
+          scenesCount={2}
+          teacherAvatar="/teacher.webp"
+          teacherName="知知"
+        />
+      </TeachingKnowledgeGraphProvider>,
+    );
+
+    const content = document.querySelector('[data-teaching-rail-content]') as HTMLElement;
+    expect(content.className).toContain(
+      'xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]',
+    );
+    expect(screen.getByLabelText('当前课程知识图谱').className).toContain('h-full');
+    expect(screen.getByLabelText('当前课程知识图谱').className).not.toContain('h-[176px]');
   });
 });

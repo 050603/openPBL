@@ -1,9 +1,12 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ArrowUpRight, BookOpen, ExternalLink, Library, Search, Send } from "lucide-react";
+import { ArrowUpRight, BookOpen, ExternalLink, Search, Send, Sparkles } from "lucide-react";
+import { Streamdown } from "streamdown";
 import type { AiCompanionId } from "@/lib/ai-companions";
 import type { Course } from "@/lib/session/types";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 
 type SearchSource = {
   title: string;
@@ -25,19 +28,26 @@ export function StudioResourceLibrary({
   stageKey,
   disabled,
   onAsk,
+  onRequestMicroLesson,
 }: {
   course: Course;
   stageKey: string;
   disabled: boolean;
   onAsk: (text: string, companionIds?: AiCompanionId[]) => Promise<boolean>;
+  onRequestMicroLesson?: (message: string) => Promise<boolean>;
 }) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<SearchSource[]>([]);
+  const [lessonRequested, setLessonRequested] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const courseResources = useMemo(() => course.resources ?? [], [course.resources]);
+  const inquiryMode = normalizePblCourseConfig(course.pblConfig).resourceInquiryMode;
+  const starterPrompts = stageKey === "make"
+    ? ["这个制作问题需要哪些知识？", "怎样判断我的测试方法是否可靠？", "有哪些材料或案例可以参考？"]
+    : ["这个方案涉及哪些关键概念？", "怎样判断我的测试方法是否可靠？", "这个事实可以从哪些来源交叉核对？"];
 
   async function searchResources() {
     const clean = query.trim();
@@ -47,11 +57,22 @@ export function StudioResourceLibrary({
     requestRef.current = controller;
     setSearching(true);
     setError(null);
+    setLessonRequested(false);
     try {
-      const response = await fetch("/api/openmaic/web-search", {
+      if (!disabled && onRequestMicroLesson) {
+        const launched = await onRequestMicroLesson(clean);
+        if (launched) {
+          setAnswer("");
+          setSources([]);
+          setLessonRequested(true);
+          return;
+        }
+      }
+
+      const response = await fetch("/api/companion/resource-query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: clean }),
+        body: JSON.stringify({ courseId: course.id, stageKey, query: clean }),
         signal: controller.signal,
       });
       const data = await response.json() as SearchResponse;
@@ -62,7 +83,7 @@ export function StudioResourceLibrary({
       setSources((data.sources ?? []).filter((item) => item.title && item.url).slice(0, 8));
     } catch (searchError) {
       if (searchError instanceof DOMException && searchError.name === "AbortError") return;
-      setError(searchError instanceof Error ? searchError.message : "资料检索失败，请稍后重试");
+      setError(searchError instanceof Error ? searchError.message : "资料查询失败，请稍后重试");
     } finally {
       if (requestRef.current === controller) setSearching(false);
     }
@@ -84,9 +105,7 @@ export function StudioResourceLibrary({
     <div className="studio-library-workspace">
       <header className="studio-workspace-view-heading">
         <div>
-          <span><Library size={14} /> 资料角</span>
-          <h2>先找到来源，再让 AI 帮你判断</h2>
-          <p>检索结果不是结论。打开原文核对作者、日期、方法和适用范围后，再用于方案或测试。</p>
+          <p>{inquiryMode === "web-search" ? "搜索课程相关资料并查看来源。使用前请核对作者、日期、方法和适用范围。" : "查询课程相关概念与问题。涉及事实、数据和时效性信息时，请结合可靠来源核验。"}</p>
         </div>
       </header>
 
@@ -105,7 +124,7 @@ export function StudioResourceLibrary({
           value={query}
         />
         <button disabled={!query.trim() || searching} type="submit">
-          {searching ? "检索中…" : "查资料"}
+          {searching ? "查询中…" : "查资料"}
         </button>
       </form>
 
@@ -117,7 +136,7 @@ export function StudioResourceLibrary({
           <div className="studio-library-course-list">
             {courseResources.map((resource) => (
               <article key={resource.id}>
-                <div><strong>{resource.title}</strong><p>{resource.description || `${resource.type} · ${resource.size}`}</p></div>
+                <div><strong>{resource.title}</strong><p>{resource.description || `${courseResourceTypeLabel(resource.type)} · ${resource.size}`}</p></div>
                 {resource.url ? <a aria-label={`打开 ${resource.title}`} href={resource.url} rel="noreferrer" target="_blank"><ExternalLink size={15} /></a> : null}
               </article>
             ))}
@@ -125,10 +144,18 @@ export function StudioResourceLibrary({
         ) : <p className="studio-library-empty">当前课程还没有教师资料，可以使用上方检索。</p>}
       </section>
 
-      {answer || sources.length ? (
+      {lessonRequested ? (
+        <section className="studio-library-section studio-library-lesson-notice" aria-live="polite">
+          <Sparkles size={19} />
+          <div>
+            <strong>这个问题更适合用微课讲清楚</strong>
+            <p>知知已经开始制作 2–3 分钟微课。你可以继续当前任务，完成后从页面右下角的微课任务卡进入学习。</p>
+          </div>
+        </section>
+      ) : answer || sources.length ? (
         <section className="studio-library-section studio-library-results" aria-live="polite">
-          <header><Search size={16} /><strong>检索线索</strong><span>{sources.length}</span></header>
-          {answer ? <p className="studio-library-answer">{answer}</p> : null}
+          <header><Search size={16} /><strong>查询结果</strong>{inquiryMode === "web-search" ? <span>{sources.length}</span> : null}</header>
+          {answer ? <div className="studio-library-answer"><Streamdown>{answer}</Streamdown></div> : null}
           <div className="studio-library-result-list">
             {sources.map((source) => {
               let domain = source.url;
@@ -149,7 +176,7 @@ export function StudioResourceLibrary({
         </section>
       ) : (
         <div className="studio-library-starters">
-          {["这个方案涉及哪些关键概念？", "怎样判断我的测试方法是否可靠？", "这个事实可以从哪些来源交叉核对？"].map((prompt) => (
+          {starterPrompts.map((prompt) => (
             <button key={prompt} onClick={() => setQuery(prompt)} type="button">{prompt}<ArrowUpRight size={13} /></button>
           ))}
         </div>

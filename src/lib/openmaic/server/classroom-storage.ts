@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import type { Scene, Stage } from '@openmaic/lib/types/stage';
+import type { Action } from '@openmaic/lib/types/action';
 
 export const CLASSROOMS_DIR = path.join(process.cwd(), 'data', 'classrooms');
 
@@ -64,11 +65,94 @@ export function isValidClassroomId(id: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
+const CLASSROOM_MEDIA_ROUTE = '/api/openmaic/classroom-media/';
+
+/** Convert legacy absolute asset URLs to the same-origin form on every read. */
+export function normalizeClassroomAssetUrls<T>(value: T): T {
+  if (typeof value === 'string') {
+    const routeIndex = value.indexOf(CLASSROOM_MEDIA_ROUTE);
+    return (routeIndex >= 0 ? value.slice(routeIndex) : value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeClassroomAssetUrls(item)) as T;
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        normalizeClassroomAssetUrls(item),
+      ]),
+    ) as T;
+  }
+  return value;
+}
+
+export function normalizePersistedClassroom(data: PersistedClassroomData): PersistedClassroomData {
+  const normalized = normalizeClassroomAssetUrls(data);
+  return {
+    ...normalized,
+    scenes: normalized.scenes.map((scene) => ({
+      ...scene,
+      actions: removeLegacySyntheticWhiteboardActions(scene.actions ?? []),
+      ...(scene.audience === 'student'
+        && scene.stageKey === 'ai-learning'
+        && scene.generationPurpose === 'knowledge-teaching'
+        ? { ttsPolicy: 'target-duration' as const }
+        : {}),
+    })),
+  };
+}
+
+const BOARD_DRAW_TYPES = new Set<Action['type']>([
+  'wb_draw_text',
+  'wb_draw_shape',
+  'wb_draw_chart',
+  'wb_draw_latex',
+  'wb_draw_table',
+  'wb_draw_line',
+  'wb_draw_code',
+  'wb_edit_code',
+]);
+
+/** Remove the old key-point-list fallback and any now-empty board lifecycle. */
+export function removeLegacySyntheticWhiteboardActions(
+  actions: ReadonlyArray<Action>,
+): Action[] {
+  const withoutSyntheticNotes = actions.filter((action) => !(
+    action.type === 'wb_draw_text'
+    && action.elementId?.startsWith('planned-note-')
+  ));
+  const emptyLifecycleIndexes = new Set<number>();
+  let openIndex = -1;
+  let hasDrawing = false;
+
+  withoutSyntheticNotes.forEach((action, index) => {
+    if (action.type === 'wb_open') {
+      openIndex = index;
+      hasDrawing = false;
+      return;
+    }
+    if (openIndex >= 0 && BOARD_DRAW_TYPES.has(action.type)) hasDrawing = true;
+    if (action.type === 'wb_close' && openIndex >= 0) {
+      if (!hasDrawing) {
+        emptyLifecycleIndexes.add(openIndex);
+        emptyLifecycleIndexes.add(index);
+      }
+      openIndex = -1;
+      hasDrawing = false;
+    }
+  });
+  if (openIndex >= 0 && !hasDrawing) emptyLifecycleIndexes.add(openIndex);
+  return withoutSyntheticNotes
+    .filter((_action, index) => !emptyLifecycleIndexes.has(index))
+    .map((action) => ({ ...action }));
+}
+
 export async function readClassroom(id: string): Promise<PersistedClassroomData | null> {
   const filePath = path.join(CLASSROOMS_DIR, `${id}.json`);
   try {
     const content = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(content) as PersistedClassroomData;
+    return normalizePersistedClassroom(JSON.parse(content) as PersistedClassroomData);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;

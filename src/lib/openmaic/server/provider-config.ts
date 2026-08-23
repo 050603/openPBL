@@ -293,39 +293,72 @@ function collectDisabledTTS(
 
 const OPENAI_IMAGE_PROVIDER_ID = 'openai-image';
 
-/** Cache keyed by YAML filename (empty string = default file). */
-const _configs: Map<string, ServerConfig> = new Map();
-let databaseYamlData: YamlData | null = null;
+/**
+ * Provider configuration is initialized by Next.js instrumentation, which is
+ * compiled into a different server chunk from route handlers. Module-local
+ * variables are therefore not a reliable process singleton in production:
+ * instrumentation can initialize one copy while a route reads another.
+ *
+ * Keep the state on globalThis behind Symbol.for so every compiled copy in the
+ * same Node.js process observes the initialized database snapshot and cache.
+ */
+type ProviderConfigRuntimeState = {
+  configs: Map<string, ServerConfig>;
+  databaseYamlData: YamlData | null;
+  initialization?: Promise<void>;
+};
+
+const PROVIDER_CONFIG_STATE_KEY = Symbol.for('openpbl.server-provider-config');
+
+function getProviderConfigRuntimeState(): ProviderConfigRuntimeState {
+  const scope = globalThis as typeof globalThis & {
+    [PROVIDER_CONFIG_STATE_KEY]?: ProviderConfigRuntimeState;
+  };
+  return scope[PROVIDER_CONFIG_STATE_KEY] ??= {
+    configs: new Map<string, ServerConfig>(),
+    databaseYamlData: null,
+  };
+}
 
 export async function initializeServerProviderConfig(): Promise<void> {
-  if (!isDatabaseConfigured()) {
-    databaseYamlData = {};
-    return;
-  }
-  const rows = await prisma.providerCredential.findMany();
-  const data: YamlData = {};
-  for (const row of rows) {
-    const section = row.section as keyof YamlData;
-    if (!['providers', 'tts', 'asr', 'pdf', 'image', 'video', 'web-search'].includes(section)) {
-      continue;
+  const state = getProviderConfigRuntimeState();
+  if (state.initialization) return state.initialization;
+  state.initialization = (async () => {
+    if (!isDatabaseConfigured()) {
+      state.databaseYamlData = {};
+      state.configs.clear();
+      return;
     }
-    const config =
-      row.config && typeof row.config === 'object' && !Array.isArray(row.config)
-        ? (row.config as Record<string, unknown>)
-        : {};
-    const target = (data[section] ??= {});
-    target[row.providerId] = {
-      ...config,
-      apiKey: decryptCredential(
-        row.encryptedApiKey,
-        row.iv,
-        row.authTag,
-        `${row.section}:${row.providerId}`,
-      ),
-    } as Partial<ServerProviderEntry>;
+    const rows = await prisma.providerCredential.findMany();
+    const data: YamlData = {};
+    for (const row of rows) {
+      const section = row.section as keyof YamlData;
+      if (!['providers', 'tts', 'asr', 'pdf', 'image', 'video', 'web-search'].includes(section)) {
+        continue;
+      }
+      const config =
+        row.config && typeof row.config === 'object' && !Array.isArray(row.config)
+          ? (row.config as Record<string, unknown>)
+          : {};
+      const target = (data[section] ??= {});
+      target[row.providerId] = {
+        ...config,
+        apiKey: decryptCredential(
+          row.encryptedApiKey,
+          row.iv,
+          row.authTag,
+          `${row.section}:${row.providerId}`,
+        ),
+      } as Partial<ServerProviderEntry>;
+    }
+    state.databaseYamlData = data;
+    state.configs.clear();
+  })();
+  try {
+    await state.initialization;
+  } finally {
+    state.initialization = undefined;
   }
-  databaseYamlData = data;
-  clearServerProviderConfigCache();
 }
 
 function applyOpenAIImageFallback(
@@ -395,21 +428,22 @@ function logConfig(config: ServerConfig, label: string): void {
 }
 
 function getConfig(): ServerConfig {
-  const cached = _configs.get('');
+  const state = getProviderConfigRuntimeState();
+  const cached = state.configs.get('');
   if (cached) return cached;
 
-  if (process.env.NODE_ENV === 'production' && databaseYamlData === null) {
+  if (process.env.NODE_ENV === 'production' && state.databaseYamlData === null) {
     throw new Error('Provider configuration was not initialized.');
   }
-  const yamlData = databaseYamlData ?? loadDefaultYamlFile();
+  const yamlData = state.databaseYamlData ?? loadDefaultYamlFile();
   const config = buildConfig(yamlData);
   logConfig(config, DEFAULT_FILENAME);
-  _configs.set('', config);
+  state.configs.set('', config);
   return config;
 }
 
 export function clearServerProviderConfigCache(): void {
-  _configs.clear();
+  getProviderConfigRuntimeState().configs.clear();
 }
 
 // ---------------------------------------------------------------------------

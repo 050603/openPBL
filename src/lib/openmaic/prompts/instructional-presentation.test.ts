@@ -44,13 +44,18 @@ describe('instructional presentation prompt contract', () => {
     expect(prompt?.system).toContain('Do not use the whiteboard merely to copy the slide');
     expect(prompt?.system).toContain('choose a visual tool before adding more speech');
     expect(prompt?.system).toContain('Never place two long speech segments back-to-back');
+    expect(prompt?.system).toContain('Every generated page, scene, chapter, activity, quiz, and system operation');
+    expect(prompt?.system).toContain('NEVER call a later page, chapter, activity, or operation');
+    expect(prompt?.system).toContain('下节课');
+    expect(prompt?.system).toContain('later in this lesson');
+    expect(prompt?.system).toContain('Do not end every page with a course-level teaser or promise');
   });
 
   it('biases the live teacher toward tools when prose would stay abstract', () => {
     const prompt = buildPrompt(PROMPT_IDS.AGENT_SYSTEM_WB_TEACHER, {});
 
     expect(prompt?.system).toContain('tool-use checkpoint');
-    expect(prompt?.system).toContain('use the whiteboard before adding a third explanatory sentence');
+    expect(prompt?.system).toContain('The decision depends on comprehension, not sentence count');
     expect(prompt?.system).toContain('Do not merely say that you could draw it');
   });
 

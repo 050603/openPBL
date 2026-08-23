@@ -9,6 +9,7 @@ import "./globals.css";
 import { SessionProvider } from "@/lib/session/store";
 import { AppToaster } from "@/components/ui/feedback";
 import { ChunkLoadRecovery } from "@/lib/runtime/chunk-load-recovery";
+import { DesktopAccessGuard } from "@/components/desktop-access-guard";
 
 export const metadata: Metadata = {
   title: "openPBL - 项目共创平台",
@@ -23,9 +24,11 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" className="h-full antialiased" data-scroll-behavior="smooth">
       <body className="min-h-full">
-        <ChunkLoadRecovery />
-        <SessionProvider>{children}</SessionProvider>
-        <AppToaster />
+        <DesktopAccessGuard>
+          <ChunkLoadRecovery />
+          <SessionProvider>{children}</SessionProvider>
+          <AppToaster />
+        </DesktopAccessGuard>
       </body>
     </html>
   );

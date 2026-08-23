@@ -18,4 +18,11 @@ describe("formatLearningContentReference", () => {
       ],
     })).toBe("第 5 页 《图像像素与流程探索》 · 计算机视觉定义与核心任务等 5 个知识点");
   });
+
+  it("does not expose opaque scene or knowledge identifiers", () => {
+    expect(formatLearningContentReference({
+      sceneTitle: "scene-runtime-1",
+      knowledgePointLabels: ["prereq-1"],
+    })).toBe("当前学习内容");
+  });
 });

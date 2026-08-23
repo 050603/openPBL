@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 import {
   buildCourseDesignStageEditMessages,
   editCourseDesignStage,
@@ -42,7 +43,7 @@ describe("course design stage editor", () => {
     expect(modelCall.mock.calls[0][1]).toMatchObject({
       jsonMode: true,
       requestClass: "standard",
-      maxTransientRetries: 1,
+      maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
     });
   });
 

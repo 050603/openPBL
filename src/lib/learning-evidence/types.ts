@@ -113,6 +113,11 @@ export type RevisionDecisionPayload = {
   reason: string;
   plannedChange: string;
   nextGoal: string;
+  /**
+   * The making-stage UI keeps one continuous student-authored work draft.
+   * Legacy structured revision fields remain readable for existing courses.
+   */
+  processDraft?: string;
 };
 
 export type FinalArtifactPayload = {

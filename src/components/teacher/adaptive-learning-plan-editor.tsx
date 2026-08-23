@@ -766,7 +766,7 @@ function ResourceEditor({
           <div className="rounded-[8px] border border-stone-200 bg-stone-50 p-3 text-[11px] leading-5 text-stone-600">
             <strong className="text-stone-900">主课重叠审查：</strong>
             {(branch.mainCourseOverlapSceneIds?.length ?? 0) > 0
-              ? branch.mainCourseOverlapSceneIds.map((id) => mainScenes.find((scene) => scene.id === id)?.title ?? id).join("、")
+              ? branch.mainCourseOverlapSceneIds.map((id) => mainScenes.find((scene) => scene.id === id)?.title ?? "未找到的主课页面").join("、")
               : "未标记潜在重叠页；生成时仍会使用完整主课大纲进行去重。"}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1483,5 +1483,5 @@ function isStudentMainScene(scene: AdaptiveMainScene): boolean {
 
 function knowledgeNames(ids: string[] | undefined, points: KnowledgePoint[]): string {
   if (!ids?.length) return "未关联";
-  return ids.map((id) => points.find((point) => point.id === id)?.name ?? id).join("、");
+  return ids.map((id) => points.find((point) => point.id === id)?.name ?? "未命名知识点").join("、");
 }

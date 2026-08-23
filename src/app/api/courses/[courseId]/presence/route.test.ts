@@ -65,6 +65,17 @@ describe("course presence database fallback", () => {
     });
   });
 
+  it("uses the database when Redis disconnects at runtime", async () => {
+    mocks.getRedisClient.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+    const response = await PUT(request("PUT"), context);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ online: true, degraded: true, source: "database" });
+    expect(mocks.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it("returns only database heartbeats that have not expired", async () => {
     const now = Date.now();
     mocks.findMany.mockResolvedValue([

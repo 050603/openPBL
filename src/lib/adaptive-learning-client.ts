@@ -20,6 +20,7 @@ export async function generateAdaptiveClassroom(input: {
   }>;
   signal?: AbortSignal;
   requestRole?: "student" | "teacher";
+  onStarted?: () => void | Promise<void>;
   onProgress?: (progress: AdaptiveGenerationProgress) => void;
 }): Promise<{ classroomId: string; scenesCount: number }> {
   const outlines: SceneOutline[] = ensureTeachingToolPlans(input.scenes.map((scene, index) => ({
@@ -72,6 +73,12 @@ export async function generateAdaptiveClassroom(input: {
   const decoder = new TextDecoder();
   let buffer = "";
   let result: { classroomId: string; scenesCount: number } | undefined;
+  let started = false;
+  const announceStarted = async () => {
+    if (started) return;
+    started = true;
+    await input.onStarted?.();
+  };
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -90,11 +97,13 @@ export async function generateAdaptiveClassroom(input: {
         details?: string;
       };
       if (event.type === "progress") {
+        await announceStarted();
         input.onProgress?.({
           progress: event.progress ?? 0,
           message: event.message ?? "正在生成",
         });
       } else if (event.type === "done" && event.id) {
+        await announceStarted();
         result = { classroomId: event.id, scenesCount: event.scenesCount ?? outlines.length };
       } else if (event.type === "error") {
         throw new Error(event.details || "微课生成失败");

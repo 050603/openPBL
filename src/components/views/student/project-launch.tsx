@@ -17,6 +17,7 @@ import { Card, FileBadge, Pill, PrimaryButton } from "@/components/ui";
 import { ProjectCoverImage } from "@/components/visuals";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
+import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 import {
   buildCourseTopicOptions,
   getLaunchTodoKind,
@@ -276,7 +277,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                   <FileBadge type={resource.type} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-semibold">{resource.title}</div>
-                    <div className="text-sm text-stone-500">{resource.type} · {resource.size}</div>
+                    <div className="text-sm text-stone-500">{courseResourceTypeLabel(resource.type)} · {resource.size}</div>
                     {resource.description ? <div className="mt-1 line-clamp-2 text-xs text-stone-400">{resource.description}</div> : null}
                   </div>
                   {viewed ? <Pill tone="green">已浏览</Pill> : <ExternalLink size={17} className="text-[var(--pbl-student)]" />}

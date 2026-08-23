@@ -22,9 +22,11 @@ export function generateInviteCode(length = 6): string {
 }
 
 export function isValidInviteCode(code: string): boolean {
-  return /^[A-Z2-9]{6}$/.test(code.trim().toUpperCase());
+  return /^[A-Z2-9]{6}$/.test(normalizeInviteCode(code));
 }
 
 export function normalizeInviteCode(code: string): string {
-  return code.trim().toUpperCase();
+  // Printed and copied codes are commonly grouped as "ABC DEF". Remove all
+  // Unicode whitespace so pasted codes behave consistently across platforms.
+  return code.replace(/\s+/gu, "").toUpperCase();
 }

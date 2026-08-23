@@ -22,6 +22,23 @@ describe("session action version conflict recovery", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("retries an unstructured edge 400 with the same expected version", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(new SessionActionRequestError("SESSION_ACTION_FAILED_400", 400))
+      .mockResolvedValueOnce({ courseVersion: 8 });
+
+    await expect(retryVersionConflict(send, 7)).resolves.toEqual({ courseVersion: 8 });
+    expect(send.mock.calls).toEqual([[7], [7]]);
+  });
+
+  it("does not retry a structured invalid action response", async () => {
+    const error = new SessionActionRequestError("INVALID_ACTION", 400);
+    const send = vi.fn().mockRejectedValue(error);
+
+    await expect(retryVersionConflict(send, 7)).rejects.toBe(error);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it("recovers a missing local version from the server response", async () => {
     const send = vi.fn()
       .mockRejectedValueOnce(new SessionActionRequestError("EXPECTED_VERSION_REQUIRED", 428, 1))

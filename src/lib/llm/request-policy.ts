@@ -2,6 +2,11 @@ import type { LlmCallRequest } from "@/lib/llm/types";
 
 export type LlmRequestClass = "standard" | "quality-review" | "long-generation";
 
+// Durable background generation can safely repeat a request because no stage
+// is persisted until a complete, validated response is received. Four retries
+// span short proxy/provider disruptions without creating an unbounded loop.
+export const DURABLE_GENERATION_TRANSIENT_RETRIES = 4;
+
 const STANDARD_TIMEOUT_MS = 180_000;
 // Deep-reasoning reviewers often spend substantial time evaluating a dense
 // curriculum graph before emitting a relatively small JSON verdict. A short

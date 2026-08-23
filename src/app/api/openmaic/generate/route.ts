@@ -351,6 +351,7 @@ export async function POST(request: NextRequest) {
             stageName: result.stage.name,
             teacherClassroomId: splitResult.teacherClassroomId,
             teacherResourceScenes: splitResult.teacherResourceScenes,
+            sceneOutlines: result.assetContext.outlines,
           }, { signal });
         }
 

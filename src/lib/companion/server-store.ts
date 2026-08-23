@@ -38,7 +38,7 @@ export async function appendCompanionMessages(input: {
         ? threads.map((item) => item.id === existing.id ? thread : item)
         : [...threads, thread],
     };
-  });
+  }, { targetStudentId: input.studentId });
 }
 
 export function companionMessage(

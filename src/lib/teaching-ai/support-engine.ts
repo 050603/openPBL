@@ -421,7 +421,7 @@ export async function buildReflectionEvidencePrompts(input: {
     `请为以下学生生成反思证据提示，引导学生基于过程证据进行反思，而不是泛泛描述感受。
 
 课程名称：${course.name}
-学生姓名：${student?.name ?? studentId}
+学生姓名：${student?.name ?? "未识别学生"}
 个人项目：${group?.name ?? "（项目空间待同步）"}
 选题：${group?.topic ?? "（无）"}
 阶段进度：学习反思与迁移=${stageProgress}%；AI 授知=${formatAiLearningProgress(aiLearningProgress)}
@@ -468,10 +468,10 @@ ${supports.slice(0, 6).map((s) => `- ${s.trigger}：${s.diagnosis}；建议=${s.
       targetId: studentId,
       groupId: group?.id,
       studentId,
-      studentName: student?.name ?? studentId,
+      studentName: student?.name ?? "未识别学生",
       kind: "reflection-evidence",
       trigger: "AI 反思证据提示",
-      inputSummary: `课程：${course.name}；学生：${student?.name ?? studentId}；个人项目：${group?.name ?? "待同步"}；支架记录：${supports.length}`,
+      inputSummary: `课程：${course.name}；学生：${student?.name ?? "未识别学生"}；个人项目：${group?.name ?? "待同步"}；支架记录：${supports.length}`,
       diagnosis: llmResult.diagnosis,
       suggestions: llmResult.suggestions?.slice(0, 5) ?? invalidAiResult("反思证据提示"),
       evidence: llmResult.evidence?.slice(0, 5) ?? invalidAiResult("反思证据提示"),

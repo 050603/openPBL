@@ -113,11 +113,13 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
   const textureLoader = createActionTextureLoader()
   const spriteFactory = createSpriteFactory()
   const actorLayer = new Container()
+  const feedbackLayer = new Container()
   const workstationFactory = createWorkstationFactory({
     spriteFactory,
     textureLoader,
     textures,
     actorLayer,
+    feedbackLayer,
     classroomTextures: {
       desk: classroomDeskTexture,
       chair: classroomChairTexture,
@@ -187,7 +189,9 @@ export async function createScene({ onLoadProgress, onSelectAgent, onSelectStudy
     workstationLayer.addChild(workstation.container)
   })
 
-  viewport.addChild(background, workstationLayer, actorLayer)
+  // Speech and identity UI must stay above every desk, chair, workstation
+  // effect, and roaming character, regardless of which workstation owns it.
+  viewport.addChild(background, workstationLayer, actorLayer, feedbackLayer)
   root.addChild(viewport)
   root.eventMode = 'static'
   root.hitArea = new Rectangle(0, 0, sceneWidth, sceneHeight)

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   onlineStudentIds,
   type PresenceMember,
@@ -24,6 +25,33 @@ export function useCoursePresence({
   heartbeat?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<CoursePresenceSnapshot>({ members: [] });
+  const [transportDegraded, setTransportDegraded] = useState(false);
+  const readFailuresRef = useRef(0);
+  const heartbeatFailuresRef = useRef(0);
+
+  const recordSuccess = useCallback((channel: "read" | "heartbeat") => {
+    const failures = channel === "read" ? readFailuresRef : heartbeatFailuresRef;
+    if (failures.current >= 3) {
+      toast.success("在线状态同步已恢复", { id: `presence-sync-${role}-${courseId}` });
+    }
+    failures.current = 0;
+    if (readFailuresRef.current < 3 && heartbeatFailuresRef.current < 3) {
+      setTransportDegraded(false);
+    }
+  }, [courseId, role]);
+
+  const recordFailure = useCallback((channel: "read" | "heartbeat", error: unknown) => {
+    const failures = channel === "read" ? readFailuresRef : heartbeatFailuresRef;
+    failures.current += 1;
+    console.error("[presence] synchronization failed", error);
+    if (failures.current === 3) {
+      setTransportDegraded(true);
+      toast.error("在线状态同步中断", {
+        id: `presence-sync-${role}-${courseId}`,
+        description: "服务器未能确认最新在线状态，正在自动重试。",
+      });
+    }
+  }, [courseId, role]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!courseId || !enabled) return;
@@ -40,7 +68,8 @@ export function useCoursePresence({
       ...((await response.json()) as PresenceSnapshot),
       courseId,
     });
-  }, [courseId, enabled, role]);
+    recordSuccess("read");
+  }, [courseId, enabled, recordSuccess, role]);
 
   useEffect(() => {
     if (!courseId || !enabled) {
@@ -49,8 +78,8 @@ export function useCoursePresence({
 
     const controller = new AbortController();
     const updateSnapshot = () => {
-      void refresh(controller.signal).catch(() => {
-        // Keep the last valid snapshot during a transient network failure.
+      void refresh(controller.signal).catch((error) => {
+        if (!controller.signal.aborted) recordFailure("read", error);
       });
     };
     updateSnapshot();
@@ -59,7 +88,7 @@ export function useCoursePresence({
       controller.abort();
       window.clearInterval(intervalId);
     };
-  }, [courseId, enabled, refresh]);
+  }, [courseId, enabled, recordFailure, refresh]);
 
   useEffect(() => {
     if (!courseId || !enabled || !heartbeat || role !== "student") return;
@@ -70,16 +99,22 @@ export function useCoursePresence({
         headers: { "X-OpenPBL-Role": "student" },
         keepalive: true,
       })
-        .then(() => refresh())
-        .catch(() => {
-          // A later heartbeat or snapshot refresh will recover automatically.
-        });
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`Presence heartbeat failed: ${response.status}`);
+          recordSuccess("heartbeat");
+          try {
+            await refresh();
+          } catch (error) {
+            recordFailure("read", error);
+          }
+        })
+        .catch((error) => recordFailure("heartbeat", error));
     };
 
     sendHeartbeat();
     const intervalId = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
-  }, [courseId, enabled, heartbeat, refresh, role]);
+  }, [courseId, enabled, heartbeat, recordFailure, recordSuccess, refresh, role]);
 
   const visibleMembers = enabled && snapshot.courseId === courseId
     ? snapshot.members
@@ -93,7 +128,7 @@ export function useCoursePresence({
     members: visibleMembers,
     onlineStudentIds: studentIds,
     onlineCount: studentIds.size,
-    degraded: snapshot.degraded === true,
+    degraded: snapshot.degraded === true || transportDegraded,
     source: snapshot.source,
     refresh,
   };

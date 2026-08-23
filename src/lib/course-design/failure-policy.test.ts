@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   classifyCourseDesignFailure,
   createManagedRecoveryRequest,
+  createTransientInfrastructureRecoveryRequest,
   formatFatalCourseDesignError,
+  transientInfrastructureRetryDelayMs,
 } from "./failure-policy";
 
 describe("course design failure policy", () => {
@@ -35,12 +37,31 @@ describe("course design failure policy", () => {
     expect(classifyCourseDesignFailure(error)).toBe("terminal-quality");
     expect(createManagedRecoveryRequest({ courseId: "c", teacherBrief: "b" }, error)).toBeNull();
     expect(formatFatalCourseDesignError(error)).toContain("不会整项重跑");
+    expect(formatFatalCourseDesignError(error)).toContain("前测题选项重复");
   });
 
-  it("does not hide network and infrastructure failures behind generation retries", () => {
+  it("recovers transient network failures without treating credential errors as retryable", () => {
     const network = new Error("fetch failed: ECONNRESET");
-    expect(classifyCourseDesignFailure(network)).toBe("fatal-infrastructure");
-    expect(formatFatalCourseDesignError(network)).toContain("网络或 AI 服务");
+    expect(classifyCourseDesignFailure(network)).toBe("transient-infrastructure");
+    expect(createTransientInfrastructureRecoveryRequest({
+      courseId: "c",
+      teacherBrief: "b",
+    }, network)).toMatchObject({ transientRecoveryCount: 1 });
+    expect(classifyCourseDesignFailure(new Error("LLM 调用失败：401 unauthorized")))
+      .toBe("fatal-infrastructure");
+    expect(formatFatalCourseDesignError(network)).toContain("网络或 AI 模型服务");
+  });
+
+  it("uses bounded durable backoff and stops after the infrastructure retry budget", () => {
+    const network = new Error("fetch failed: ECONNREFUSED");
+    expect(transientInfrastructureRetryDelayMs(1)).toBe(15_000);
+    expect(transientInfrastructureRetryDelayMs(2)).toBe(45_000);
+    expect(transientInfrastructureRetryDelayMs(3)).toBe(120_000);
+    expect(createTransientInfrastructureRecoveryRequest({
+      courseId: "c",
+      teacherBrief: "b",
+      transientRecoveryCount: 3,
+    }, network)).toBeNull();
   });
 
   it("stops managed recovery after its bounded retry budget", () => {

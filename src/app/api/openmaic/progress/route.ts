@@ -18,6 +18,11 @@ import {
   AI_PROGRESS_COMPLETION_MODEL_VERSION,
   isReliableAiProgress,
 } from '@openmaic/lib/progress/completion-model';
+import {
+  authenticateRequest,
+  requireSameOrigin,
+} from '@/lib/auth/request-guards';
+import { isAuthConfigured } from '@/lib/auth/session';
 
 const log = createLogger('ProgressAPI');
 
@@ -62,6 +67,8 @@ function computeMasteryLevel(
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = isAuthConfigured() ? await authenticateRequest(request) : null;
+    if (auth && 'response' in auth) return auth.response;
     const courseId = request.nextUrl.searchParams.get('courseId');
     const studentId = request.nextUrl.searchParams.get('studentId');
 
@@ -76,6 +83,15 @@ export async function GET(request: NextRequest) {
     const course = await getCourse(courseId);
     if (!course) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Course not found');
+    }
+
+    if (
+      auth
+      && !('response' in auth)
+      && auth.claims.role === 'student'
+      && (auth.claims.courseId !== courseId || auth.claims.studentId !== studentId)
+    ) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 403, 'Progress is outside the signed-in student scope');
     }
 
     const progress = course.aiLearningProgress ?? {};
@@ -102,6 +118,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfError = requireSameOrigin(request);
+    if (csrfError) return csrfError;
+    const auth = isAuthConfigured() ? await authenticateRequest(request) : null;
+    if (auth && 'response' in auth) return auth.response;
     const body = (await request.json()) as ProgressRequestBody;
     const {
       courseId,
@@ -127,6 +147,17 @@ export async function POST(request: NextRequest) {
         400,
         'Missing required field: studentId (string)',
       );
+    }
+    if (
+      auth
+      && !('response' in auth)
+      && (
+        auth.claims.role !== 'student'
+        || auth.claims.courseId !== courseId
+        || auth.claims.studentId !== studentId
+      )
+    ) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 403, 'Progress updates require the matching student identity');
     }
     if (!classroomId || typeof classroomId !== 'string') {
       return apiError(

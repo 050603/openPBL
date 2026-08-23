@@ -63,7 +63,9 @@ RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
 WORKDIR /app
 
-ENV NEXT_TELEMETRY_DISABLED=1
+ARG OPENPBL_DEPLOYMENT_ID
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_DEPLOYMENT_ID=$OPENPBL_DEPLOYMENT_ID
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages ./packages
@@ -83,6 +85,8 @@ RUN NEXT_DIST_DIR=.next pnpm build
 # ============================================================================
 FROM node:22-alpine AS runner
 
+ARG OPENPBL_DEPLOYMENT_ID
+
 LABEL org.opencontainers.image.title="openpbl-app" \
       org.opencontainers.image.description="OpenPBL — Project-Based Learning classroom platform" \
       org.opencontainers.image.source="https://github.com/openpbl/openpbl" \
@@ -101,6 +105,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_DEPLOYMENT_ID=$OPENPBL_DEPLOYMENT_ID \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 
@@ -128,7 +133,8 @@ COPY deploy/container-entrypoint.sh /usr/local/bin/openpbl-entrypoint
 # Persistent upload directory — mount a volume here in docker-compose so
 # uploaded files survive container restarts.
 RUN chmod 0555 /usr/local/bin/openpbl-entrypoint && \
-    mkdir -p .openpbl-data/uploads .openpbl-data/whiteboards data/classrooms && \
+    mkdir -p .openpbl-data/uploads .openpbl-data/whiteboards \
+      .openpbl-data/interactive-runtime-cache data/classrooms && \
     chown -R nextjs:nodejs .openpbl-data data
 
 # Graceful shutdown: SIGTERM triggers the instrumentation.ts handler which

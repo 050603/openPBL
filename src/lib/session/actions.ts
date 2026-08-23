@@ -655,7 +655,7 @@ export function applySessionAction(
             ? { ...g, ...patch, updatedAt: touchedAt }
             : g,
         ),
-        activityLog: addActivity(c.activityLog, activity("小组", "更新选题方向", patch.topic ?? patch.goal ?? groupId, touchedAt)),
+        activityLog: addActivity(c.activityLog, activity("小组", "更新选题方向", patch.topic ?? patch.goal ?? "已更新小组选题", touchedAt)),
       }));
     }
     case "UPSERT_GROUP_ANNOUNCEMENT":

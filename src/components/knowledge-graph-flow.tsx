@@ -30,6 +30,7 @@ import {
   type EdgeProps,
   type Node,
   type NodeProps,
+  type OnMoveEnd,
 } from "@xyflow/react";
 import { Handle } from "@xyflow/react";
 import { Maximize2, Minimize2 } from "lucide-react";
@@ -63,6 +64,7 @@ const LEVEL_STYLE: Record<Level, { bg: string; border: string; text: string; dot
 const ZERO_POSITION = { x: 0, y: 0 };
 const EMPTY_POINTS: KnowledgePoint[] = [];
 type GraphAppearance = "default" | "teaching-rail";
+export const KNOWLEDGE_GRAPH_AUTO_RESTORE_MS = 5_000;
 
 // ===== 自定义节点 =====
 type KgNodeData = {
@@ -235,6 +237,61 @@ function ActiveNodeFocus({ nodeId, zoom }: { nodeId?: string | null; zoom: numbe
   return null;
 }
 
+function DelayedViewportRestore({
+  activeNodeId,
+  activeZoom,
+  enabled,
+  focusActiveNode,
+  onRestoreLayout,
+  restoreSignal,
+}: {
+  activeNodeId?: string | null;
+  activeZoom: number;
+  enabled: boolean;
+  focusActiveNode: boolean;
+  onRestoreLayout: () => void;
+  restoreSignal: number;
+}) {
+  const { fitView, getInternalNode, setCenter } = useReactFlow();
+
+  useEffect(() => {
+    if (!enabled || restoreSignal === 0) return;
+    const timer = setTimeout(() => {
+      onRestoreLayout();
+      requestAnimationFrame(() => {
+        if (focusActiveNode && activeNodeId) {
+          const node = getInternalNode(activeNodeId);
+          if (node) {
+            const width = node.measured?.width ?? node.width ?? KNOWLEDGE_GRAPH_NODE_WIDTH;
+            const height = node.measured?.height ?? node.height ?? KNOWLEDGE_GRAPH_NODE_HEIGHT;
+            const position = node.internals.positionAbsolute;
+            void setCenter(position.x + width / 2, position.y + height / 2, {
+              duration: 700,
+              zoom: activeZoom,
+            });
+            return;
+          }
+        }
+        void fitView({ duration: 700, padding: 0.2 });
+      });
+    }, KNOWLEDGE_GRAPH_AUTO_RESTORE_MS);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeNodeId,
+    activeZoom,
+    enabled,
+    fitView,
+    focusActiveNode,
+    getInternalNode,
+    onRestoreLayout,
+    restoreSignal,
+    setCenter,
+  ]);
+
+  return null;
+}
+
 // ===== 工具：判断节点是否为高亮节点的邻居 =====
 function isNeighbor(
   nodeId: string,
@@ -254,9 +311,11 @@ export function KnowledgeGraphFlow({
   points = EMPTY_POINTS,
   activeNodeId,
   height = 360,
+  fillAvailableHeight = false,
   showMiniMap = true,
   showControls = true,
   focusActiveNode = false,
+  autoRestoreView = false,
   activeZoom = 0.72,
   appearance = "default",
   isFullscreen = false,
@@ -268,10 +327,14 @@ export function KnowledgeGraphFlow({
   points?: KnowledgePoint[];
   activeNodeId?: string | null;
   height?: number;
+  /** Fill a parent-sized region instead of imposing a fixed minimum height. */
+  fillAvailableHeight?: boolean;
   showMiniMap?: boolean;
   showControls?: boolean;
   /** Keep the externally active node centered; intended for compact previews. */
   focusActiveNode?: boolean;
+  /** Restore the initial layout and viewport after student pan/zoom/drag inactivity. */
+  autoRestoreView?: boolean;
   activeZoom?: number;
   appearance?: GraphAppearance;
   isFullscreen?: boolean;
@@ -354,6 +417,7 @@ export function KnowledgeGraphFlow({
   const [nodes, setNodes, onNodesChange] = useNodesState(baseNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(baseEdges);
   const previousTopologyKeyRef = useRef(topologyKey);
+  const [restoreSignal, setRestoreSignal] = useState(0);
 
   useEffect(() => {
     const topologyChanged = previousTopologyKeyRef.current !== topologyKey;
@@ -419,6 +483,24 @@ export function KnowledgeGraphFlow({
     onNodeSelect?.(null);
   }, [onNodeSelect]);
 
+  const scheduleRestore = useCallback(() => {
+    if (autoRestoreView) setRestoreSignal((current) => current + 1);
+  }, [autoRestoreView]);
+
+  const restoreLayout = useCallback(() => {
+    const defaultPositions = new Map(baseNodes.map((node) => [node.id, node.position]));
+    setNodes((currentNodes) => currentNodes.map((node) => ({
+      ...node,
+      position: defaultPositions.get(node.id) ?? node.position,
+    })));
+  }, [baseNodes, setNodes]);
+
+  const handleMoveEnd = useCallback<OnMoveEnd>((event) => {
+    // React Flow passes null for programmatic viewport animations. Only a real
+    // pointer/wheel interaction should restart the inactivity timer.
+    if (event) scheduleRestore();
+  }, [scheduleRestore]);
+
   if (normalized.nodes.length === 0) {
     return (
       <div className="grid h-full place-items-center rounded-[8px] border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
@@ -432,11 +514,16 @@ export function KnowledgeGraphFlow({
       className={cn(
         "knowledge-graph-canvas relative h-full w-full overflow-hidden",
         appearance === "teaching-rail"
-          ? "bg-[radial-gradient(circle_at_45%_48%,rgba(221,240,234,0.74),rgba(248,251,250,0.18)_62%,transparent_100%)]"
+          ? "bg-transparent"
           : "bg-[radial-gradient(circle_at_48%_42%,rgba(239,246,255,0.9),rgba(255,255,255,0.96)_54%,rgba(240,253,250,0.72)_100%)]",
         isFullscreen && "fixed inset-0 z-50 bg-white",
       )}
-      style={isFullscreen ? { minHeight: "100vh" } : { minHeight: height }}
+      data-auto-restore-view={autoRestoreView || undefined}
+      style={isFullscreen
+        ? { minHeight: "100vh" }
+        : fillAvailableHeight
+          ? undefined
+          : { minHeight: height }}
     >
       <ReactFlowProvider>
         <ReactFlow
@@ -446,7 +533,11 @@ export function KnowledgeGraphFlow({
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
           onPaneClick={clearSelection}
-          onNodeDragStop={(_, node) => onNodePositionChange?.(node.id, node.position)}
+          onMoveEnd={handleMoveEnd}
+          onNodeDragStop={(_, node) => {
+            onNodePositionChange?.(node.id, node.position);
+            scheduleRestore();
+          }}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView={!focusActiveNode || !activeNodeId}
@@ -464,6 +555,14 @@ export function KnowledgeGraphFlow({
             },
           }}
         >
+          <DelayedViewportRestore
+            activeNodeId={activeNodeId}
+            activeZoom={activeZoom}
+            enabled={autoRestoreView}
+            focusActiveNode={focusActiveNode}
+            onRestoreLayout={restoreLayout}
+            restoreSignal={restoreSignal}
+          />
           {focusActiveNode ? <ActiveNodeFocus nodeId={activeNodeId} zoom={activeZoom} /> : null}
           <Background
             color={appearance === "teaching-rail" ? "#cfe0db" : "#e2e8f0"}

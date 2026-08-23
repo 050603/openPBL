@@ -843,7 +843,7 @@ export const useSettingsStore = create<SettingsState>()(
         // Playback controls
         ttsMuted: false,
         ttsVolume: 1,
-        autoPlayLecture: false,
+        autoPlayLecture: true,
         playbackSpeed: 1,
 
         // Layout preferences
@@ -1715,7 +1715,7 @@ export const useSettingsStore = create<SettingsState>()(
     },
     {
       name: 'settings-storage',
-      version: 4,
+      version: 5,
       // Migrate persisted state
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<SettingsState>;
@@ -1902,6 +1902,13 @@ export const useSettingsStore = create<SettingsState>()(
             const cfg = state.ttsProvidersConfig[pid];
             if (cfg) cfg.enabled = pid !== 'browser-native-tts';
           }
+        }
+
+        // v4 → v5: AI lecture playback now advances continuously by default.
+        // Apply the new classroom default once to existing browser profiles;
+        // students can still turn it off from the playback controls afterwards.
+        if (version < 5) {
+          state.autoPlayLecture = true;
         }
 
         ensureValidProviderSelections(state);

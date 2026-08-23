@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bot, FileCheck2, History, MessageCircle, RotateCcw, Undo2, UserRound } from "lucide-react";
+import { Bot, FileCheck2, MessageCircle, RotateCcw, Undo2, UserRound } from "lucide-react";
 import { getCompanion } from "@/lib/ai-companions";
 import {
   parseWorkspaceOperation,
@@ -48,9 +48,7 @@ export function StudioProcessArchive({
     <div className="studio-archive-workspace">
       <header className="studio-workspace-view-heading">
         <div>
-          <span><History size={14} /> 过程档案</span>
-          <h2>看清是谁改了什么，也能回到修改前</h2>
-          <p>AI 编辑、学生提交、过程记录和对话按时间保留。撤销只恢复对应字段，不会回滚整个项目。</p>
+          <p>查看提交、AI 协作和版本记录。</p>
         </div>
         <div className="studio-archive-counts">
           <span><strong>{operations.length}</strong>AI 编辑</span>

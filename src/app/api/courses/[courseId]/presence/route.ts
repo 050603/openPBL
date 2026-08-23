@@ -11,6 +11,22 @@ export const dynamic = "force-dynamic";
 const ParamsSchema = z.object({ courseId: z.string().uuid() });
 const PRESENCE_TTL_MS = 60_000;
 const KEY_TTL_SECONDS = 120;
+let lastRedisFallbackLogAt = 0;
+
+async function redisOrDatabase() {
+  try {
+    return await getRedisClient();
+  } catch (error) {
+    const now = Date.now();
+    if (now - lastRedisFallbackLogAt > 30_000) {
+      lastRedisFallbackLogAt = now;
+      console.error("[presence] Redis unavailable; using database heartbeats", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return null;
+  }
+}
 
 export async function PUT(
   request: Request,
@@ -25,7 +41,7 @@ export async function PUT(
   if (auth.claims.role === "student" && auth.claims.courseId !== parsed.data.courseId) {
     return new Response(null, { status: 404 });
   }
-  const redis = await getRedisClient();
+  const redis = await redisOrDatabase();
   if (!redis) {
     if (auth.claims.role === "student") {
       await prisma.student.updateMany({
@@ -74,7 +90,7 @@ export async function DELETE(
   if (auth.claims.role === "student" && auth.claims.courseId !== parsed.data.courseId) {
     return new Response(null, { status: 404 });
   }
-  const redis = await getRedisClient();
+  const redis = await redisOrDatabase();
   if (!redis && auth.claims.role === "student") {
     await prisma.student.updateMany({
       where: {
@@ -105,7 +121,7 @@ export async function GET(
   if (auth.claims.role === "student" && auth.claims.courseId !== parsed.data.courseId) {
     return new Response(null, { status: 404 });
   }
-  const redis = await getRedisClient();
+  const redis = await redisOrDatabase();
   if (!redis) {
     const students = await prisma.student.findMany({
       where: { courseId: parsed.data.courseId, lastSeenAt: { not: null } },

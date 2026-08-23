@@ -44,6 +44,7 @@ import {
   AI_PROGRESS_COMPLETION_MODEL_VERSION,
   isReliableAiProgress,
 } from '@openmaic/lib/progress/completion-model';
+import { toast } from '@/components/ui';
 
 const log = createLogger('StudentStageHost');
 
@@ -345,6 +346,7 @@ export function StudentStageHost({
   const hydratedRef = useRef<boolean>(false);
   const telemetryQueueRef = useRef<LearningEvent[]>([]);
   const telemetryFlushingRef = useRef(false);
+  const telemetryFailureCountRef = useRef(0);
   const sceneEnteredAtRef = useRef<number | null>(null);
   const lastHeartbeatAtRef = useRef<number | null>(null);
   const seenSceneIdsRef = useRef<Set<string>>(new Set());
@@ -379,8 +381,22 @@ export function StudentStageHost({
     telemetryFlushingRef.current = true;
     try {
       await postLearningEvents({ courseId, studentId, events });
-    } catch {
+      if (telemetryFailureCountRef.current >= 3) {
+        toast.success('学习记录同步已恢复', {
+          id: `learning-events-sync-${courseId}-${studentId}`,
+        });
+      }
+      telemetryFailureCountRef.current = 0;
+    } catch (error) {
       telemetryQueueRef.current.unshift(...events);
+      telemetryFailureCountRef.current += 1;
+      log.error('Learning event synchronization failed:', error);
+      if (telemetryFailureCountRef.current === 3) {
+        toast.error('学习记录同步中断', {
+          id: `learning-events-sync-${courseId}-${studentId}`,
+          description: error instanceof Error ? error.message : '服务器连接异常，正在自动重试。',
+        });
+      }
     } finally {
       telemetryFlushingRef.current = false;
     }
@@ -473,21 +489,34 @@ export function StudentStageHost({
         try {
           const progRes = await fetch(
             `/api/openmaic/progress?courseId=${encodeURIComponent(courseId)}&studentId=${encodeURIComponent(studentId)}`,
-            { cache: 'no-store', signal: loadController.signal },
+            {
+              cache: 'no-store',
+              signal: loadController.signal,
+              headers: { 'X-OpenPBL-Role': 'student' },
+            },
           );
-          if (progRes.ok) {
-            const progJson = (await progRes.json()) as ProgressResponse;
-            const entry = progJson.data?.progress?.[studentId];
-            if (entry && isReliableAiProgress(entry)) {
-              restoredIndex = Math.min(
-                entry.currentSceneIndex ?? 0,
-                Math.max(0, studentScenes.length - 1),
-              );
-              restoredCompleted = entry.completedScenes ?? [];
-            }
+          if (!progRes.ok) {
+            throw new Error(`学习进度恢复失败（HTTP ${progRes.status}）`);
           }
-        } catch {
-          // 进度恢复失败不阻断学习
+          const progJson = (await progRes.json()) as ProgressResponse;
+          const entry = progJson.data?.progress?.[studentId];
+          if (entry && isReliableAiProgress(entry)) {
+            restoredIndex = Math.min(
+              entry.currentSceneIndex ?? 0,
+              Math.max(0, studentScenes.length - 1),
+            );
+            restoredCompleted = entry.completedScenes ?? [];
+          }
+        } catch (error) {
+          if (
+            loadController.signal.aborted
+            || (error instanceof DOMException && error.name === 'AbortError')
+          ) {
+            throw error;
+          }
+          throw new Error(
+            error instanceof Error ? error.message : '学习进度恢复失败',
+          );
         }
       }
       completedRef.current = new Set(restoredCompleted);
@@ -645,11 +674,15 @@ export function StudentStageHost({
       });
     })().catch((error) => {
       log.error('Failed to insert prepared adaptive classroom:', error);
+      toast.error('额外学习资源加载失败', {
+        id: `adaptive-resource-${courseId}-${studentId}`,
+        description: error instanceof Error ? error.message : '请检查服务器连接后重试。',
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, [adaptiveInsertions, loadPreparedClassroom, state]);
+  }, [adaptiveInsertions, courseId, loadPreparedClassroom, state, studentId]);
 
   // 上报进度到 /api/openmaic/progress
   const reportProgress = useCallback(
@@ -682,27 +715,57 @@ export function StudentStageHost({
       if (isAllComplete && completionReportedRef.current) return;
 
       try {
-        await fetch('/api/openmaic/progress', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-OpenPBL-Role': 'student',
-          },
-          body: JSON.stringify({
-            courseId,
-            studentId,
-            studentName,
-            classroomId,
-            currentSceneIndex: currentIdx,
-            totalScenes: scenes.length,
-            completedScenes,
-            completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
-            ...(quizScore !== undefined ? { quizScore } : {}),
-          }),
+        const requestBody = JSON.stringify({
+          courseId,
+          studentId,
+          studentName,
+          classroomId,
+          currentSceneIndex: currentIdx,
+          totalScenes: scenes.length,
+          completedScenes,
+          completionModelVersion: AI_PROGRESS_COMPLETION_MODEL_VERSION,
+          ...(quizScore !== undefined ? { quizScore } : {}),
         });
+        let response: Response | undefined;
+        let lastNetworkError: unknown;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            response = await fetch('/api/openmaic/progress', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-OpenPBL-Role': 'student',
+              },
+              body: requestBody,
+            });
+          } catch (error) {
+            lastNetworkError = error;
+            if (attempt === 3) throw error;
+            await new Promise((resolve) => window.setTimeout(resolve, attempt * 300));
+            continue;
+          }
+          if (response.ok || response.status < 500 || attempt === 3) break;
+          await new Promise((resolve) => window.setTimeout(resolve, attempt * 300));
+        }
+        if (!response && lastNetworkError) throw lastNetworkError;
+        if (!response?.ok) {
+          const payload = await response?.json().catch(() => null) as
+            | { message?: string; error?: string }
+            | null
+            | undefined;
+          throw new Error(
+            payload?.message
+              ?? payload?.error
+              ?? `学习进度上报失败（HTTP ${response?.status ?? 'unknown'}）`,
+          );
+        }
         if (isAllComplete) completionReportedRef.current = true;
-      } catch {
-        // 上报失败静默处理
+      } catch (error) {
+        log.error('AI learning progress synchronization failed:', error);
+        toast.error('学习进度同步失败', {
+          id: `ai-progress-sync-${courseId}-${studentId}`,
+          description: error instanceof Error ? error.message : '请检查服务器连接后重试。',
+        });
       }
     },
     [courseId, studentId, studentName, classroomId, mode, standalone],
@@ -871,8 +934,8 @@ export function StudentStageHost({
             className={cn(
               'relative flex flex-col overflow-hidden bg-background text-foreground',
               variant === 'embedded'
-                ? 'h-[calc(100dvh-135px)] min-h-[720px] max-h-[1080px] rounded-[8px] border border-stone-200'
-                : 'h-screen',
+                ? 'h-full min-h-0 max-h-full rounded-[8px] border border-stone-200'
+                : 'fixed inset-0 h-dvh',
               className,
             )}
           >

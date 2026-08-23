@@ -15,6 +15,7 @@ export const COMPANION_WORKSPACE_TARGETS = [
   "proposal.risks",
   "proposal.aiBoundary",
   "proposal.sources",
+  "make.processDraft",
   "make.testMethod",
   "make.testTarget",
   "make.observation",
@@ -43,6 +44,8 @@ export type WorkspaceTargetDefinition = {
   payloadKey: string;
   valueKind: "text" | "list";
   label: string;
+  /** Legacy fields remain parseable so archived edits can still be undone. */
+  assistantEditable?: boolean;
 };
 
 export type CompanionWorkspaceOperation = {
@@ -74,15 +77,16 @@ const TARGET_DEFINITIONS: Record<CompanionWorkspaceTarget, WorkspaceTargetDefini
   "proposal.risks": { stageKey: "proposal", evidenceKind: "plan-version", payloadKey: "risks", valueKind: "list", label: "风险与应对" },
   "proposal.aiBoundary": { stageKey: "proposal", evidenceKind: "plan-version", payloadKey: "aiBoundary", valueKind: "text", label: "AI 分工边界" },
   "proposal.sources": { stageKey: "proposal", evidenceKind: "plan-version", payloadKey: "sources", valueKind: "list", label: "资料来源" },
-  "make.testMethod": { stageKey: "make", evidenceKind: "test-result", payloadKey: "method", valueKind: "text", label: "测试方法" },
-  "make.testTarget": { stageKey: "make", evidenceKind: "test-result", payloadKey: "target", valueKind: "text", label: "测试对象" },
-  "make.observation": { stageKey: "make", evidenceKind: "test-result", payloadKey: "observation", valueKind: "text", label: "观察记录" },
-  "make.result": { stageKey: "make", evidenceKind: "test-result", payloadKey: "result", valueKind: "text", label: "测试结果" },
-  "make.limitation": { stageKey: "make", evidenceKind: "test-result", payloadKey: "limitation", valueKind: "text", label: "测试局限" },
-  "make.interpretation": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "interpretation", valueKind: "text", label: "结果解释" },
-  "make.reason": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "reason", valueKind: "text", label: "修订理由" },
-  "make.plannedChange": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "plannedChange", valueKind: "text", label: "计划修改" },
-  "make.nextGoal": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "nextGoal", valueKind: "text", label: "下一轮目标" },
+  "make.processDraft": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "processDraft", valueKind: "text", label: "作品工作稿" },
+  "make.testMethod": { stageKey: "make", evidenceKind: "test-result", payloadKey: "method", valueKind: "text", label: "测试对象与方法", assistantEditable: false },
+  "make.testTarget": { stageKey: "make", evidenceKind: "test-result", payloadKey: "target", valueKind: "text", label: "测试对象", assistantEditable: false },
+  "make.observation": { stageKey: "make", evidenceKind: "test-result", payloadKey: "observation", valueKind: "text", label: "观察记录", assistantEditable: false },
+  "make.result": { stageKey: "make", evidenceKind: "test-result", payloadKey: "result", valueKind: "text", label: "测试结果", assistantEditable: false },
+  "make.limitation": { stageKey: "make", evidenceKind: "test-result", payloadKey: "limitation", valueKind: "text", label: "测试局限", assistantEditable: false },
+  "make.interpretation": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "interpretation", valueKind: "text", label: "结果解释", assistantEditable: false },
+  "make.reason": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "reason", valueKind: "text", label: "修订理由", assistantEditable: false },
+  "make.plannedChange": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "plannedChange", valueKind: "text", label: "计划修改", assistantEditable: false },
+  "make.nextGoal": { stageKey: "make", evidenceKind: "revision-decision", payloadKey: "nextGoal", valueKind: "text", label: "下一轮目标", assistantEditable: false },
 };
 
 const EDITABLE_TARGET = /(方案|构想|步骤|风险|边界|测试|观察|结果|修订|下一步|文档|报告|材料|记录|工作台)/;
@@ -100,11 +104,14 @@ export function getWorkspaceTargetDefinition(
 
 export function workspaceTargetsForStage(stageKey: string): CompanionWorkspaceTarget[] {
   return COMPANION_WORKSPACE_TARGETS.filter(
-    (target) => TARGET_DEFINITIONS[target].stageKey === stageKey,
+    (target) =>
+      TARGET_DEFINITIONS[target].stageKey === stageKey
+      && TARGET_DEFINITIONS[target].assistantEditable !== false,
   );
 }
 
 export function buildWorkspaceEditInstruction(stageKey: string, message: string): string | undefined {
+  if (message.includes("只输出纯文本工作结果")) return undefined;
   if (!requestsWorkspaceEdit(message)) return undefined;
   if (buildStageBoundaryInstruction(stageKey, message)) return undefined;
   const targets = workspaceTargetsForStage(stageKey);
@@ -264,6 +271,7 @@ function initialPayload(
     reason: "",
     plannedChange: "",
     nextGoal: "",
+    processDraft: "",
   };
 }
 
@@ -322,7 +330,7 @@ export function applyCompanionWorkspacePatch(input: {
         ? "项目方案 v1"
         : definition.evidenceKind === "test-result"
           ? `测试记录 ${iterationId.replace("cycle-", "#")}`
-          : `修订决定 ${iterationId.replace("cycle-", "#")}`
+          : `作品工作稿 ${iterationId.replace("cycle-", "#")}`
     ),
     summary: summarizePayload(applied.payload),
     payload: applied.payload as LearningEvidence["payload"],

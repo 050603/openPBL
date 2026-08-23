@@ -9,8 +9,11 @@ const mocks = vi.hoisted(() => ({
   uploadFileCreate: vi.fn(),
   courseResourceCreate: vi.fn(),
   courseUpdate: vi.fn(),
+  courseEventCreate: vi.fn(),
+  publishCourseEvent: vi.fn(),
   courseCount: vi.fn(),
   transaction: vi.fn(),
+  fileTypeFromBuffer: vi.fn(async () => ({ ext: "png", mime: "image/png" }) as { ext: string; mime: string } | null),
 }));
 
 vi.mock("@/lib/auth/request-guards", () => ({
@@ -25,7 +28,7 @@ vi.mock("@/lib/auth/distributed-rate-limit", () => ({
 vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitedResponse: vi.fn() }));
 
 vi.mock("file-type", () => ({
-  fileTypeFromBuffer: vi.fn(async () => ({ ext: "png", mime: "image/png" })),
+  fileTypeFromBuffer: mocks.fileTypeFromBuffer,
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -34,6 +37,9 @@ vi.mock("@/lib/db/client", () => ({
     course: { count: mocks.courseCount },
     $transaction: mocks.transaction,
   },
+}));
+vi.mock("@/lib/realtime/event-bus", () => ({
+  publishCourseEvent: mocks.publishCourseEvent,
 }));
 
 import { POST } from "./route";
@@ -45,17 +51,41 @@ describe("teacher course resource upload", () => {
     vi.clearAllMocks();
     mocks.storedNames.length = 0;
     mocks.courseCount.mockResolvedValue(1);
+    mocks.fileTypeFromBuffer.mockResolvedValue({ ext: "png", mime: "image/png" });
     mocks.uploadFileCreate.mockImplementation(async ({ data }: { data: { storedName: string } }) => {
       mocks.storedNames.push(data.storedName);
       return data;
     });
     mocks.courseResourceCreate.mockResolvedValue({});
-    mocks.courseUpdate.mockResolvedValue({});
+    mocks.courseUpdate.mockResolvedValue({ version: 7 });
+    mocks.courseEventCreate.mockResolvedValue({ cursor: BigInt(41), courseVersion: 7 });
+    mocks.publishCourseEvent.mockResolvedValue(undefined);
     mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
       uploadFile: { create: mocks.uploadFileCreate },
       courseResource: { create: mocks.courseResourceCreate },
       course: { update: mocks.courseUpdate },
+      courseEvent: { create: mocks.courseEventCreate },
     }));
+  });
+
+  it("accepts a UTF-8 source file as an archived student outcome", async () => {
+    mocks.fileTypeFromBuffer.mockResolvedValueOnce(null);
+    const form = new FormData();
+    form.append("file", new File(["print('hello')\n"], "prototype.py", { type: "text/x-python" }));
+    form.append("courseId", courseId);
+
+    const response = await POST(new Request("http://localhost:3000/api/uploads", {
+      method: "POST",
+      headers: { Origin: "http://localhost:3000" },
+      body: form,
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload).toMatchObject({ fileName: "prototype.py", fileType: "PY" });
+    expect(mocks.uploadFileCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ mimeType: "text/x-python" }),
+    });
   });
 
   afterEach(async () => {
@@ -90,7 +120,15 @@ describe("teacher course resource upload", () => {
     expect(mocks.courseUpdate).toHaveBeenCalledWith({
       where: { id: courseId },
       data: { version: { increment: 1 } },
+      select: { version: true },
     });
+    expect(mocks.courseEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ courseId, courseVersion: 7 }),
+    }));
+    expect(mocks.publishCourseEvent).toHaveBeenCalledWith(
+      courseId,
+      expect.objectContaining({ payload: expect.objectContaining({ eventCursor: "41" }) }),
+    );
   });
 
   it("returns a diagnosable server error when database binding fails", async () => {

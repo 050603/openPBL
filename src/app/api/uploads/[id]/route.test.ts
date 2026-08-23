@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   resourceDeleteMany: vi.fn(),
   uploadUpdate: vi.fn(),
   courseUpdate: vi.fn(),
+  courseEventCreate: vi.fn(),
+  publishCourseEvent: vi.fn(),
   unlink: vi.fn(),
 }));
 
@@ -21,6 +23,9 @@ vi.mock("@/lib/db/client", () => ({
     uploadFile: { findFirst: mocks.findFirst },
     $transaction: mocks.transaction,
   },
+}));
+vi.mock("@/lib/realtime/event-bus", () => ({
+  publishCourseEvent: mocks.publishCourseEvent,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => ({
@@ -44,12 +49,15 @@ describe("DELETE /api/uploads/[id]", () => {
     });
     mocks.resourceDeleteMany.mockResolvedValue({ count: 1 });
     mocks.uploadUpdate.mockResolvedValue({});
-    mocks.courseUpdate.mockResolvedValue({});
+    mocks.courseUpdate.mockResolvedValue({ version: 8 });
+    mocks.courseEventCreate.mockResolvedValue({ cursor: BigInt(42), courseVersion: 8 });
+    mocks.publishCourseEvent.mockResolvedValue(undefined);
     mocks.unlink.mockResolvedValue(undefined);
     mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
       courseResource: { deleteMany: mocks.resourceDeleteMany },
       uploadFile: { update: mocks.uploadUpdate },
       course: { update: mocks.courseUpdate },
+      courseEvent: { create: mocks.courseEventCreate },
     }));
   });
 
@@ -71,7 +79,15 @@ describe("DELETE /api/uploads/[id]", () => {
     expect(mocks.courseUpdate).toHaveBeenCalledWith({
       where: { id: courseId },
       data: { version: { increment: 1 } },
+      select: { version: true },
     });
+    expect(mocks.courseEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ courseId, courseVersion: 8 }),
+    }));
+    expect(mocks.publishCourseEvent).toHaveBeenCalledWith(
+      courseId,
+      expect.objectContaining({ payload: expect.objectContaining({ eventCursor: "42" }) }),
+    );
     expect(mocks.unlink).toHaveBeenCalledWith(expect.stringContaining(`${uploadId}.pdf`));
   });
 });

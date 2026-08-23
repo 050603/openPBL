@@ -14,6 +14,7 @@ import type {
   StudentAdaptiveLearningState,
 } from "@/lib/session/types";
 import { isKnowledgeStructureReviewCurrent } from "@/lib/knowledge-graph-quality";
+import { deriveCourseEntryPolicy, type CourseEntryPolicy } from "@/lib/course-entry-policy";
 
 export const MAX_ADAPTIVE_PRETEST_QUESTIONS = 5;
 export const MAX_ADAPTIVE_PRETEST_MINUTES = 5;
@@ -113,16 +114,19 @@ export function estimateAdaptivePretestMinutes(questions: AdaptiveAssessmentQues
 export function hasCompleteAdaptivePrerequisiteLoop(
   plan: AdaptiveLearningPlan,
   substantiveKnowledgeCount: number,
+  courseEntryPolicy?: CourseEntryPolicy,
 ): boolean {
   if (substantiveKnowledgeCount === 0) return true;
   const prerequisiteIds = new Set((plan.prerequisiteKnowledgePoints ?? []).map((point) => point.id));
   const diagnosedIds = new Set(plan.pretest.questions.flatMap((question) => question.knowledgePointIds));
   const prerequisiteBranches = plan.branches.filter((branch) => branch.kind === "prerequisite");
   const coveredIds = new Set(prerequisiteBranches.flatMap((branch) => branch.prerequisiteKnowledgePointIds));
-  return prerequisiteIds.size >= MIN_ADAPTIVE_PREREQUISITES
+  const minimumPrerequisites = courseEntryPolicy?.minimumPrerequisites ?? MIN_ADAPTIVE_PREREQUISITES;
+  const pretestTimeBudgetMin = courseEntryPolicy?.pretestTimeBudgetMin ?? MAX_ADAPTIVE_PRETEST_MINUTES;
+  return prerequisiteIds.size >= minimumPrerequisites
     && plan.pretest.questions.length === prerequisiteIds.size
     && prerequisiteBranches.length === prerequisiteIds.size
-    && plan.pretest.estimatedMinutes <= MAX_ADAPTIVE_PRETEST_MINUTES
+    && plan.pretest.estimatedMinutes <= pretestTimeBudgetMin
     && plan.pretest.questions.every((question) => question.knowledgePointIds.length === 1)
     && prerequisiteBranches.every((branch) => branch.prerequisiteKnowledgePointIds.length === 1)
     && [...prerequisiteIds].every((id) => diagnosedIds.has(id) && coveredIds.has(id));
@@ -151,15 +155,21 @@ export function evaluateAdaptiveLearningPlanQuality(
     knowledgeGraph?: KnowledgeGraph;
     mainScenes?: OpenMaicSceneOutlineSnapshot[];
     requireSemanticReview?: boolean;
+    courseEntryPolicy?: CourseEntryPolicy;
   },
 ): { passed: boolean; issues: string[]; warnings: string[]; recommendedMin: number; recommendedMax: number; runtimeMaxPerStudent: number } {
   const target = deriveAdaptiveEnrichmentTarget(input);
   const issues: string[] = [];
   const warnings: string[] = [];
-  if ((plan.prerequisiteKnowledgePoints?.length ?? 0) < MIN_ADAPTIVE_PREREQUISITES) {
-    issues.push("每门课程必须至少包含 1 项经审核的真实前序能力；入门、通识、启蒙或无需编程不能作为零前测依据");
+  const minimumPrerequisites = input.courseEntryPolicy?.minimumPrerequisites ?? MIN_ADAPTIVE_PREREQUISITES;
+  if ((plan.prerequisiteKnowledgePoints?.length ?? 0) < minimumPrerequisites) {
+    issues.push(`当前课程至少需要 ${minimumPrerequisites} 项经审核的真实前序能力`);
   }
-  if (!hasCompleteAdaptivePrerequisiteLoop(plan, input.knowledgePoints.length)) {
+  if (input.courseEntryPolicy
+    && (plan.prerequisiteKnowledgePoints?.length ?? 0) > input.courseEntryPolicy.maximumPrerequisites) {
+    issues.push(`当前课程入口容量为 ${input.courseEntryPolicy.maximumPrerequisites} 项，不能通过增加前测挤占主课时间`);
+  }
+  if (!hasCompleteAdaptivePrerequisiteLoop(plan, input.knowledgePoints.length, input.courseEntryPolicy)) {
     issues.push("前序知识、前测与补缺资源没有形成闭环");
   }
   const validCourseKnowledgeIds = new Set(input.knowledgePoints.map((point) => point.id));
@@ -213,8 +223,9 @@ export function evaluateAdaptiveLearningPlanQuality(
       issues.push(`前测题引用了未定义的先修知识：${question.prompt}`);
     }
   }
-  if (plan.pretest.estimatedMinutes > MAX_ADAPTIVE_PRETEST_MINUTES) {
-    issues.push(`课前诊断不得超过 ${MAX_ADAPTIVE_PRETEST_MINUTES} 分钟`);
+  const pretestTimeBudgetMin = input.courseEntryPolicy?.pretestTimeBudgetMin ?? MAX_ADAPTIVE_PRETEST_MINUTES;
+  if (plan.pretest.estimatedMinutes > pretestTimeBudgetMin) {
+    issues.push(`当前课程的课前诊断预算为 ${pretestTimeBudgetMin} 分钟`);
   }
   const questionCountByPrerequisite = new Map<string, number>();
   for (const question of plan.pretest.questions) {
@@ -457,9 +468,9 @@ export function deriveAdaptivePrerequisiteCandidates(input: {
 
 export const ADAPTIVE_LEARNING_GENERATION_POLICY = `你是课程个性化学习路径设计师。必须先区分“本课新授知识”和“进入本课前必须掌握的课外先决知识”。
 1. 本平台主要服务小学、初中、高中学生，也覆盖大学学习者；“知识启蒙”描述学生仍处在系统学习阶段，不代表某个课程主题没有前序知识。领域入门、通识介绍、无需编程只能降低本课操作门槛，不能抹掉该主题在完整知识阶梯中的概念基础。先确定学习者学段，再判断本课目标在该学段知识阶梯中的深度，最后反推课程入口能力。
-2. 逐页阅读 mainScenes，并为每个本课知识点写入 prerequisiteAnalysis.decisions。每门课必须选出至少 1 项真实先修，推荐 2-4 项、最多 5 项；不得输出零前测。先修只有同时满足以下三个条件才可标记 diagnose-prerequisite：其一，按学段课程递进、跨学科基础或可靠的概念依赖，学生在进入本课前理应学习；其二，缺失会直接阻断某个本课新授概念或任务，而不只是“有帮助”；其三，它不是 learningObjectives、taughtKnowledgeCatalog 或 mainScenes 正在讲授内容的同义改写、子技能、简化例题或提前练习。年级或画像为空表示未知，不表示无需先修；应给出明确的学段假设和概念递进依据，不得虚构学生已经掌握。
+2. 逐页阅读 mainScenes，并为每个本课知识点写入 prerequisiteAnalysis.decisions。先修数量、前测时间和补学预算必须遵循输入中的 entryPolicy；该策略由本课课时、学段、目标规模、课程模式和已审校知识图谱计算，不得套用固定题数。先修只有同时满足以下三个条件才可标记 diagnose-prerequisite：其一，按学段课程递进、跨学科基础或可靠的概念依赖，学生在进入本课前理应学习；其二，缺失会直接阻断某个本课新授概念或任务，而不只是“有帮助”；其三，它不是 learningObjectives、taughtKnowledgeCatalog 或 mainScenes 正在讲授内容的同义改写、子技能、简化例题或提前练习。年级或画像为空表示未知，不表示无需先修；应给出明确的学段假设和概念递进依据，不得虚构学生已经掌握。
 2. prerequisiteKnowledgePoints 使用独立且稳定的 id（建议 prereq-英文短名）；每道前测题的 knowledgePointIds 只能引用这个独立目录。不得引用 knowledgeCatalog 中的本课新授知识 ID。
-3. 每道题必须直接检查一个具体概念、规则、表征或操作，不得使用“要理解本节课的新内容”“关于某知识最关键的前序判断是什么”等元问题，不得只考名称记忆。学生此时尚未解锁本课新授内容，因此题干、选项、判断陈述和匹配项都不得出现 taughtKnowledgeCatalog 或 mainScenes 中的新授概念名称，也不得把前序知识包装在“在强化学习中……”这类新授情境里；只能在 rationale 中向教师说明它将支撑哪个新授知识。题型只能是 single-choice、true-false、matching，不得生成简答题；matching 必须提供 2-4 组 matchingPairs。题目总预计用时不得超过 5 分钟，优先用 2-4 道高信息量题覆盖最关键依赖。
+3. 每道题必须直接检查一个具体概念、规则、表征或操作，不得使用“要理解本节课的新内容”“关于某知识最关键的前序判断是什么”等元问题，不得只考名称记忆。学生此时尚未解锁本课新授内容，因此题干、选项、判断陈述和匹配项都不得出现 taughtKnowledgeCatalog 或 mainScenes 中的新授概念名称，也不得把前序知识包装在“在强化学习中……”这类新授情境里；只能在 rationale 中向教师说明它将支撑哪个新授知识。题型只能是 single-choice、true-false、matching，不得生成简答题；matching 必须提供 2-4 组 matchingPairs。题目总预计用时不得超过 entryPolicy.pretestTimeBudgetMin，并用尽可能少的高信息量题覆盖最关键依赖。
 4. rationale 必须说明正确依据，以及该先决知识缺失会具体阻碍哪个本课知识点。
 5. 每个前测知识点都要有且只有一份 prerequisite 资源，一份资源只能关联一个 prerequisiteKnowledgePointId。资源只修复该具体缺口：先定位误解，再用短讲解或例子补齐，最后用一道迁移检查确认能够衔接新课；不得提前重讲本课核心结论。禁止把多个独立缺口合并成“全部基础补修”。
 6. 必须区分“课程候选资源库”和“单个学生实际路径”。备课阶段先对整门课列出候选机会并逐项选择或拒绝，再按照 enrichmentStrategy.recommendedMin-recommendedMax 建设足够丰富的资源库；资源应优先分散覆盖主要学习需求。迁移应用、例题深化、经典拓展是用于帮助设计的价值维度，不是必须凑齐的配额；当多个高价值资源恰好属于同一维度时应保留真实价值，不得为了类型齐全生成低价值内容。运行时最多向同一学生插入 runtimeMaxPerStudent 份，不得因为学生只会用少量资源就缩减课程库。
@@ -472,9 +483,20 @@ export function buildAdaptiveLearningGenerationContext(input: {
   knowledgePoints: KnowledgePoint[];
   knowledgeGraph?: KnowledgeGraph;
   mainScenes?: OpenMaicSceneOutlineSnapshot[];
+  hours?: number;
+  grade?: string;
+  courseMode?: string;
 }) {
   const prerequisites = deriveAdaptivePrerequisiteCandidates(input);
   return {
+    entryPolicy: deriveCourseEntryPolicy({
+      hours: input.hours,
+      grade: input.grade,
+      lessonTargetCount: input.knowledgePoints.length,
+      foundationTargetCount: input.knowledgePoints.filter((point) => point.level === "foundation").length,
+      acceptedPrerequisiteCount: prerequisites.length,
+      courseMode: input.courseMode,
+    }),
     graphPrerequisiteHints: prerequisites.map((candidate) => ({
       id: candidate.point.id,
       name: candidate.point.name,
@@ -599,7 +621,7 @@ export function ensureAdaptiveResourceCoverage(
     );
     if (covered) continue;
     const point = pointById.get(knowledgePointId);
-    const name = point?.name || knowledgePointId;
+    const name = point?.name || "关联先决知识";
     const supportedIds = unique([
       ...(point?.relatedIds ?? []),
       ...(prerequisiteById.get(knowledgePointId)?.supportsKnowledgePoints.map((target) => target.id) ?? []),
@@ -739,7 +761,7 @@ export function createDefaultAdaptiveLearningPlan(input: {
     pretest: {
       title: questions.length ? "课前先决知识检查" : "前序知识待智能分析",
       introduction: questions.length
-        ? "最多 5 道题，只检查理解本节新知识必需的课外先决基础；答题结果用于安排开课前的必要回顾。"
+        ? "题目规模和预计时间依据本课程入口策略确定，只检查理解本节新知识必需的课外先决基础；答题结果用于安排开课前的必要回顾。"
         : "当前知识图谱没有提供足够的课外依赖证据，需要结合主课内容继续分析；系统不会据此认定学生无需前测。",
       estimatedMinutes: estimateAdaptivePretestMinutes(questions),
       questions,
@@ -932,13 +954,13 @@ export function improveAdaptiveLearningPlanQuality(
     const supportedCourseIds = unique(validIds.flatMap((id) =>
       prerequisiteKnowledgePoints.find((point) => point.id === id)?.relatedIds ?? [],
     ));
-    const prerequisiteNames = validIds.map((id) =>
-      prerequisiteKnowledgePoints.find((candidate) => candidate.id === id)?.name || id,
+    const prerequisiteNames = validIds.map((id, index) =>
+      prerequisiteKnowledgePoints.find((candidate) => candidate.id === id)?.name || `先决知识 ${index + 1}`,
     );
     const priorOnlyKeyPoints = branch.keyPoints.filter((point) => !containsTaughtTerm(point));
     return validIds.map((id, index) => {
       const point = prerequisiteKnowledgePoints.find((candidate) => candidate.id === id);
-      const name = point?.name || prerequisiteNames[index] || id;
+      const name = point?.name || prerequisiteNames[index] || `先决知识 ${index + 1}`;
       const detail = point?.diagnosticBoundary || point?.keyInfo || point?.description || name;
       const targetIds = unique(point?.relatedIds ?? supportedCourseIds).filter((targetId) => courseIds.has(targetId));
       return {
@@ -1389,6 +1411,13 @@ export function evaluateAdaptiveBranchDecision(input: {
   now?: string;
 }): AdaptiveBranchEvaluationResult {
   const { plan, state } = input;
+  const prerequisiteNameById = new Map(
+    (plan.prerequisiteKnowledgePoints ?? []).map((point) => [point.id, point.name]),
+  );
+  const prerequisiteNames = (ids: string[]) => {
+    const names = ids.flatMap((id) => prerequisiteNameById.get(id)?.trim() || []);
+    return names.length ? names.join("、") : "关联先决知识";
+  };
   if (!plan.enabled || plan.status !== "teacher-confirmed") {
     return { decision: { action: "continue", reason: "自适应资源尚未由教师确认" }, evaluations: [] };
   }
@@ -1496,7 +1525,7 @@ export function evaluateAdaptiveBranchDecision(input: {
         actual: prerequisite
           ? "前测已提交，主课尚未开始"
           : anchorPassed
-            ? `已完成「${input.completedSceneTitle || input.completedSceneId || configuredAnchorIds.join("、")}」`
+            ? `已完成「${input.completedSceneTitle || "对应主课达标测"}」`
             : "尚未到达",
         passed: anchorPassed,
       },
@@ -1511,10 +1540,10 @@ export function evaluateAdaptiveBranchDecision(input: {
         key: "evidence",
         label: prerequisite ? "先决知识缺口" : "模块掌握证据",
         expected: prerequisite
-          ? branch.prerequisiteKnowledgePointIds.join("、") || "至少一个关联先决知识答错"
+          ? `至少一项存在缺口：${prerequisiteNames(branch.prerequisiteKnowledgePointIds)}`
           : `关联知识点得分 ≥ ${threshold} 分`,
         actual: prerequisite
-          ? matchingWeakIds.length ? `检测到缺口：${matchingWeakIds.join("、")}` : "未检测到关联缺口"
+          ? matchingWeakIds.length ? `检测到缺口：${prerequisiteNames(matchingWeakIds)}` : "未检测到关联缺口"
           : typeof score === "number" ? `${score} 分` : "暂无主课达标测分数",
         passed: evidencePassed,
       },

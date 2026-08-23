@@ -228,11 +228,98 @@ function isOpenPblScarfEdgeCandidate(
     && saturation >= 0.42
 }
 
+function getRgbHue(red: number, green: number, blue: number): number {
+  const maxChannel = Math.max(red, green, blue)
+  const minChannel = Math.min(red, green, blue)
+  const channelRange = maxChannel - minChannel
+
+  if (channelRange === 0) return 0
+
+  let hue: number
+  if (maxChannel === red) {
+    hue = 60 * (((green - blue) / channelRange) % 6)
+  } else if (maxChannel === green) {
+    hue = 60 * ((blue - red) / channelRange + 2)
+  } else {
+    hue = 60 * ((red - green) / channelRange + 4)
+  }
+
+  return hue < 0 ? hue + 360 : hue
+}
+
+/**
+ * WebP lightens a few scarf highlights enough that their red/blue ratio no
+ * longer matches the strict connected-component candidate. Their hue remains
+ * stable, though, unlike the adjacent blue-gray body. This predicate is used
+ * for exactly one expansion pass so it can recover the highlight without
+ * walking across a touching body region.
+ */
+function isOpenPblScarfHighlightCandidate(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha === 0 || blue < 80 || blue < red || blue < green) return false
+
+  const saturation = (blue - Math.min(red, green)) / blue
+  const hue = getRgbHue(red, green, blue)
+  const materialHighlight = blue >= 125 && hue >= 205 && hue <= 222
+  const compressedBrightEdge = blue >= 160 && hue > 222 && hue <= 230
+  return (materialHighlight || compressedBrightEdge) && saturation >= 0.2
+}
+
+function isOpenPblScarfChromaSpillCandidate(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha === 0 || blue < 90 || blue < red || blue < green) return false
+
+  const saturation = (blue - Math.min(red, green)) / blue
+  const hue = getRgbHue(red, green, blue)
+  return hue >= 230 && hue <= 285 && saturation >= 0.25
+}
+
+function isOpenPblScarfResidualCandidate(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha === 0 || blue < 35) return false
+  const saturation = (blue - Math.min(red, green)) / blue
+  return blue - red >= 8
+    && blue - green >= 4
+    && saturation >= 0.12
+}
+
+function isOpenPblScarfBrightHighlightCandidate(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): boolean {
+  if (alpha === 0 || blue < 125 || blue < red || blue < green) return false
+
+  const saturation = (blue - Math.min(red, green)) / blue
+  const hue = getRgbHue(red, green, blue)
+  return hue >= 205
+    && hue <= 222
+    && saturation >= 0.2
+}
+
+function isCompressedScarfFringe(alpha: number): boolean {
+  return alpha > 0 && alpha < 128
+}
+
 /**
  * Returns 0 for protected pixels, 1 for legacy-red scarf pixels, and 2 for
  * OpenPBL-blue scarf pixels. Blue pixels are accepted only when they belong to
  * a scarf-colored connected component containing a strong master-color seed.
- * This prevents nearby blue-gray body material from being recolored.
+ * A bounded highlight/fringe expansion recovers WebP-compressed edge pixels
+ * without allowing the mask to spread through the touching blue-gray body.
  */
 export function buildRoleScarfMask(
   data: Uint8ClampedArray,
@@ -297,19 +384,76 @@ export function buildRoleScarfMask(
       if (y + 1 < bottom) queue.push(pixelIndex + width)
     }
 
-    // WebP compression leaves a dark, partially transparent fringe around
-    // both the front fold and rear edge of the scarf. It can be diagonal and
-    // up to two pixels wide, so a single four-neighbour pass leaves blue
-    // pinstripes behind. Expand only two layers, within the current frame,
-    // while retaining the strict red/blue ratio that protects the blue-gray
-    // body material.
-    for (let edgePass = 0; edgePass < 2; edgePass += 1) {
-      const edgeAdditions: number[] = []
-      const queuedEdges = new Uint8Array(width * height)
+    const expandMask = (
+      passes: number,
+      isCandidate: (red: number, green: number, blue: number, alpha: number) => boolean,
+    ) => {
+      for (let edgePass = 0; edgePass < passes; edgePass += 1) {
+        const edgeAdditions: number[] = []
+        const queuedEdges = new Uint8Array((right - left) * (bottom - top))
+        for (let y = top; y < bottom; y += 1) {
+          for (let x = left; x < right; x += 1) {
+            const pixelIndex = y * width + x
+            if (mask[pixelIndex] !== 2) continue
+            for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+              for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+                if (xOffset === 0 && yOffset === 0) continue
+                const neighbourX = x + xOffset
+                const neighbourY = y + yOffset
+                if (
+                  neighbourX < left
+                  || neighbourX >= right
+                  || neighbourY < top
+                  || neighbourY >= bottom
+                ) {
+                  continue
+                }
+                const neighbour = neighbourY * width + neighbourX
+                const queuedIndex = (neighbourY - top) * (right - left) + neighbourX - left
+                if (mask[neighbour] !== 0 || queuedEdges[queuedIndex]) {
+                  continue
+                }
+                const [red, green, blue, alpha] = rgbaAt(neighbour)
+                if (!isCandidate(red, green, blue, alpha)) {
+                  continue
+                }
+                queuedEdges[queuedIndex] = 1
+                edgeAdditions.push(neighbour)
+              }
+            }
+          }
+        }
+        edgeAdditions.forEach((pixelIndex) => {
+          mask[pixelIndex] = 2
+        })
+      }
+    }
+
+    const includeNearbyBrightHighlights = () => {
+      const localWidth = right - left
+      const localSize = localWidth * (bottom - top)
+      const proximity = new Uint8Array(localSize)
+      let frontier: number[] = []
+
       for (let y = top; y < bottom; y += 1) {
         for (let x = left; x < right; x += 1) {
           const pixelIndex = y * width + x
           if (mask[pixelIndex] !== 2) continue
+          const localIndex = (y - top) * localWidth + x - left
+          proximity[localIndex] = 1
+          frontier.push(pixelIndex)
+        }
+      }
+
+      // The rear-view upper highlight is separated from the saturated scarf
+      // core by its dark stitched outline. Build a short frame-local distance
+      // field so the highlight can seed without treating arbitrary blue art
+      // elsewhere in the frame as scarf material.
+      for (let distance = 0; distance < 4; distance += 1) {
+        const nextFrontier: number[] = []
+        frontier.forEach((pixelIndex) => {
+          const x = pixelIndex % width
+          const y = Math.floor(pixelIndex / width)
           for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
             for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
               if (xOffset === 0 && yOffset === 0) continue
@@ -323,24 +467,131 @@ export function buildRoleScarfMask(
               ) {
                 continue
               }
-              const neighbour = neighbourY * width + neighbourX
-              if (mask[neighbour] !== 0 || queuedEdges[neighbour]) {
-                continue
-              }
-              const [red, green, blue, alpha] = rgbaAt(neighbour)
-              if (!isOpenPblScarfEdgeCandidate(red, green, blue, alpha)) {
-                continue
-              }
-              queuedEdges[neighbour] = 1
-              edgeAdditions.push(neighbour)
+              const localIndex = (neighbourY - top) * localWidth + neighbourX - left
+              if (proximity[localIndex]) continue
+              proximity[localIndex] = 1
+              nextFrontier.push(neighbourY * width + neighbourX)
             }
+          }
+        })
+        frontier = nextFrontier
+      }
+
+      const highlightQueue: number[] = []
+      const queuedHighlights = new Uint8Array(localSize)
+      for (let y = top; y < bottom; y += 1) {
+        for (let x = left; x < right; x += 1) {
+          const pixelIndex = y * width + x
+          const localIndex = (y - top) * localWidth + x - left
+          if (!proximity[localIndex] || mask[pixelIndex] !== 0) continue
+          const [red, green, blue, alpha] = rgbaAt(pixelIndex)
+          if (!isOpenPblScarfBrightHighlightCandidate(red, green, blue, alpha)) continue
+          mask[pixelIndex] = 2
+          queuedHighlights[localIndex] = 1
+          highlightQueue.push(pixelIndex)
+        }
+      }
+
+      // Once a nearby part of the highlight is confirmed, include its whole
+      // bright component. This covers a long horizontal glint in one pass and
+      // does not depend on its width or animation-frame compression pattern.
+      let highlightCursor = 0
+      while (highlightCursor < highlightQueue.length) {
+        const pixelIndex = highlightQueue[highlightCursor]
+        highlightCursor += 1
+        const x = pixelIndex % width
+        const y = Math.floor(pixelIndex / width)
+        for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+          for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+            if (xOffset === 0 && yOffset === 0) continue
+            const neighbourX = x + xOffset
+            const neighbourY = y + yOffset
+            if (
+              neighbourX < left
+              || neighbourX >= right
+              || neighbourY < top
+              || neighbourY >= bottom
+            ) {
+              continue
+            }
+            const neighbour = neighbourY * width + neighbourX
+            const localIndex = (neighbourY - top) * localWidth + neighbourX - left
+            if (mask[neighbour] !== 0 || queuedHighlights[localIndex]) continue
+            const [red, green, blue, alpha] = rgbaAt(neighbour)
+            if (!isOpenPblScarfBrightHighlightCandidate(red, green, blue, alpha)) continue
+            mask[neighbour] = 2
+            queuedHighlights[localIndex] = 1
+            highlightQueue.push(neighbour)
           }
         }
       }
-      edgeAdditions.forEach((pixelIndex) => {
-        mask[pixelIndex] = 2
-      })
     }
+
+    const fillDenseMaskGaps = () => {
+      for (let gapPass = 0; gapPass < 2; gapPass += 1) {
+        const gapAdditions: number[] = []
+        for (let y = top; y < bottom; y += 1) {
+          for (let x = left; x < right; x += 1) {
+            const pixelIndex = y * width + x
+            if (mask[pixelIndex] !== 0) continue
+            const [red, green, blue, alpha] = rgbaAt(pixelIndex)
+            if (!isOpenPblScarfResidualCandidate(red, green, blue, alpha)) continue
+
+            let scarfNeighbours = 0
+            for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+              for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+                if (xOffset === 0 && yOffset === 0) continue
+                const neighbourX = x + xOffset
+                const neighbourY = y + yOffset
+                if (
+                  neighbourX < left
+                  || neighbourX >= right
+                  || neighbourY < top
+                  || neighbourY >= bottom
+                ) {
+                  continue
+                }
+                if (mask[neighbourY * width + neighbourX] === 2) {
+                  scarfNeighbours += 1
+                }
+              }
+            }
+            if (scarfNeighbours >= 5) gapAdditions.push(pixelIndex)
+          }
+        }
+        gapAdditions.forEach((pixelIndex) => {
+          mask[pixelIndex] = 2
+        })
+      }
+    }
+
+    // The saturated material edge can be diagonal and two pixels wide.
+    expandMask(2, isOpenPblScarfEdgeCandidate)
+
+    // Some rear-view highlights are separated from the saturated core by a
+    // stitched outline, so recover the nearby bright component first.
+    includeNearbyBrightHighlights()
+
+    // A lightened scarf edge has the same hue as the master material but can
+    // fail the strict red/blue ratio. Only one pass is allowed: making this
+    // recursive would eventually enter the similarly blue-gray torso.
+    expandMask(1, isOpenPblScarfHighlightCandidate)
+
+    // A final one-pixel cleanup catches opaque purple/blue WebP chroma spill
+    // at the scarf silhouette. The hue is deliberately outside the body and
+    // material ranges, and the pass is non-recursive.
+    expandMask(1, isOpenPblScarfChromaSpillCandidate)
+
+    // Recover compressed blue pinholes that are surrounded by confirmed
+    // scarf pixels. Requiring a five-of-eight local majority keeps a body
+    // boundary (which touches the mask from only one side) protected.
+    fillDenseMaskGaps()
+
+    // WebP chroma bleed can occupy several almost-transparent pixels and may
+    // no longer retain a trustworthy hue at all. Alpha is safe here because
+    // the body pixels touching the scarf are opaque. Keep this frame-bounded
+    // so padding from a neighbouring atlas frame can never join the mask.
+    expandMask(3, (_red, _green, _blue, alpha) => isCompressedScarfFringe(alpha))
   }
 
   return mask

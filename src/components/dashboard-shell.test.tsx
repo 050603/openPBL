@@ -41,6 +41,39 @@ describe("DashboardShell immersive mode", () => {
     expect(screen.getByText("任务页面")).toBeTruthy();
   });
 
+  it("keeps the header but constrains a student learning page to the viewport", () => {
+    const { container } = render(
+      <DashboardShell role="student" viewportLocked><div>AI 授知</div></DashboardShell>,
+    );
+
+    expect(screen.getByRole("banner")).toBeTruthy();
+    expect(container.firstElementChild?.className).toContain("fixed");
+    expect(container.firstElementChild?.className).toContain("h-dvh");
+    expect(container.querySelector("main")?.className).toContain("overflow-hidden");
+    expect(container.querySelector("main")?.firstElementChild?.className).not.toContain("pb-10");
+  });
+
+  it("lets a wide AI learning surface grow with the viewport up to a 16:9 frame", () => {
+    const { container } = render(
+      <DashboardShell role="student" viewportLocked wide><div>宽屏 AI 授知</div></DashboardShell>,
+    );
+
+    const learningViewport = container.querySelector("main")?.firstElementChild as HTMLElement;
+    expect(learningViewport.style.maxWidth).toContain("177.7778dvh");
+    expect(learningViewport.className).not.toContain("max-w-[1600px]");
+    expect(learningViewport.className).toContain("pbl-wide-container");
+  });
+
+  it("uses the fluid desktop container on regular application pages", () => {
+    const { container } = render(
+      <DashboardShell role="teacher"><div>教师工作台</div></DashboardShell>,
+    );
+
+    expect(container.querySelector("main")?.firstElementChild?.className).toContain(
+      "pbl-dashboard-container",
+    );
+  });
+
   it("anchors the notification menu to its button and clears the unread badge when opened", () => {
     sessionMocks.courses = [{
       id: "course-1",

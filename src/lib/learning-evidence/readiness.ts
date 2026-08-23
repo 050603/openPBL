@@ -77,7 +77,7 @@ export function isLearningEvidenceStructurallyComplete(
     }
     case "test-result":
       return (
-        ["iterationId", "method", "target", "observation", "result"]
+        ["iterationId", "method", "observation", "result"]
           .every((key) => hasText(payload[key]))
         && (
           !("researchMethod" in payload || "ethics" in payload)
@@ -89,8 +89,11 @@ export function isLearningEvidenceStructurallyComplete(
         )
       );
     case "revision-decision":
+      if (hasText(payload.processDraft)) {
+        return hasText(payload.iterationId);
+      }
       return (
-        ["iterationId", "interpretation", "reason", "plannedChange", "nextGoal"]
+        ["iterationId", "reason", "plannedChange"]
           .every((key) => hasText(payload[key]))
         && ["revise", "keep", "retry"].includes(String(payload.decision))
       );
@@ -351,15 +354,12 @@ export function deriveStageReadiness(
         && item.groupId === projectIdForStudent(course, studentId),
       )));
     const artifactEvidence = validEvidenceOfKind(evidence, "artifact-version", snapshots);
-    const testResults = validEvidenceOfKind(evidence, "test-result", snapshots);
     const revisionDecisions = validEvidenceOfKind(evidence, "revision-decision", snapshots);
-    const revisionIterationIds = new Set(revisionDecisions.map((item) =>
-      String((item.payload as { iterationId?: string }).iterationId ?? "")));
-    const completedIterationIds = new Set(testResults
+    const completedIterationIds = new Set(revisionDecisions
       .map((item) => String((item.payload as { iterationId?: string }).iterationId ?? ""))
-      .filter((iterationId) => iterationId && revisionIterationIds.has(iterationId)));
+      .filter(Boolean));
     const submitted = versions.length > 0 || artifactEvidence.length > 0;
-    const requiredIterations = preset === "guided" ? 1 : 2;
+    const requiredIterations = 1;
     const iterationReady = completedIterationIds.size >= requiredIterations;
     const checks: StageReadinessCheck[] = [
       {
@@ -370,11 +370,11 @@ export function deriveStageReadiness(
         detail: submitted ? `已保存 ${Math.max(versions.length, artifactEvidence.length)} 个版本` : undefined,
       },
       {
-        id: "make-iteration-cycle",
-        label: `完成 ${requiredIterations} 次测试—解释—修订循环`,
+        id: "make-process-draft",
+        label: "保存一条真实的作品进展",
         satisfied: iterationReady,
-        evidenceIds: [...testResults, ...revisionDecisions].map((item) => item.id),
-        detail: `已完成 ${completedIterationIds.size}/${requiredIterations} 次`,
+        evidenceIds: revisionDecisions.map((item) => item.id),
+        detail: iterationReady ? "已保存作品工作稿" : undefined,
       },
     ];
     const needsRevision = allStageEvidence.some((item) => item.status === "needs-revision");
@@ -396,7 +396,6 @@ export function deriveStageReadiness(
       checks,
       missingEvidenceKinds: [
         ...(!submitted ? ["artifact-version" as const] : []),
-        ...(testResults.length ? [] : ["test-result" as const]),
         ...(revisionDecisions.length ? [] : ["revision-decision" as const]),
       ],
       evidenceIds: evidence.map((item) => item.id),
@@ -499,7 +498,7 @@ export function evidenceLabel(kind: LearningEvidenceKind): string {
     "plan-version": "可验证方案版本",
     "artifact-version": "作品版本",
     "test-result": "真实测试结果",
-    "revision-decision": "基于证据的修订决定",
+    "revision-decision": "作品过程记录",
     "final-artifact": "可检查的最终作品",
     "presentation-claim": "主张—证据—局限汇报",
     "defense-response": "答辩回应",

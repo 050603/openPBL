@@ -386,6 +386,26 @@ describe("PBL outline fallbacks", () => {
     });
   });
 
+  it("overrides an invalid silent policy on a student AI-learning outline", () => {
+    const [result] = enforcePblOutlineContract(
+      [{
+        id: "student-lesson",
+        type: "slide",
+        title: "核心讲解",
+        description: "需要语音讲解",
+        keyPoints: ["核心概念"],
+        order: 0,
+        stageKey: "ai-learning",
+        audience: "student",
+        generationPurpose: "knowledge-teaching",
+        ttsPolicy: "none",
+      }],
+      { requirement: "test", pblProfile: DEFAULT_PBL_COURSE_CONFIG },
+    );
+
+    expect(result.ttsPolicy).toBe("target-duration");
+  });
+
   it("fails closed for an unlabelled PBL outline", () => {
     const result = enforcePblOutlineContract(
       [{

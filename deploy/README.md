@@ -4,6 +4,22 @@ The production stack is intentionally independent from the development
 Compose file. Only Nginx publishes ports (`80` and `443`); Grafana binds to
 loopback and is reached through an SSH tunnel.
 
+## Current IP/HTTP server update
+
+From the repository root, run:
+
+`pnpm server:update`
+
+This command builds the application and matching migrator, applies database
+migrations, replaces the single running application container, refreshes
+Nginx, verifies health, and removes the replaced OpenPBL images. It uses the
+fixed `openpbl-app:current` and `openpbl-migrator:current` tags, so routine
+updates do not accumulate release-tagged copies. Uploaded files, whiteboards,
+and PostgreSQL data remain in their named volumes.
+
+Do not run `docker compose down -v` during an update because `-v` deletes the
+persistent data volumes.
+
 1. Install Docker Engine with the Compose plugin on Ubuntu 24.04.
 2. Copy `.deploy.env.example` to `.deploy.env`, fill immutable image tags,
    and create the files documented in `secrets.example/README.md`.

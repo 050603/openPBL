@@ -19,6 +19,7 @@ import {
 } from "@/lib/learning-evidence/types";
 import { canApplyAiDecision } from "@/lib/learning-evidence/ai-policy";
 import { useSession } from "@/lib/session/store";
+import { getCompanion } from "@/lib/ai-companions";
 
 type DecisionDraft = {
   reason: string;
@@ -215,7 +216,7 @@ export function AiDecisionInbox({
                   {contribution.proposedChange || "高影响AI建议"}
                 </strong>
                 <span className="text-xs font-semibold text-violet-700">
-                  {contribution.companionId} · 待决定
+                  {getCompanion(contribution.companionId).name} · 待决定
                 </span>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-stone-700">

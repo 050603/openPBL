@@ -1,12 +1,13 @@
 import { type NextRequest } from "next/server";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
-import { getCourse } from "@/lib/session/server-store";
+import { getCourse, updateCourse } from "@/lib/session/server-store";
 import { readClassroom, updatePersistedClassroomScenes } from "@/lib/openmaic/server/classroom-storage";
 import {
   generateClassroomAssets,
 } from "@/lib/openmaic/server/classroom-asset-generation";
 import {
   generateTTSForClassroom,
+  findUnresolvedClassroomMedia,
   resolveServerTtsTimingSelection,
 } from "@/lib/openmaic/server/classroom-media-generation";
 import {
@@ -17,6 +18,7 @@ import { auditCourseGeneratedResources } from "@/lib/course-generation/resource-
 import { generateAdaptiveBranchResource } from "@/lib/course-generation/job-runner";
 import { mapWithConcurrency } from "@openmaic/lib/utils/concurrency";
 import type { SceneOutline } from "@/lib/openmaic/types/generation";
+import { resolveDurableCourseSceneOutlines } from "@/lib/course-generation/course-resource-outlines";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,16 +48,29 @@ export async function POST(
   if (!course) return Response.json({ error: "Course not found" }, { status: 404 });
   const classroomId = course.aiLearningClassroomId || course.content._openmaicClassroomId;
   const classroom = classroomId ? await readClassroom(classroomId) : null;
-  const outlines = course.content._openmaicSceneOutlines ?? [];
+  const storedOutlines = course.content._openmaicSceneOutlines ?? [];
+  const outlines = await resolveDurableCourseSceneOutlines(courseId, storedOutlines);
+  if (JSON.stringify(outlines) !== JSON.stringify(storedOutlines)) {
+    await updateCourse(courseId, (current) => ({
+      ...current,
+      content: { ...current.content, _openmaicSceneOutlines: outlines },
+    }));
+  }
 
   if (classroom && classroomId) {
     const repairedTools = repairMissingTeachingToolResources(outlines, classroom.scenes);
     const scenes = repairedTools.scenes;
     if (repairedTools.changed) await updatePersistedClassroomScenes(classroomId, scenes);
 
-    const mediaFailures = classroom.assetGeneration?.failures.filter(
+    const recordedMediaFailures = classroom.assetGeneration?.failures.filter(
       (failure) => failure.type === "image" || failure.type === "video",
     ) ?? [];
+    const mediaFailures = Array.from(new Map(
+      [...findUnresolvedClassroomMedia(outlines, scenes), ...recordedMediaFailures].map((failure) => [
+        `${failure.type}:${failure.elementId}`,
+        failure,
+      ]),
+    ).values());
     if (mediaFailures.length > 0) {
       const missingElementIds = new Set(mediaFailures.map((failure) => failure.elementId));
       const repairOutlines = outlines.flatMap((outline) => {

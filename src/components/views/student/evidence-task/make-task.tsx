@@ -1,21 +1,40 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Beaker, ExternalLink, FileClock, FileUp, RefreshCw, UploadCloud } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ExternalLink,
+  FileClock,
+  FileUp,
+  Layers3,
+  Save,
+  ShieldCheck,
+  UploadCloud,
+} from "lucide-react";
 import { PrimaryButton, Textarea } from "@/components/ui";
+import {
+  emitStudentArtifactEvent,
+  MAKE_WORK_RESULT_ADOPT_EVENT,
+  type MakeWorkResultAdoptEvent,
+} from "@/lib/companion/events";
 import { activeMakeIterationId } from "@/lib/companion/workspace-operation";
-import { resolveCourseLearningPreset } from "@/lib/learning-evidence/missions";
 import { LEARNING_EVIDENCE_SCHEMA_VERSION } from "@/lib/learning-evidence/types";
 import type { ArtifactSnapshot, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
-import { evidenceRecordId } from "./use-evidence-draft";
-import { useEvidenceDraft } from "./use-evidence-draft";
-import { EvidenceCard, Field, SelectField } from "./shared";
+import { evidenceRecordId, useEvidenceDraft } from "./use-evidence-draft";
 
-export function MakeEvidenceTask({ course, studentId }: { course: Course; studentId: string }) {
+export function MakeEvidenceTask({
+  course,
+  studentId,
+}: {
+  course: Course;
+  studentId: string;
+  focusActionId?: string;
+}) {
   const session = useSession();
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [changeSummary, setChangeSummary] = useState("");
+  const [latestDraft, setLatestDraft] = useState("");
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const project = course.groups?.find((item) =>
@@ -38,6 +57,7 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
         (item.payload as { changeSummary?: string }).changeSummary,
       ]),
   ), [course.learningEvidence, studentId]);
+  const nextVersionNumber = versions.length + 1;
 
   async function uploadVersion(file: File) {
     setUploading(true);
@@ -46,6 +66,7 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
       const form = new FormData();
       form.append("file", file);
       form.append("title", file.name);
+      form.append("courseId", course.id);
       const response = await fetch("/api/uploads", { method: "POST", body: form });
       if (!response.ok) throw new Error(`上传失败 (${response.status})`);
       const data = await response.json() as {
@@ -59,7 +80,8 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
 
       const now = new Date().toISOString();
       const versionNumber = versions.length + 1;
-      const note = changeSummary.trim() || (versions.length ? "更新作品版本" : "首次提交作品");
+      const note = latestDraft.trim().replace(/\s+/g, " ").slice(0, 220)
+        || (versions.length ? "继续完善作品" : "首次提交作品");
       const snapshot: ArtifactSnapshot = {
         id: `snapshot-${data.id}`,
         courseId: course.id,
@@ -140,7 +162,14 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
         source: "student",
         evidenceIds: [evidenceId],
       });
-      setChangeSummary("");
+      emitStudentArtifactEvent({
+        courseId: course.id,
+        studentId,
+        stageKey: "make",
+        kind: "file-uploaded",
+        artifactId: data.id,
+        summary: `提交作品 V${versionNumber}：${file.name}。过程说明：${note}`,
+      });
       setMessage(`V${versionNumber} 已保存`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "上传失败，请重试");
@@ -151,125 +180,132 @@ export function MakeEvidenceTask({ course, studentId }: { course: Course; studen
   }
 
   return (
-    <div className="make-stage-workspace">
-      <section className="make-cycle-heading">
-        <div>
-          <span><Beaker size={14} /> 当前迭代 {iterationId.replace("cycle-", "#")}</span>
-          <h2>先记录测试事实，再决定怎样修改</h2>
-        </div>
-        <p>AI 组员可以直接整理这些草稿字段；观察事实、修订选择和最终提交仍由你核对。</p>
-      </section>
-
-      <MakeIterationEditor
-        course={course}
-        iterationId={iterationId}
-        key={iterationId}
-        studentId={studentId}
-      />
-
-      <div className="make-version-workspace">
-      <section className="make-version-submit">
-        <div className="make-version-submit__copy">
-          <FileUp size={22} />
-          <div>
-            <h2>{versions.length ? "提交新版本" : "提交作品"}</h2>
-            <p>每次上传都会保存为独立版本，之前的文件不会被覆盖。</p>
-          </div>
-        </div>
-        <Textarea
-          aria-label="本次修改说明"
-          onChange={(event) => setChangeSummary(event.target.value)}
-          placeholder={versions.length ? "可选：这次主要修改了什么？" : "可选：简单介绍作品内容"}
-          rows={3}
-          value={changeSummary}
+    <div className="make-stage-workspace make-stage-workspace--simple">
+      <div className="make-simple-workspace">
+        <MakeProcessDraft
+          course={course}
+          iterationId={iterationId}
+          key={iterationId}
+          onDraftChange={setLatestDraft}
+          studentId={studentId}
         />
-        <PrimaryButton disabled={uploading} onClick={() => inputRef.current?.click()} type="button">
-          <UploadCloud size={17} />
-          {uploading ? "上传中…" : versions.length ? "上传新版本" : "选择作品文件"}
-        </PrimaryButton>
-        <input
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void uploadVersion(file);
-          }}
-          ref={inputRef}
-          type="file"
-        />
-        {message ? <p className="make-version-submit__message">{message}</p> : null}
-      </section>
 
-      <section className="make-version-history">
-        <header>
-          <FileClock size={18} />
-          <h2>版本记录</h2>
-          <span>{versions.length} 个版本</span>
-        </header>
-        {versions.length ? (
-          <ol>
-            {versions.map((version, index) => {
-              const versionNumber = versions.length - index;
-              return (
-                <li key={version.id}>
-                  <span className="make-version-history__number">V{versionNumber}</span>
-                  <div>
-                    <strong>{version.title}</strong>
-                    <p>{versionNotes.get(version.id) || "作品版本"}</p>
-                    <time>{new Date(version.createdAt).toLocaleString("zh-CN")}</time>
-                  </div>
-                  <a aria-label={`打开 V${versionNumber}`} href={version.url} rel="noreferrer" target="_blank">
-                    <ExternalLink size={16} />
-                  </a>
-                </li>
-              );
-            })}
-          </ol>
-        ) : (
-          <div className="make-version-history__empty">
-            <FileUp size={24} />
-            <p>还没有提交作品</p>
-          </div>
-        )}
-      </section>
+        <aside className="make-delivery-column">
+          <section className="make-version-submit">
+            <header className="make-version-submit__header">
+              <div className="make-version-submit__icon"><FileUp size={22} /></div>
+              <div className="make-version-submit__copy">
+                <h2>提交作品</h2>
+              </div>
+              <span className="make-version-submit__badge">V{nextVersionNumber}</span>
+            </header>
+
+            <div className="make-version-submit__summary">
+              <CheckCircle2 size={15} />
+              <span>{latestDraft.trim() ? "版本说明将引用工作稿，无需重复填写。" : "可以先提交作品，之后继续补充工作稿。"}</span>
+            </div>
+
+            <p className="make-version-submit__formats">支持 PDF、Word、PPT、视频、代码与压缩包</p>
+
+            <PrimaryButton
+              className="make-version-submit__action"
+              disabled={uploading}
+              onClick={() => inputRef.current?.click()}
+              type="button"
+            >
+              <span className="make-version-submit__action-icon"><UploadCloud size={19} /></span>
+              <span>
+                <strong>{uploading ? "正在上传作品…" : "选择作品文件"}</strong>
+                <small>{uploading ? "请保持页面开启" : `上传后保存为 V${nextVersionNumber}`}</small>
+              </span>
+            </PrimaryButton>
+            <input
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void uploadVersion(file);
+              }}
+              ref={inputRef}
+              type="file"
+            />
+
+            <div className="make-version-submit__assurance">
+              <ShieldCheck size={14} />
+              <span>文件只用于成果归档，新版本不会覆盖之前的作品。</span>
+            </div>
+            {message ? (
+              <p
+                className="make-version-submit__message"
+                data-tone={message.includes("失败") ? "error" : "success"}
+                role="status"
+              >
+                {message.includes("失败") ? null : <CheckCircle2 size={14} />}
+                {message}
+              </p>
+            ) : null}
+          </section>
+
+          <details className="make-version-history">
+            <summary>
+              <span className="make-version-history__heading-icon"><Layers3 size={17} /></span>
+              <span><strong>作品版本</strong><small>{versions.length ? `已保存 ${versions.length} 版` : "还没有提交"}</small></span>
+              <ChevronDown size={16} />
+            </summary>
+            {versions.length ? (
+              <ol>
+                {versions.map((version, index) => {
+                  const versionNumber = versions.length - index;
+                  return (
+                    <li aria-current={index === 0 ? "true" : undefined} key={version.id}>
+                      <span className="make-version-history__number">V{versionNumber}</span>
+                      <div>
+                        <span className="make-version-history__meta">
+                          {index === 0 ? <b>当前版本</b> : null}
+                          <time>{new Date(version.createdAt).toLocaleString("zh-CN")}</time>
+                        </span>
+                        <strong>{version.title}</strong>
+                        <p>{versionNotes.get(version.id) || "作品版本"}</p>
+                      </div>
+                      <a aria-label={`打开 V${versionNumber}`} href={version.url} rel="noreferrer" target="_blank">
+                        <ExternalLink size={15} />
+                      </a>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <div className="make-version-history__empty">
+                <div><FileClock size={22} /></div>
+                <p>提交后可在这里打开之前的版本。</p>
+              </div>
+            )}
+          </details>
+        </aside>
       </div>
     </div>
   );
 }
 
-function MakeIterationEditor({
+function MakeProcessDraft({
   course,
   studentId,
   iterationId,
+  onDraftChange,
 }: {
   course: Course;
   studentId: string;
   iterationId: string;
+  onDraftChange: (value: string) => void;
 }) {
-  const preset = resolveCourseLearningPreset(course);
-  const testResult = useEvidenceDraft({
-    course,
-    studentId,
-    stageKey: "make",
-    kind: "test-result",
-    suffix: iterationId,
-    title: `测试记录 ${iterationId.replace("cycle-", "#")}`,
-    initialPayload: {
-      iterationId,
-      method: "",
-      target: "",
-      observation: "",
-      result: "",
-      limitation: "",
-      ...(preset === "research" ? { researchMethod: "", ethics: "" } : {}),
-    },
-  });
-  const revision = useEvidenceDraft({
+  const session = useSession();
+  const [notice, setNotice] = useState<string | null>(null);
+  const draft = useEvidenceDraft({
     course,
     studentId,
     stageKey: "make",
     kind: "revision-decision",
     suffix: iterationId,
-    title: `修订决定 ${iterationId.replace("cycle-", "#")}`,
+    title: `作品工作稿 ${iterationId.replace("cycle-", "#")}`,
     initialPayload: {
       iterationId,
       interpretation: "",
@@ -277,123 +313,96 @@ function MakeIterationEditor({
       reason: "",
       plannedChange: "",
       nextGoal: "",
+      processDraft: "",
     },
   });
+  const content = draft.payload.processDraft ?? draft.payload.plannedChange ?? "";
+  const setDraftPayload = draft.setPayload;
+
+  const updateContent = useCallback((value: string) => {
+    setDraftPayload((current) => ({ ...current, processDraft: value }));
+    onDraftChange(value);
+    setNotice(null);
+  }, [onDraftChange, setDraftPayload]);
+
+  useEffect(() => {
+    onDraftChange(content);
+  }, [content, onDraftChange]);
+
+  useEffect(() => {
+    const adopt = (event: Event) => {
+      const detail = (event as CustomEvent<MakeWorkResultAdoptEvent>).detail;
+      if (!detail || detail.courseId !== course.id || detail.studentId !== studentId) return;
+      const result = detail.content.trim();
+      if (!result) return;
+      const next = content.trim()
+        ? `${content.trim()}\n\nAI 工作结果\n${result}`
+        : `AI 工作结果\n${result}`;
+      updateContent(next);
+      setNotice("AI 工作结果已加入工作稿，可继续修改。");
+    };
+    window.addEventListener(MAKE_WORK_RESULT_ADOPT_EVENT, adopt);
+    return () => window.removeEventListener(MAKE_WORK_RESULT_ADOPT_EVENT, adopt);
+  }, [content, course.id, studentId, updateContent]);
+
+  function saveProgress() {
+    if (!draft.submit()) return;
+    session.addCompanionProcessRecord({
+      courseId: course.id,
+      studentId,
+      stageKey: "make",
+      title: "保存作品制作进展",
+      summary: content.trim().slice(0, 260),
+      source: "student",
+      evidenceIds: [draft.evidenceId],
+    });
+    emitStudentArtifactEvent({
+      courseId: course.id,
+      studentId,
+      stageKey: "make",
+      kind: "document-saved",
+      artifactId: draft.evidenceId,
+      summary: "学生保存了本轮作品工作稿。",
+      milestone: true,
+      content,
+    });
+    setNotice("本次进展已保存。");
+  }
 
   return (
-    <div className="make-iteration-grid">
-      <EvidenceCard
-        active
-        description="只记录真实发生的测试，不要把预期写成观察结果。"
-        error={testResult.error}
-        eyebrow="测试事实"
-        onSubmit={() => testResult.submit()}
-        saveState={testResult.saveState}
-        status={testResult.status}
-        title="记录本轮测试"
-      >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Field
-            label="怎样测试"
-            onChange={(method) => testResult.setPayload((value) => ({ ...value, method }))}
-            placeholder="让使用者在相同条件下完成一次任务…"
-            value={testResult.payload.method}
-          />
-          <Field
-            label="测试对象与条件"
-            onChange={(target) => testResult.setPayload((value) => ({ ...value, target }))}
-            placeholder="对象、数量、场景和约束…"
-            value={testResult.payload.target}
-          />
+    <section className="make-process-draft">
+      <header>
+        <div className="make-process-draft__title">
+          <h2>作品工作稿</h2>
+          <span>第 {iterationId.replace("cycle-", "")} 轮</span>
         </div>
-        <Field
-          description="写看到、听到或测量到的事实，避免先下结论。"
-          label="观察记录"
-          onChange={(observation) => testResult.setPayload((value) => ({ ...value, observation }))}
-          placeholder="3 名同学中有 2 人在第二步停顿超过 10 秒…"
-          value={testResult.payload.observation}
-        />
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Field
-            label="测试结果"
-            onChange={(result) => testResult.setPayload((value) => ({ ...value, result }))}
-            placeholder="目标是否达成？关键数据是什么？"
-            value={testResult.payload.result}
-          />
-          <Field
-            label="本次测试的局限"
-            onChange={(limitation) => testResult.setPayload((value) => ({ ...value, limitation }))}
-            placeholder="样本少、场景单一、测量误差…"
-            value={testResult.payload.limitation ?? ""}
-          />
-        </div>
-        {preset === "research" ? (
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Field
-              label="研究方法说明"
-              onChange={(researchMethod) => testResult.setPayload((value) => ({ ...value, researchMethod }))}
-              placeholder="变量控制、记录方式与分析方法…"
-              value={testResult.payload.researchMethod ?? ""}
-            />
-            <Field
-              label="伦理与安全"
-              onChange={(ethics) => testResult.setPayload((value) => ({ ...value, ethics }))}
-              placeholder="知情同意、隐私、安全风险与退出方式…"
-              value={testResult.payload.ethics ?? ""}
-            />
-          </div>
-        ) : null}
-      </EvidenceCard>
+        <span className="make-process-draft__save-state" data-state={draft.saveState}>
+          {draft.saveState === "saving" ? "正在保存…" : draft.saveState === "saved" ? "已自动保存" : "输入后自动保存"}
+        </span>
+      </header>
 
-      <EvidenceCard
-        active
-        description="把测试结果转化成一个明确的版本动作。"
-        error={revision.error}
-        eyebrow="修订决定"
-        onSubmit={() => revision.submit()}
-        saveState={revision.saveState}
-        status={revision.status}
-        title="决定下一步"
-      >
-        <Field
-          label="你怎样解释测试结果"
-          onChange={(interpretation) => revision.setPayload((value) => ({ ...value, interpretation }))}
-          placeholder="结果说明了什么？还不能说明什么？"
-          value={revision.payload.interpretation}
-        />
-        <SelectField
-          label="本轮决定"
-          onChange={(decision) => revision.setPayload((value) => ({
-            ...value,
-            decision: decision as "revise" | "keep" | "retry",
-          }))}
-          options={[
-            { value: "revise", label: "修改作品" },
-            { value: "keep", label: "保留当前设计" },
-            { value: "retry", label: "调整测试后重试" },
-          ]}
-          value={revision.payload.decision}
-        />
-        <Field
-          label="决定理由"
-          onChange={(reason) => revision.setPayload((value) => ({ ...value, reason }))}
-          placeholder="引用上面的观察或数据说明理由…"
-          value={revision.payload.reason}
-        />
-        <Field
-          label="计划修改"
-          onChange={(plannedChange) => revision.setPayload((value) => ({ ...value, plannedChange }))}
-          placeholder="只写这轮真正要改的一处…"
-          value={revision.payload.plannedChange}
-        />
-        <Field
-          label="下一轮验证目标"
-          onChange={(nextGoal) => revision.setPayload((value) => ({ ...value, nextGoal }))}
-          placeholder="修改后希望观察到什么变化？"
-          value={revision.payload.nextGoal}
-        />
-        <p className="make-revision-note"><RefreshCw size={14} /> 两项记录提交后，再上传对应的新作品版本。</p>
-      </EvidenceCard>
-    </div>
+      <Textarea
+        aria-label="作品工作稿"
+        onChange={(event) => updateContent(event.target.value)}
+        placeholder={[
+          "可以从任何一项开始：",
+          "",
+          "我正在制作……",
+          "这次完成或改变了……",
+          "目前遇到的问题是……",
+          "下一步准备……",
+        ].join("\n")}
+        rows={14}
+        value={content}
+      />
+
+      <footer>
+        <PrimaryButton onClick={saveProgress} type="button">
+          <Save size={15} /> 保存本次进展
+        </PrimaryButton>
+      </footer>
+      {draft.error ? <p className="make-process-draft__error" role="alert">请先写下一条真实的作品进展。</p> : null}
+      {notice ? <p className="make-process-draft__notice" role="status">{notice}</p> : null}
+    </section>
   );
 }

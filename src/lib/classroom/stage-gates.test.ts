@@ -84,12 +84,14 @@ describe("evaluateStageGate", () => {
     expect(evaluateStageGate(course({ learningEvidence: proposalEvidence }), 2).blockers.map((item) => item.code))
       .toContain("teacher-approval");
   });
-  it("accepts a submitted work file for project making", () => {
+  it("recognizes a submitted work file while still requiring real iteration evidence", () => {
     const result = evaluateStageGate(course({
       uploads: [{ id: "u1", courseId: "course-1", studentId: "s1", stageKey: "make", category: "artifact", title: "初稿", fileName: "a.pdf", fileType: "PDF", size: "1MB", url: "/a", createdAt: now }],
     }), 3);
-    expect(result.blockers.map((item) => item.code)).not.toContain("iteration-evidence");
-    expect(result.completed).toContain("所有学生均已提交作品");
+    expect(result.blockers.map((item) => item.code)).toContain("iteration-evidence");
+    expect(result.blockers.find((item) => item.code === "iteration-evidence")?.targetIds)
+      .toEqual(["s1"]);
+    expect(result.completed).not.toContain("所有学生均已提交作品");
   });
   it("also blocks making while a high-risk intervention is open", () => {
     const result = evaluateStageGate(course({

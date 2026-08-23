@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 import {
   buildKnowledgeStructureAuditMessages,
   buildKnowledgeStructureRepairMessages,
@@ -93,7 +94,9 @@ describe("reviewed knowledge structure generation", () => {
       "standard",
       "quality-review",
     ]);
-    expect(modelCall.mock.calls.every((call) => call[1]?.maxTransientRetries === 1))
+    expect(modelCall.mock.calls.every((call) => (
+      call[1]?.maxTransientRetries === DURABLE_GENERATION_TRANSIENT_RETRIES
+    )))
       .toBe(true);
   });
 

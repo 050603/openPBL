@@ -202,7 +202,7 @@ export function buildCompanionContext(course: Course, studentId: string | undefi
   const promptSections = STAGE_CONTEXT_SECTIONS[stageKey] ?? STAGE_CONTEXT_SECTIONS.make;
   const prompt = [
     "服务端学习上下文（以下是课程记录中的事实；没有记录就写‘无记录’，不得臆造）：",
-    `学生=${student?.name ?? studentId ?? "未识别学生"}（${studentId ?? "无 studentId"}）`,
+    `学生=${student?.name ?? "未识别学生"}`,
     `阶段服务契约要求优先使用：${policy.requiredContext.join("；")}`,
     ...promptSections.map((key) => {
       const labels: Record<ContextSectionKey, string> = {

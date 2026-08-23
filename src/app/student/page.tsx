@@ -93,10 +93,10 @@ export default function StudentEntryPage() {
       userName={joinedCourse ? (studentName ?? user.name) : undefined}
       variant="bare"
     >
-      <div className="mx-auto max-w-[1100px] px-4 pb-12 pt-6 md:px-6 md:pt-10">
+      <div className="pbl-content-container px-4 pb-12 pt-6 md:px-6 md:pt-10">
         {/* 页面标题 */}
         <header className="mb-6 text-center">
-          <h1 className="text-[clamp(26px,3.4vw,36px)] font-extrabold leading-tight tracking-tight text-[var(--pbl-text-strong)]">
+          <h1 className="text-[length:clamp(1.625rem,3.4vw,2.25rem)] font-extrabold leading-tight tracking-tight text-[var(--pbl-text-strong)]">
             <span className="pbl-display-gradient">加入项目式课堂</span>
           </h1>
           <p className="mt-2 text-[14px] text-[var(--pbl-text-muted)]">
@@ -104,7 +104,7 @@ export default function StudentEntryPage() {
           </p>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-8">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,27.5rem)_minmax(0,1fr)] lg:gap-8">
             {/* 左：邀请码加入卡片 */}
             <section className="space-y-4">
               {joinedCourse?.status === "teaching" ? (
@@ -193,7 +193,7 @@ export default function StudentEntryPage() {
                   第一次使用本系统？按下面 4 步即可开始你的项目学习之旅。
                 </p>
 
-                <ol className="space-y-2.5">
+                <ol className="space-y-2.5 2xl:grid 2xl:grid-cols-2 2xl:gap-3 2xl:space-y-0">
                   <InstructionStep
                     step={1}
                     title="向教师索取邀请码"

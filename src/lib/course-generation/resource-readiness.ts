@@ -2,8 +2,7 @@ import type { TeachingToolPlanItem } from "@/lib/openmaic/types/generation";
 import type { Scene } from "@/lib/openmaic/types/stage";
 import {
   applyPlannedTeachingToolActions,
-  normalizeTeachingToolPlan,
-  summarizeActualTeachingTools,
+  findMissingRequiredTeachingTools,
 } from "@/lib/openmaic/generation/teaching-tool-plan";
 import { normalizeWhiteboardActionLifecycle } from "@/lib/openmaic/generation/whiteboard-action-lifecycle";
 
@@ -36,18 +35,17 @@ export function findMissingTeachingToolResources(
   return outlines.flatMap((outline) => {
     const scene = sceneByOutlineId.get(outline.id);
     if (!scene) return [];
-    const actualTools = new Set(summarizeActualTeachingTools(scene.actions).map((item) => item.tool));
-    return normalizeTeachingToolPlan(outline.teachingToolPlan).flatMap((item) =>
-      item.required !== false && !actualTools.has(item.tool)
-        ? [{
+    return findMissingRequiredTeachingTools(outline, {
+      sceneType: scene.type,
+      content: scene.content,
+      actions: scene.actions,
+    }).map((tool) => ({
             kind: "teaching-tool" as const,
             outlineId: outline.id,
             sceneId: scene.id,
             title: outline.title,
-            tool: item.tool,
-          }]
-        : [],
-    );
+            tool,
+          }));
   });
 }
 

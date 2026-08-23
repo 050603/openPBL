@@ -35,6 +35,7 @@ export type DashboardShellProps = {
   children: ReactNode;
   wide?: boolean;
   immersive?: boolean;
+  viewportLocked?: boolean;
   variant?: "default" | "bare";
   headerSlot?: ReactNode;
   classroomBar?: ReactNode;
@@ -57,6 +58,7 @@ export function DashboardShell({
   children,
   wide = false,
   immersive = false,
+  viewportLocked = false,
   headerSlot,
   classroomBar,
   hideCourseSwitcher = false,
@@ -124,13 +126,16 @@ export function DashboardShell({
   return (
     <div
       className={cn(
-        immersive ? "h-dvh min-h-0 overflow-hidden" : "min-h-screen",
+        immersive || viewportLocked
+          ? "h-dvh min-h-0 overflow-hidden"
+          : "min-h-screen",
+        viewportLocked && "fixed inset-0",
         "text-[var(--pbl-text)]",
         isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student",
       )}
     >
       {!immersive ? <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
-        <div className="flex min-h-16 items-center px-3 py-2 md:px-5">
+        <div className="pbl-wide-container flex min-h-16 items-center px-3 py-2 md:px-5">
           <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
@@ -245,14 +250,39 @@ export function DashboardShell({
           </div>
         </div>
         {classroomBar ? (
-          <div className="mt-2 px-3 md:px-5">
+          <div className="pbl-wide-container mt-2 px-3 md:px-5">
             {classroomBar}
           </div>
         ) : null}
       </header> : null}
 
-      <main className={immersive ? "h-full min-h-0 overflow-hidden p-0" : classroomBar ? "pt-[136px] md:pt-[142px]" : "pt-[72px]"}>
-        <div className={immersive ? "h-full min-h-0 w-full overflow-hidden" : cn("mx-auto w-full px-4 pb-10 md:px-5", wide ? "max-w-[1600px]" : "max-w-[1280px]")}>
+      <main className={immersive
+        ? "h-full min-h-0 overflow-hidden p-0"
+        : viewportLocked
+          ? classroomBar
+            ? "h-full min-h-0 overflow-hidden pt-[8.5rem] md:pt-[8.875rem]"
+            : "h-full min-h-0 overflow-hidden pt-[4.5rem]"
+          : classroomBar ? "pt-[8.5rem] md:pt-[8.875rem]" : "pt-[4.5rem]"}>
+        <div
+          className={immersive
+            ? "h-full min-h-0 w-full overflow-hidden"
+            : viewportLocked
+              ? cn(
+                  "mx-auto h-full min-h-0 w-full overflow-hidden px-4 md:px-5",
+                  wide ? "pbl-wide-container" : "pbl-dashboard-container",
+                )
+              : cn(
+                  "mx-auto w-full px-4 pb-10 md:px-5",
+                  wide ? "pbl-wide-container" : "pbl-dashboard-container",
+                )}
+          style={viewportLocked && wide
+            ? {
+                // Keep the actual learning surface at no more than 16:9. The
+                // rem offsets track the scaled classroom header and padding.
+                maxWidth: "calc(177.7778dvh - 8rem + 2.5rem)",
+              }
+            : undefined}
+        >
           {subtitle ? <p className="mb-2 text-sm font-medium text-[var(--pbl-text-muted)]">{subtitle}</p> : null}
           {children}
         </div>

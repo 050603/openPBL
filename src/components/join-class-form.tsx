@@ -61,8 +61,10 @@ export function JoinClassForm({
         <span className="mb-2 block text-sm font-semibold text-[var(--pbl-text)]">邀请码</span>
         <input
           className="h-12 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border-strong)] px-4 text-center text-xl font-bold tracking-[0.4em] text-[var(--pbl-text-strong)] outline-none transition focus:border-[var(--pbl-student)] focus:ring-2 focus:ring-[var(--pbl-student-soft)]"
-          maxLength={6}
-          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+          maxLength={32}
+          onChange={(e) => setCode(
+            normalizeInviteCode(e.target.value).replace(/[^A-Z0-9]/g, "").slice(0, 6),
+          )}
           placeholder="A2K9QP"
           value={code}
           aria-label="邀请码"
@@ -72,7 +74,7 @@ export function JoinClassForm({
       <label className="block">
         <span className="mb-2 block text-sm font-semibold text-[var(--pbl-text)]">姓名</span>
         <input
-          className="h-12 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border-strong)] px-4 text-base outline-none transition focus:border-[var(--pbl-student)] focus:ring-2 focus:ring-[var(--pbl-student-soft)]"
+          className="h-12 w-full rounded-[var(--radius-xs)] border border-[var(--pbl-border-strong)] px-4 text-center text-base outline-none transition focus:border-[var(--pbl-student)] focus:ring-2 focus:ring-[var(--pbl-student-soft)]"
           maxLength={20}
           onChange={(e) => setName(e.target.value)}
           placeholder="如：张同学"

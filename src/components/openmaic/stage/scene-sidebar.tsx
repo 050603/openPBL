@@ -20,6 +20,7 @@ import { useStageStore, useCanvasStore } from '@openmaic/lib/store';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import type { SceneType, SlideContent, InteractiveContent } from '@openmaic/lib/types/stage';
 import { PENDING_SCENE_ID } from '@openmaic/lib/store/stage';
+import { useDisplayScale } from '@/hooks/use-display-scale';
 
 interface SceneSidebarProps {
   readonly collapsed: boolean;
@@ -60,19 +61,24 @@ export function SceneSidebar({
     }
   };
 
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+  const displayScale = useDisplayScale();
+  const [sidebarWidth, setSidebarWidth] = useState<number>();
   const [isDragging, setIsDragging] = useState(false);
+  const effectiveSidebarWidth = sidebarWidth ?? DEFAULT_WIDTH * displayScale;
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       setIsDragging(true);
       const startX = e.clientX;
-      const startWidth = sidebarWidth;
+      const startWidth = effectiveSidebarWidth;
 
       const handleMouseMove = (me: MouseEvent) => {
         const delta = me.clientX - startX;
-        const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+        const newWidth = Math.min(
+          MAX_WIDTH * displayScale,
+          Math.max(MIN_WIDTH * displayScale, startWidth + delta),
+        );
         setSidebarWidth(newWidth);
       };
 
@@ -89,7 +95,7 @@ export function SceneSidebar({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [sidebarWidth],
+    [displayScale, effectiveSidebarWidth],
   );
 
   const getSceneTypeIcon = (type: SceneType) => {
@@ -102,7 +108,7 @@ export function SceneSidebar({
     return icons[type] || BookOpen;
   };
 
-  const displayWidth = collapsed ? 0 : sidebarWidth;
+  const displayWidth = collapsed ? 0 : effectiveSidebarWidth;
 
   return (
     <div
@@ -222,7 +228,7 @@ export function SceneSidebar({
                         slide={slideContent.canvas}
                         viewportSize={viewportSize}
                         viewportRatio={viewportRatio}
-                        size={Math.max(100, sidebarWidth - 28)}
+                        size={Math.max(100, effectiveSidebarWidth - 28 * displayScale)}
                       />
                     ) : scene.type === 'quiz' ? (
                       /* Quiz: question bar + 2x2 option grid */
@@ -263,7 +269,7 @@ export function SceneSidebar({
                       /* Interactive: live iframe preview */
                       <ThumbnailInteractive
                         content={interactiveContent}
-                        size={Math.max(100, sidebarWidth - 28)}
+                        size={Math.max(100, effectiveSidebarWidth - 28 * displayScale)}
                       />
                     ) : scene.type === 'interactive' ? (
                       /* Interactive: browser window with chrome + content */
@@ -330,7 +336,7 @@ export function SceneSidebar({
                       <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gray-50 dark:bg-gray-800 text-gray-300 dark:text-gray-500">
                         <Icon className="w-4 h-4" />
                         <span className="text-[9px] font-bold uppercase tracking-wider opacity-80">
-                          {scene.type}
+                          {t(`edit.sceneType.${scene.type}`)}
                         </span>
                       </div>
                     )}

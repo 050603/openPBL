@@ -50,21 +50,30 @@ export async function persistStudentAiProgress(
         actorId: studentId,
         actorRole: "student",
         courseVersion: course.version,
-        payload: { stageKey: "ai-learning", progress: stageProgress },
+        payload: { studentId, stageKey: "ai-learning", progress: stageProgress },
       },
       select: { cursor: true, courseVersion: true },
     });
   });
 
-  await publishCourseEvent(courseId, {
-    type: "course-updated",
-    courseId,
-    at: new Date().toISOString(),
-    payload: {
-      actionType: "UPDATE_STUDENT_PROGRESS",
+  try {
+    await publishCourseEvent(courseId, {
+      type: "course-updated",
+      courseId,
+      at: new Date().toISOString(),
+      payload: {
+        actionType: "UPDATE_STUDENT_PROGRESS",
+        studentId,
+        courseVersion: event.courseVersion,
+        eventCursor: event.cursor.toString(),
+      },
+    });
+  } catch (error) {
+    console.error("[ai-progress] realtime invalidation failed; clients will reconcile by cursor", {
+      courseId,
       studentId,
-      courseVersion: event.courseVersion,
       eventCursor: event.cursor.toString(),
-    },
-  });
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

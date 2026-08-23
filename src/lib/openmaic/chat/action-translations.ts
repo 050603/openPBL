@@ -19,12 +19,12 @@ const statusKeyMap: Record<string, string> = {
 
 /**
  * Resolve an action name to its i18n display name.
- * Falls back to the raw actionName if no translation exists.
+ * Falls back to a generic user-facing label if no translation exists.
  */
 export function getActionDisplayName(t: (key: string) => string, actionName: string): string {
   const translated = t(`actions.names.${actionName}`);
   // t() returns the key itself when translation is missing
-  return translated === `actions.names.${actionName}` ? actionName : translated;
+  return translated === `actions.names.${actionName}` ? "课程操作" : translated;
 }
 
 /**

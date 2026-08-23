@@ -87,33 +87,19 @@ const ACTIONS: Record<string, MissionActionDefinition[]> = {
   proposal: [
     {
       id: "core-plan",
-      label: "形成一份可实施的项目方案",
+      label: "项目方案",
       description: "围绕已选问题，说明准备做什么、怎样运用所学知识、如何实施，以及怎样判断方案有效。",
       evidenceKinds: ["plan-version"],
-      doneWhen: "方案目标清楚、能够实施、可以验证，并得到教师确认。",
+      doneWhen: "明确方案目标、实施步骤与验证方法，并提交教师确认。",
     },
   ],
   make: [
     {
-      id: "project-work",
-      label: "制作并保存作品版本",
-      description: "完成当前版本并上传文件，保留可回看的版本记录。",
-      evidenceKinds: ["artifact-version"],
-      doneWhen: "至少提交一个可查看的作品版本。",
-    },
-    {
-      id: "test-result",
-      label: "记录一次真实测试",
-      description: "记录测试方法、对象、观察事实、结果和局限。",
-      evidenceKinds: ["test-result"],
-      doneWhen: "测试记录能够区分观察事实与结果判断。",
-    },
-    {
-      id: "revision-decision",
-      label: "依据证据决定怎样修改",
-      description: "解释测试结果，选择修改、保留或重试，并写下下一轮目标。",
-      evidenceKinds: ["revision-decision"],
-      doneWhen: "修订决定明确引用了本轮测试证据。",
+      id: "make-workbench",
+      label: "作品制作",
+      description: "记录制作进展并提交作品版本。",
+      evidenceKinds: ["revision-decision", "artifact-version"],
+      doneWhen: "保存一条真实的作品进展，并提交一个作品版本。",
     },
   ],
   showcase: [
@@ -161,7 +147,7 @@ const COMPLETION: Record<string, string[]> = {
   launch: ["了解课程流程并选择研究方向"],
   "ai-learning": ["沿用原 AI 授知阶段完成条件"],
   proposal: ["形成一份能够实施和验证的项目方案", "教师确认方案方向"],
-  make: ["提交一个可查看的作品版本", "完成测试—解释—修订循环", "修改后继续上传新版本"],
+  make: ["保存作品制作过程", "提交一个可查看的作品版本"],
   showcase: ["最终作品可检查", "汇报包含主张、证据和局限", "完成 AI 追问与教师现场评价"],
   reflection: ["反思引用真实过程证据并形成因果链", "完成新情境迁移"],
 };
@@ -170,7 +156,7 @@ const REQUIRED_KINDS: Record<string, LearningEvidenceKind[]> = {
   launch: [],
   "ai-learning": [],
   proposal: ["plan-version"],
-  make: ["artifact-version", "test-result", "revision-decision"],
+  make: ["artifact-version", "revision-decision"],
   showcase: [],
   reflection: [],
 };
@@ -186,8 +172,8 @@ export function getStageMissionDefinition(
     actions.find((action) =>
       action.evidenceKinds.some((kind) => missingEvidenceKinds.includes(kind)),
     ) ?? actions[0];
-  const iterationCount = stageKey === "make" ? preset.requiredIterations : 0;
-  const targetIterations = stageKey === "make" ? preset.targetIterations : 0;
+  const iterationCount = stageKey === "make" ? 1 : 0;
+  const targetIterations = stageKey === "make" ? 1 : 0;
   const teacherRequirement = stageKey === "proposal"
       ? "plan-approval"
       : stageKey === "showcase"
@@ -216,9 +202,7 @@ export function getStageMissionDefinition(
     completionCriteria: [
       ...(COMPLETION[stageKey] ?? []),
       preset.expression,
-      ...(stageKey === "make"
-        ? [`至少完成 ${preset.requiredIterations} 次完整测试—解释—修订循环`]
-        : []),
+      ...(stageKey === "make" ? ["至少保存一条真实的作品进展"] : []),
       ...(preset.requiresSources && stageKey !== "ai-learning"
         ? ["对关键事实标注来源、方法、限制与伦理边界"]
         : []),

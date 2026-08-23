@@ -16,6 +16,10 @@ export async function register(): Promise<void> {
   if (registered) return;
   const { assertProductionEnvironment } = await import("@/lib/config/env");
   assertProductionEnvironment();
+  const { installEnvironmentHttpProxy } = await import(
+    "@/lib/network/environment-http-proxy"
+  );
+  installEnvironmentHttpProxy();
   const { initializeServerProviderConfig } = await import(
     "@/lib/openmaic/server/provider-config"
   );

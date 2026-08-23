@@ -6,6 +6,7 @@ import {
   deriveTeachingConstraints,
 } from "@/lib/openmaic/pedagogy/teaching-constraints";
 import { JSON_TEACHER_PROMPT_CONTRACT } from "@/lib/prompt-quality/policy";
+import { deriveCourseEntryPolicy, formatCourseEntryPolicy } from "@/lib/course-entry-policy";
 
 const GRADE_BAND_LABELS: Record<string, string> = {
   primary: "小学",
@@ -182,6 +183,12 @@ export function buildFullCoursePrompt(input: GenerateInput): {
   user: string;
 } {
   const constraints = deriveTeachingConstraints({ grade: input.grade, hours: input.hours });
+  const entryPolicy = deriveCourseEntryPolicy({
+    hours: input.hours,
+    grade: input.grade,
+    lessonTargetCount: constraints.recommendedKnowledgePointRange.max,
+    courseMode: input.pblConfig?.generationTemplate,
+  });
   const stageList = input.stages
     .map((s) => `- ${s.label}：${s.description}`)
     .join("\n");
@@ -202,7 +209,7 @@ ${stageList}
 
 要求：
 1. 知识点 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个，名称精炼，粒度要比章节标题更细；每个知识点写出本节课关键信息 keyInfo
-2. knowledgePoints 只包含本课完整讲授并在课后评价的目标；knowledgeGraph 必须另含至少 1 项 instructionalRole=prerequisite 的真实课前先修，推荐 2-4 项、最多 5 项。本平台的“知识启蒙”不代表课程主题没有知识台阶；须按学习者学段和完整知识阶梯反推入口能力。先修必须有 priorKnowledgeEvidence 与 diagnosticBoundary，并通过 required-prerequisite + required 指向受影响的本课目标；仅有帮助的背景使用 supports + helpful，不得进入前测。不得以入门、通识、启蒙、无需编程或空画像输出零先修，也不得用常识题、低龄题、术语记忆题或本课预习题凑数。所有边填写 type、strength 与 rationale；允许真实的独立知识分支，不得为了连通编造因果
+2. knowledgePoints 只包含本课完整讲授并在课后评价的目标；knowledgeGraph 另行表达真实课前先修。入口数量与时间遵循本课程动态策略：${formatCourseEntryPolicy(entryPolicy)} 先修必须有 priorKnowledgeEvidence 与 diagnosticBoundary，并通过 required-prerequisite + required 指向受影响的本课目标；仅有帮助的背景使用 supports + helpful，不得进入前测。不得用常识题、低龄题、术语记忆题或本课预习题凑数。所有边填写 type、strength 与 rationale；允许真实的独立知识分支，不得为了连通编造因果
 3. teachingOutline 是整节课程的教案级授课大纲，先生成六个宏观课程模块（launch、ai-learning、proposal、make、showcase、reflection），必须写清平台和 AI 负责什么、教师负责什么
 4. AI 授知章节大纲必须参考知识图谱，按先修到应用的关系组织学习路径，并在 objectives/keyPoints 中覆盖核心节点
 5. 评价维度 4-6 个，权重合计 100%，评价项要能检查学生对知识图谱核心节点的理解与迁移应用
@@ -242,6 +249,12 @@ export function buildKnowledgeGraphPrompt(input: GenerateInput, context?: {
   user: string;
 } {
   const constraints = deriveTeachingConstraints({ grade: input.grade, hours: input.hours });
+  const entryPolicy = deriveCourseEntryPolicy({
+    hours: input.hours,
+    grade: input.grade,
+    lessonTargetCount: constraints.recommendedKnowledgePointRange.max,
+    courseMode: input.pblConfig?.generationTemplate,
+  });
   const stageList = input.stages
     .map((s) => `- ${s.key}（${s.label}）：${s.description}`)
     .join("\n");
@@ -264,12 +277,12 @@ ${stageList}
 
 要求：
 1. knowledgePoints 只列本课目标节点，即本节课会完整讲授并在课后达标测中评价的内容。输出 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个；教师指定项必须以完全相同的 name 保留，不得删除、合并、偷换概念或改名。每项填写 masteryBoundary（学完可观察到什么）和 objectiveIndexes（对应课程目标的零基索引）。
-2. knowledgeGraph.nodes 必须包含所有本课目标节点并标记 instructionalRole=lesson；另须输出 1-5 个 instructionalRole=prerequisite 的课前先修节点，推荐 2-4 个。先修节点不进入 knowledgePoints，不占用本课知识点数量，也不成为课后达标测目标；不得输出零先修。
+2. knowledgeGraph.nodes 必须包含所有本课目标节点并标记 instructionalRole=lesson；另行输出 instructionalRole=prerequisite 的真实课前先修节点。数量与时间遵循本课程动态入口策略：${formatCourseEntryPolicy(entryPolicy)} 先修节点不进入 knowledgePoints，不占用本课知识点数量，也不成为课后达标测目标。
 3. 本平台主要服务小学、初中、高中学生，也覆盖大学学习者。“知识启蒙”描述学生仍处于系统学习阶段，不代表课程主题没有前序知识。必须先按学段定位，再判断本课目标在完整知识阶梯中的深度，最后反推课程入口能力。课前先修节点必须是学生在当前学段的课程序列、跨学科基础或概念递进中理应先学习，且缺失会直接阻断本课目标的具体概念、表征、规则或操作。填写 priorKnowledgeEvidence 和 diagnosticBoundary。这里分析的是“课程体系上应先学什么”，不是断言当前学生已经掌握；是否掌握由前测判断。不得虚构具体文件条款。
 4. 不得把本课准备讲授的基础层内容标成课前先修。foundation 表示本课内部的基础层，绝不等于 prerequisite。常识、生活经验、课程导入、激趣背景、仅仅“有助于理解”的内容也不进入前测。
 5. 对每个本课目标反向分析跨章节课程衔接。年级、learnerProfile 或既往课程信息为空表示未知/未填写，应按“K12 学段待确认”审慎判断知识阶梯，不等于学生无需先修；明确标注学段假设和概念递进依据。例如高中自然语言处理课程可能需要核对人工智能的数据、算法、算力基础，机器学习和“数据特征—算法选择”关系，训练集、验证集、测试集，监督学习过程，神经网络基本结构及其应用；计算机视觉对 K12 学生已经是较深主题，若主课直接使用分类器、特征提取、训练或模型评价，应核对人工智能、图像数据与数据集/标注、机器学习、监督学习与数据集划分、特征与算法选择等基础。只保留会直接阻断当前目标者，不得机械照抄示例，也不得用常识题、低龄题、术语记忆题或本课预习题凑数。
 6. 每条边必须填写 type、strength、label、rationale。type 只能是 required-prerequisite、supports、application、contrast、transfer；strength 只能是 required|helpful。只有从 instructionalRole=prerequisite 节点指向 instructionalRole=lesson 节点的 required-prerequisite + required 关系可以触发课前诊断；本课目标之间严禁使用 required-prerequisite。仅有帮助的背景必须用 supports + helpful。
-7. source/target 必须引用节点 id，不得自环、重复或形成有向循环。每个先修节点必须沿 required-prerequisite + required 路径到达至少一个本课目标；本课目标之间仅在存在真实认知依赖时，按 foundation → core → application → extension 表达递进。允许彼此独立但分别映射课程目标的知识分支，不得为了图连通虚构因果。领域入门、通识、启蒙、无需编程或空画像均不能减少到零先修；如果最初未发现，应继续沿知识阶梯回溯至少一项真实课程入口能力。
+7. source/target 必须引用节点 id，不得自环、重复或形成有向循环。每个先修节点必须沿 required-prerequisite + required 路径到达至少一个本课目标；本课目标之间仅在存在真实认知依赖时，按 foundation → core → application → extension 表达递进。允许彼此独立但分别映射课程目标的知识分支，不得为了图连通虚构因果。是否允许零先修只由上述动态入口策略决定；不得因为“领域入门”等字样擅自增减。
 8. 每个本课知识点包含唯一 id/name、完整 description、可直接用于讲解的 keyInfo、masteryBoundary、objectiveIndexes、level、relatedIds。每个 prerequisite 节点只表达一个可被独立诊断、也可被独立补授的能力；不要把可能分别缺失的多项能力塞进同一节点。
 9. 输出前自行检查：本课目标覆盖课程目标且不超课时；先修与新授边界清晰；课前先修有课程衔接证据和可诊断边界；必需与有帮助已区分；教师指定项完整；图无伪因果、无环、无模糊关系。仅输出 JSON，不输出检查过程。
 

@@ -463,8 +463,9 @@ export async function generateAdaptiveBranchResource(
         pblMode: false,
         signal,
       });
-      const baseUrl = process.env.PUBLIC_BASE_URL;
-      if (!baseUrl) throw new Error("个性化学习资源无法生成配置语音：缺少 PUBLIC_BASE_URL");
+      // Relative same-origin media URLs work both locally and behind a reverse
+      // proxy. PUBLIC_BASE_URL remains optional and is only used when present.
+      const baseUrl = process.env.PUBLIC_BASE_URL?.trim() || "";
       await generateClassroomAssets({
         ...generated.assetContext,
         baseUrl,
@@ -757,6 +758,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
       stageName: generated.stage.name,
       teacherClassroomId: split.teacherClassroomId,
       teacherResourceScenes: split.teacherResourceScenes,
+      sceneOutlines: generated.assetContext.outlines,
     }, { signal: controller.signal });
     await serializeWorkerWrite(() => persistWorkerPhase(job, {
       step: "checking_adaptive_resources",
@@ -775,7 +777,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
       qualityReport: generated.qualityReport,
       stage: { id: generated.stage.id, name: generated.stage.name },
     };
-    const baseUrl = process.env.PUBLIC_BASE_URL;
+    const baseUrl = process.env.PUBLIC_BASE_URL?.trim() || "";
     const adaptivePromise = prepareAdaptiveResources(
       job,
       courseId,
@@ -783,7 +785,6 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
       serializeWorkerWrite,
     );
     const assetPromise = (async () => {
-      if (!baseUrl) return;
       try {
         await generateClassroomAssets({
           ...generated.assetContext,

@@ -33,6 +33,7 @@ import type { DiscussionAction } from '@openmaic/lib/types/action';
 import type { EngineMode, PlaybackView } from '@openmaic/lib/playback';
 import type { Participant } from '@openmaic/lib/types/roundtable';
 import { LectureSubtitleDock } from '@openmaic/components/roundtable/lecture-subtitle-dock';
+import { useDisplayScale } from '@/hooks/use-display-scale';
 
 export interface DiscussionRequest {
   topic: string;
@@ -80,6 +81,7 @@ interface RoundtableProps {
   readonly onPlayPause?: () => void;
   readonly onPreviousCue?: () => boolean;
   readonly onNextCue?: () => boolean;
+  readonly onCueSelect?: (actionIndex: number, startRatio: number) => boolean;
   readonly canGoPreviousCue?: boolean;
   readonly canGoNextCue?: boolean;
   readonly isDiscussionPaused?: boolean;
@@ -177,6 +179,7 @@ export function Roundtable({
   onPlayPause,
   onPreviousCue,
   onNextCue,
+  onCueSelect,
   canGoPreviousCue = false,
   canGoNextCue = false,
   isDiscussionPaused,
@@ -204,6 +207,8 @@ export function Roundtable({
   const ttsEnabled = useSettingsStore((state) => state.ttsEnabled);
   const asrEnabled = useSettingsStore((state) => state.asrEnabled);
   const chatAreaWidth = useSettingsStore((s) => s.chatAreaWidth);
+  const displayScale = useDisplayScale();
+  const displayedChatAreaWidth = (chatAreaWidth ?? 320) * displayScale;
   const ttsVolume = useSettingsStore((s) => s.ttsVolume);
   const setTTSVolume = useSettingsStore((s) => s.setTTSVolume);
   const autoPlayLecture = useSettingsStore((s) => s.autoPlayLecture);
@@ -719,6 +724,7 @@ export function Roundtable({
         onPrevious={onPrevSlide}
         onPreviousCue={onPreviousCue}
         onNextCue={onNextCue}
+        onCueSelect={onCueSelect}
         canGoPreviousCue={canGoPreviousCue}
         canGoNextCue={canGoNextCue}
         onToggleAutoPlay={() => setAutoPlayLecture(!autoPlayLecture)}
@@ -768,7 +774,7 @@ export function Roundtable({
             'fixed bottom-0 left-0 z-[40] pointer-events-none flex items-center justify-center transition-all duration-300',
             controlsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2',
           )}
-          style={{ right: chatCollapsed === false ? (chatAreaWidth ?? 320) : 0 }}
+          style={{ right: chatCollapsed === false ? displayedChatAreaWidth : 0 }}
         >
           <div className="mb-3 px-2 py-1 rounded-full bg-white/70 dark:bg-black/60 backdrop-blur-xl border border-gray-200/60 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.08)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] pointer-events-auto">
             {toolbar}
@@ -792,7 +798,7 @@ export function Roundtable({
               }}
               className="fixed bottom-20 -translate-x-1/2 z-[50] bg-gray-100/80 dark:bg-gray-800/80 backdrop-blur-md text-gray-700 dark:text-white px-3.5 py-1.5 rounded-full text-xs font-medium pointer-events-none"
               style={{
-                left: `calc((100vw - ${chatCollapsed === false ? (chatAreaWidth ?? 320) : 0}px) / 2)`,
+                left: `calc((100vw - ${chatCollapsed === false ? displayedChatAreaWidth : 0}px) / 2)`,
               }}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block mr-1.5" />
@@ -806,7 +812,7 @@ export function Roundtable({
         {/* ── Center stack: input / voice / thinking — anchored above toolbar ── */}
         <div
           className="fixed bottom-14 left-0 z-[50] flex flex-col items-center justify-center gap-3 pointer-events-none transition-[right] duration-300"
-          style={{ right: chatCollapsed === false ? (chatAreaWidth ?? 320) : 0 }}
+          style={{ right: chatCollapsed === false ? displayedChatAreaWidth : 0 }}
         >
           {/* Input panel */}
           <AnimatePresence>
@@ -946,7 +952,7 @@ export function Roundtable({
         {/* ── Right-side stack: bubble + dock — flex column, no hardcoded px ── */}
         <div
           className="fixed bottom-5 z-[48] flex flex-col items-end gap-3 pointer-events-none transition-[right] duration-300"
-          style={{ right: chatCollapsed ? 20 : 20 + (chatAreaWidth ?? 320) }}
+          style={{ right: chatCollapsed ? 20 : 20 + displayedChatAreaWidth }}
         >
           {/* Right-side speech bubble (flows above dock via flex) */}
           <PresentationSpeechOverlay

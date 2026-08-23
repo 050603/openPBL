@@ -1,12 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  clearServerProviderConfigCache,
   getClassroomSceneConcurrency,
+  getServerTTSProviders,
   getTtsConcurrencyLimit,
+  initializeServerProviderConfig,
 } from '@openmaic/lib/server/provider-config';
 
 describe('server generation concurrency configuration', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    clearServerProviderConfigCache();
+  });
+
+  it('makes startup initialization visible to production provider reads', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('DATABASE_URL', '');
+    await initializeServerProviderConfig();
+
+    expect(() => getServerTTSProviders()).not.toThrow();
   });
 
   it('defaults the teacher scene pipeline to four workers', () => {
@@ -38,4 +50,3 @@ describe('server generation concurrency configuration', () => {
     expect(getTtsConcurrencyLimit('glm-tts')).toBe(2);
   });
 });
-

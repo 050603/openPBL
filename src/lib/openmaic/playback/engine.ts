@@ -108,6 +108,8 @@ export class PlaybackEngine {
   private speechTimerIsActivityPause: boolean = false;
   private speechTimerIsTimelinePause: boolean = false;
   private activeActivity: ActivityGate | null = null;
+  private seekVersion = 0;
+  private pendingSpeechStartRatio = 0;
 
   constructor(
     scenes: Scene[],
@@ -185,16 +187,28 @@ export class PlaybackEngine {
   }
 
   /** Restart playback from one exact speech cue in the current scene. */
-  playSpeechAt(actionIndex: number): boolean {
+  playSpeechAt(actionIndex: number, startRatio: number = 0): boolean {
     const scene = this.scenes[0];
     const action = scene?.actions?.[actionIndex];
     if (!action || action.type !== 'speech' || !action.text.trim()) return false;
 
     this.stop();
+    const seekVersion = ++this.seekVersion;
     this.sceneIndex = 0;
     this.actionIndex = actionIndex;
+    this.pendingSpeechStartRatio = Math.max(0, Math.min(0.999, startRatio));
     this.setMode('playing');
-    this.processNext();
+    void this.actionEngine.restoreWhiteboard((scene.actions ?? []).slice(0, actionIndex))
+      .then(() => {
+        if (this.mode === 'playing' && this.seekVersion === seekVersion) this.processNext();
+      })
+      .catch((cause) => {
+        if (this.seekVersion !== seekVersion) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        log.error('Whiteboard timeline restore failed:', error);
+        this.setMode('idle');
+        this.callbacks.onError?.(error);
+      });
     return true;
   }
 
@@ -301,6 +315,7 @@ export class PlaybackEngine {
 
   /** → idle */
   stop(): void {
+    this.seekVersion++;
     // Set mode BEFORE stopping audio to prevent spurious processNext from
     // synchronous onend callbacks (see handleUserInterrupt for details).
     this.setMode('idle');
@@ -325,6 +340,7 @@ export class PlaybackEngine {
     this.savedActionIndex = null;
     this.currentTopicState = null;
     this.currentTrigger = null;
+    this.pendingSpeechStartRatio = 0;
   }
 
   /** User clicks "Join" on ProactiveCard → save cursor → live */
@@ -543,6 +559,8 @@ export class PlaybackEngine {
     switch (action.type) {
       case 'speech': {
         const speechAction = action as SpeechAction;
+        const speechStartRatio = this.pendingSpeechStartRatio;
+        this.pendingSpeechStartRatio = 0;
         const timelinePauseSec = Number(
           (speechAction as SpeechAction & {
             timelinePauseSec?: number;
@@ -593,7 +611,7 @@ export class PlaybackEngine {
           sceneId,
           actionIndex: this.actionIndex - 1,
         });
-        this.callbacks.onSpeechProgress?.(0);
+        this.callbacks.onSpeechProgress?.(speechStartRatio);
 
         // onEnded → processNext; if paused, resume() will call processNext
         this.audioPlayer.onEnded(() => {
@@ -656,9 +674,16 @@ export class PlaybackEngine {
         };
 
         this.audioPlayer
-          .play(speechAction.audioId || '', speechAction.audioUrl)
+          .play(speechAction.audioId || '', speechAction.audioUrl, speechStartRatio)
           .then((audioStarted) => {
             if (!audioStarted) {
+              if (this.scenes[this.sceneIndex]?.ttsPolicy === 'target-duration') {
+                const error = new Error(`课堂语音资源缺失：${speechAction.id}`);
+                log.error(error.message);
+                this.setMode('idle');
+                this.callbacks.onError?.(error);
+                return;
+              }
               // Server-generated audio can still be pending when a newly
               // created classroom opens. Fall back to the explicitly enabled
               // browser voice regardless of which server provider is selected.
@@ -667,7 +692,18 @@ export class PlaybackEngine {
           })
           .catch((err) => {
             log.error('TTS error:', err);
-            playSpeechFallback();
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.callbacks.onError?.(error);
+            // Browser-native TTS is an explicit configured provider, not fake
+            // narration. If it is disabled, stop and surface the real media
+            // failure instead of silently advancing on a reading timer.
+            const settings = useSettingsStore.getState();
+            const browserNativeEnabled = isTTSProviderEnabled(
+              'browser-native-tts',
+              settings.ttsProvidersConfig?.['browser-native-tts'],
+            );
+            if (browserNativeEnabled) playSpeechFallback();
+            else this.setMode('idle');
           });
         break;
       }

@@ -23,8 +23,8 @@ vi.mock("./companion-studio-pixi-stage", () => ({
   },
 }));
 vi.mock("./studio-project-workbench", () => ({
-  StudioProjectWorkbench: () => (
-    <div>
+  StudioProjectWorkbench: ({ layoutMode }: { layoutMode?: string }) => (
+    <div data-workbench-layout={layoutMode}>
       项目工作台
       <input aria-label="同步草稿" defaultValue="" />
     </div>
@@ -174,6 +174,40 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     expect(props.agentStates.zhizhi.state).toBe("idle");
   });
 
+  it("does not turn voice preparation into a companion work animation", () => {
+    mocks.runtime.current = {
+      ...runtime(),
+      tts: {
+        ...runtime().tts,
+        busy: true,
+        preparingCompanionId: "knowledge",
+      },
+    };
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    const props = mocks.pixiProps.current as {
+      agentStates: { zhizhi: { state: string } };
+    };
+    expect(props.agentStates.zhizhi.state).toBe("idle");
+  });
+
+  it("still uses the dedicated work animation for real agent generation", () => {
+    mocks.runtime.current = {
+      ...runtime(),
+      generatingCompanionId: "knowledge",
+    };
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    const props = mocks.pixiProps.current as {
+      agentStates: { zhizhi: { state: string } };
+    };
+    expect(props.agentStates.zhizhi.state).toBe("working");
+  });
+
   it("does not dispatch the same generating transition again when progress rerenders with a stale task snapshot", async () => {
     const view = render(
       <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
@@ -294,6 +328,8 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     );
 
     const guide = screen.getByRole("complementary", { name: "当前阶段指引" });
+    expect(guide.parentElement?.classList.contains("studio-command-card")).toBe(true);
+    expect(guide.parentElement?.querySelector('[aria-label="伴学场景工具"]')).toBeTruthy();
     expect(guide.textContent).toContain("把方向变成一份可实施、可验证的方案");
     expect(guide.textContent).toContain("打开方案工作台");
 
@@ -322,6 +358,31 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
       .toBeTruthy();
   });
 
+  it("maps the dynamic badge to visible unread partner replies and marks them read", () => {
+    const markRead = vi.fn();
+    mocks.runtime.current = {
+      ...runtime(),
+      unreadCount: 2,
+      markRead,
+      messages: [
+        { role: "assistant", companionId: "knowledge", content: "先确认桥梁承受的主要荷载。", ts: "2026-07-28T00:01:00.000Z" },
+        { role: "assistant", companionId: "knowledge", content: "还可以比较不同结构的受力路径。", ts: "2026-07-28T00:02:00.000Z" },
+      ],
+    };
+
+    render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    expect(screen.getByLabelText("2 条未读伙伴回复")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "查看动态，2 条未读伙伴回复" }));
+    expect(screen.getByRole("heading", { name: "项目动态" })).toBeTruthy();
+    expect(screen.getByText("已显示并标记 2 条新伙伴回复")).toBeTruthy();
+    expect(screen.getAllByText("新回复")).toHaveLength(2);
+    expect(screen.getByText("先确认桥梁承受的主要荷载。")).toBeTruthy();
+    expect(markRead).toHaveBeenCalledOnce();
+  });
+
   it("switches one mounted whiteboard between docked and fullscreen modes", () => {
     render(
       <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
@@ -332,20 +393,26 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "前往当前阶段任务" }));
 
-    expect(screen.getByRole("dialog", { name: "项目白板" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "项目白板" })).toBeTruthy();
     expect(screen.getByText("项目工作台")).toBeTruthy();
     expect(screen.getByText("伴学场景")).toBeTruthy();
-    expect(mocks.pixiProps.current).toMatchObject({ paused: true });
+    expect(screen.getByText("项目工作台").getAttribute("data-workbench-layout")).toBe("sidebar");
+    expect(mocks.pixiProps.current).toMatchObject({ paused: false });
     fireEvent.change(screen.getByRole("textbox", { name: "同步草稿" }), {
       target: { value: "保留这份未保存草稿" },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "全屏显示项目白板" }));
+    expect(screen.getByRole("dialog", { name: "项目白板" })).toBeTruthy();
+    expect(screen.getByText("项目工作台").getAttribute("data-workbench-layout")).toBe("fullscreen");
+    expect(mocks.pixiProps.current).toMatchObject({ paused: true });
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "同步草稿" }).value)
+      .toBe("保留这份未保存草稿");
+    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(true);
+
     fireEvent.click(screen.getByRole("button", { name: "缩小到侧边栏" }));
     expect(screen.getByRole("complementary", { name: "项目白板" })).toBeTruthy();
     expect(mocks.pixiProps.current).toMatchObject({ paused: false });
-    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "同步草稿" }).value)
-      .toBe("保留这份未保存草稿");
-    expect(mocks.setAutoInterventionsPaused).toHaveBeenLastCalledWith(false);
 
     fireEvent.click(screen.getByRole("button", { name: "关闭项目白板" }));
     expect(screen.queryByText("项目工作台")).toBeNull();

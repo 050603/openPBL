@@ -17,6 +17,8 @@ import {
 import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
 import { hasCurrentSessionVersion } from "@/lib/auth/session-version";
 import { websocketConnectionsActive } from "@/lib/observability/metrics";
+import { shouldDeliverMutationToStudent } from "./event-visibility";
+import { isAllowedBrowserOrigin } from "@/lib/network/request-origin";
 
 const PING_INTERVAL_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 90_000;
@@ -135,6 +137,18 @@ function attachClient(ws: WebSocket, claims: AuthClaims, ip: string): void {
     unsubscribe(state);
     state.courseId = courseId;
     state.handler = (event: RealtimeEvent) => {
+      if (
+        state.claims.role === "student"
+        && !shouldDeliverMutationToStudent({
+          actionType: event.payload?.actionType,
+          scope: event.payload?.scope === "student" ? "student" : "course",
+          targetStudentId: typeof event.payload?.studentId === "string"
+            ? event.payload.studentId
+            : undefined,
+        }, state.claims.studentId)
+      ) {
+        return;
+      }
       sendJson(ws, {
         type: "course-event",
         courseId,
@@ -212,17 +226,16 @@ export function startWebSocketServer(port = 3001): WebSocketServer {
 }
 
 function hasAllowedOrigin(req: IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  if (!origin) return process.env.NODE_ENV !== "production";
-  try {
-    const actual = new URL(origin).origin;
-    const configured = process.env.PUBLIC_BASE_URL?.trim();
-    if (configured) return actual === new URL(configured).origin;
-    const host = req.headers.host;
-    return !!host && new URL(origin).host === host;
-  } catch {
-    return false;
-  }
+  return isAllowedBrowserOrigin({
+    origin: req.headers.origin,
+    host: req.headers.host,
+    forwardedHost: typeof req.headers["x-forwarded-host"] === "string"
+      ? req.headers["x-forwarded-host"]
+      : undefined,
+    forwardedProto: typeof req.headers["x-forwarded-proto"] === "string"
+      ? req.headers["x-forwarded-proto"]
+      : undefined,
+  });
 }
 
 function clientIp(req: IncomingMessage): string {

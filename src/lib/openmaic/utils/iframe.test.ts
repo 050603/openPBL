@@ -53,10 +53,56 @@ describe('patchHtmlForIframe interactive runtimes', () => {
     expect(patched).toContain('/api/openmaic/interactive-runtime/pyodide/pyodide.js');
     expect(patched).toContain('/api/openmaic/interactive-runtime/katex/katex.min.css');
     expect(patched).toContain('/api/openmaic/interactive-runtime/katex/contrib/auto-render.min.js');
-    expect(patched).toContain("indexURL: '/api/openmaic/interactive-runtime/pyodide/'");
+    expect(patched).toContain(
+      "indexURL: new URL('/api/openmaic/interactive-runtime/pyodide/', document.baseURI).href",
+    );
     expect(patched).not.toContain('cdnjs.cloudflare.com');
     expect(patched).not.toContain('cdn.jsdelivr.net/pyodide');
     expect(patched).not.toContain('cdn.jsdelivr.net/npm/katex');
+  });
+
+  it('repairs other generated CDN versions instead of depending on one exact version', () => {
+    const html = `<html><head>
+      <script src="https://unpkg.com/pyodide@0.27.7/pyodide.js" defer></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.64.0/codemirror.min.js"></script>
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+    </head><body><script>
+      loadPyodide({ indexURL: "https://unpkg.com/pyodide@0.27.7/" });
+    </script></body></html>`;
+
+    const patched = patchHtmlForIframe(html);
+
+    expect(patched).toContain('/api/openmaic/interactive-runtime/pyodide/pyodide.js');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/codemirror/lib/codemirror.js');
+    expect(patched).toContain('/api/openmaic/interactive-runtime/katex/katex.min.css');
+    expect(patched).not.toContain('unpkg.com');
+    expect(patched).not.toContain('cdnjs.cloudflare.com');
+    expect(patched).not.toContain('cdn.jsdelivr.net');
+  });
+
+  it('defines a retryable local Pyodide loader before generated code when the loader is missing', () => {
+    const generatedCode = '<script>loadPyodide().then(() => window.ready = true);</script>';
+    const patched = patchHtmlForIframe(`<html><head></head><body>${generatedCode}</body></html>`);
+
+    expect(patched).toContain('data-iframe-pyodide-loader');
+    expect(patched).toContain("script.src = loaderUrl");
+    expect(patched).toContain(
+      "runtimeBase = new URL('/api/openmaic/interactive-runtime/pyodide/', document.baseURI).href",
+    );
+    expect(patched).toContain("safeOptions.indexURL = runtimeBase");
+    expect(patched).toContain("loaderPromise = null");
+    expect(patched.indexOf('data-iframe-pyodide-loader')).toBeLessThan(
+      patched.indexOf(generatedCode),
+    );
+  });
+
+  it('does not add the Python runtime to interactions that do not execute Python', () => {
+    const patched = patchHtmlForIframe(
+      '<html><head></head><body><script>window.answer = 42;</script></body></html>',
+    );
+
+    expect(patched).not.toContain('data-iframe-pyodide-loader');
+    expect(patched).not.toContain('/interactive-runtime/pyodide/pyodide.js');
   });
 
   it('does not rewrite generated program logic while repairing known runtime asset URLs', () => {

@@ -41,6 +41,8 @@ interface PublishingRedisClient extends ManagedRedisClient {
 let publisher: PublishingRedisClient | null = null;
 let subscriber: ManagedRedisClient | null = null;
 let initialization: Promise<void> | null = null;
+let lastInitializationAttemptAt = 0;
+const RECONNECT_THROTTLE_MS = 5_000;
 
 type RedisEnvelope = {
   origin: string;
@@ -65,6 +67,7 @@ export async function initializeEventBus(): Promise<void> {
   if (!url) return;
 
   initialization = (async () => {
+    lastInitializationAttemptAt = Date.now();
     const pub = createClient({ url });
     const sub = pub.duplicate();
     pub.on("error", (error) => console.error("[event-bus] Redis publisher error:", error));
@@ -97,7 +100,15 @@ export async function publishCourseEvent(
 ): Promise<void> {
   if (!courseId) return;
   dispatchLocal(event);
-  if (!publisher?.isReady) return;
+  if (!publisher?.isReady) {
+    if (
+      process.env.REDIS_URL?.trim()
+      && Date.now() - lastInitializationAttemptAt >= RECONNECT_THROTTLE_MS
+    ) {
+      void initializeEventBus();
+    }
+    return;
+  }
   const envelope: RedisEnvelope = { origin: instanceId, event };
   await publisher.publish(CHANNEL, JSON.stringify(envelope));
 }
@@ -139,4 +150,5 @@ export async function closeEventBus(): Promise<void> {
 
 export function __resetEventBusForTests(): void {
   subscribersByCourse.clear();
+  lastInitializationAttemptAt = 0;
 }

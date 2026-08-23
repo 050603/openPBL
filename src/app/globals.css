@@ -77,11 +77,11 @@
   --pbl-cream: #faf9f7;
 
   /* —— 圆角阶梯（小圆角）—— */
-  --radius-xs: 6px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 14px;
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 0.875rem;
   --radius-pill: 999px;
 
   /* —— 阴影阶梯（轻微阴影）—— */
@@ -92,26 +92,26 @@
   --shadow-hero: var(--shadow-floating);
 
   /* —— 间距阶梯（4px基准）—— */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
 
   /* —— 字体阶梯 —— */
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-base: 14px;
-  --text-md: 15px;
-  --text-lg: 17px;
-  --text-xl: 20px;
-  --text-2xl: 24px;
-  --text-3xl: 30px;
-  --text-4xl: 38px;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.375rem;
 
   /* —— 字重（克制使用 black）—— */
   --weight-regular: 400;
@@ -152,8 +152,164 @@ body {
 }
 
 html {
+  font-size: 16px;
   scroll-behavior: smooth;
   background: var(--pbl-bg);
+}
+
+/*
+ * Desktop display density
+ * -----------------------
+ * 1920×1080 is the visual baseline. Larger, proportionally taller desktop
+ * displays scale rem-based type and controls together. Using the smaller of
+ * the width/height curves prevents a 3440×1080 ultrawide monitor from being
+ * enlarged as if it were a high-density 16:9 display.
+ */
+@media (min-width: 1920px) and (min-height: 1080px) {
+  html {
+    font-size: clamp(
+      16px,
+      min(0.833333vw, 1.481481vh),
+      32px
+    );
+  }
+}
+
+/* Tailwind arbitrary pixel labels opt into the same desktop density scale. */
+.pbl-desktop-ui :where(.text-\[7px\]) { font-size: 0.4375rem; }
+.pbl-desktop-ui :where(.text-\[8px\]) { font-size: 0.5rem; }
+.pbl-desktop-ui :where(.text-\[9px\]) { font-size: 0.5625rem; }
+.pbl-desktop-ui :where(.text-\[10px\]) { font-size: 0.625rem; }
+.pbl-desktop-ui :where(.text-\[11px\]) { font-size: 0.6875rem; }
+.pbl-desktop-ui :where(.text-\[12px\]) { font-size: 0.75rem; }
+.pbl-desktop-ui :where(.text-\[13px\]) { font-size: 0.8125rem; }
+.pbl-desktop-ui :where(.text-\[14px\]) { font-size: 0.875rem; }
+.pbl-desktop-ui :where(.text-\[15px\]) { font-size: 0.9375rem; }
+
+/* Desktop containers grow with available classroom space without creating
+   excessively wide reading lines on ordinary laptops. */
+.pbl-content-container {
+  margin-inline: auto;
+  width: 100%;
+  max-width: clamp(68.75rem, 82vw, 144rem);
+}
+
+.pbl-dashboard-container {
+  margin-inline: auto;
+  width: 100%;
+  max-width: clamp(80rem, 82vw, 144rem);
+}
+
+.pbl-wide-container {
+  margin-inline: auto;
+  width: 100%;
+  max-width: clamp(87.5rem, 92vw, 164rem);
+}
+
+/* Mobile and tablet visitors receive one intentional, non-interactive screen.
+   Coarse-pointer CSS covers the pre-hydration moment; the client detector then
+   makes the durable decision from device signals rather than viewport width. */
+.desktop-access-gate,
+.desktop-access-content {
+  min-height: 100%;
+}
+
+.desktop-access-blocker {
+  display: none;
+}
+
+.desktop-access-gate[data-access="unsupported"] > .desktop-access-content {
+  display: none;
+}
+
+.desktop-access-gate[data-access="unsupported"] > .desktop-access-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(22, 101, 52, 0.12), transparent 38%),
+    radial-gradient(circle at 90% 90%, rgba(29, 78, 216, 0.1), transparent 36%),
+    var(--pbl-bg);
+}
+
+.desktop-access-blocker__card {
+  width: min(100%, 31rem);
+  border: 1px solid var(--pbl-border);
+  border-radius: 1.25rem;
+  padding: 2rem 1.5rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-floating);
+  text-align: center;
+}
+
+.desktop-access-blocker__icon {
+  display: grid;
+  width: 4.5rem;
+  height: 4.5rem;
+  margin-inline: auto;
+  place-items: center;
+  border-radius: 1.25rem;
+  color: var(--pbl-student);
+  background: var(--pbl-student-soft);
+}
+
+.desktop-access-blocker__icon svg {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.desktop-access-blocker__eyebrow {
+  margin-top: 1.25rem;
+  color: var(--pbl-student);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.desktop-access-blocker h1 {
+  margin-top: 0.5rem;
+  color: var(--pbl-text-strong);
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.desktop-access-blocker h1 + p {
+  margin-top: 0.75rem;
+  color: var(--pbl-text);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.desktop-access-blocker__hint {
+  margin: 0.75rem auto 0;
+  max-width: 27rem;
+  color: var(--pbl-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.75;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .desktop-access-gate[data-access="checking"] > .desktop-access-content {
+    display: none;
+  }
+
+  .desktop-access-gate[data-access="checking"] > .desktop-access-blocker {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: grid;
+    min-height: 100dvh;
+    place-items: center;
+    padding: 1.5rem;
+    background: var(--pbl-bg);
+  }
 }
 
 button,
@@ -576,7 +732,7 @@ select {
 
 .pbl-eyebrow {
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -610,7 +766,7 @@ select {
   align-items: center;
   gap: 12px;
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -673,7 +829,7 @@ select {
   align-items: center;
   gap: 8px;
   padding: 14px 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--pbl-text-strong);
   position: relative;
@@ -1133,7 +1289,7 @@ select {
   align-items: center;
   gap: 8px;
   padding: 14px 26px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: #ffffff;
@@ -1171,7 +1327,7 @@ select {
   align-items: center;
   gap: 8px;
   padding: 14px 26px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--pbl-text-strong);
   background: rgba(255, 255, 255, 0.7);
@@ -1196,7 +1352,7 @@ select {
   align-items: center;
   gap: 12px;
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.24em;
   text-transform: uppercase;

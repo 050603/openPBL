@@ -1,4 +1,5 @@
 import { callLLM, parseLLMJson } from "@/lib/llm/client";
+import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 
 type ModelCall = typeof callLLM;
 
@@ -61,7 +62,7 @@ export async function editCourseDesignStage<T>(
           jsonMode: true,
           abortSignal: input.abortSignal,
           requestClass: "standard",
-          maxTransientRetries: 1,
+          maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
         },
       );
       previousResponse = response;

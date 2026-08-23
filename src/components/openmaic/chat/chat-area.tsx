@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@openmaic/components/u
 import { useChatSessions } from './use-chat-sessions';
 import { SessionList } from './session-list';
 import { LectureNotesView } from './lecture-notes-view';
+import { useDisplayScale } from '@/hooks/use-display-scale';
 
 interface ChatAreaProps {
   className?: string;
@@ -86,6 +87,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
     ref,
   ) => {
     const { t } = useI18n();
+    const displayScale = useDisplayScale();
     const scenes = useStageStore((s) => s.scenes);
     const {
       sessions,
@@ -218,7 +220,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
         const startWidth = width;
 
         const handleMouseMove = (me: MouseEvent) => {
-          const delta = startX - me.clientX;
+          const delta = (startX - me.clientX) / displayScale;
           const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
           onWidthChange?.(newWidth);
         };
@@ -237,10 +239,10 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
       },
-      [width, onWidthChange],
+      [displayScale, width, onWidthChange],
     );
 
-    const displayWidth = collapsed ? 0 : width;
+    const displayWidth = collapsed ? 0 : width * displayScale;
 
     return (
       <div

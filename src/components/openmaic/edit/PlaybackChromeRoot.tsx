@@ -149,6 +149,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const [lectureSpeech, setLectureSpeech] = useState<string | null>(null); // From PlaybackEngine (lecture)
     const [lectureCueIndex, setLectureCueIndex] = useState(-1);
     const [lectureSpeechProgress, setLectureSpeechProgress] = useState(0);
+    const [playbackError, setPlaybackError] = useState<string | null>(null);
     const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
     const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
     const [discussionTrigger, setDiscussionTrigger] = useState<TriggerEvent | null>(null);
@@ -566,6 +567,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           // Scene change handled by engine
         },
         onSpeechStart: (text, cue) => {
+          setPlaybackError(null);
           setLectureSpeech(text);
           setLectureCueIndex(cue?.actionIndex ?? -1);
           setLectureSpeechProgress(0);
@@ -590,6 +592,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           // onSpeechStart replaces it or the scene transitions.
           // Clearing here causes fallback to idleText (first sentence).
           setActiveBubbleId(null);
+        },
+        onError: (error) => {
+          setPlaybackError(error.message || '课堂媒体播放失败');
         },
         onEffectFire: (effect: Effect) => {
           // Add to lecture session with incrementing index
@@ -913,6 +918,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       setPlaybackCompleted(false);
       return engineRef.current?.playSpeechAt(cue.actionIndex) ?? false;
     }, [lectureCues]);
+    const playLectureCue = useCallback((actionIndex: number, startRatio: number) => {
+      setPlaybackCompleted(false);
+      return engineRef.current?.playSpeechAt(actionIndex, startRatio) ?? false;
+    }, []);
 
     // Whether the speaking agent is a student (for bubble role derivation)
     const speakingStudentFlag = useMemo(() => {
@@ -1267,9 +1276,21 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           className={cn(
             'relative flex min-w-0 flex-1 flex-col overflow-hidden',
             useSideTeachingRail &&
-              'xl:grid xl:grid-cols-[minmax(0,1fr)_304px] xl:grid-rows-[minmax(0,1fr)]',
+              'xl:grid xl:grid-cols-[minmax(0,1fr)_19rem] xl:grid-rows-[minmax(0,1fr)]',
           )}
         >
+          {playbackError ? (
+            <div
+              className="absolute inset-x-4 top-4 z-50 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50/95 px-4 py-3 text-sm text-red-800 shadow-lg backdrop-blur dark:border-red-400/30 dark:bg-red-950/90 dark:text-red-100"
+              role="alert"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">课堂语音播放失败</p>
+                <p className="mt-0.5 text-xs opacity-85">{playbackError}</p>
+              </div>
+            </div>
+          ) : null}
           {/* Canvas Area — playback-only renderer. The parent Stage swaps
             this whole PlaybackChromeRoot out when entering edit mode, so
             no inline branching is needed here. */}
@@ -1452,6 +1473,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 onPlayPause={handlePlayPause}
                 onPreviousCue={() => playLectureCueAt(activeLectureCuePosition - 1)}
                 onNextCue={() => playLectureCueAt(activeLectureCuePosition + 1)}
+                onCueSelect={playLectureCue}
                 canGoPreviousCue={activeLectureCuePosition > 0}
                 canGoNextCue={activeLectureCuePosition < lectureCues.length - 1}
                 isDiscussionPaused={isDiscussionPaused}

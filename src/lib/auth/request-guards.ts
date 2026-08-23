@@ -6,6 +6,7 @@ import {
   type AuthRole,
 } from "@/lib/auth/session";
 import { hasCurrentSessionVersion } from "@/lib/auth/session-version";
+import { isAllowedBrowserOrigin } from "@/lib/network/request-origin";
 
 export async function authenticateRequest(
   request: Request,
@@ -34,14 +35,14 @@ export function requireSameOrigin(request: Request): Response | null {
     const referer = request.headers.get("referer");
     if (!referer) return forbidden(request, "Missing Origin header.");
     try {
-      if (new URL(referer).origin === expectedOrigin(request)) return null;
+      if (isAllowedRequestOrigin(request, new URL(referer).origin)) return null;
     } catch {
       // fall through
     }
     return forbidden(request, "Cross-origin request rejected.");
   }
   try {
-    if (new URL(origin).origin === expectedOrigin(request)) return null;
+    if (isAllowedRequestOrigin(request, new URL(origin).origin)) return null;
   } catch {
     // fall through
   }
@@ -57,10 +58,13 @@ export function authorizeInternalMonitor(request: Request): Response | null {
   return null;
 }
 
-function expectedOrigin(request: Request): string {
-  const configured = process.env.PUBLIC_BASE_URL?.trim();
-  if (configured) return new URL(configured).origin;
-  return new URL(request.url).origin;
+function isAllowedRequestOrigin(request: Request, origin: string): boolean {
+  return isAllowedBrowserOrigin({
+    origin,
+    host: request.headers.get("host") ?? new URL(request.url).host,
+    forwardedHost: request.headers.get("x-forwarded-host"),
+    forwardedProto: request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", ""),
+  });
 }
 
 function safeEqual(left: string, right: string): boolean {

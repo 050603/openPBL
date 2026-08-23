@@ -390,7 +390,7 @@ export function PblModuleTimingPanel({
                   ) : (
                     <label className="flex shrink-0 items-center gap-1 text-xs text-stone-500">
                       <input
-                        aria-label={`${activity.title ?? definition?.label ?? activity.id}目标时长`}
+                        aria-label={`${activity.title ?? definition?.label ?? "未命名课程活动"}目标时长`}
                         className="h-8 w-16 rounded-[4px] border border-stone-200 px-1.5 text-right text-sm font-semibold tabular-nums text-stone-700 outline-none focus:border-[var(--pbl-teacher)]"
                         defaultValue={activity.durationMin}
                         key={`${activity.id}-${activity.durationMin}`}

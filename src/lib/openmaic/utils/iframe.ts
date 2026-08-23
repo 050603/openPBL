@@ -34,6 +34,8 @@ const STORAGE_SHIM = `<script data-iframe-storage-shim>
 </script>`;
 
 const INTERACTIVE_RUNTIME_BASE = '/api/openmaic/interactive-runtime';
+const PYODIDE_RUNTIME_BASE = `${INTERACTIVE_RUNTIME_BASE}/pyodide/`;
+const PYODIDE_LOADER_URL = `${PYODIDE_RUNTIME_BASE}pyodide.js`;
 
 /**
  * Generated classrooms historically referenced public CDNs directly. The app's
@@ -44,21 +46,33 @@ const INTERACTIVE_RUNTIME_BASE = '/api/openmaic/interactive-runtime';
  * render time instead.
  */
 function rewriteInteractiveRuntimeUrls(html: string): string {
-  return html
+  const rewritten = html
     .replace(
-      /https:\/\/cdn\.jsdelivr\.net\/pyodide\/v0\.25\.0\/full\//gi,
-      `${INTERACTIVE_RUNTIME_BASE}/pyodide/`,
+      /https?:\/\/cdn\.jsdelivr\.net\/pyodide\/v[^/"'\s<>]+\/full\//gi,
+      PYODIDE_RUNTIME_BASE,
     )
     .replace(
-      /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.65\.16\/codemirror\.min\.css/gi,
+      /https?:\/\/cdn\.jsdelivr\.net\/npm\/pyodide@[^/"'\s<>]+\//gi,
+      PYODIDE_RUNTIME_BASE,
+    )
+    .replace(
+      /https?:\/\/unpkg\.com\/pyodide@[^/"'\s<>]+\//gi,
+      PYODIDE_RUNTIME_BASE,
+    )
+    .replace(
+      /https?:\/\/pyodide-cdn2\.iodide\.io\/v[^/"'\s<>]+\/full\//gi,
+      PYODIDE_RUNTIME_BASE,
+    )
+    .replace(
+      /https?:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.[^/"'\s<>]+\/codemirror\.min\.css/gi,
       `${INTERACTIVE_RUNTIME_BASE}/codemirror/lib/codemirror.css`,
     )
     .replace(
-      /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.65\.16\/codemirror\.min\.js/gi,
+      /https?:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.[^/"'\s<>]+\/codemirror\.min\.js/gi,
       `${INTERACTIVE_RUNTIME_BASE}/codemirror/lib/codemirror.js`,
     )
     .replace(
-      /https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.65\.16\//gi,
+      /https?:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/codemirror\/5\.[^/"'\s<>]+\//gi,
       `${INTERACTIVE_RUNTIME_BASE}/codemirror/`,
     )
     .replace(
@@ -66,10 +80,92 @@ function rewriteInteractiveRuntimeUrls(html: string): string {
       '$1.$2',
     )
     .replace(
-      /https:\/\/cdn\.jsdelivr\.net\/npm\/katex@0\.16\.\d+\/dist\//gi,
+      /https?:\/\/cdn\.jsdelivr\.net\/npm\/katex@[^/"'\s<>]+\/dist\//gi,
       `${INTERACTIVE_RUNTIME_BASE}/katex/`,
     );
+
+  // Pyodide 0.25 constructs `new URL(indexURL)` without a base, so a root-
+  // relative string is invalid inside srcDoc (`window.location` is
+  // `about:srcdoc`). Resolve it against the inherited document base first.
+  return rewritten.replace(
+    /(\bindexURL\s*:\s*)(["'])\/api\/openmaic\/interactive-runtime\/pyodide\/\2/gi,
+    (_match, prefix: string) =>
+      `${prefix}new URL('${PYODIDE_RUNTIME_BASE}', document.baseURI).href`,
+  );
 }
+
+function usesPyodide(html: string): boolean {
+  return /\bloadPyodide\s*\(/.test(html);
+}
+
+/**
+ * Compatibility loader for persisted AI-generated Python pages.
+ *
+ * Some historical pages call `loadPyodide()` without including the loader,
+ * put the loader after the call, or mark it async/defer. Define the API before
+ * any generated script runs and lazily fetch the allowlisted same-origin copy.
+ * A normal blocking Pyodide script may overwrite this function; otherwise the
+ * first call loads it. Failed loader requests are cleared so the page's Retry
+ * button can make a fresh attempt instead of reusing a permanently rejected
+ * promise.
+ */
+const PYODIDE_LOADER_SHIM = `<script data-iframe-pyodide-loader>
+(function () {
+  var runtimeBase = new URL('${PYODIDE_RUNTIME_BASE}', document.baseURI).href;
+  var loaderUrl = '${PYODIDE_LOADER_URL}';
+  if (typeof window.loadPyodide === 'function') return;
+
+  var loaderPromise = null;
+  function getLoader() {
+    if (loaderPromise) return loaderPromise;
+    loaderPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      var timeout = window.setTimeout(function () {
+        loaderPromise = null;
+        script.remove();
+        reject(new Error('Python runtime loader timed out'));
+      }, 15000);
+      script.src = loaderUrl;
+      script.async = true;
+      script.onload = function () {
+        window.clearTimeout(timeout);
+        var loader = window.loadPyodide;
+        if (typeof loader !== 'function' || loader === lazyLoadPyodide) {
+          loaderPromise = null;
+          reject(new Error('Python runtime loader did not expose loadPyodide'));
+          return;
+        }
+        resolve(loader);
+      };
+      script.onerror = function () {
+        window.clearTimeout(timeout);
+        loaderPromise = null;
+        script.remove();
+        reject(new Error('Failed to load the local Python runtime'));
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+    return loaderPromise;
+  }
+
+  function lazyLoadPyodide(options) {
+    return getLoader().then(function (loader) {
+      var safeOptions = {};
+      if (options && typeof options === 'object') {
+        Object.keys(options).forEach(function (key) { safeOptions[key] = options[key]; });
+      }
+      safeOptions.indexURL = runtimeBase;
+      return loader(safeOptions);
+    });
+  }
+
+  Object.defineProperty(window, 'loadPyodide', {
+    configurable: true,
+    writable: true,
+    value: lazyLoadPyodide
+  });
+})();
+</script>`;
 
 /**
  * Runtime-error capture, injected as the VERY FIRST script so it observes errors
@@ -281,7 +377,8 @@ export function patchHtmlForIframe(html: string): string {
   body { min-height: 100vh; }
 </style>`;
 
-  const injection = '\n' + ERROR_CAPTURE_SHIM + '\n' + STORAGE_SHIM + '\n' + INTERACTION_SYNC_SHIM + '\n' + iframeCss;
+  const pyodideLoader = usesPyodide(runtimePatchedHtml) ? `\n${PYODIDE_LOADER_SHIM}` : '';
+  const injection = '\n' + ERROR_CAPTURE_SHIM + '\n' + STORAGE_SHIM + '\n' + INTERACTION_SYNC_SHIM + pyodideLoader + '\n' + iframeCss;
 
   // Insert right after <head> or at the start of the document
   const headIdx = runtimePatchedHtml.indexOf('<head>');

@@ -93,6 +93,7 @@ describe("project launch readiness", () => {
       pblConfig: {
         projectMode: "personal",
         difficultyLevel: "standard",
+        resourceInquiryMode: "llm",
         evidenceRequirements: [],
         outcome: { artifact: "", presentation: "", reflection: "" },
         companionIds: ["recorder"],

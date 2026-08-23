@@ -3,16 +3,26 @@
 import { createContext, useContext, type ReactNode } from "react";
 import {
   AlertCircle,
+  Bot,
   CheckCircle2,
   Cloud,
   CloudCog,
   Send,
 } from "lucide-react";
 import { Input, NativeSelect, PrimaryButton, Textarea } from "@/components/ui";
+import { getCompanion, type AiCompanionId } from "@/lib/ai-companions";
+import type { CompanionWorkspaceTarget } from "@/lib/companion/workspace-operation";
 import type { LearningEvidence } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
+import { learningEvidenceKindLabel } from "@/lib/evaluation/process-assessment";
+import { userFacingStageLabel } from "@/lib/user-facing-labels";
 
 const EvidenceTaskFocusContext = createContext<string | null>(null);
+type WorkspaceEditMarker = {
+  companionId: AiCompanionId;
+  updatedAt: string;
+};
+const WorkspaceEditMarkerContext = createContext<Partial<Record<CompanionWorkspaceTarget, WorkspaceEditMarker>>>({});
 
 export function EvidenceTaskFocusProvider({
   actionId,
@@ -25,6 +35,20 @@ export function EvidenceTaskFocusProvider({
     <EvidenceTaskFocusContext.Provider value={actionId ?? null}>
       {children}
     </EvidenceTaskFocusContext.Provider>
+  );
+}
+
+export function WorkspaceEditMarkerProvider({
+  edits,
+  children,
+}: {
+  edits: Partial<Record<CompanionWorkspaceTarget, WorkspaceEditMarker>>;
+  children: ReactNode;
+}) {
+  return (
+    <WorkspaceEditMarkerContext.Provider value={edits}>
+      {children}
+    </WorkspaceEditMarkerContext.Provider>
   );
 }
 
@@ -48,6 +72,7 @@ export function EvidenceCard({
   saveState,
   error,
   onSubmit,
+  submitLabel,
   children,
   active = false,
 }: {
@@ -59,6 +84,7 @@ export function EvidenceCard({
   saveState: "idle" | "saving" | "saved";
   error: string | null;
   onSubmit: () => void;
+  submitLabel?: string;
   children: ReactNode;
   active?: boolean;
 }) {
@@ -121,7 +147,7 @@ export function EvidenceCard({
           type="button"
         >
           <Send size={14} />
-          {status === "submitted" ? "重新提交" : "提交"}
+          {submitLabel ?? (status === "submitted" ? "重新提交" : "提交")}
         </PrimaryButton>
       </footer>
     </section>
@@ -136,6 +162,7 @@ export function Field({
   placeholder,
   rows = 3,
   input = false,
+  workspaceTarget,
 }: {
   label: string;
   description?: string;
@@ -144,10 +171,21 @@ export function Field({
   placeholder?: string;
   rows?: number;
   input?: boolean;
+  workspaceTarget?: CompanionWorkspaceTarget;
 }) {
+  const editMarkers = useContext(WorkspaceEditMarkerContext);
+  const editMarker = workspaceTarget ? editMarkers[workspaceTarget] : undefined;
+  const companion = editMarker ? getCompanion(editMarker.companionId) : undefined;
   return (
-    <label className="evidence-field grid min-w-0 gap-2">
-      <span className="evidence-field__label text-sm font-semibold text-stone-800 [overflow-wrap:anywhere]">{label}</span>
+    <label className="evidence-field grid min-w-0 gap-2" data-ai-edited={editMarker ? "true" : undefined}>
+      <span className="evidence-field__label text-sm font-semibold text-stone-800 [overflow-wrap:anywhere]">
+        <span>{label}</span>
+        {companion && editMarker ? (
+          <small title={`${companion.name}参与编辑 · ${new Date(editMarker.updatedAt).toLocaleString("zh-CN")}`}>
+            <Bot size={11} /> {companion.name}参与过
+          </small>
+        ) : null}
+      </span>
       {input ? (
         <Input
           className="evidence-control min-w-0"
@@ -174,15 +212,23 @@ export function SelectField({
   value,
   onChange,
   options,
+  workspaceTarget,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
+  workspaceTarget?: CompanionWorkspaceTarget;
 }) {
+  const editMarkers = useContext(WorkspaceEditMarkerContext);
+  const editMarker = workspaceTarget ? editMarkers[workspaceTarget] : undefined;
+  const companion = editMarker ? getCompanion(editMarker.companionId) : undefined;
   return (
-    <label className="evidence-field grid min-w-0 gap-2">
-      <span className="evidence-field__label text-sm font-semibold text-stone-800 [overflow-wrap:anywhere]">{label}</span>
+    <label className="evidence-field grid min-w-0 gap-2" data-ai-edited={editMarker ? "true" : undefined}>
+      <span className="evidence-field__label text-sm font-semibold text-stone-800 [overflow-wrap:anywhere]">
+        <span>{label}</span>
+        {companion && editMarker ? <small><Bot size={11} /> {companion.name}参与过</small> : null}
+      </span>
       <NativeSelect
         className="evidence-control min-w-0"
         onChange={(event) => onChange(event.target.value)}
@@ -227,7 +273,7 @@ export function EvidenceTimeline({
             onClick={() => onToggle(item.id)}
             type="button"
           >
-            <span className="block text-xs font-semibold text-stone-500">{item.stageKey} · {item.kind}</span>
+            <span className="block text-xs font-semibold text-stone-500">{userFacingStageLabel(item.stageKey)} · {learningEvidenceKindLabel(item.kind)}</span>
             <strong className="mt-1 block text-sm text-stone-900">{item.title}</strong>
           </button>
         );

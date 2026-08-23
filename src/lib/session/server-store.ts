@@ -25,6 +25,7 @@ import {
 import { buildPatch } from "@/lib/realtime/patch-builder";
 import { publishCourseEvent } from "@/lib/realtime/event-bus";
 import { applyCourseUpdate } from "@/lib/session/course-update";
+import { persistCourseUpdateInvalidation } from "@/lib/realtime/course-update-invalidation";
 
 /**
  * Push an invalidation event after persistence succeeds. Redis forwards it
@@ -234,10 +235,18 @@ export async function getCourse(courseId: string): Promise<Course | undefined> {
 export async function updateCourse(
   courseId: string,
   updater: (course: Course) => Course,
+  invalidation: { targetStudentId?: string } = {},
 ): Promise<SessionState> {
   if (isDatabaseConfigured()) {
     const after = await dbUpdateCourse(courseId, updater);
-    maybePublishCourseUpdated(courseId, after.updatedAt ?? new Date().toISOString());
+    const course = after.courses.find((candidate) => candidate.id === courseId);
+    if (!course) throw new Error(`Course not found after update: ${courseId}`);
+    await persistCourseUpdateInvalidation({
+      courseId,
+      courseVersion: course.version ?? 1,
+      updatedAt: course.updatedAt ?? after.updatedAt ?? new Date().toISOString(),
+      targetStudentId: invalidation.targetStudentId,
+    });
     return after;
   }
   warnIfDemoMode();

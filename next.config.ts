@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Turbopack chunk names can remain stable across releases. Stamp asset URLs
+  // with the build's deployment id so immutable browser caches cannot keep an
+  // older companion runtime after a server update.
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID?.trim() || undefined,
   // Local production commands set NEXT_DIST_DIR=.next-build so `next build`
   // cannot remove chunks owned by a concurrently running `.next/dev` server.
   // Containers explicitly keep `.next` because their copy paths use it.
@@ -46,7 +50,7 @@ const nextConfig: NextConfig = {
   // same-origin route. They are read with fs at request time, so explicitly
   // retain them in the standalone image.
   outputFileTracingIncludes: {
-    "/api/openmaic/interactive-runtime/*": [
+    "/api/openmaic/interactive-runtime/**": [
       "./node_modules/codemirror/**/*",
       "./node_modules/katex/dist/**/*",
       "./node_modules/pyodide/**/*",
@@ -158,7 +162,8 @@ const nextConfig: NextConfig = {
           // Content Security Policy. Allows same-origin scripts/styles,
           // inline styles (Tailwind / styled-components need this), data:
           // images, and https: media. `connect-src` includes ws:/wss: so the
-          // realtime WebSocket (Stage 4) can connect.
+          // realtime WebSocket (Stage 4) can connect. `data:` in connect-src
+          // lets PIXI's image worker fetch its 1px data-URL capability probe.
           // `worker-src` 允许 blob: —— PIXI v8 的 WorkerManager 用
           // URL.createObjectURL(new Blob(...)) 创建图片解码 worker，
           // 禁止 blob: worker 会导致 Assets.load 永久挂起。
@@ -167,15 +172,15 @@ const nextConfig: NextConfig = {
             value: [
               "default-src 'self'",
               process.env.NODE_ENV === "development"
-                ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-                : "script-src 'self' 'unsafe-inline'",
+                ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
+                : "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "media-src 'self' data: blob: https:",
               "font-src 'self' data:",
               process.env.NODE_ENV === "development"
-                ? "connect-src 'self' https: ws: wss:"
-                : "connect-src 'self' wss:",
+                ? "connect-src 'self' data: https: ws: wss:"
+                : "connect-src 'self' data: wss:",
               "frame-src 'self' blob: data:",
               "worker-src 'self' blob:",
               "object-src 'none'",

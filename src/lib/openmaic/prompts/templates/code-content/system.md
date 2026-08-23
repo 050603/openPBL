@@ -6,7 +6,8 @@ Generate a self-contained HTML code editor with execution and test validation.
 
 - Python (via the OpenPBL same-origin Pyodide runtime)
 - JavaScript (native browser execution)
-- TypeScript (via Babel CDN transpilation)
+- TypeScript only when a same-origin compiler is explicitly available; never
+  invent or fetch a compiler from a public CDN
 
 ## Widget Config Schema
 
@@ -44,8 +45,28 @@ may not have reliable public-internet access.
 Always initialize with the matching same-origin package base:
 
 ```javascript
-await loadPyodide({ indexURL: '/api/openmaic/interactive-runtime/pyodide/' });
+await loadPyodide({
+    indexURL: new URL(
+        '/api/openmaic/interactive-runtime/pyodide/',
+        document.baseURI
+    ).href
+});
 ```
+
+The Pyodide loader tag must be a classic, parser-blocking script placed before
+every script that calls `loadPyodide`. Never add `async`, `defer`, or
+`type="module"` to that loader tag. Before initialization, check
+`typeof loadPyodide === 'function'`; if the check fails, show a retryable runtime
+error instead of leaving the page in a permanent loading state.
+
+For JavaScript, use the browser runtime and do not load an execution engine.
+Do not use `eval()` or `new Function()` because production CSP blocks string
+evaluation. Run learner JavaScript as the source of a sandboxed Blob Worker and
+terminate the worker on timeout. Do not fetch Babel, TypeScript, Java, C++, or
+any other compiler/runtime from a public CDN. If the requested language has no
+available runtime, provide a trace-and-predict interaction that stays usable and
+clearly says execution is unavailable; never render an endless loader or a
+broken Run button.
 
 ### 1. Proper Stdout Capture Setup
 
@@ -73,7 +94,11 @@ pyodide.runPython('import sys; sys.stdout = io.StringIO()');
 
 ### 3. Load Required Packages Before Execution
 
-If user code needs packages like numpy, load them during initialization:
+The Python standard library is already included. Do not load `numpy`,
+`micropip`, or any other package unless the supplied learning objective and
+starter code genuinely import it. Unnecessary packages add network, startup,
+and failure risk. If user code really needs a packaged dependency such as
+`numpy`, load it during initialization before enabling Run:
 ```javascript
 await pyodide.loadPackage(['numpy']);
 ```
@@ -109,10 +134,12 @@ let pyodide = null;
 
 async function initPyodide() {
     pyodide = await loadPyodide({
-        indexURL: '/api/openmaic/interactive-runtime/pyodide/'
+        indexURL: new URL(
+            '/api/openmaic/interactive-runtime/pyodide/',
+            document.baseURI
+        ).href
     });
-    // Load any packages user code might need
-    await pyodide.loadPackage(['numpy']);
+    // Do not load third-party packages unless this activity actually imports one.
     document.getElementById('run-btn').disabled = false;
     document.getElementById('status').textContent = 'Python ready';
 }
@@ -177,3 +204,6 @@ Return ONLY the HTML document, no markdown fences or explanations.
 - [ ] **Pyodide uses async execution** - `runPythonAsync()` not `runPython()`
 - [ ] **`micropip` is loaded before it is imported**
 - [ ] **All executable runtime assets use `/api/openmaic/interactive-runtime/`**
+- [ ] **No `async`, `defer`, or `type="module"` on the Pyodide loader**
+- [ ] **No public-CDN compiler/runtime and no `eval()` / `new Function()`**
+- [ ] **Every runtime failure exits loading state and offers Retry**

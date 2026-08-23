@@ -21,6 +21,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CourseDesignGenerationArtifact } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
+import { userFacingStageLabel } from "@/lib/user-facing-labels";
 
 const ICONS: Record<CourseDesignGenerationArtifact["kind"], typeof Sparkles> = {
   facts: BookOpenCheck,
@@ -645,7 +646,7 @@ function OutlinePreview({ artifact }: { artifact: CourseDesignGenerationArtifact
     <div className="divide-y divide-[var(--pbl-border)] border-y border-[var(--pbl-border)]">
       {groups.map(([stage, items], groupIndex) => (
         <section className="grid gap-2 py-3 sm:grid-cols-[104px_1fr]" key={stage}>
-          <div className="flex items-start justify-between gap-2 sm:block"><p className="text-[10px] font-semibold text-[var(--pbl-teacher)]">{STAGE_LABELS[stage] ?? stage}</p><span className="mt-1 text-[8px] text-[var(--pbl-text-subtle)]">{items.length} 项资源</span></div>
+          <div className="flex items-start justify-between gap-2 sm:block"><p className="text-[10px] font-semibold text-[var(--pbl-teacher)]">{STAGE_LABELS[stage] ?? userFacingStageLabel(stage)}</p><span className="mt-1 text-[8px] text-[var(--pbl-text-subtle)]">{items.length} 项资源</span></div>
           <div className="divide-y divide-[var(--pbl-border-soft)] border-l border-[var(--pbl-teacher-border)] pl-3">
             {items.map((item, index) => (
               <motion.div className="relative grid grid-cols-[1fr_auto] items-center gap-3 py-2" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min((groupIndex + index) * .04, .32) }} key={`${item.value}-${index}`}>

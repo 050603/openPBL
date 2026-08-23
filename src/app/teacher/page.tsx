@@ -98,7 +98,7 @@ export default function TeacherHomePage() {
       userName={session.user.name}
       variant="bare"
     >
-      <div className="mx-auto max-w-[1280px] px-4 pb-12 pt-6 md:px-6">
+      <div className="pbl-dashboard-container px-4 pb-12 pt-6 md:px-6">
         {/* ===== Hero 区 ===== */}
         <section className="pbl-aurora-light relative mb-6 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
           <div className="pbl-aurora" />
@@ -114,7 +114,7 @@ export default function TeacherHomePage() {
                 </span>
                 Teacher Workspace · 教师工作台
               </div>
-              <h1 className="mt-4 text-[clamp(28px,3.6vw,40px)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
+              <h1 className="mt-4 text-[length:clamp(1.75rem,3.6vw,2.5rem)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
                 欢迎回来，<span className="pbl-display-gradient">{session.user.name}</span>
               </h1>
 
@@ -231,7 +231,7 @@ export default function TeacherHomePage() {
           {!hydrated ? (
             <PageState description="正在读取课程档案。" title="加载课程" />
           ) : courses.length ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {courses.map((course) => (
                 <CourseCard course={course} key={course.id} />
               ))}

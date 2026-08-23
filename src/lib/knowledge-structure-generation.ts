@@ -10,6 +10,8 @@ import {
   assessKnowledgeGraphQuality,
   knowledgeStructureSignature,
 } from "@/lib/knowledge-graph-quality";
+import { deriveCourseEntryPolicy, formatCourseEntryPolicy } from "@/lib/course-entry-policy";
+import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 
 type ModelCall = typeof callLLM;
 
@@ -27,6 +29,14 @@ export function buildKnowledgeStructureAuditMessages(
   knowledgePoints: CourseContent["knowledgePoints"],
   knowledgeGraph: KnowledgeGraph,
 ) {
+  const entryPolicy = deriveCourseEntryPolicy({
+    hours: input.hours,
+    grade: input.grade,
+    lessonTargetCount: knowledgePoints.length,
+    foundationTargetCount: knowledgePoints.filter((point) => point.level === "foundation").length,
+    acceptedPrerequisiteCount: 0,
+    courseMode: input.pblConfig?.generationTemplate,
+  });
   return [
     {
       role: "system" as const,
@@ -37,7 +47,7 @@ export function buildKnowledgeStructureAuditMessages(
 3. 必要性：required-prerequisite + required 必须表示“缺失将直接听不懂或无法完成目标”，仅降低难度或帮助理解只能是 supports + helpful。
 4. 递进对应：required-prerequisite 只能从 prerequisite 节点指向 lesson 节点；本课目标之间的支撑、应用、对比或迁移必须使用对应关系类型，方向正确、无伪因果。
 5. 对高中自然语言处理，应实质核对人工智能三大基石、机器学习与数据特征—算法选择、训练/验证/测试集、监督学习过程、神经网络结构及应用等前序课程衔接；对计算机视觉若主课直接使用分类器、特征提取、训练或模型评价，也应实质核对人工智能、图像数据与数据集/标注、机器学习、监督学习和数据集划分、特征与算法选择。只接受与当前输入和目标确有必需关系的能力，不得机械凑齐。
-6. 每门课必须至少保留 1 项真实先修，推荐 2-4 项、最多 5 项；零先修不得通过。“领域入门”“通识课”“启蒙课”“无需编程”和空画像都不是例外。数量不足时应沿目标的知识阶梯继续回溯，但不得用常识题、低龄题、术语记忆或本课预习内容凑数。
+6. 入口规模不得使用全局固定数量，必须遵循当前课程动态策略：${formatCourseEntryPolicy(entryPolicy)} 数量不足时沿目标的知识阶梯继续回溯，数量过多时只保留会直接阻断目标的真实先修；不得用常识题、低龄题、术语记忆或本课预习内容凑数。
 只返回 JSON：{
   "status": "passed|failed",
   "summary": "string",
@@ -74,6 +84,14 @@ export function buildKnowledgeStructureRepairMessages(
   knowledgeGraph: KnowledgeGraph,
   review: KnowledgeStructureSemanticReview,
 ) {
+  const entryPolicy = deriveCourseEntryPolicy({
+    hours: input.hours,
+    grade: input.grade,
+    lessonTargetCount: knowledgePoints.length,
+    foundationTargetCount: knowledgePoints.filter((point) => point.level === "foundation").length,
+    acceptedPrerequisiteCount: 0,
+    courseMode: input.pblConfig?.generationTemplate,
+  });
   return [
     {
       role: "system" as const,
@@ -83,7 +101,7 @@ export function buildKnowledgeStructureRepairMessages(
 2. 优先保留已通过审校的节点、关系和稳定 ID，只修改 reject 项及其必要的关联项。
 3. 若 required-prerequisite 的必要性不足，应按审校意见降级为 supports/helpful；若降级后某先修节点不再具有任何真实的必需先修路径，应删除或用有充分依据的真实先修替换，不能为满足数量机械凑数。
 4. 若目标、先修节点或关系被拒绝，应直接增加、删除或重写对应数据，并同步修正相关边。
-5. 修订后仍须满足完整性、方向、无环、至少一项真实课前先修以及课程目标覆盖要求。
+5. 修订后仍须满足完整性、方向、无环、课程目标覆盖及动态入口策略：${formatCourseEntryPolicy(entryPolicy)}
 只返回 JSON：{ "knowledgePoints": [...], "knowledgeGraph": { "nodes": [...], "edges": [...] } }。`,
     },
     {
@@ -215,7 +233,7 @@ export async function generateReviewedKnowledgeStructure(
         jsonMode: true,
         abortSignal: options.abortSignal,
         requestClass: "standard",
-        maxTransientRetries: 1,
+        maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
       },
     );
     const repaired = parseLLMJson<Record<string, unknown>>(repairedRaw);
@@ -249,7 +267,7 @@ export async function generateReviewedKnowledgeStructure(
       jsonMode: true,
       abortSignal: options.abortSignal,
       requestClass: "standard",
-      maxTransientRetries: 1,
+      maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
     });
     const repaired = parseLLMJson<Record<string, unknown>>(repairedRaw);
     return normalizeKnowledgeGraphOutput(
@@ -291,7 +309,7 @@ export async function generateReviewedKnowledgeStructure(
         // This produces the complete graph, not merely a verdict. Deep
         // reasoning models need the long structured-generation budget.
         requestClass: "long-generation",
-        maxTransientRetries: 1,
+        maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
       });
       const parsed = parseLLMJson<Record<string, unknown>>(raw);
       try {
@@ -307,11 +325,23 @@ export async function generateReviewedKnowledgeStructure(
         continue;
       }
     }
+    const entryPolicy = deriveCourseEntryPolicy({
+      hours: input.hours,
+      grade: input.grade,
+      lessonTargetCount: normalized.knowledgePoints.length,
+      foundationTargetCount: normalized.knowledgePoints.filter((point) => point.level === "foundation").length,
+      acceptedPrerequisiteCount: 0,
+      courseMode: input.pblConfig?.generationTemplate,
+    });
     const structural = assessKnowledgeGraphQuality(
       normalized.knowledgeGraph,
       normalized.knowledgePoints,
       context.teacherRequiredKnowledgePoints,
-      { objectiveCount: input.learningObjectives?.length ?? 0, minimumPrerequisites: 1 },
+      {
+        objectiveCount: input.learningObjectives?.length ?? 0,
+        minimumPrerequisites: entryPolicy.minimumPrerequisites,
+        maximumPrerequisites: entryPolicy.maximumPrerequisites,
+      },
     );
     if (!structural.ok) {
       latestIssues = structural.issues;
@@ -350,7 +380,7 @@ export async function generateReviewedKnowledgeStructure(
         jsonMode: true,
         abortSignal: options.abortSignal,
         requestClass: "quality-review",
-        maxTransientRetries: 1,
+        maxTransientRetries: DURABLE_GENERATION_TRANSIENT_RETRIES,
       },
     );
     const review = parseReview(rawReview, normalized.knowledgePoints, normalized.knowledgeGraph);

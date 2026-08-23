@@ -39,6 +39,8 @@ export type PblOutcomeSpec = {
   reflection: string;
 };
 
+export type ResourceInquiryMode = "llm" | "web-search";
+
 export type PblCourseConfig = {
   /** The new classroom mode intentionally has no real student group. */
   projectMode: "personal";
@@ -49,6 +51,8 @@ export type PblCourseConfig = {
   evidenceRequirements: PblEvidenceRequirement[];
   outcome: PblOutcomeSpec;
   companionIds: PblCompanionId[];
+  /** Controls how the student resource corner answers newly entered questions. */
+  resourceInquiryMode: ResourceInquiryMode;
   /** Teacher-authored open PBL questions students can choose as their project focus. */
   inquiryQuestions: string[];
   evaluationModel: "tri-party";
@@ -121,6 +125,7 @@ export const DEFAULT_PBL_COURSE_CONFIG: PblCourseConfig = {
   evidenceRequirements: DEFAULT_PBL_EVIDENCE_REQUIREMENTS.filter((item) => item.required),
   outcome: DEFAULT_PBL_OUTCOME,
   companionIds: PBL_COMPANION_ORDER,
+  resourceInquiryMode: "llm",
   inquiryQuestions: [],
   evaluationModel: "tri-party",
   generationTemplate: "pbl-six-stage",
@@ -200,6 +205,7 @@ export function normalizePblCourseConfig(
           : DEFAULT_PBL_OUTCOME.reflection,
     },
     companionIds,
+    resourceInquiryMode: input?.resourceInquiryMode === "web-search" ? "web-search" : "llm",
     inquiryQuestions,
     evaluationModel: "tri-party",
     generationTemplate: "pbl-six-stage",

@@ -16,7 +16,7 @@
 #   - redis:        127.0.0.1:16379
 #
 # 其他差异:
-#   - PUBLIC_BASE_URL 为 http://172.16.185.157(原为 https://${PUBLIC_HOST})
+#   - PUBLIC_BASE_URL 根据 deploy/.deploy.env 的 PUBLIC_HOST 生成 HTTP 地址
 #   - Nginx 使用 HTTP 模板(原模板强制 HTTPS + Let's Encrypt 证书)
 #   - postgres 使用官方镜像并关闭 WAL 归档(未启用 S3 备份 profile,
 #     归档命令持续失败会导致 pg_wal 无限堆积)
@@ -24,16 +24,22 @@ services:
   app-blue:
     network_mode: host
     environment:
-      PUBLIC_BASE_URL: http://172.16.185.157
+      PUBLIC_BASE_URL: http://${PUBLIC_HOST:?Set PUBLIC_HOST to the server IP or hostname}
       REDIS_URL: redis://127.0.0.1:16379
       HOSTNAME: 127.0.0.1
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1}
 
   app-green:
     network_mode: host
     environment:
-      PUBLIC_BASE_URL: http://172.16.185.157
+      PUBLIC_BASE_URL: http://${PUBLIC_HOST:?Set PUBLIC_HOST to the server IP or hostname}
       REDIS_URL: redis://127.0.0.1:16379
       HOSTNAME: 127.0.0.1
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1}
 
   nginx:
     network_mode: host

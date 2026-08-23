@@ -3,6 +3,8 @@
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { copyTextToClipboard } from "@/lib/browser/copy-text";
+import { normalizeInviteCode } from "@/lib/session/invite-code";
 
 export function InviteCodeCard({
   code,
@@ -17,34 +19,16 @@ export function InviteCodeCard({
   hint?: string;
   size?: "lg" | "md";
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
-  function copy() {
-    if (typeof navigator === "undefined" || !navigator.clipboard) {
-      // Fallback: select + execCommand
-      try {
-        const el = document.createElement("textarea");
-        el.value = code;
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand("copy");
-        document.body.removeChild(el);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      } catch {
-        // ignore
-      }
-      return;
+  async function copy() {
+    try {
+      await copyTextToClipboard(normalizeInviteCode(code));
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
     }
-    navigator.clipboard.writeText(code).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      },
-      () => {
-        // ignore
-      },
-    );
+    setTimeout(() => setCopyState("idle"), 1800);
   }
 
   return (
@@ -69,8 +53,8 @@ export function InviteCodeCard({
           onClick={copy}
           type="button"
         >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-          {copied ? "已复制" : "复制邀请码"}
+          {copyState === "copied" ? <Check size={16} /> : <Copy size={16} />}
+          {copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : "复制邀请码"}
         </button>
         {onRefresh ? (
           <button

@@ -96,10 +96,25 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
   if (stage.key === "make") {
     const readiness = course.students.map((student) =>
       deriveStageReadiness(course, student.id, stage.key));
-    const incomplete = readiness
-      .filter((item) => item.status !== "ready")
-      .map((item) => item.studentId);
-    if (incomplete.length) blockers.push({ code: "iteration-evidence", message: `${incomplete.length} 名学生尚未提交作品`, targetIds: incomplete });
+    const incompleteReadiness = readiness.filter((item) => item.status !== "ready");
+    const incomplete = incompleteReadiness.map((item) => item.studentId);
+    if (incomplete.length) {
+      const missingArtifact = incompleteReadiness.filter((item) =>
+        item.checks.some((check) => check.id === "make-artifact-version" && !check.satisfied)
+      ).length;
+      const missingProcessDraft = incompleteReadiness.filter((item) =>
+        item.checks.some((check) => check.id === "make-process-draft" && !check.satisfied)
+      ).length;
+      const details = [
+        ...(missingArtifact ? [`${missingArtifact} 名尚未提交可查看作品`] : []),
+        ...(missingProcessDraft ? [`${missingProcessDraft} 名尚未保存作品制作进展`] : []),
+      ];
+      blockers.push({
+        code: "iteration-evidence",
+        message: details.join("；") || `${incomplete.length} 名学生的制作证据尚未完成`,
+        targetIds: incomplete,
+      });
+    }
     const highRisk = (course.teacherInterventions ?? []).filter((item) => item.stageKey === "make" && item.severity === "high" && item.status === "open");
     if (highRisk.length) blockers.push({ code: "high-risk", message: `${highRisk.length} 个高风险问题尚未处理`, targetIds: highRisk.flatMap((item) => item.targetIds) });
     if (!incomplete.length && !highRisk.length && readiness.length) completed.push("所有学生均已提交作品");
@@ -158,7 +173,7 @@ export function detectInterventionSignals(course: Course): InterventionSignal[] 
     const population = Math.max(course.students.length, progress.length);
     if (population < 2) return;
     const required = Math.min(population, Math.max(2, Math.ceil(population * 0.3)));
-    if (studentIds.length >= required) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在知识点“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${course.students.find((student) => student.id === id)?.name ?? id}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high", stageKey: "ai-learning", contentLocation: `知识点：${goal}` });
+    if (studentIds.length >= required) signals.push({ id: `misconception:${goal}`, kind: "shared-misconception", title: "共性知识目标持续未达成", whatHappened: `${studentIds.length} 名学生在知识点“${goal}”上仍未达标`, evidence: studentIds.map((id) => `${course.students.find((student) => student.id === id)?.name ?? "未识别学生"}：目标未达成`), targetType: "student", targetIds: studentIds, suggestedAction: "向全班补充一个对比案例，并要求学生重新解释判断依据", confidence: "high", stageKey: "ai-learning", contentLocation: `知识点：${goal}` });
   });
 
   // Runtime telemetry may trigger timely support, but never contributes to

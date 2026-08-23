@@ -14,6 +14,7 @@ import type {
   StudentAdaptiveLearningState,
   StudentAiProgress,
 } from "@/lib/session/types";
+import { requireSameOrigin } from "@/lib/auth/request-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,6 +99,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const csrfError = requireSameOrigin(request);
+  if (csrfError) return csrfError;
   const body = await request.json().catch(() => null) as StateAction | null;
   if (!body?.courseId || !body.studentId || !body.action) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
@@ -212,7 +215,7 @@ export async function POST(request: Request) {
         },
       },
     };
-  });
+  }, { targetStudentId: body.studentId });
 
   if (!nextState) {
     return Response.json({ error: "ADAPTIVE_PLAN_NOT_READY" }, { status: 409 });
