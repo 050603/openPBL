@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   COURSE_EVENT_POLL_INTERVAL_MS,
+  courseRefreshDelay,
+  isClassroomControlEvent,
+  isRealtimePollingActive,
   latestEventCursor,
 } from "./sync-policy";
 
@@ -10,6 +13,27 @@ describe("realtime synchronization policy", () => {
     expect(COURSE_EVENT_POLL_INTERVAL_MS.websocket).toBeGreaterThanOrEqual(
       COURSE_EVENT_POLL_INTERVAL_MS.polling,
     );
+  });
+
+  it("spreads course-wide refreshes across a bounded jitter window", () => {
+    expect(courseRefreshDelay(0)).toBe(250);
+    expect(courseRefreshDelay(1)).toBe(1_500);
+    expect(courseRefreshDelay(-1)).toBe(250);
+    expect(courseRefreshDelay(2)).toBe(1_500);
+  });
+
+  it("refreshes classroom control events with low latency", () => {
+    expect(courseRefreshDelay(0, "classroom-control")).toBe(50);
+    expect(courseRefreshDelay(1, "classroom-control")).toBe(250);
+    expect(isClassroomControlEvent("stage-changed", undefined)).toBe(true);
+    expect(isClassroomControlEvent("course-updated", "SET_UI_STATE")).toBe(true);
+    expect(isClassroomControlEvent("course-updated", "UPSERT_SUBMISSION")).toBe(false);
+  });
+
+  it("pauses background polling for hidden tabs", () => {
+    expect(isRealtimePollingActive("visible")).toBe(true);
+    expect(isRealtimePollingActive("hidden")).toBe(false);
+    expect(isRealtimePollingActive(undefined)).toBe(true);
   });
 
   it("never moves a course event cursor backwards", () => {

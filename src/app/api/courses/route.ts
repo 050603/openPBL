@@ -1,6 +1,6 @@
 import { authenticateRequest } from "@/lib/auth/request-guards";
 import { scopeCourseForClaims } from "@/lib/auth/course-scope";
-import { readSessionState } from "@/lib/session/server-store";
+import { getCourse, readSessionState } from "@/lib/session/server-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,9 +9,9 @@ export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
   if ("response" in auth) return auth.response;
   try {
-    const state = await readSessionState();
     if (auth.claims.role === "teacher") {
-      return Response.json({
+      const state = await readSessionState();
+      return noStoreJson({
         ...state,
         user: { role: "teacher", name: auth.claims.displayName },
         joinedCourseId: undefined,
@@ -19,15 +19,20 @@ export async function GET(request: Request) {
         studentName: undefined,
       });
     }
-    return Response.json({
-      ...state,
-      courses: state.courses
-        .filter((course) => course.id === auth.claims.courseId)
-        .map((course) => scopeCourseForClaims(course, auth.claims)),
+
+    // A student token is already bound to exactly one course. Loading the
+    // complete cross-course session and filtering afterwards makes every
+    // student request grow with the total number of teachers and courses.
+    // Read only the signed-in course so concurrent classrooms stay isolated.
+    const course = await getCourse(auth.claims.courseId);
+    return noStoreJson({
+      courses: course ? [scopeCourseForClaims(course, auth.claims)] : [],
       user: { role: "student", name: auth.claims.studentName },
       joinedCourseId: auth.claims.courseId,
       studentId: auth.claims.studentId,
       studentName: auth.claims.studentName,
+      hydrated: true,
+      updatedAt: course?.updatedAt ?? new Date(0).toISOString(),
     });
   } catch (error) {
     console.error("[courses] unable to load course list", {
@@ -42,4 +47,10 @@ export async function GET(request: Request) {
       { status: 503 },
     );
   }
+}
+
+function noStoreJson(value: unknown): Response {
+  return Response.json(value, {
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }

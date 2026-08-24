@@ -16,7 +16,10 @@ upstream openpbl_tldraw {
     keepalive 32;
 }
 
-limit_req_zone $binary_remote_addr zone=general:10m rate=30r/s;
+# A whole classroom commonly shares one campus NAT address. Application-level
+# limits key authenticated writes by user and course; this edge limit is only
+# a broad abuse ceiling and must leave room for normal class-wide bursts.
+limit_req_zone $binary_remote_addr zone=general:10m rate=120r/s;
 limit_req_zone $binary_remote_addr zone=uploads:10m rate=10r/s;
 limit_conn_zone $binary_remote_addr zone=per_ip:10m;
 
@@ -108,12 +111,12 @@ server {
     }
 
     location ~ ^/api/courses/[^/]+/actions$ {
-        limit_req zone=general burst=60 nodelay;
+        limit_req zone=general burst=240 nodelay;
         proxy_pass http://openpbl_app;
     }
 
     location ~* ^/api/(.*/stream|openmaic/chat|chat/.*)$ {
-        limit_req zone=general burst=60 nodelay;
+        limit_req zone=general burst=240 nodelay;
         proxy_pass http://openpbl_app;
         proxy_buffering off;
         proxy_cache off;
@@ -142,7 +145,7 @@ server {
     }
 
     location / {
-        limit_req zone=general burst=60 nodelay;
+        limit_req zone=general burst=240 nodelay;
         proxy_pass http://openpbl_app;
         proxy_read_timeout 60s;
     }

@@ -72,6 +72,10 @@ import {
 import {
   COURSE_EVENT_POLL_INTERVAL_MS,
   COURSE_SYNC_FAILURE_NOTICE_THRESHOLD,
+  SESSION_REFRESH_INTERVAL_MS,
+  courseRefreshDelay,
+  isClassroomControlEvent,
+  isRealtimePollingActive,
   latestEventCursor,
   type RealtimeTransportMode,
 } from "@/lib/realtime/sync-policy";
@@ -634,7 +638,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!courseId) return;
 
     const poll = async () => {
-      if (coursePollInFlightRef.current || pendingCommitsRef.current > 0) return;
+      if (
+        !isRealtimePollingActive(document.visibilityState)
+        || coursePollInFlightRef.current
+        || pendingCommitsRef.current > 0
+      ) return;
       coursePollInFlightRef.current = true;
       try {
         // Seed the durable cursor from the current course snapshot. Afterwards
@@ -712,7 +720,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return true;
   }
 
-  function scheduleCourseRefresh(courseId: string, cursor?: string) {
+  function scheduleCourseRefresh(
+    courseId: string,
+    cursor?: string,
+    priority: "classroom-control" | "standard" = "standard",
+  ) {
     if (courseRefreshTimerRef.current !== null) {
       window.clearTimeout(courseRefreshTimerRef.current);
     }
@@ -723,7 +735,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (refreshed) recordCourseSyncSuccess();
         })
         .catch(recordCourseSyncFailure);
-    }, 100 + Math.floor(Math.random() * 250));
+    }, courseRefreshDelay(Math.random(), priority));
   }
 
   async function catchUpCourseEvents(courseId: string) {
@@ -851,10 +863,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(data) as {
             type?: string;
             courseId?: string;
-            event?: { payload?: { eventCursor?: string } };
+            event?: {
+              type?: string;
+              payload?: { eventCursor?: string; actionType?: string };
+            };
           };
           if (parsed.type === "course-event" && parsed.courseId === courseId) {
-            scheduleCourseRefresh(courseId, parsed.event?.payload?.eventCursor);
+            scheduleCourseRefresh(
+              courseId,
+              parsed.event?.payload?.eventCursor,
+              isClassroomControlEvent(
+                parsed.event?.type,
+                parsed.event?.payload?.actionType,
+              )
+                ? "classroom-control"
+                : "standard",
+            );
           }
         }
       } catch {
@@ -885,8 +909,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const mode = getSessionRouteMode(pathname);
+    const role = pathname.startsWith("/teacher") ? "teacher" : "student";
     let cancelled = false;
+    let refreshEnabled = false;
     let intervalId: number | undefined;
+
+    const refreshWhenVisible = () => {
+      if (
+        refreshEnabled
+        && !cancelled
+        && document.visibilityState === "visible"
+        && pollingRef.current
+        && !wsCourseIdRef.current
+      ) {
+        void refresh(role);
+      }
+    };
 
     async function startSessionRefresh() {
       if (mode === "none") {
@@ -896,7 +934,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const role = pathname.startsWith("/teacher") ? "teacher" : "student";
       if (mode === "optional" && !(await hasAuthenticatedSession(role))) {
         if (!cancelled && !stateRef.current.hydrated) {
           dispatch({ type: "HYDRATE", payload: makeEmptyHydratedState() });
@@ -905,6 +942,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       if (cancelled) return;
 
+      refreshEnabled = true;
       await refresh(role);
       if (cancelled) return;
 
@@ -913,13 +951,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       intervalId = window.setInterval(() => {
         // Classroom views already reconcile a lightweight per-course event
         // cursor. Avoid downloading the full cross-course session as well.
-        if (pollingRef.current && !wsCourseIdRef.current) void refresh(role);
-      }, 5000);
+        if (
+          isRealtimePollingActive(document.visibilityState)
+          && pollingRef.current
+          && !wsCourseIdRef.current
+        ) void refresh(role);
+      }, SESSION_REFRESH_INTERVAL_MS);
     }
 
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     void startSessionRefresh();
     return () => {
       cancelled = true;
+      refreshEnabled = false;
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
       if (intervalId !== undefined) window.clearInterval(intervalId);
     };
     // refresh reads mutable state through refs. Pathname is the intended

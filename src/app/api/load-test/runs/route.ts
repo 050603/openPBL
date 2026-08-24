@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 const CreateRunSchema = z.object({
   runId: z.string().uuid(),
   studentCount: z.number().int().min(1).max(150),
+  teacherCount: z.number().int().min(1).max(10).default(1),
 }).strict();
 
 export async function POST(request: Request) {
@@ -34,22 +35,32 @@ export async function POST(request: Request) {
   }
 
   const suffix = parsed.data.runId.replaceAll("-", "");
-  const teacherId = randomUUID();
   const courseId = randomUUID();
-  const teacherUsername = `load_${suffix.slice(0, 20)}`;
-  const teacherPassword = randomBytes(24).toString("base64url");
+  const teacherUsernamePrefix = `load_${suffix.slice(0, 20)}`;
   const inviteCode = `K6${suffix.slice(0, 8).toUpperCase()}`;
-  const passwordHash = await hashPassword(teacherPassword);
+  const teachers = await Promise.all(
+    Array.from({ length: parsed.data.teacherCount }, async (_, index) => {
+      const password = randomBytes(24).toString("base64url");
+      return {
+        id: randomUUID(),
+        username: `${teacherUsernamePrefix}_${String(index + 1).padStart(2, "0")}`,
+        displayName: `k6-${suffix.slice(0, 8)}-teacher-${index + 1}`,
+        password,
+        passwordHash: await hashPassword(password),
+      };
+    }),
+  );
+  const primaryTeacher = teachers[0]!;
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1_000);
 
   await prisma.$transaction(async (tx) => {
-    await tx.teacher.create({
-      data: {
-        id: teacherId,
-        username: teacherUsername,
-        displayName: `k6-${suffix.slice(0, 8)}`,
-        passwordHash,
-      },
+    await tx.teacher.createMany({
+      data: teachers.map((teacher) => ({
+        id: teacher.id,
+        username: teacher.username,
+        displayName: teacher.displayName,
+        passwordHash: teacher.passwordHash,
+      })),
     });
     await tx.course.create({
       data: {
@@ -73,7 +84,10 @@ export async function POST(request: Request) {
     await tx.loadTestRun.create({
       data: {
         runId: parsed.data.runId,
-        teacherId,
+        // The existing ownership marker remains the primary principal. All
+        // additional teachers use the run-specific username prefix and are
+        // deleted as one isolated set during teardown.
+        teacherId: primaryTeacher.id,
         courseId,
         studentCount: parsed.data.studentCount,
         expiresAt,
@@ -84,7 +98,14 @@ export async function POST(request: Request) {
   return Response.json(
     {
       runId: parsed.data.runId,
-      teacher: { username: teacherUsername, password: teacherPassword },
+      teacher: {
+        username: primaryTeacher.username,
+        password: primaryTeacher.password,
+      },
+      teachers: teachers.map((teacher) => ({
+        username: teacher.username,
+        password: teacher.password,
+      })),
       course: { id: courseId, inviteCode, version: 1 },
       students: Array.from({ length: parsed.data.studentCount }, (_, index) => ({
         name: `k6-${suffix.slice(0, 8)}-student-${String(index + 1).padStart(3, "0")}`,

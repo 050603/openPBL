@@ -98,7 +98,11 @@ export function setup() {
   const runId = uuid();
   const response = http.post(
     `${BASE_URL}/api/load-test/runs`,
-    JSON.stringify({ runId, studentCount: profile.students }),
+    JSON.stringify({
+      runId,
+      studentCount: profile.students,
+      teacherCount: profile.teachers,
+    }),
     {
       headers: adminHeaders(),
       tags: { name: "load-test setup", kind: "admin" },
@@ -212,10 +216,12 @@ export function studentFlow(fixture) {
 }
 
 export function teacherFlow(fixture) {
+  const teachers = fixture.teachers?.length ? fixture.teachers : [fixture.teacher];
+  const teacher = teachers[(exec.vu.idInTest - 1) % teachers.length];
   if (!teacherLoggedIn) {
     const response = http.post(
       `${BASE_URL}/api/auth/login`,
-      JSON.stringify(fixture.teacher),
+      JSON.stringify(teacher),
       requestParams("teacher login", "auth"),
     );
     check(response, { "teacher login accepted": (r) => r.status === 200 });

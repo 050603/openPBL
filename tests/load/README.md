@@ -18,10 +18,13 @@ Commands:
 - `docker compose -f tests/load/docker-compose.yml run --rm stress`
 - `docker compose -f tests/load/docker-compose.yml run --rm soak`
 
-Each run creates a UUID-owned teacher and course, joins isolated students,
-tests login/state/presence/submission/teacher writes/upload/WebSocket replay,
+Each run creates one isolated teacher account per configured teacher VU plus a
+UUID-owned course, joins isolated students, and exercises distinct teacher
+sessions concurrently against that classroom. It tests
+login/state/presence/submission/teacher writes/upload/WebSocket replay,
 checks duplicate request acknowledgements and event ordering, then deletes
-only that run's records. Reports are written under `tests/load/reports/`.
+only that run's course, students, uploads, and run-prefixed teacher accounts.
+Reports are written under `tests/load/reports/`.
 
 To stream k6 metrics to a Prometheus remote-write endpoint, add
 `-o experimental-prometheus-rw` to the k6 command and provide the standard

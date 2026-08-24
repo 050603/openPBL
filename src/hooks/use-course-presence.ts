@@ -7,8 +7,11 @@ import {
   type PresenceMember,
   type PresenceSnapshot,
 } from "@/lib/presence";
+import {
+  PRESENCE_SNAPSHOT_INTERVAL_MS,
+  shouldReadPresence,
+} from "@/lib/realtime/presence-policy";
 
-const SNAPSHOT_INTERVAL_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 20_000;
 type CoursePresenceSnapshot = PresenceSnapshot & { courseId?: string };
 const EMPTY_MEMBERS: PresenceMember[] = [];
@@ -78,17 +81,23 @@ export function useCoursePresence({
 
     const controller = new AbortController();
     const updateSnapshot = () => {
+      if (!shouldReadPresence(document.visibilityState)) return;
       void refresh(controller.signal).catch((error) => {
         if (!controller.signal.aborted) recordFailure("read", error);
       });
     };
     updateSnapshot();
-    const intervalId = window.setInterval(updateSnapshot, SNAPSHOT_INTERVAL_MS);
+    document.addEventListener("visibilitychange", updateSnapshot);
+    const intervalId = window.setInterval(
+      updateSnapshot,
+      PRESENCE_SNAPSHOT_INTERVAL_MS[role],
+    );
     return () => {
       controller.abort();
+      document.removeEventListener("visibilitychange", updateSnapshot);
       window.clearInterval(intervalId);
     };
-  }, [courseId, enabled, recordFailure, refresh]);
+  }, [courseId, enabled, recordFailure, refresh, role]);
 
   useEffect(() => {
     if (!courseId || !enabled || !heartbeat || role !== "student") return;
@@ -99,14 +108,9 @@ export function useCoursePresence({
         headers: { "X-OpenPBL-Role": "student" },
         keepalive: true,
       })
-        .then(async (response) => {
+        .then((response) => {
           if (!response.ok) throw new Error(`Presence heartbeat failed: ${response.status}`);
           recordSuccess("heartbeat");
-          try {
-            await refresh();
-          } catch (error) {
-            recordFailure("read", error);
-          }
         })
         .catch((error) => recordFailure("heartbeat", error));
     };
@@ -114,7 +118,7 @@ export function useCoursePresence({
     sendHeartbeat();
     const intervalId = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
-  }, [courseId, enabled, heartbeat, recordFailure, recordSuccess, refresh, role]);
+  }, [courseId, enabled, heartbeat, recordFailure, recordSuccess, role]);
 
   const visibleMembers = enabled && snapshot.courseId === courseId
     ? snapshot.members

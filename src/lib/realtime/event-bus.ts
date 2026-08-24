@@ -30,7 +30,9 @@ const instanceId = randomUUID();
 const subscribersByCourse = new Map<string, Set<RealtimeEventHandler>>();
 interface ManagedRedisClient {
   isOpen: boolean;
+  isReady?: boolean;
   quit(): Promise<string>;
+  destroy(): void;
 }
 
 interface PublishingRedisClient extends ManagedRedisClient {
@@ -62,36 +64,63 @@ function dispatchLocal(event: RealtimeEvent): void {
 }
 
 export async function initializeEventBus(): Promise<void> {
+  if (publisher?.isReady) return;
   if (initialization) return initialization;
   const url = process.env.REDIS_URL?.trim();
   if (!url) return;
 
-  initialization = (async () => {
+  const attempt = (async () => {
     lastInitializationAttemptAt = Date.now();
-    const pub = createClient({ url });
+    const staleClients = [publisher, subscriber].filter(
+      (candidate): candidate is ManagedRedisClient => Boolean(candidate),
+    );
+    publisher = null;
+    subscriber = null;
+    for (const stale of staleClients) {
+      if (stale.isOpen) stale.destroy();
+    }
+
+    // Fail the initial attempt within a bound so server startup is not held
+    // hostage by Redis. A later publish retries after the throttle window.
+    const pub = createClient({
+      url,
+      disableOfflineQueue: true,
+      socket: { connectTimeout: 2_000, reconnectStrategy: false },
+    });
     const sub = pub.duplicate();
     pub.on("error", (error) => console.error("[event-bus] Redis publisher error:", error));
     sub.on("error", (error) => console.error("[event-bus] Redis subscriber error:", error));
-    await Promise.all([pub.connect(), sub.connect()]);
-    await sub.subscribe(CHANNEL, (message) => {
-      try {
-        const envelope = JSON.parse(message) as RedisEnvelope;
-        if (envelope.origin !== instanceId && envelope.event?.courseId) {
-          dispatchLocal(envelope.event);
+    try {
+      await Promise.all([pub.connect(), sub.connect()]);
+      await sub.subscribe(CHANNEL, (message) => {
+        try {
+          const envelope = JSON.parse(message) as RedisEnvelope;
+          if (envelope.origin !== instanceId && envelope.event?.courseId) {
+            dispatchLocal(envelope.event);
+          }
+        } catch (error) {
+          console.error("[event-bus] invalid Redis message:", error);
         }
-      } catch (error) {
-        console.error("[event-bus] invalid Redis message:", error);
-      }
-    });
+      });
+    } catch (error) {
+      if (sub.isOpen) sub.destroy();
+      if (pub.isOpen) pub.destroy();
+      throw error;
+    }
     publisher = pub;
     subscriber = sub;
     console.info("[event-bus] Redis cross-instance pub/sub connected");
   })().catch((error) => {
-    initialization = null;
     console.error("[event-bus] Redis unavailable; local delivery remains active:", error);
   });
+  initialization = attempt;
+  try {
+    await attempt;
+  } finally {
+    if (initialization === attempt) initialization = null;
+  }
 
-  return initialization;
+  return undefined;
 }
 
 export async function publishCourseEvent(
@@ -143,7 +172,9 @@ export async function closeEventBus(): Promise<void> {
   initialization = null;
   await Promise.all(
     clients.map(async (client) => {
-      if (client.isOpen) await client.quit();
+      if (!client.isOpen) return;
+      if (client.isReady) await client.quit();
+      else client.destroy();
     }),
   );
 }

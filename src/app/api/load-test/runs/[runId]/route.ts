@@ -19,12 +19,15 @@ export async function DELETE(
   }
   const run = await prisma.loadTestRun.findUnique({ where: { runId: parsed.data } });
   if (!run) return new Response(null, { status: 204 });
+  const teacherUsernamePrefix = `load_${parsed.data.replaceAll("-", "").slice(0, 20)}`;
 
   await prisma.$transaction(async (tx) => {
     await tx.uploadFile.deleteMany({ where: { courseId: run.courseId } });
     await tx.studentAccount.deleteMany({ where: { courseId: run.courseId } });
     await tx.course.delete({ where: { id: run.courseId } });
-    await tx.teacher.delete({ where: { id: run.teacherId } });
+    await tx.teacher.deleteMany({
+      where: { username: { startsWith: teacherUsernamePrefix } },
+    });
     await tx.courseEvent.deleteMany({ where: { courseId: run.courseId } });
     await tx.courseMutationReceipt.deleteMany({ where: { courseId: run.courseId } });
     await tx.loadTestRun.delete({ where: { runId: parsed.data } });
