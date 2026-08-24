@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdaptiveBranchOutline, Course, StudentAdaptiveLearningState } from "@/lib/session/types";
 
@@ -152,8 +152,83 @@ const course = {
 
 describe("AdaptiveAiLearningRuntime seamless sequencing", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("shows a student-friendly warm-up and marks unanswered questions as unknown when time expires", async () => {
+    vi.useFakeTimers();
+    const pretestCourse = structuredClone(course) as Course;
+    delete pretestCourse.aiLearningProgress!["student-1"].adaptiveLearning!.pretestCompletedAt;
+    const pretest = pretestCourse.content.adaptiveLearningPlan!.pretest;
+    pretest.title = "课程入口 · 前序能力诊断";
+    pretest.introduction = "这些题只检查学习本课之前理应掌握的基础。";
+    pretest.estimatedMinutes = 1;
+    pretest.questions = [
+      {
+        id: "choice-1",
+        type: "single-choice",
+        prompt: "选择一个答案",
+        options: ["A", "B"],
+        correctOptionIndex: 0,
+        knowledgePointIds: ["prerequisite-1"],
+      },
+      {
+        id: "matching-1",
+        type: "matching",
+        prompt: "完成匹配",
+        options: ["右侧一", "右侧二"],
+        correctOptionIndex: 0,
+        matchingPairs: [
+          { left: "左侧一", right: "右侧一" },
+          { left: "左侧二", right: "右侧二" },
+        ],
+        knowledgePointIds: ["prerequisite-2"],
+      },
+    ];
+    const completedState = {
+      ...adaptiveState,
+      pretestCompletedAt: "2026-08-24T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return {
+        ok: true,
+        json: async () => ({ state: completedState }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AdaptiveAiLearningRuntime
+        backHref="/student/course-1"
+        classroomId="main-classroom"
+        course={pretestCourse}
+        studentId="student-1"
+        studentName="张三"
+      />,
+    );
+
+    expect(screen.getByText("课前热身")).toBeTruthy();
+    expect(screen.getByText("先来做2道小题")).toBeTruthy();
+    expect(screen.queryByText("课程入口 · 前序能力诊断")).toBeNull();
+    expect(screen.queryByText("这些题只检查学习本课之前理应掌握的基础。")).toBeNull();
+    expect(screen.getByRole("timer").textContent).toContain("1:00");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(request?.body)) as {
+      action: string;
+      answers: Record<string, unknown>;
+    };
+    expect(body.action).toBe("submit-pretest");
+    expect(body.answers).toEqual({ "choice-1": -1, "matching-1": {} });
   });
 
   it("keeps one main player mounted and inserts prepared scenes into its queue", async () => {

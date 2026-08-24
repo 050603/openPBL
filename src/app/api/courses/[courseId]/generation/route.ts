@@ -41,6 +41,7 @@ function responseJob(job: Awaited<ReturnType<typeof prisma.courseGenerationJob.f
       ? formatCourseGenerationErrorForTeacher(new Error(job.error))
       : null,
     startedAt: job.startedAt?.toISOString() ?? null,
+    lastHeartbeatAt: job.lastHeartbeatAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     updatedAt: job.updatedAt.toISOString(),
     requestPreview: {

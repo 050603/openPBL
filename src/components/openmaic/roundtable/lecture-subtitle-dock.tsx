@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,7 +28,7 @@ import {
 } from '@/components/ui/overlays';
 import { useTeachingKnowledgeGraph } from '@/components/openmaic-bridge/knowledge-graph-context';
 
-type LectureCue = { actionIndex: number; text: string };
+export type LectureCue = { actionIndex: number; text: string; actionIndexes?: number[] };
 
 interface LectureSubtitleDockProps {
   readonly cues: ReadonlyArray<LectureCue>;
@@ -70,7 +71,43 @@ export type SubtitleLine = {
   end: number;
 };
 
-/** Split narration only at sentence endings; visual wrapping remains a CSS concern. */
+function isCompleteSubtitleSentence(text: string): boolean {
+  return /[。！？!?；;.](?:[”’"'）)】\]》」』]*)$/.test(text.trim());
+}
+
+function joinSubtitleFragments(left: string, right: string): string {
+  const trimmedLeft = left.trimEnd();
+  const trimmedRight = right.trimStart();
+  const needsSpace = /[A-Za-z0-9]$/.test(trimmedLeft) && /^[A-Za-z0-9]/.test(trimmedRight);
+  return `${trimmedLeft}${needsSpace ? ' ' : ''}${trimmedRight}`;
+}
+
+/** Normalize legacy micro-lessons without changing their underlying audio actions. */
+export function mergeFragmentedLectureCues(cues: ReadonlyArray<LectureCue>): LectureCue[] {
+  const merged: LectureCue[] = [];
+  for (const cue of cues) {
+    const previous = merged.at(-1);
+    const previousIndexes = previous?.actionIndexes ?? (previous ? [previous.actionIndex] : []);
+    const previousLastAction = previousIndexes.at(-1);
+    if (
+      previous
+      && previousLastAction !== undefined
+      && cue.actionIndex === previousLastAction + 1
+      && !isCompleteSubtitleSentence(previous.text)
+    ) {
+      merged[merged.length - 1] = {
+        ...previous,
+        text: joinSubtitleFragments(previous.text, cue.text),
+        actionIndexes: [...previousIndexes, cue.actionIndex],
+      };
+      continue;
+    }
+    merged.push({ ...cue, actionIndexes: cue.actionIndexes ?? [cue.actionIndex] });
+  }
+  return merged;
+}
+
+/** Split narration into readable, progress-addressable display units. */
 export function splitSubtitleText(text: string): string[] {
   const source = text.trim();
   if (!source) return [];
@@ -107,6 +144,9 @@ export function splitSubtitleText(text: string): string[] {
 
   const remainder = source.slice(sentenceStart).trim();
   if (remainder) sentences.push(remainder);
+  // Long complete sentences wrap inside one card. Never cut them at an
+  // arbitrary character: doing so separates predicates and objects from the
+  // clause the learner is actually hearing.
   return sentences;
 }
 
@@ -139,10 +179,25 @@ export function resolveActiveCueIndex(
   activeActionIndex: number,
   currentText: string,
 ): number {
-  const exactAction = cues.findIndex((cue) => cue.actionIndex === activeActionIndex);
+  const exactAction = cues.findIndex((cue) =>
+    (cue.actionIndexes ?? [cue.actionIndex]).includes(activeActionIndex),
+  );
   if (exactAction >= 0) return exactAction;
   const exactText = cues.findIndex((cue) => cue.text === currentText.trim());
   return exactText >= 0 ? exactText : 0;
+}
+
+export function scrollSubtitleIntoView(container: HTMLElement, active: HTMLElement): void {
+  // The scroll viewport is positioned, so each direct subtitle button's
+  // offsetTop is local to this container. Avoid scrollIntoView here: browsers
+  // may choose a page ancestor and move the whole lesson instead of the rail.
+  const targetTop = active.offsetTop - (container.clientHeight - active.offsetHeight) / 2;
+  const top = Math.max(0, targetTop);
+  if (typeof container.scrollTo === 'function') {
+    container.scrollTo({ top, behavior: 'smooth' });
+  } else {
+    container.scrollTop = top;
+  }
 }
 
 export function LectureSubtitleDock({
@@ -176,17 +231,21 @@ export function LectureSubtitleDock({
 }: LectureSubtitleDockProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const browsingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragRef = useRef<{ pointerId: number; startY: number; scrollTop: number } | null>(null);
+  const didDragRef = useRef(false);
   const [isBrowsingSubtitles, setIsBrowsingSubtitles] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const currentScene = useStageStore((state) => state.getCurrentScene());
   const { graph, points } = useTeachingKnowledgeGraph();
-  const activeCueIndex = useMemo(
-    () => resolveActiveCueIndex(cues, activeActionIndex, currentText),
-    [activeActionIndex, cues, currentText],
-  );
   const displayCues = useMemo(
-    () => (cues.length ? cues : currentText ? [{ actionIndex: -1, text: currentText }] : []),
+    () => mergeFragmentedLectureCues(
+      cues.length ? cues : currentText ? [{ actionIndex: -1, text: currentText }] : [],
+    ),
     [cues, currentText],
+  );
+  const activeCueIndex = useMemo(
+    () => resolveActiveCueIndex(displayCues, activeActionIndex, currentText),
+    [activeActionIndex, currentText, displayCues],
   );
   const subtitleLines = useMemo(() => buildSubtitleLines(displayCues), [displayCues]);
   const activeSubtitleLineIndex = useMemo(
@@ -211,10 +270,41 @@ export function LectureSubtitleDock({
     browsingTimerRef.current = setTimeout(() => setIsBrowsingSubtitles(false), 1600);
   }, []);
 
+  const handleSubtitlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    revealSubtitleHistory();
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      scrollTop: event.currentTarget.scrollTop,
+    };
+    didDragRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [revealSubtitleHistory]);
+
+  const handleSubtitlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = event.clientY - drag.startY;
+    if (Math.abs(distance) > 4) didDragRef.current = true;
+    event.currentTarget.scrollTop = drag.scrollTop - distance;
+    revealSubtitleHistory();
+  }, [revealSubtitleHistory]);
+
+  const handleSubtitlePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    globalThis.setTimeout(() => { didDragRef.current = false; }, 0);
+  }, []);
+
   useEffect(() => {
     if (isBrowsingSubtitles) return;
-    const active = scrollRef.current?.querySelector<HTMLElement>('[data-active-line="true"]');
-    active?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    const container = scrollRef.current;
+    const active = container?.querySelector<HTMLElement>('[data-active-line="true"]');
+    if (container && active) scrollSubtitleIntoView(container, active);
   }, [activeSubtitleLineIndex, isBrowsingSubtitles]);
 
   useEffect(() => () => {
@@ -224,9 +314,9 @@ export function LectureSubtitleDock({
   return (
     <aside
       aria-label="AI 授课字幕与播放控制"
-      className="relative z-10 flex w-full shrink-0 border-t border-slate-200/80 bg-white/96 dark:border-white/10 dark:bg-slate-950/96 xl:h-full xl:w-[304px] xl:border-l xl:border-t-0 xl:bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(252,254,253,0.97)_48%,rgba(241,249,246,0.94)_76%,rgba(255,255,255,0.98)_100%)] xl:dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.98)_0%,rgba(8,20,31,0.97)_52%,rgba(10,36,34,0.82)_76%,rgba(2,6,23,0.98)_100%)]"
+      className="relative z-10 flex min-h-0 w-full shrink-0 overflow-hidden border-t border-slate-200/80 bg-white/96 dark:border-white/10 dark:bg-slate-950/96 xl:h-full xl:w-[304px] xl:border-l xl:border-t-0 xl:bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(252,254,253,0.97)_48%,rgba(241,249,246,0.94)_76%,rgba(255,255,255,0.98)_100%)] xl:dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.98)_0%,rgba(8,20,31,0.97)_52%,rgba(10,36,34,0.82)_76%,rgba(2,6,23,0.98)_100%)]"
     >
-      <div className="flex min-w-0 flex-1 flex-col px-4 py-3 xl:px-5 xl:py-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 py-3 xl:px-5 xl:py-4">
         <header className="flex items-center gap-3 xl:items-start">
           <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-[14px] bg-[#edf5f2] ring-1 ring-slate-900/8 dark:ring-white/10 xl:h-12 xl:w-12">
             <img alt={teacherName} className="h-full w-full object-cover" src={teacherAvatar} />
@@ -253,7 +343,7 @@ export function LectureSubtitleDock({
               ) : null}
             </div>
             <p className="mt-0.5 text-[11px] text-slate-400">
-              {isPlaying ? 'AI 正在讲解' : playbackCompleted ? '本页讲解完成' : '讲解已暂停'}
+              {isPlaying ? `${teacherName}正在讲解` : playbackCompleted ? '本页讲解完成' : '讲解已暂停'}
             </p>
           </div>
           <span className="pt-1 text-[11px] font-semibold tabular-nums text-slate-400">
@@ -270,13 +360,20 @@ export function LectureSubtitleDock({
           )}
           data-teaching-rail-content
         >
-          <div className="relative min-w-0 xl:min-h-0">
+          <div className="relative min-h-0 min-w-0 overflow-hidden">
             <div
               aria-live="polite"
-              className="h-[96px] snap-y snap-mandatory overflow-y-auto pr-1 [scrollbar-width:none] xl:h-full [&::-webkit-scrollbar]:hidden"
-              onPointerDown={revealSubtitleHistory}
+              aria-label="讲解字幕，可滚动浏览或拖动查看"
+              className="relative h-[112px] cursor-grab snap-y snap-proximity touch-pan-y overflow-y-auto overscroll-contain pr-2 [scrollbar-color:rgba(20,112,102,.28)_transparent] [scrollbar-width:thin] active:cursor-grabbing xl:h-full"
+              onPointerCancel={handleSubtitlePointerEnd}
+              onPointerDown={handleSubtitlePointerDown}
+              onPointerMove={handleSubtitlePointerMove}
+              onPointerUp={handleSubtitlePointerEnd}
               onTouchMove={revealSubtitleHistory}
-              onWheel={revealSubtitleHistory}
+              onWheel={(event) => {
+                event.stopPropagation();
+                revealSubtitleHistory();
+              }}
               ref={scrollRef}
             >
               <div aria-hidden="true" className="min-h-4" style={{ height: 'calc(50% - 48px)' }} />
@@ -286,21 +383,19 @@ export function LectureSubtitleDock({
                   <button
                     aria-label={`从此处重新播放：${line.text}`}
                     className={cn(
-                      'flex min-h-24 w-full snap-center items-center py-3 text-left text-[15px] leading-6 transition-[color,opacity,background-color] duration-300',
+                      'flex min-h-20 w-full snap-center items-center rounded-lg px-1 py-3 text-left text-[15px] leading-6 transition-[color,opacity,background-color,transform] duration-300',
                       active
-                        ? 'font-semibold text-slate-900 dark:text-slate-50'
-                        : cn(
-                            'text-slate-400 dark:text-slate-500',
-                            isBrowsingSubtitles
-                              ? index < activeSubtitleLineIndex
-                                ? 'cursor-pointer rounded-lg opacity-45 hover:bg-teal-50/70 hover:text-teal-800 hover:opacity-100 dark:hover:bg-teal-400/10 dark:hover:text-teal-200'
-                                : 'cursor-pointer rounded-lg opacity-60 hover:bg-slate-50 hover:opacity-100 dark:hover:bg-white/5'
-                              : 'pointer-events-none opacity-0',
-                          ),
+                        ? 'translate-x-0.5 bg-teal-50/75 font-semibold text-slate-900 opacity-100 dark:bg-teal-400/10 dark:text-slate-50'
+                        : isBrowsingSubtitles
+                          ? index < activeSubtitleLineIndex
+                            ? 'cursor-pointer text-slate-400 opacity-45 hover:bg-teal-50/70 hover:text-teal-800 hover:opacity-100 dark:text-slate-500 dark:hover:bg-teal-400/10 dark:hover:text-teal-200'
+                            : 'cursor-pointer text-slate-500 opacity-60 hover:bg-slate-50 hover:text-slate-800 hover:opacity-100 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100'
+                          : 'pointer-events-none text-slate-400 opacity-0 dark:text-slate-500',
                     )}
                     data-active-line={active ? 'true' : undefined}
                     key={`${line.actionIndex}-${index}`}
                     onClick={() => {
+                      if (didDragRef.current) return;
                       if (line.actionIndex < 0) return;
                       const cueLength = Math.max(1, displayCues[line.cueIndex]?.text.length ?? line.end);
                       if (onCueSelect?.(line.actionIndex, line.start / cueLength)) {

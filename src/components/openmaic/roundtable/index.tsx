@@ -34,6 +34,7 @@ import type { EngineMode, PlaybackView } from '@openmaic/lib/playback';
 import type { Participant } from '@openmaic/lib/types/roundtable';
 import { LectureSubtitleDock } from '@openmaic/components/roundtable/lecture-subtitle-dock';
 import { useDisplayScale } from '@/hooks/use-display-scale';
+import { useInstructorIdentity } from '@/components/openmaic-bridge/instructor-identity-context';
 
 export interface DiscussionRequest {
   topic: string;
@@ -353,8 +354,9 @@ export function Roundtable({
   // Separate participants by role (teacherParticipant & studentParticipants declared earlier for effect)
   const userParticipant = initialParticipants.find((p) => p.role === 'user');
 
-  const teacherAvatar = DEFAULT_TEACHER_AVATAR;
-  const teacherName = teacherParticipant?.name || t('roundtable.teacher');
+  const instructorIdentity = useInstructorIdentity();
+  const teacherAvatar = instructorIdentity?.avatar || DEFAULT_TEACHER_AVATAR;
+  const teacherName = instructorIdentity?.name || teacherParticipant?.name || t('roundtable.teacher');
   const userAvatar = userParticipant?.avatar || DEFAULT_USER_AVATAR;
 
   // Audio recording
@@ -745,6 +747,7 @@ export function Roundtable({
       <div className="h-0 w-full relative z-10 overflow-visible">
         {/* Speech overlay — fills the full stage area via absolute positioning */}
         <PresentationSpeechOverlay
+          instructorIdentity={instructorIdentity ?? undefined}
           playbackView={enrichedPlaybackView}
           participants={initialParticipants}
           speakingAgentId={speakingAgentId ?? null}
@@ -956,6 +959,7 @@ export function Roundtable({
         >
           {/* Right-side speech bubble (flows above dock via flex) */}
           <PresentationSpeechOverlay
+            instructorIdentity={instructorIdentity ?? undefined}
             playbackView={enrichedPlaybackView}
             participants={initialParticipants}
             speakingAgentId={speakingAgentId ?? null}

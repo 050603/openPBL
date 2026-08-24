@@ -40,7 +40,7 @@ import {
 } from "@/lib/learning-evidence/missions";
 import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
 import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
-import type { Course } from "@/lib/session/types";
+import type { AdaptiveMicroLesson, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 import type { CompanionRuntimeContextValue } from "./companion-runtime";
@@ -61,6 +61,7 @@ export function StudioProjectWorkbench({
   runtime,
   onAskCompanion,
   onStopCompanion,
+  onOpenMicroLesson,
   initialView = "editor",
   layoutMode = "fullscreen",
 }: {
@@ -69,6 +70,7 @@ export function StudioProjectWorkbench({
   runtime?: CompanionRuntimeContextValue;
   onAskCompanion?: (text: string, companionIds?: AiCompanionId[]) => Promise<boolean>;
   onStopCompanion?: () => void;
+  onOpenMicroLesson?: (lesson: AdaptiveMicroLesson) => void;
   initialView?: WorkbenchView;
   layoutMode?: WorkbenchLayoutMode;
 }) {
@@ -308,8 +310,11 @@ export function StudioProjectWorkbench({
                   course={course}
                   disabled={!eligibleCompanions.some((item) => item.id === "knowledge")}
                   onAsk={onAskCompanion}
+                  microLessonTask={runtime?.microLessonTask}
+                  onOpenMicroLesson={onOpenMicroLesson}
                   onRequestMicroLesson={runtime?.requestMicroLesson}
                   stageKey={stageKey}
+                  studentId={studentId}
                 />
               </section>
             ) : null}

@@ -32,6 +32,12 @@ type MediaFailure = {
   error: string;
 };
 
+type AssetFailure = MediaFailure | {
+  elementId: string;
+  type: 'tts';
+  error: string;
+};
+
 const MAX_MEDIA_REPAIR_PASSES = 1;
 
 function mediaRequestKey(request: Pick<MediaGenerationRequest, 'elementId' | 'type'>): string {
@@ -165,15 +171,17 @@ export async function generateClassroomAssets(
   const hasMediaGeneration = input.enableImageGeneration || input.enableVideoGeneration;
   const capabilities = { image: input.enableImageGeneration, video: input.enableVideoGeneration };
   const requestedMedia = collectRequestedClassroomMedia(input.outlines, capabilities);
+  const ttsOnlyStatus = input.enableTTS && !hasMediaGeneration;
+  const trackedAssetCount = ttsOnlyStatus ? groups.length : requestedMedia.length;
 
   const updateAssetStatus = async (
     status: 'running' | 'completed' | 'partial-failure',
     completed: number,
-    failures: MediaFailure[],
+    failures: AssetFailure[],
   ) => {
     await Promise.all(groups.map((group) => updatePersistedClassroomAssetStatus(group.classroomId, {
       status,
-      requested: requestedMedia.length,
+      requested: trackedAssetCount,
       completed,
       failures,
       updatedAt: new Date().toISOString(),
@@ -311,6 +319,13 @@ export async function generateClassroomAssets(
           `Classroom TTS backfill failed [classroomId=${group.classroomId}]; content remains available:`,
           error,
         );
+        if (ttsOnlyStatus) {
+          await updateAssetStatus('partial-failure', 0, [{
+            elementId: 'tts-batch',
+            type: 'tts',
+            error: error instanceof Error ? error.message : String(error),
+          }]);
+        }
         throw error;
       }
     }
@@ -320,6 +335,7 @@ export async function generateClassroomAssets(
   // bounded pipelines can overlap without changing prompts, retry policies,
   // provider concurrency, or quality checks. Persist once more after both have
   // finished so the shared scene snapshots contain the merged asset updates.
+  if (ttsOnlyStatus) await updateAssetStatus('running', 0, []);
   await runIndependentClassroomAssetTasks({
     media: generateMediaAssets,
     tts: generateSpeechAssets,
@@ -341,4 +357,9 @@ export async function generateClassroomAssets(
       });
     },
   });
+  // Only advertise a playable classroom after the merged scene snapshot —
+  // including every generated audioUrl — has been durably persisted. Keeping
+  // this outside persistMergedState also prevents a rejected TTS task from
+  // overwriting its partial-failure status with completed.
+  if (ttsOnlyStatus) await updateAssetStatus('completed', groups.length, []);
 }

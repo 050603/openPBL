@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpenCheck, CheckCircle2, Loader2 } from "lucide-react";
+import { BookOpenCheck, CheckCircle2, Clock3, Loader2 } from "lucide-react";
 import type { Scene } from "@openmaic/lib/types/stage";
 import {
   StudentStageHost,
@@ -519,8 +519,13 @@ function AdaptivePretest({
 }) {
   const [answers, setAnswers] = useState<Record<string, AdaptiveAssessmentAnswer>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const [error, setError] = useState<string>();
   const questions = plan.pretest.questions.slice(0, 5);
+  const durationSeconds = Math.max(60, Math.round(plan.pretest.estimatedMinutes * 60));
+  const [remainingSeconds, setRemainingSeconds] = useState(durationSeconds);
+  const answersRef = useRef(answers);
+  const submitRef = useRef<(dueToTimeout?: boolean) => Promise<void>>(async () => undefined);
   const complete = questions.every((question) => {
     const answer = answers[question.id];
     if (question.type !== "matching") return typeof answer === "number";
@@ -531,6 +536,50 @@ function AdaptivePretest({
     );
   });
 
+  async function submitPretest(dueToTimeout = false) {
+    if (submitting) return;
+    const submittedAnswers = dueToTimeout
+      ? Object.fromEntries(questions.map((question) => [
+          question.id,
+          answersRef.current[question.id] ?? (question.type === "matching" ? {} : -1),
+        ]))
+      : answersRef.current;
+    if (dueToTimeout) {
+      setTimedOut(true);
+      setAnswers(submittedAnswers);
+    }
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      await onSubmit(submittedAnswers);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "提交失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  useEffect(() => {
+    answersRef.current = answers;
+    submitRef.current = submitPretest;
+  });
+
+  useEffect(() => {
+    const deadline = Date.now() + durationSeconds * 1000;
+    const timer = window.setInterval(() => {
+      const next = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setRemainingSeconds(next);
+      if (next === 0) {
+        window.clearInterval(timer);
+        void submitRef.current(true);
+      }
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [durationSeconds]);
+
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+
   return (
     <div className={`${variant === "fullscreen" ? "h-dvh" : "h-full min-h-0"} overflow-y-auto bg-[radial-gradient(circle_at_top_left,#cffafe_0,transparent_32%),linear-gradient(145deg,#f8fafc,#fff)] p-5 sm:p-8`}>
       <div className="mx-auto max-w-3xl">
@@ -538,12 +587,26 @@ function AdaptivePretest({
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-cyan-950 text-white">
             <BookOpenCheck size={21} />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-800">
-              开课前 · 约 {plan.pretest.estimatedMinutes} 分钟 · 最多 5 题
+              课前热身
             </p>
-            <h2 className="font-editorial mt-1 text-2xl font-semibold text-stone-950">{plan.pretest.title}</h2>
-            <p className="mt-1 text-sm leading-6 text-stone-600">{plan.pretest.introduction}</p>
+            <h2 className="font-editorial mt-1 text-2xl font-semibold text-stone-950">
+              先来做{questions.length}道小题
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-stone-600">按你的第一感觉作答即可。</p>
+          </div>
+          <div
+            aria-label={`剩余时间 ${minutes} 分 ${seconds} 秒`}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-bold tabular-nums ${
+              remainingSeconds <= 30
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : "border-cyan-200 bg-white/80 text-cyan-900"
+            }`}
+            role="timer"
+          >
+            <Clock3 size={15} />
+            {minutes}:{seconds.toString().padStart(2, "0")}
           </div>
         </div>
         <div className="mt-6 space-y-4">
@@ -598,28 +661,20 @@ function AdaptivePretest({
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-cyan-200 bg-white p-4">
           <p className="text-xs text-stone-500">
-            {complete
+            {timedOut
+              ? "时间已到，未完成的题目已标记为“不会”。"
+              : complete
               ? "检查已完成。系统只会在确有必要时，于主课开始前连续播放相应回顾内容。"
               : `还需完成 ${questions.length - Object.keys(answers).length} 题。`}
           </p>
           <button
             className="inline-flex h-10 items-center gap-2 rounded-[8px] bg-cyan-950 px-5 text-sm font-bold text-white hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!complete || submitting}
-            onClick={async () => {
-              setSubmitting(true);
-              setError(undefined);
-              try {
-                await onSubmit(answers);
-              } catch (cause) {
-                setError(cause instanceof Error ? cause.message : "提交失败");
-              } finally {
-                setSubmitting(false);
-              }
-            }}
+            disabled={(!complete && !timedOut) || submitting}
+            onClick={() => void submitPretest(timedOut)}
             type="button"
           >
             {submitting ? <Loader2 className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
-            开始学习
+            {submitting ? "正在提交" : timedOut ? "重新提交" : "开始学习"}
           </button>
         </div>
         {error ? <p className="mt-2 text-right text-xs text-rose-700">{error}</p> : null}

@@ -11,10 +11,14 @@ const mocks = vi.hoisted(() => ({
   upsertCompanionConfirmation: vi.fn(),
   addCompanionProcessRecord: vi.fn(),
   setAutoInterventionsPaused: vi.fn(),
+  stageHostProps: { current: null as unknown },
 }));
 
 vi.mock("@/components/openmaic-bridge/student-stage-host", () => ({
-  StudentStageHost: () => <div>微课播放器</div>,
+  StudentStageHost: (props: unknown) => {
+    mocks.stageHostProps.current = props;
+    return <div>微课播放器</div>;
+  },
 }));
 vi.mock("./companion-studio-pixi-stage", () => ({
   default: (props: unknown) => {
@@ -126,6 +130,7 @@ function runtime(progress?: number) {
             topic: "拱形结构",
             decision: "systematic-lesson",
             rationale: "需要解释受力原理",
+            classroomId: undefined as string | undefined,
             status: "generating",
             createdAt: "2026-07-28T00:00:00.000Z",
           },
@@ -133,6 +138,7 @@ function runtime(progress?: number) {
           message: "正在制作",
         },
     completeMicroLesson: vi.fn(),
+    openMicroLesson: vi.fn(),
     dismissMicroLessonTask: vi.fn(),
     setAutoInterventionsPaused: mocks.setAutoInterventionsPaused,
   };
@@ -153,6 +159,7 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     }));
     mocks.runtime.current = runtime();
     mocks.pixiProps.current = null;
+    mocks.stageHostProps.current = null;
   });
 
   it("does not keep Zhizhi physically working because of a stale persisted task", () => {
@@ -231,6 +238,29 @@ describe("CompanionStudioWorkspace micro-lesson task sync", () => {
     );
 
     await waitFor(() => expect(mocks.upsertCompanionTask).toHaveBeenCalledTimes(2));
+  });
+
+  it("opens a ready micro lesson as a full-screen Zhizhi classroom", () => {
+    const readyRuntime = runtime(100);
+    readyRuntime.microLessonTask!.lesson.status = "ready";
+    readyRuntime.microLessonTask!.lesson.classroomId = "micro-classroom-1";
+    mocks.runtime.current = readyRuntime;
+    const view = render(
+      <CompanionStudioWorkspace contextLabel="方案构思" course={course} stageKey="proposal" />,
+    );
+
+    expect(decodeURIComponent(view.container.querySelector<HTMLImageElement>(".studio-micro-task__agent img")?.src ?? ""))
+      .toContain("/companions/zhizhi-micro-lesson-v2.png");
+    fireEvent.click(screen.getByRole("button", { name: /开始微课/ }));
+
+    expect(view.container.querySelector(".studio-dialog.is-lesson")).toBeTruthy();
+    expect(mocks.stageHostProps.current).toEqual(expect.objectContaining({
+      instructorIdentity: {
+        name: "知知",
+        avatar: "/companions/zhizhi-micro-lesson-v2.png",
+      },
+      standalone: true,
+    }));
   });
 
   it("keeps the main composer draft and shows the runtime error when sending fails", async () => {

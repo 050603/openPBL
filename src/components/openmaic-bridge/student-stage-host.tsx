@@ -34,6 +34,10 @@ import type {
   LearningEventType,
 } from '@/lib/session/types';
 import { TeachingKnowledgeGraphProvider } from '@/components/openmaic-bridge/knowledge-graph-context';
+import {
+  InstructorIdentityProvider,
+  type InstructorIdentity,
+} from '@/components/openmaic-bridge/instructor-identity-context';
 import { cn } from '@/lib/utils';
 import { isStudentAiLearningScene } from '@openmaic/lib/pbl/scene-routing';
 import { estimateSpeechDurationSec } from '@openmaic/lib/audio/tts-timing';
@@ -51,6 +55,35 @@ const log = createLogger('StudentStageHost');
 interface ClassroomPayload {
   stage: StageType;
   scenes: Scene[];
+  assetGeneration?: {
+    status?: 'running' | 'completed' | 'partial-failure';
+    failures?: Array<{ type: string; error: string }>;
+  };
+}
+
+export function isClassroomAudioPrepared(classroom: Pick<ClassroomPayload, 'scenes'>): boolean {
+  const narratedScenes = classroom.scenes.filter((scene) => scene.ttsPolicy === 'target-duration');
+  if (!narratedScenes.length) return true;
+  const speechActions = narratedScenes.flatMap((scene) =>
+    (scene.actions ?? []).filter((action) => action.type === 'speech' && action.text.trim()),
+  );
+  return speechActions.length > 0 && speechActions.every((action) =>
+    Boolean((action as { audioUrl?: string }).audioUrl),
+  );
+}
+
+function waitForClassroomPoll(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = globalThis.setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      globalThis.clearTimeout(timer);
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
 }
 
 const preparedClassroomCache = new Map<string, Promise<ClassroomPayload>>();
@@ -124,6 +157,10 @@ interface StudentStageHostProps {
   prefetchClassroomIds?: string[];
   knowledgeGraph?: KnowledgeGraph;
   knowledgePoints?: KnowledgePoint[];
+  /** Overrides the presenter identity for standalone companion-made lessons. */
+  instructorIdentity?: InstructorIdentity;
+  /** Keeps standalone micro lessons in a loading state until narration audio is durable. */
+  requirePreparedAudio?: boolean;
   /** Optional controlled state for the page thumbnail rail. Teacher preview
    * uses this to open the rail without changing the student's saved setting. */
   sidebarCollapsed?: boolean;
@@ -325,11 +362,14 @@ export function StudentStageHost({
   prefetchClassroomIds = [],
   knowledgeGraph,
   knowledgePoints = [],
+  instructorIdentity,
+  requirePreparedAudio = false,
   sidebarCollapsed,
   onSidebarCollapsedChange,
 }: StudentStageHostProps) {
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
+  const [loadingMessage, setLoadingMessage] = useState('正在加载 AI 课堂...');
   const [activeMediaClassroomId, setActiveMediaClassroomId] = useState(classroomId);
   const [autoplaySceneId, setAutoplaySceneId] = useState<string>();
 
@@ -447,28 +487,36 @@ export function StudentStageHost({
     classroomLoadControllerRef.current = loadController;
     setState('loading');
     setErrorMsg(undefined);
+    setLoadingMessage('正在加载 AI 课堂...');
     try {
       // 1. 拉取课堂
-      const res = await fetch(
-        `/api/openmaic/classroom?id=${encodeURIComponent(classroomId)}`,
-        { cache: 'no-store', signal: loadController.signal },
-      );
-      if (!res.ok) {
-        setErrorMsg(
-          res.status === 404
-            ? 'AI 课堂不存在或已被移除'
-            : `加载失败（HTTP ${res.status}）`,
+      let classroom: ClassroomPayload | undefined;
+      for (let attempt = 0; attempt < (requirePreparedAudio ? 100 : 1); attempt += 1) {
+        const res = await fetch(
+          `/api/openmaic/classroom?id=${encodeURIComponent(classroomId)}`,
+          { cache: 'no-store', signal: loadController.signal },
         );
-        setState('error');
-        return;
+        if (!res.ok) {
+          throw new Error(res.status === 404 ? 'AI 课堂不存在或已被移除' : `加载失败（HTTP ${res.status}）`);
+        }
+        const json = (await res.json()) as { success: boolean; classroom?: ClassroomPayload };
+        if (!json.success || !json.classroom) throw new Error('AI 课堂内容为空');
+        classroom = json.classroom;
+        if (!requirePreparedAudio || isClassroomAudioPrepared(classroom)) break;
+        if (classroom.assetGeneration?.status === 'partial-failure') {
+          const ttsFailure = classroom.assetGeneration.failures?.find((failure) => failure.type === 'tts');
+          throw new Error(ttsFailure?.error || '微课讲解音频生成失败，请重新制作');
+        }
+        if (classroom.assetGeneration?.status === 'completed') {
+          throw new Error('微课讲解音频不完整，请重新制作');
+        }
+        setLoadingMessage('知知正在准备微课讲解音频...');
+        await waitForClassroomPoll(3_000, loadController.signal);
       }
-      const json = (await res.json()) as { success: boolean; classroom?: ClassroomPayload };
-      if (!json.success || !json.classroom) {
-        setErrorMsg('AI 课堂内容为空');
-        setState('error');
-        return;
+      if (!classroom || (requirePreparedAudio && !isClassroomAudioPrepared(classroom))) {
+        throw new Error('微课讲解音频准备超时，请稍后重试');
       }
-      const { stage, scenes } = json.classroom;
+      const { stage, scenes } = classroom;
       if (!Array.isArray(scenes) || scenes.length === 0) {
         setErrorMsg('AI 课堂未包含任何场景');
         setState('error');
@@ -620,7 +668,7 @@ export function StudentStageHost({
         classroomLoadControllerRef.current = null;
       }
     }
-  }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, standalone, studentId, trackingEnabled]);
+  }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, requirePreparedAudio, standalone, studentId, trackingEnabled]);
 
   const loadPreparedClassroom = useCallback(
     (preparedClassroomId: string) =>
@@ -944,7 +992,7 @@ export function StudentStageHost({
               <div className="flex flex-1 items-center justify-center">
                 <div className="text-center text-muted-foreground">
                   <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-primary" />
-                  <p className="text-sm">正在加载 AI 课堂...</p>
+                  <p className="text-sm">{loadingMessage}</p>
                 </div>
               </div>
             ) : state === 'error' ? (
@@ -960,15 +1008,17 @@ export function StudentStageHost({
                 </div>
               </div>
             ) : (
-              <TeachingKnowledgeGraphProvider graph={knowledgeGraph} points={knowledgePoints}>
-                <Stage
-                  autoplaySceneId={autoplaySceneId}
-                  experience="student-course"
-                  onPlaybackStateChange={handlePlaybackStateChange}
-                  sidebarCollapsed={sidebarCollapsed}
-                  onSidebarCollapsedChange={onSidebarCollapsedChange}
-                />
-              </TeachingKnowledgeGraphProvider>
+              <InstructorIdentityProvider value={instructorIdentity}>
+                <TeachingKnowledgeGraphProvider graph={knowledgeGraph} points={knowledgePoints}>
+                  <Stage
+                    autoplaySceneId={autoplaySceneId}
+                    experience="student-course"
+                    onPlaybackStateChange={handlePlaybackStateChange}
+                    sidebarCollapsed={sidebarCollapsed}
+                    onSidebarCollapsedChange={onSidebarCollapsedChange}
+                  />
+                </TeachingKnowledgeGraphProvider>
+              </InstructorIdentityProvider>
             )}
           </div>
         </MediaStageProvider>

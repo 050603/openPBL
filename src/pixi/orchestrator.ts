@@ -60,6 +60,7 @@ export function createOfficeOrchestrator(
   const motionRequests = new Map<AgentId, number>()
   const currentZoneByAgent = new Map<AgentId, StudyZoneId>()
   const movingAgents = new Set<AgentId>()
+  const returningForWorkAgents = new Set<AgentId>()
   const awayAgents = new Set<AgentId>()
   const engagedAgents = new Set<AgentId>()
   const chatPartnerByAgent = new Map<AgentId, AgentId>()
@@ -940,6 +941,23 @@ export function createOfficeOrchestrator(
     }
   }
 
+  function returnAgentToDeskForWork(agentId: AgentId): void {
+    if (returningForWorkAgents.has(agentId)) return
+    returningForWorkAgents.add(agentId)
+    void returnAgentToDesk(agentId).finally(() => {
+      returningForWorkAgents.delete(agentId)
+      if (
+        !destroyed
+        && stateByAgent.get(agentId) === 'working'
+        && !awayAgents.has(agentId)
+        && !currentZoneByAgent.has(agentId)
+        && !movingAgents.has(agentId)
+      ) {
+        workstations[agentId].refreshStateActivity()
+      }
+    })
+  }
+
   function applyAgentState(agentId: AgentId, state: PartnerState): void {
     const previousState = stateByAgent.get(agentId)
     const wasAmbientActivityState = isAmbientActivityState(previousState)
@@ -987,6 +1005,16 @@ export function createOfficeOrchestrator(
       workstations[agentId].person.setFacing('left')
     }
 
+    // A task can arrive during the off-chair tween, before riseFromDesk has
+    // committed the actor as away. Mark that in-between pose as standing now
+    // so setState('working') cannot mount a desk-only typing strip in the
+    // aisle; the return route below then owns the actor until it is seated.
+    if (state === 'working' && movingAgents.has(agentId) && !awayAgents.has(agentId)) {
+      awayAgents.add(agentId)
+      workstations[agentId].setAway(true)
+      workstations[agentId].person.setPosture('normal')
+    }
+
     const shouldPlayWakeUp = wasNapping && state !== 'idle'
     if (shouldPlayWakeUp) {
       workstations[agentId].setState(state, { deferBodyActivity: true })
@@ -1012,6 +1040,15 @@ export function createOfficeOrchestrator(
       })
     }
 
+    // Agent work is desk work. A task received while roaming first routes the
+    // companion back to the chair, then resumes the thinking/typing sequence.
+    // Keep one return promise per companion so repeated runtime syncs cannot
+    // cancel and restart the walk home.
+    if (state === 'working' && wasAwayFromDesk) {
+      returnAgentToDeskForWork(agentId)
+      return
+    }
+
     if (previousState === state) {
       return
     }
@@ -1023,13 +1060,7 @@ export function createOfficeOrchestrator(
       return
     }
 
-    if (state === 'working') {
-      const currentZone = currentZoneByAgent.get(agentId)
-      if (currentZone) {
-        void startZoneInteraction(agentId, currentZone)
-      }
-      return
-    }
+    if (state === 'working') return
 
     if (ambientActivityState && !wasAmbientActivityState && wasAwayFromDesk) {
       void returnAgentToDesk(agentId)
@@ -1181,6 +1212,7 @@ export function createOfficeOrchestrator(
       zoneActionPlayedForVisit.clear()
       activeIdleActivities.clear()
       awayAgents.clear()
+      returningForWorkAgents.clear()
       engagedAgents.clear()
       chatPartnerByAgent.clear()
       previousIdleActivities.clear()

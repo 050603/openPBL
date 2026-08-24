@@ -412,6 +412,58 @@ describe('office orchestrator partner conversations', () => {
     office.destroy()
   })
 
+  it('returns Zhizhi to the desk before continuing a newly assigned work task', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), {
+      random: () => 0.5,
+    })
+
+    await office.goToStudyZone('zhizhi', 'library')
+    timeline.length = 0
+    office.setAgentState('zhizhi', 'working')
+    // Repeated React/Pixi state synchronization must not restart the route.
+    office.setAgentState('zhizhi', 'working')
+    await vi.runAllTimersAsync()
+
+    const sitDownIndex = timeline.findIndex(
+      (event) => event.agentId === 'zhizhi' && event.kind === 'play' && event.value === 'sit_down',
+    )
+    expect(sitDownIndex).toBeGreaterThan(-1)
+    expect(workstations.zhizhi.person.getVisualAnchorPosition('bottomCenter'))
+      .toEqual(workstations.zhizhi.seatAnchor)
+    expect(workstations.zhizhi.refreshStateActivity).toHaveBeenCalled()
+
+    office.destroy()
+  })
+
+  it('takes ownership of Zhizhi when a task arrives during the off-chair transition', async () => {
+    const timeline: TimelineEvent[] = []
+    const workstations = createWorkstations(timeline)
+    const office = createOfficeOrchestrator(workstations, createStudyZones(), { random: () => 0.5 })
+    let releaseOffChair: (() => void) | undefined
+    const offChairBlocked = new Promise<void>((resolve) => { releaseOffChair = resolve })
+    vi.mocked(workstations.zhizhi.person.play).mockImplementationOnce(async (action) => {
+      timeline.push({ agentId: 'zhizhi', kind: 'play', value: action, at: Date.now() })
+      await offChairBlocked
+    })
+
+    const roaming = office.goToStudyZone('zhizhi', 'library')
+    await vi.advanceTimersByTimeAsync(0)
+    office.setAgentState('zhizhi', 'working')
+
+    expect(workstations.zhizhi.setAway).toHaveBeenCalledWith(true)
+    releaseOffChair?.()
+    await roaming
+    await vi.runAllTimersAsync()
+    expect(timeline.some((event) => event.agentId === 'zhizhi' && event.kind === 'play' && event.value === 'sit_down'))
+      .toBe(true)
+    expect(workstations.zhizhi.person.getVisualAnchorPosition('bottomCenter'))
+      .toEqual(workstations.zhizhi.seatAnchor)
+
+    office.destroy()
+  })
+
   it('moves the left and right classroom lanes concurrently while keeping each lane ordered', async () => {
     const timeline: TimelineEvent[] = []
     const workstations = createWorkstations(timeline)

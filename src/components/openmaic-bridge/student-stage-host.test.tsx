@@ -88,6 +88,7 @@ vi.mock("@/lib/learning-analytics/telemetry", () => telemetryMock);
 
 import {
   composeAdaptiveSceneQueue,
+  isClassroomAudioPrepared,
   prepareAdaptiveInsertionScenes,
   quizScoreForScene,
   resolveAdaptiveInsertionIndex,
@@ -95,6 +96,21 @@ import {
   StudentStageHost,
   shouldTrackStudentLearning,
 } from "./student-stage-host";
+
+describe("standalone classroom audio readiness", () => {
+  it("requires an audio URL for every narrated speech action", () => {
+    const classroom = (audioUrl?: string) => ({
+      scenes: [{
+        id: "scene-1",
+        ttsPolicy: "target-duration",
+        actions: [{ id: "speech-1", type: "speech", text: "讲解内容", audioUrl }],
+      }],
+    }) as never;
+
+    expect(isClassroomAudioPrepared(classroom())).toBe(false);
+    expect(isClassroomAudioPrepared(classroom("/api/audio/lesson.mp3"))).toBe(true);
+  });
+});
 
 describe("adaptive scene preparation", () => {
   it("namespaces inserted ids and marks only the segment tail", () => {

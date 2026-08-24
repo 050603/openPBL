@@ -431,7 +431,7 @@ export function createWorkstationFactory({
       const limit = getMessageScrollLimit()
       const hasOverflow = limit > 0
       messageScrollHint.visible = hasOverflow
-      messageViewport.cursor = hasOverflow ? (messageDragY === null ? 'grab' : 'grabbing') : 'default'
+      messageLayer.cursor = hasOverflow ? (messageDragY === null ? 'grab' : 'grabbing') : 'default'
       if (!hasOverflow) return
 
       const trackX = messageCenterX + messageViewportWidth / 2 + 7
@@ -451,25 +451,25 @@ export function createWorkstationFactory({
       redrawMessageScrollbar()
     }
 
-    messageViewport.eventMode = 'static'
-    messageViewport.hitArea = new Rectangle(
-      messageCenterX - messageViewportWidth / 2,
-      messageTextTop,
-      messageViewportWidth,
-      messageViewportHeight,
+    messageLayer.eventMode = 'static'
+    messageLayer.hitArea = new Rectangle(
+      messageCenterX - messageWidth / 2,
+      messageTop,
+      messageWidth,
+      messageHeight,
     )
-    messageViewport.on('wheel', (event: FederatedWheelEvent) => {
+    messageLayer.on('wheel', (event: FederatedWheelEvent) => {
       if (getMessageScrollLimit() <= 0) return
       event.stopPropagation()
       setMessageScrollOffset(messageScrollOffset + event.deltaY * 0.55)
     })
-    messageViewport.on('pointerdown', (event: FederatedPointerEvent) => {
+    messageLayer.on('pointerdown', (event: FederatedPointerEvent) => {
       if (getMessageScrollLimit() <= 0) return
       event.stopPropagation()
       messageDragY = event.global.y
       redrawMessageScrollbar()
     })
-    messageViewport.on('pointermove', (event: FederatedPointerEvent) => {
+    messageLayer.on('pointermove', (event: FederatedPointerEvent) => {
       if (messageDragY === null) return
       event.stopPropagation()
       const nextY = event.global.y
@@ -480,8 +480,8 @@ export function createWorkstationFactory({
       messageDragY = null
       redrawMessageScrollbar()
     }
-    messageViewport.on('pointerup', endMessageDrag)
-    messageViewport.on('pointerupoutside', endMessageDrag)
+    messageLayer.on('pointerup', endMessageDrag)
+    messageLayer.on('pointerupoutside', endMessageDrag)
 
     function stopIdleActivity(): void {
       idleRequest += 1

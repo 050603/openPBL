@@ -17,6 +17,7 @@ import { useI18n } from '@openmaic/lib/hooks/use-i18n';
 import { SceneSidebar } from '@openmaic/components/stage/scene-sidebar';
 import { CanvasArea } from '@openmaic/components/canvas/canvas-area';
 import { Roundtable } from '@openmaic/components/roundtable';
+import { mergeFragmentedLectureCues } from '@openmaic/components/roundtable/lecture-subtitle-dock';
 import { PlaybackEngine, computePlaybackView } from '@openmaic/lib/playback';
 import type { ActivityGate, EngineMode, TriggerEvent, Effect } from '@openmaic/lib/playback';
 import { ActionEngine } from '@openmaic/lib/action/engine';
@@ -899,15 +900,19 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     );
     const lectureCues = useMemo(
       () =>
-        (currentScene?.actions ?? []).flatMap((action, actionIndex) =>
-          action.type === 'speech' && action.text.trim()
-            ? [{ actionIndex, text: action.text.trim() }]
-            : [],
+        mergeFragmentedLectureCues(
+          (currentScene?.actions ?? []).flatMap((action, actionIndex) =>
+            action.type === 'speech' && action.text.trim()
+              ? [{ actionIndex, text: action.text.trim() }]
+              : [],
+          ),
         ),
       [currentScene],
     );
     const activeLectureCuePosition = useMemo(() => {
-      const position = lectureCues.findIndex((cue) => cue.actionIndex === lectureCueIndex);
+      const position = lectureCues.findIndex((cue) =>
+        (cue.actionIndexes ?? [cue.actionIndex]).includes(lectureCueIndex),
+      );
       if (position >= 0) return position;
       const textPosition = lectureCues.findIndex((cue) => cue.text === (lectureSpeech ?? firstSpeechText));
       return textPosition >= 0 ? textPosition : 0;

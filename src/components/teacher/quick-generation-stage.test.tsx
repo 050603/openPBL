@@ -189,4 +189,32 @@ describe("QuickGenerationStage", () => {
     fireEvent.click(screen.getByRole("button", { name: /从已完成页面继续/ }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("shows automatic recovery and stops presenting stale progress as live", () => {
+    render(
+      <QuickGenerationStage
+        artifacts={[outlineArtifact]}
+        backgroundEnabled
+        brief="设计一节项目课"
+        cancelling={false}
+        completed={false}
+        confirmCancel={false}
+        message="正在规划诊断补缺与达标拓展路径"
+        onCancel={vi.fn()}
+        onOpenCourse={vi.fn()}
+        onReview={vi.fn()}
+        paused={false}
+        progress={82}
+        recovering
+        remainingLabel="预计还需约 13 分钟"
+        reviewAvailable={false}
+        startedAt="2026-08-24T05:00:17.018Z"
+      />,
+    );
+
+    expect(screen.getAllByText("正在自动恢复").length).toBeGreaterThan(0);
+    expect(screen.getByText(/任务心跳暂时中断/)).toBeTruthy();
+    expect(screen.getByText("正在重新连接后台生成任务")).toBeTruthy();
+    expect(screen.getByTestId("quick-generation-progress-flow").className).toContain("animation:none");
+  });
 });

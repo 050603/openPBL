@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { ArrowUpRight, BookOpen, ExternalLink, Search, Send, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpRight, BookOpen, Clock3, ExternalLink, Search, Send, Sparkles } from "lucide-react";
 import { Streamdown } from "streamdown";
 import type { AiCompanionId } from "@/lib/ai-companions";
-import type { Course } from "@/lib/session/types";
+import type { AdaptiveMicroLesson, Course } from "@/lib/session/types";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 
@@ -23,31 +23,130 @@ type SearchResponse = {
   error?: string;
 };
 
+type ResourceHistoryEntry = {
+  id: string;
+  query: string;
+  kind: "text" | "micro-lesson";
+  answer: string;
+  sources: SearchSource[];
+  createdAt: string;
+  lesson?: AdaptiveMicroLesson;
+};
+
+const RESOURCE_HISTORY_LIMIT = 30;
+
+function readResourceHistory(storageKey: string): ResourceHistoryEntry[] {
+  try {
+    const value = window.localStorage.getItem(storageKey);
+    if (!value) return [];
+    const parsed = JSON.parse(value) as ResourceHistoryEntry[];
+    return Array.isArray(parsed) ? parsed.slice(0, RESOURCE_HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function StudioResourceLibrary({
   course,
+  studentId,
   stageKey,
   disabled,
   onAsk,
   onRequestMicroLesson,
+  microLessonTask,
+  onOpenMicroLesson,
 }: {
   course: Course;
+  studentId: string;
   stageKey: string;
   disabled: boolean;
   onAsk: (text: string, companionIds?: AiCompanionId[]) => Promise<boolean>;
   onRequestMicroLesson?: (message: string) => Promise<boolean>;
+  microLessonTask?: { lesson: AdaptiveMicroLesson } | null;
+  onOpenMicroLesson?: (lesson: AdaptiveMicroLesson) => void;
 }) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [lessonRequested, setLessonRequested] = useState(false);
+  const [history, setHistory] = useState<ResourceHistoryEntry[]>([]);
+  const [loadedHistoryKey, setLoadedHistoryKey] = useState<string | null>(null);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const courseResources = useMemo(() => course.resources ?? [], [course.resources]);
+  const availableMicroLessons = useMemo(() => {
+    const lessons = course.aiLearningProgress?.[studentId]?.adaptiveLearning?.microLessons ?? [];
+    const active = microLessonTask?.lesson;
+    return active
+      ? [active, ...lessons.filter((lesson) => lesson.id !== active.id)]
+      : lessons;
+  }, [course.aiLearningProgress, microLessonTask?.lesson, studentId]);
   const inquiryMode = normalizePblCourseConfig(course.pblConfig).resourceInquiryMode;
+  const historyStorageKey = `openpbl:resource-history:v1:${course.id}:${studentId}:${stageKey}`;
   const starterPrompts = stageKey === "make"
     ? ["这个制作问题需要哪些知识？", "怎样判断我的测试方法是否可靠？", "有哪些材料或案例可以参考？"]
     : ["这个方案涉及哪些关键概念？", "怎样判断我的测试方法是否可靠？", "这个事实可以从哪些来源交叉核对？"];
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setHistory(readResourceHistory(historyStorageKey));
+      setLoadedHistoryKey(historyStorageKey);
+    });
+    return () => { active = false; };
+  }, [historyStorageKey]);
+
+  useEffect(() => {
+    if (loadedHistoryKey !== historyStorageKey) return;
+    try {
+      window.localStorage.setItem(historyStorageKey, JSON.stringify(history.slice(0, RESOURCE_HISTORY_LIMIT)));
+    } catch {
+      // Browsers can disable or exhaust local storage; the current result remains usable.
+    }
+  }, [history, historyStorageKey, loadedHistoryKey]);
+
+  useEffect(() => {
+    if (!availableMicroLessons.length) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setHistory((current) => {
+        const lessonsById = new Map(availableMicroLessons.map((lesson) => [lesson.id, lesson]));
+        const claimedLessonIds = new Set(current.flatMap((entry) => entry.lesson?.id ? [entry.lesson.id] : []));
+        let changed = false;
+        const next = current.map((entry) => {
+          if (entry.kind !== "micro-lesson") return entry;
+          let lesson = entry.lesson ? lessonsById.get(entry.lesson.id) : undefined;
+          if (!lesson && !entry.lesson) {
+            const entryTime = Date.parse(entry.createdAt);
+            lesson = availableMicroLessons
+              .filter((candidate) => candidate.stageKey === stageKey && !claimedLessonIds.has(candidate.id))
+              .map((candidate) => ({ candidate, distance: Math.abs(Date.parse(candidate.createdAt) - entryTime) }))
+              .filter(({ distance }) => Number.isFinite(distance) && distance <= 10 * 60 * 1000)
+              .sort((a, b) => a.distance - b.distance)[0]?.candidate;
+          }
+          if (!lesson) return entry;
+          claimedLessonIds.add(lesson.id);
+          if (JSON.stringify(entry.lesson) === JSON.stringify(lesson)) return entry;
+          changed = true;
+          return { ...entry, lesson };
+        });
+        return changed ? next : current;
+      });
+    });
+    return () => { active = false; };
+  }, [availableMicroLessons, stageKey]);
+
+  function addHistory(entry: Omit<ResourceHistoryEntry, "id" | "createdAt">) {
+    setHistory((current) => [{
+      ...entry,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+    }, ...current].slice(0, RESOURCE_HISTORY_LIMIT));
+  }
 
   async function searchResources() {
     const clean = query.trim();
@@ -65,6 +164,12 @@ export function StudioResourceLibrary({
           setAnswer("");
           setSources([]);
           setLessonRequested(true);
+          addHistory({
+            query: clean,
+            kind: "micro-lesson",
+            answer: "知知已接收这个问题并开始制作即时微课。制作完成后，可在这条历史记录中直接打开。",
+            sources: [],
+          });
           return;
         }
       }
@@ -79,8 +184,11 @@ export function StudioResourceLibrary({
       if (!response.ok || !data.success) {
         throw new Error(data.error || `检索失败 (${response.status})`);
       }
-      setAnswer(data.answer?.trim() ?? "");
-      setSources((data.sources ?? []).filter((item) => item.title && item.url).slice(0, 8));
+      const nextAnswer = data.answer?.trim() ?? "";
+      const nextSources = (data.sources ?? []).filter((item) => item.title && item.url).slice(0, 8);
+      setAnswer(nextAnswer);
+      setSources(nextSources);
+      addHistory({ query: clean, kind: "text", answer: nextAnswer, sources: nextSources });
     } catch (searchError) {
       if (searchError instanceof DOMException && searchError.name === "AbortError") return;
       setError(searchError instanceof Error ? searchError.message : "资料查询失败，请稍后重试");
@@ -181,6 +289,64 @@ export function StudioResourceLibrary({
           ))}
         </div>
       )}
+
+      {history.length ? (
+        <section className="studio-library-section studio-library-history">
+          <header><Clock3 size={16} /><strong>历史问答</strong><span>{history.length}</span></header>
+          <div className="studio-library-history-list">
+            {history.map((entry) => (
+              <details
+                key={entry.id}
+                onToggle={(event) => {
+                  if (event.currentTarget.open) setExpandedHistoryId(entry.id);
+                  else if (expandedHistoryId === entry.id) setExpandedHistoryId(null);
+                }}
+              >
+                <summary>
+                  <span>{entry.kind === "micro-lesson" ? "即时微课" : "文字回答"}</span>
+                  <strong>{entry.query}</strong>
+                  <time>{new Date(entry.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+                </summary>
+                {expandedHistoryId === entry.id ? (
+                  <>
+                    <div className="studio-library-history-answer"><Streamdown>{entry.answer}</Streamdown></div>
+                    {entry.sources.length ? (
+                      <div className="studio-library-history-sources">
+                        {entry.sources.map((source) => (
+                          <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
+                            {source.title}<ExternalLink size={12} />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                    {entry.kind === "micro-lesson" ? (
+                      <div className="studio-library-history-lesson">
+                        <span>
+                          {entry.lesson?.status === "completed"
+                            ? "已完成"
+                            : entry.lesson?.status === "ready"
+                              ? "可学习"
+                              : entry.lesson?.status === "failed"
+                                ? "制作失败"
+                                : "制作中"}
+                        </span>
+                        <button
+                          disabled={!onOpenMicroLesson || !entry.lesson?.classroomId || !["ready", "completed"].includes(entry.lesson.status)}
+                          onClick={() => entry.lesson && onOpenMicroLesson?.(entry.lesson)}
+                          type="button"
+                        >
+                          {entry.lesson?.status === "completed" ? "再次查看微课" : "打开这节微课"}
+                          <ArrowUpRight size={13} />
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </details>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

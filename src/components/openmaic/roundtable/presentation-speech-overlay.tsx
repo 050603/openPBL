@@ -10,6 +10,7 @@ import type { PlaybackView } from '@openmaic/lib/playback';
 import type { Participant } from '@openmaic/lib/types/roundtable';
 import { cn } from '@openmaic/lib/utils';
 import { DEFAULT_TEACHER_AVATAR, DEFAULT_STUDENT_AVATAR } from '@openmaic/components/roundtable/constants';
+import type { InstructorIdentity } from '@/components/openmaic-bridge/instructor-identity-context';
 
 const PRESENTATION_BUBBLE_WIDTH = 'w-[min(420px,calc(100vw-3rem))]';
 
@@ -19,6 +20,7 @@ interface PresentationSpeechOverlayProps {
   readonly speakingAgentId: string | null;
   readonly isTopicPending: boolean;
   readonly userAvatar?: string;
+  readonly instructorIdentity?: InstructorIdentity;
   /** Which side this overlay instance renders — 'left' or 'right' */
   readonly side?: 'left' | 'right';
   readonly onBubbleClick?: () => void;
@@ -47,6 +49,7 @@ export function buildPresentationBubbleModel({
   fallbackStudentName,
   fallbackUserName,
   userAvatar,
+  instructorIdentity,
 }: {
   playbackView: PlaybackView;
   participants: Participant[];
@@ -56,6 +59,7 @@ export function buildPresentationBubbleModel({
   fallbackStudentName: string;
   fallbackUserName: string;
   userAvatar?: string;
+  instructorIdentity?: InstructorIdentity;
 }): PresentationBubbleModel | null {
   const { phase, bubbleRole, sourceText } = playbackView;
   const showDuringPhase =
@@ -84,8 +88,8 @@ export function buildPresentationBubbleModel({
       key: 'teacher',
       role: 'teacher',
       side: 'left',
-      name: teacherParticipant?.name || fallbackTeacherName,
-      avatar: DEFAULT_TEACHER_AVATAR,
+      name: instructorIdentity?.name || teacherParticipant?.name || fallbackTeacherName,
+      avatar: instructorIdentity?.avatar || DEFAULT_TEACHER_AVATAR,
       text: sourceText,
       isLoading,
       isTopicPending,
@@ -391,6 +395,7 @@ export function PresentationSpeechOverlay({
   speakingAgentId,
   isTopicPending,
   userAvatar,
+  instructorIdentity,
   side = 'left',
   onBubbleClick,
   audioIndicatorState,
@@ -408,6 +413,7 @@ export function PresentationSpeechOverlay({
     fallbackStudentName: t('settings.agentRoles.student'),
     fallbackUserName: t('roundtable.you'),
     userAvatar,
+    instructorIdentity,
   });
 
   // Persistent collapse: once collapsed, stay collapsed until user explicitly expands.

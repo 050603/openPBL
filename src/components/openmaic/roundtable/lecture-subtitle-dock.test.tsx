@@ -1,12 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TeachingKnowledgeGraphProvider } from '@/components/openmaic-bridge/knowledge-graph-context';
 import {
   buildSubtitleLines,
   LectureSubtitleDock,
+  mergeFragmentedLectureCues,
   resolveActiveCueIndex,
   resolveActiveSubtitleLineIndex,
   splitSubtitleText,
+  scrollSubtitleIntoView,
 } from './lecture-subtitle-dock';
 
 const cues = [
@@ -30,7 +32,35 @@ describe('resolveActiveCueIndex', () => {
 });
 
 describe('long subtitle paging', () => {
-  it('preserves complete sentences instead of dividing them by character count', () => {
+  it('groups legacy comma fragments while retaining their original audio indexes', () => {
+    const merged = mergeFragmentedLectureCues([
+      { actionIndex: 1, text: '计算机视觉的基本原理，' },
+      { actionIndex: 2, text: '就是让计算机看懂图像或视频，' },
+      { actionIndex: 3, text: '包括识别物体、场景和动作。' },
+      { actionIndex: 4, text: '这是核心目标。' },
+    ]);
+    expect(merged).toEqual([
+      {
+        actionIndex: 1,
+        actionIndexes: [1, 2, 3],
+        text: '计算机视觉的基本原理，就是让计算机看懂图像或视频，包括识别物体、场景和动作。',
+      },
+      { actionIndex: 4, actionIndexes: [4], text: '这是核心目标。' },
+    ]);
+    expect(resolveActiveCueIndex(merged, 2, '就是让计算机看懂图像或视频，')).toBe(0);
+  });
+
+  it('scrolls only the subtitle container instead of a page ancestor', () => {
+    const scrollTo = vi.fn();
+    const container = { clientHeight: 120, scrollTo } as unknown as HTMLElement;
+    const active = { offsetTop: 240, offsetHeight: 24 } as unknown as HTMLElement;
+
+    scrollSubtitleIntoView(container, active);
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 192, behavior: 'smooth' });
+  });
+
+  it('keeps a complete semantic sentence intact even when it wraps visually', () => {
     const text = '这是一个较长的讲解段落，需要跟随语音自动翻阅，并让正在朗读的内容始终清楚可见。';
     const lines = splitSubtitleText(text);
 
@@ -52,10 +82,14 @@ describe('long subtitle paging', () => {
   });
 
   it('maps speech progress to the matching line including the final line', () => {
-    const lines = buildSubtitleLines([{ actionIndex: 3, text: '第一部分内容，第二部分内容，最后一句。' }]);
+    const lines = buildSubtitleLines([{
+      actionIndex: 3,
+      text: '这是第一部分需要理解的内容。接着进入第二部分的具体应用。最后用一个实例完成本页总结。',
+    }]);
 
     expect(resolveActiveSubtitleLineIndex(lines, 0, 0)).toBe(0);
     expect(resolveActiveSubtitleLineIndex(lines, 0, 1)).toBe(lines.length - 1);
+    expect(resolveActiveSubtitleLineIndex(lines, 0, 0.8)).toBeGreaterThan(0);
   });
 
   it('keeps progress scoped to the active speech cue', () => {
@@ -109,5 +143,41 @@ describe('teaching rail layout', () => {
     );
     expect(screen.getByLabelText('当前课程知识图谱').className).toContain('h-full');
     expect(screen.getByLabelText('当前课程知识图谱').className).not.toContain('h-[176px]');
+  });
+
+  it('keeps context hidden during auto-follow and reveals it for manual browsing', () => {
+    render(
+      <TeachingKnowledgeGraphProvider graph={undefined} points={[]}>
+        <LectureSubtitleDock
+          activeActionIndex={0}
+          autoPlay
+          canGoNext={false}
+          canGoNextCue
+          canGoPrevious={false}
+          canGoPreviousCue={false}
+          cues={[
+            { actionIndex: 0, text: '当前字幕。' },
+            { actionIndex: 1, text: '下一条字幕。' },
+          ]}
+          currentText="当前字幕。"
+          engineMode="playing"
+          muted={false}
+          onCycleSpeed={vi.fn()}
+          onToggleAutoPlay={vi.fn()}
+          onToggleMute={vi.fn()}
+          playbackSpeed={1}
+          sceneIndex={0}
+          scenesCount={1}
+          teacherAvatar="/teacher.webp"
+          teacherName="知知"
+        />
+      </TeachingKnowledgeGraphProvider>,
+    );
+
+    const viewport = screen.getByLabelText('讲解字幕，可滚动浏览或拖动查看');
+    const nextLine = screen.getByRole('button', { name: '从此处重新播放：下一条字幕。' });
+    expect(nextLine.className).toContain('opacity-0');
+    fireEvent.wheel(viewport);
+    expect(nextLine.className).toContain('opacity-60');
   });
 });

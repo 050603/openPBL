@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
@@ -36,6 +36,7 @@ const course = {
 } as Course;
 
 describe("StudioResourceLibrary", () => {
+  beforeEach(() => window.localStorage.clear());
   afterEach(() => vi.restoreAllMocks());
 
   it("translates raw MIME types in course resources", () => {
@@ -51,6 +52,7 @@ describe("StudioResourceLibrary", () => {
         disabled={false}
         onAsk={vi.fn().mockResolvedValue(true)}
         stageKey="proposal"
+        studentId="student-1"
       />,
     );
 
@@ -80,6 +82,7 @@ describe("StudioResourceLibrary", () => {
         disabled={false}
         onAsk={onAsk}
         stageKey="proposal"
+        studentId="student-1"
       />,
     );
 
@@ -121,6 +124,7 @@ describe("StudioResourceLibrary", () => {
         onAsk={vi.fn().mockResolvedValue(true)}
         onRequestMicroLesson={requestMicroLesson}
         stageKey="proposal"
+        studentId="student-1"
       />,
     );
 
@@ -148,6 +152,7 @@ describe("StudioResourceLibrary", () => {
         onAsk={vi.fn().mockResolvedValue(true)}
         onRequestMicroLesson={requestMicroLesson}
         stageKey="proposal"
+        studentId="student-1"
       />,
     );
 
@@ -160,5 +165,89 @@ describe("StudioResourceLibrary", () => {
     expect(requestMicroLesson).toHaveBeenCalledOnce();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(screen.queryByText("查询结果")).toBeNull();
+  });
+
+  it("restores text and micro-lesson questions after the resource library is closed", async () => {
+    const requestMicroLesson = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, answer: "桥墩间距会改变构件受力。", sources: [] }),
+    } as Response);
+    const props = {
+      course,
+      disabled: false,
+      onAsk: vi.fn().mockResolvedValue(true),
+      onRequestMicroLesson: requestMicroLesson,
+      stageKey: "make",
+      studentId: "student-history",
+    };
+    const view = render(<StudioResourceLibrary {...props} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "检索资料" }), {
+      target: { value: "桥墩间距有什么影响" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "查资料" }));
+    await waitFor(() => expect(screen.getByText("桥墩间距会改变构件受力。")).toBeTruthy());
+
+    fireEvent.change(screen.getByRole("textbox", { name: "检索资料" }), {
+      target: { value: "系统讲解不同结构的受力差异" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "查资料" }));
+    await waitFor(() => expect(screen.getByText("这个问题更适合用微课讲清楚")).toBeTruthy());
+    await waitFor(() => expect(window.localStorage.getItem("openpbl:resource-history:v1:course-1:student-history:make")).toContain("micro-lesson"));
+
+    view.unmount();
+    render(<StudioResourceLibrary {...props} />);
+
+    await waitFor(() => expect(screen.getByText("历史问答")).toBeTruthy());
+    expect(screen.getByText("桥墩间距有什么影响")).toBeTruthy();
+    expect(screen.getByText("系统讲解不同结构的受力差异")).toBeTruthy();
+    expect(screen.getAllByText("即时微课").length).toBeGreaterThan(0);
+  });
+
+  it("opens a completed micro lesson directly from its history record", async () => {
+    window.localStorage.setItem("openpbl:resource-history:v1:course-1:student-lesson:proposal", JSON.stringify([{
+      id: "history-lesson-1",
+      query: "系统讲解拱形结构受力",
+      kind: "micro-lesson",
+      answer: "这节即时微课已经完成。",
+      sources: [],
+      createdAt: "2026-08-24T08:00:00.000Z",
+      lesson: {
+        id: "lesson-history-1",
+        stageKey: "proposal",
+        topic: "拱形结构受力",
+        decision: "systematic-lesson",
+        rationale: "需要系统讲解",
+        classroomId: "classroom-history-1",
+        status: "completed",
+        createdAt: "2026-08-24T08:00:00.000Z",
+      },
+    }]));
+    const onOpenMicroLesson = vi.fn();
+    render(
+      <StudioResourceLibrary
+        course={course}
+        disabled={false}
+        onAsk={vi.fn().mockResolvedValue(true)}
+        onOpenMicroLesson={onOpenMicroLesson}
+        stageKey="proposal"
+        studentId="student-lesson"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("系统讲解拱形结构受力")).toBeTruthy());
+    const details = screen.getByText("系统讲解拱形结构受力").closest("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    fireEvent.click(await screen.findByRole("button", { name: /再次查看微课/ }));
+
+    expect(onOpenMicroLesson).toHaveBeenCalledWith(expect.objectContaining({
+      id: "lesson-history-1",
+      classroomId: "classroom-history-1",
+    }));
   });
 });

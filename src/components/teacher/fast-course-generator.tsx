@@ -21,6 +21,7 @@ import {
   resolveQuickClassroomActiveArtifactId,
   type QuickClassroomGenerationSnapshot,
 } from "@/lib/course-generation/quick-artifacts";
+import { isGenerationHeartbeatStale } from "@/lib/course-generation/heartbeat";
 import { resolveLatestCompletedArtifactId } from "@/lib/course-design/active-artifact";
 import { readJsonResponse } from "@/lib/http/read-json-response";
 import type { Course, CourseDesignGenerationArtifact, CourseDesignGenerationTraceEntry } from "@/lib/session/types";
@@ -43,6 +44,8 @@ type DesignJob = {
   qualityReport?: { score?: number; summary?: string; checks?: string[] } | null;
   error?: string | null;
   startedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  updatedAt?: string | null;
   requestPreview?: {
     teacherBrief?: string;
     options?: GenerationOptions | null;
@@ -64,6 +67,8 @@ type ClassroomGenerationResponse = {
     estimatedRemainingSeconds: number | null;
     error?: string | null;
     startedAt?: string | null;
+    lastHeartbeatAt?: string | null;
+    updatedAt?: string | null;
   }) | null;
   error?: string;
 };
@@ -326,13 +331,18 @@ export function FastCourseGenerator({
 
   const classroomCompleted = classroomJob?.status === "completed" && Boolean(classroomJob.result?.id);
   const classroomFailed = classroomJob?.status === "failed";
+  const designRecovering = isGenerationHeartbeatStale(job);
+  const classroomRecovering = isGenerationHeartbeatStale(classroomJob);
+  const recovering = job?.status === "completed" ? classroomRecovering : designRecovering;
   const overallProgress = job?.status === "completed"
     ? combineQuickGenerationProgress(100, classroomJob?.progress ?? 0, classroomCompleted)
     : combineQuickGenerationProgress(job?.progress ?? 0, 0, false);
   const activeArtifactId = job?.status === "completed"
     ? resolveQuickClassroomActiveArtifactId(classroomJob)
     : resolveLatestCompletedArtifactId(artifacts);
-  const activeMessage = job?.status === "completed"
+  const activeMessage = recovering
+    ? "正在自动恢复"
+    : job?.status === "completed"
     ? classroomJob?.message || "课程设计已完成，正在衔接课堂内容生成"
     : job?.message || "正在分析课程信息";
   const activeRemaining = job?.status === "completed"
@@ -375,7 +385,8 @@ export function FastCourseGenerator({
         onReview={() => void reviewOutline()}
         paused={job?.status === "paused"}
         progress={overallProgress}
-        remainingLabel={classroomCompleted ? "全部内容已经生成并自动保存" : classroomFailed ? "已完成页面均已保存，可从断点继续" : formatDuration(activeRemaining)}
+        recovering={recovering}
+        remainingLabel={classroomCompleted ? "全部内容已经生成并自动保存" : classroomFailed ? "已完成页面均已保存，可从断点继续" : recovering ? "正在重新连接后台生成任务" : formatDuration(activeRemaining)}
         retrying={classroomRetrying}
         reviewAvailable={job?.status === "review_available" || job?.status === "paused"}
         startedAt={activeStartedAt}

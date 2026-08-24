@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
+import Image from "next/image";
 import {
   Archive,
   ArrowUpRight,
-  BookOpenCheck,
   CheckCircle2,
   ChevronRight,
   Clock3,
@@ -651,7 +651,7 @@ function CompanionStudioRuntime({
           >
             <div className="studio-micro-task__head">
               <span className="studio-micro-task__agent" aria-hidden="true">
-                <BookOpenCheck size={17} />
+                <Image alt="" height={44} priority src="/companions/zhizhi-micro-lesson-v2.png" width={44} />
                 {runtime.microLessonTask.lesson.status === "generating" ? <i /> : null}
               </span>
               <div>
@@ -784,21 +784,26 @@ function CompanionStudioRuntime({
             layoutMode={workspaceExpanded ? "fullscreen" : "sidebar"}
             onAsk={sendRequest}
             onStop={runtime.stop}
+            onOpenMicroLesson={(lesson) => {
+              runtime.openMicroLesson(lesson);
+              openStudioModal("micro-lesson");
+            }}
             runtime={runtime}
             stageKey={stageKey}
           />
         </StudioWorkspacePanel>
       ) : studioModal ? (
         <StudioDialog
+          badge={studioModal === "micro-lesson" ? "即时微课" : undefined}
           onClose={closeStudioModal}
           title={
             studioModal === "history"
               ? "完整对话历史"
               : studioModal === "micro-lesson"
-                ? runtime.microLessonTask?.lesson.topic ?? "即时微课"
+                ? course.name
                 : ZONE_COPY[studioModal].title
           }
-          variant={studioModal === "micro-lesson" ? "wide" : "default"}
+          variant={studioModal === "micro-lesson" ? "lesson" : "default"}
         >
           {studioModal === "micro-lesson" && runtime.microLessonTask?.lesson.classroomId ? (
             <MicroLessonPanel
@@ -1145,14 +1150,16 @@ function StudioWorkspacePanel({
 
 function StudioDialog({
   title,
+  badge,
   onClose,
   children,
   variant = "default",
 }: {
   title: string;
+  badge?: string;
   onClose: () => void;
   children: ReactNode;
-  variant?: "default" | "wide" | "workspace";
+  variant?: "default" | "wide" | "lesson" | "workspace";
 }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -1185,7 +1192,13 @@ function StudioDialog({
         role="dialog"
       >
         <header>
-          <div><span>OPENPBL WORKSPACE</span><h2 id="studio-dialog-title">{title}</h2></div>
+          <div>
+            <span className="studio-dialog__eyebrow">OPENPBL WORKSPACE</span>
+            <div className="studio-dialog__title-row">
+              <h2 id="studio-dialog-title">{title}</h2>
+              {badge ? <span className="studio-dialog__badge">{badge}</span> : null}
+            </div>
+          </div>
           <button aria-label="关闭" autoFocus onClick={onClose} type="button"><X size={18} /></button>
         </header>
         <div className="studio-dialog__body">{children}</div>
@@ -1246,24 +1259,23 @@ function MicroLessonPanel({
 
   return (
     <div className="studio-micro-lesson-player">
-      <div aria-live="polite" className="studio-micro-lesson-player__status" data-state={completionState}>
-        <BookOpenCheck size={15} />
-        <span>
-          {completionState === "completed"
-            ? "本次微课已完成，任务状态已经同步"
-            : completionState === "saving"
-              ? "正在保存学习完成状态…"
-              : completionState === "error"
-                ? "完成状态暂未保存，请停留在最后一页重试"
-                : `知知为你制作的即时微课 · ${lesson.topic}`}
-        </span>
-      </div>
+      <p aria-live="polite" className="sr-only">
+        {completionState === "completed"
+          ? "本次微课已完成，任务状态已经同步"
+          : completionState === "saving"
+            ? "正在保存学习完成状态"
+            : completionState === "error"
+              ? "完成状态暂未保存"
+              : "正在学习即时微课"}
+      </p>
       <StudentStageHost
         backHref={`/student/classroom/${courseId}`}
         classroomId={classroomId}
         className="!h-full !min-h-0 !max-h-none !rounded-none !border-0"
         courseId={courseId}
+        instructorIdentity={{ name: "知知", avatar: "/companions/zhizhi-micro-lesson-v2.png" }}
         onSceneComplete={handleSceneComplete}
+        requirePreparedAudio
         standalone
         studentId={studentId}
         studentName={studentName}
@@ -1281,6 +1293,7 @@ function PlanningPanel({
   onStop,
   initialView,
   layoutMode,
+  onOpenMicroLesson,
 }: {
   course: Course;
   stageKey: string;
@@ -1289,6 +1302,7 @@ function PlanningPanel({
   onStop: () => void;
   initialView: WorkbenchView;
   layoutMode: WorkbenchLayoutMode;
+  onOpenMicroLesson: (lesson: AdaptiveMicroLesson) => void;
 }) {
   return (
     <StudioProjectWorkbench
@@ -1297,6 +1311,7 @@ function PlanningPanel({
       layoutMode={layoutMode}
       onAskCompanion={onAsk}
       onStopCompanion={onStop}
+      onOpenMicroLesson={onOpenMicroLesson}
       runtime={runtime}
       stageKey={stageKey}
     />

@@ -80,6 +80,55 @@ export function rewriteFalseFutureSessionReferences(text: string): string {
     .replace(FALSE_FUTURE_SESSION_REFERENCE_EN, 'later in this lesson');
 }
 
+function endsCompleteNarrationSentence(text: string): boolean {
+  return /[。！？!?；;.](?:[”’"'）)】\]》」』]*)$/.test(text.trim());
+}
+
+function hasSpeechControlMetadata(action: Extract<Action, { type: 'speech' }>): boolean {
+  const controlled = action as Extract<Action, { type: 'speech' }> & {
+    activityPauseSec?: number;
+    timelinePauseSec?: number;
+  };
+  return Boolean(
+    controlled.audioId
+    || controlled.audioUrl
+    || controlled.activityPauseSec
+    || controlled.timelinePauseSec,
+  );
+}
+
+function joinNarrationFragments(left: string, right: string): string {
+  const trimmedLeft = left.trimEnd();
+  const trimmedRight = right.trimStart();
+  const needsSpace = /[A-Za-z0-9]$/.test(trimmedLeft) && /^[A-Za-z0-9]/.test(trimmedRight);
+  return `${trimmedLeft}${needsSpace ? ' ' : ''}${trimmedRight}`;
+}
+
+/** Merge adjacent comma-ended speech actions into complete semantic units. */
+export function mergeFragmentedNarrationActions(actions: ReadonlyArray<Action>): Action[] {
+  const merged: Action[] = [];
+  for (const action of actions) {
+    const previous = merged.at(-1);
+    if (
+      action.type === 'speech'
+      && action.text.trim()
+      && previous?.type === 'speech'
+      && previous.text.trim()
+      && !endsCompleteNarrationSentence(previous.text)
+      && !hasSpeechControlMetadata(previous)
+      && !hasSpeechControlMetadata(action)
+    ) {
+      merged[merged.length - 1] = {
+        ...previous,
+        text: joinNarrationFragments(previous.text, action.text),
+      };
+      continue;
+    }
+    merged.push({ ...action });
+  }
+  return merged;
+}
+
 /** Deterministic final guard for model outputs that ignore the continuity prompt. */
 export function enforceNarrationContinuity(
   actions: ReadonlyArray<Action>,
@@ -91,7 +140,7 @@ export function enforceNarrationContinuity(
   const lastSpeechIndex = speechIndexes.at(-1);
   const shouldStripOpening = context.narrationMode === 'embedded-segment'
     || context.sectionPosition !== 'course-first';
-  return actions.map((action, index) => {
+  const normalized = actions.map((action, index) => {
     if (action.type !== 'speech') return { ...action };
     let cleaned = context.pageIndex > 1
       ? action.text.replace(FALSE_SESSION_REFERENCE, '刚才')
@@ -125,4 +174,7 @@ export function enforceNarrationContinuity(
       text: cleaned || context.currentTeachingObjective || context.allTitles[context.pageIndex - 1] || action.text,
     };
   });
+  return context.narrationMode === 'embedded-segment'
+    ? mergeFragmentedNarrationActions(normalized)
+    : normalized;
 }

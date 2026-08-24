@@ -21,7 +21,7 @@ import {
   companionMicroLessonStageContext,
   isCompanionMicroLessonStage,
 } from "@/lib/adaptive-learning";
-import { generateAdaptiveClassroom } from "@/lib/adaptive-learning-client";
+import { generateAdaptiveClassroom, waitForAdaptiveClassroomAssets } from "@/lib/adaptive-learning-client";
 import {
   canRequestCompanionSupport,
   isReadyMadeDeliverableRequest,
@@ -348,6 +348,7 @@ export type CompanionRuntimeContextValue = {
     taskId?: string;
   } | null;
   completeMicroLesson: (lessonId: string) => void;
+  openMicroLesson: (lesson: AdaptiveMicroLesson) => void;
   dismissMicroLessonTask: () => void;
 };
 
@@ -384,12 +385,28 @@ export function CompanionRuntimeProvider({
 
   const [messages, setMessages] = useState<CompanionChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const restoredMicroLesson = useMemo(() => (
+    course.aiLearningProgress?.[session.studentId ?? ""]?.adaptiveLearning?.microLessons
+      .filter((lesson) => lesson.stageKey === stageKey)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
+  ), [course.aiLearningProgress, session.studentId, stageKey]);
+  const restoredLessonIdRef = useRef(restoredMicroLesson?.id);
   const [microLessonTask, setMicroLessonTask] = useState<{
     lesson: AdaptiveMicroLesson;
     progress: number;
     message: string;
     taskId?: string;
-  } | null>(null);
+  } | null>(() => restoredMicroLesson ? {
+    lesson: restoredMicroLesson,
+    progress: restoredMicroLesson.status === "generating" ? 96 : 100,
+    message: restoredMicroLesson.status === "generating"
+      ? "正在恢复上次微课的语音准备状态"
+      : restoredMicroLesson.status === "completed"
+        ? "微课学习已完成，可再次查看"
+        : restoredMicroLesson.status === "failed"
+          ? "上次微课制作未完成"
+          : "微课已经准备好，随时可以开始",
+  } : null);
   const [phase, setPhase] = useState<CompanionRuntimePhase>("idle");
   const [currentSpeaker, setCurrentSpeaker] = useState<AiCompanionId | null>(null);
   const [generatingCompanionId, setGeneratingCompanionId] = useState<AiCompanionId | null>(null);
@@ -427,6 +444,90 @@ export function CompanionRuntimeProvider({
   useEffect(() => { currentSpeakerRef.current = currentSpeaker; }, [currentSpeaker]);
   useEffect(() => { lastActivityAtRef.current = Date.now(); }, []);
   useEffect(() => () => microLessonAbortRef.current?.abort(), []);
+
+  const persistMicroLesson = useCallback(async (lesson: AdaptiveMicroLesson, signal?: AbortSignal) => {
+    const courseId = course.id.trim();
+    const studentId = session.studentId?.trim();
+    if (!courseId || !studentId) throw new Error("学生课程身份尚未准备好");
+    const response = await fetch("/api/adaptive-learning/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
+      body: JSON.stringify({
+        action: "upsert-micro-lesson",
+        courseId,
+        studentId,
+        lesson,
+      }),
+      signal,
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as {
+        error?: string;
+        code?: string;
+        message?: string;
+      } | null;
+      const detail = payload?.message || payload?.error || payload?.code;
+      throw new Error(`微课状态保存失败（HTTP ${response.status}${detail ? ` · ${detail}` : ""}）`);
+    }
+  }, [course.id, session.studentId]);
+
+  useEffect(() => {
+    const restoredId = restoredLessonIdRef.current;
+    if (!restoredId) return;
+    const restored = microLessonTask?.lesson;
+    if (!restored || restored.id !== restoredId || restored.status !== "generating") return;
+
+    // This effect only reconciles the task found during initial hydration. A
+    // newly requested lesson is owned by its generation controller below.
+    restoredLessonIdRef.current = undefined;
+    if (!restored.classroomId) {
+      const failed: AdaptiveMicroLesson = { ...restored, status: "failed" };
+      setMicroLessonTask({
+        lesson: failed,
+        progress: 100,
+        message: "上次制作在课堂保存前中断，请重新发起制作",
+      });
+      void persistMicroLesson(failed).catch(() => undefined);
+      return;
+    }
+
+    const controller = new AbortController();
+    void waitForAdaptiveClassroomAssets({
+      classroomId: restored.classroomId,
+      signal: controller.signal,
+      onProgress: ({ progress, message }) => setMicroLessonTask((current) =>
+        current?.lesson.id === restored.id ? { ...current, progress, message } : current),
+    }).then(async () => {
+      const ready: AdaptiveMicroLesson = { ...restored, status: "ready" };
+      let saveWarning: string | undefined;
+      try {
+        await persistMicroLesson(ready, controller.signal);
+      } catch (error) {
+        saveWarning = error instanceof Error ? error.message : "微课状态暂未同步";
+        console.warn("Restored micro lesson is playable but its state could not be saved:", error);
+      }
+      setMicroLessonTask((current) => current?.lesson.id === restored.id ? {
+        ...current,
+        lesson: ready,
+        progress: 100,
+        message: saveWarning
+          ? `微课已经可以学习；${saveWarning}`
+          : "微课已经准备好，随时可以开始",
+      } : current);
+    }).catch(async (error) => {
+      if (controller.signal.aborted) return;
+      const failed: AdaptiveMicroLesson = { ...restored, status: "failed" };
+      await persistMicroLesson(failed).catch(() => undefined);
+      setMicroLessonTask((current) => current?.lesson.id === restored.id ? {
+        ...current,
+        lesson: failed,
+        progress: 100,
+        message: error instanceof Error ? error.message : "微课语音准备失败，请重新制作",
+      } : current);
+    });
+    return () => controller.abort();
+  }, [microLessonTask?.lesson, persistMicroLesson]);
 
   const handleTTSStart = useCallback((item: { text: string; companionId: AiCompanionId }) => {
     setCurrentSpeaker(item.companionId);
@@ -524,18 +625,17 @@ export function CompanionRuntimeProvider({
     const backgroundController = new AbortController();
     microLessonAbortRef.current?.abort();
     microLessonAbortRef.current = backgroundController;
-    const persistLesson = async (next: AdaptiveMicroLesson) => {
-      await fetch("/api/adaptive-learning/state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
-        body: JSON.stringify({
-          action: "upsert-micro-lesson",
-          courseId: courseRef.current.id,
-          studentId: session.studentId,
-          lesson: next,
-        }),
-        signal: backgroundController.signal,
-      });
+    const persistLesson = (next: AdaptiveMicroLesson) =>
+      persistMicroLesson(next, backgroundController.signal);
+    let persistenceWarning: string | undefined;
+    const syncLesson = async (next: AdaptiveMicroLesson) => {
+      try {
+        await persistLesson(next);
+        persistenceWarning = undefined;
+      } catch (error) {
+        persistenceWarning = error instanceof Error ? error.message : "微课状态暂未同步";
+        console.warn("Micro lesson generation continues after a state synchronization failure:", error);
+      }
     };
 
     const keyPoints = decision.keyPoints.length ? decision.keyPoints : [decision.topic];
@@ -576,11 +676,23 @@ export function CompanionRuntimeProvider({
             `请生成 1–2 页、总时长 2–3 分钟的即时微课，主题为“${decision.topic}”。`,
             `讲解要点：${keyPoints.join("；")}`,
             `必须联系课程驱动问题：${courseRef.current.drivingQuestion}`,
+            "每个 speech 动作必须表达完整语义句，并以句号、问号或叹号结束；不要把同一句话按逗号拆成多个动作。",
             "用与主课程一致的教学语言、PPT、TTS 和互动节奏；不要扩展成完整章节。",
           ].join("\n"),
           stageKey: lessonStageKey,
           scenes: sceneInputs,
           signal: backgroundController.signal,
+          waitForAssets: true,
+          onClassroomCreated: async ({ classroomId }) => {
+            const preparingLesson: AdaptiveMicroLesson = { ...lesson, classroomId };
+            setMicroLessonTask((current) => current?.lesson.id === lesson.id ? {
+              ...current,
+              lesson: preparingLesson,
+              progress: 96,
+              message: "知知正在生成并检查讲解音频",
+            } : current);
+            await syncLesson(preparingLesson);
+          },
           onStarted: async () => {
             generationStarted = true;
             setMicroLessonTask({
@@ -597,7 +709,7 @@ export function CompanionRuntimeProvider({
             }));
             enqueueTTS(acknowledgement, "knowledge");
             settleLaunch(true);
-            await persistLesson(lesson);
+            await syncLesson(lesson);
           },
           onProgress: ({ progress, message: progressMessage }) =>
             setMicroLessonTask((current) =>
@@ -611,11 +723,13 @@ export function CompanionRuntimeProvider({
           classroomId: generated.classroomId,
           status: "ready",
         };
-        await persistLesson(readyLesson);
+        await syncLesson(readyLesson);
         setMicroLessonTask({
           lesson: readyLesson,
           progress: 100,
-          message: "微课已经准备好，随时可以开始",
+          message: persistenceWarning
+            ? `微课已经可以学习；${persistenceWarning}`
+            : "微课已经准备好，随时可以开始",
           taskId,
         });
         const readyText = `“${decision.topic}”微课已经准备好了。点击右下角任务卡就能进入学习，学完会带你回到这里。`;
@@ -645,7 +759,7 @@ export function CompanionRuntimeProvider({
       }
     })();
     return launchResult;
-  }, [enqueueTTS, session.studentId, stageKey]);
+  }, [enqueueTTS, persistMicroLesson, session.studentId, stageKey]);
 
   const requestMicroLesson = useCallback(async (message: string): Promise<boolean> => {
     const clean = message.trim();
@@ -1197,6 +1311,15 @@ export function CompanionRuntimeProvider({
             }
           : current,
       ),
+    openMicroLesson: (lesson) => setMicroLessonTask({
+      lesson,
+      progress: lesson.status === "generating" ? 5 : 100,
+      message: lesson.status === "completed"
+        ? "微课学习已完成，可再次查看"
+        : lesson.status === "ready"
+          ? "微课已经准备好，随时可以开始"
+          : "知知正在制作这节微课",
+    }),
     dismissMicroLessonTask: () => setMicroLessonTask(null),
   };
 

@@ -4,6 +4,7 @@ import type { SceneOutline } from '../types/generation';
 import {
   buildNarrationContext,
   enforceNarrationContinuity,
+  mergeFragmentedNarrationActions,
   rewriteFalseFutureSessionReferences,
   stripRepeatedNarrationOpening,
   stripFormalNarrationFarewell,
@@ -84,6 +85,24 @@ describe('narration continuity', () => {
     expect(enforceNarrationContinuity(actions, buildNarrationContext(embedded, 0))).toEqual([
       { id: 's1', type: 'speech', text: '先回顾训练集的作用。' },
       { id: 's2', type: 'speech', text: '这能帮助我们进入后面的学习。 接下来，让我们继续后面的学习。' },
+    ]);
+  });
+
+  it('merges comma-ended micro-lesson fragments into complete semantic sentences', () => {
+    const actions: Action[] = [
+      { id: 's1', type: 'speech', text: '计算机视觉的基本原理，' },
+      { id: 's2', type: 'speech', text: '就是让计算机能够看懂图像或视频，' },
+      { id: 's3', type: 'speech', text: '包括识别其中的物体、场景和动作。' },
+      { id: 's4', type: 'speech', text: '这是整个领域的核心目标。' },
+    ];
+
+    expect(mergeFragmentedNarrationActions(actions)).toEqual([
+      {
+        id: 's1',
+        type: 'speech',
+        text: '计算机视觉的基本原理，就是让计算机能够看懂图像或视频，包括识别其中的物体、场景和动作。',
+      },
+      { id: 's4', type: 'speech', text: '这是整个领域的核心目标。' },
     ]);
   });
 

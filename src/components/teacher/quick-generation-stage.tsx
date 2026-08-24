@@ -59,6 +59,7 @@ export function QuickGenerationStage({
   cancelling,
   confirmCancel,
   completed,
+  recovering = false,
   failed = false,
   failureMessage,
   retrying = false,
@@ -80,6 +81,7 @@ export function QuickGenerationStage({
   cancelling: boolean;
   confirmCancel: boolean;
   completed: boolean;
+  recovering?: boolean;
   failed?: boolean;
   failureMessage?: string;
   retrying?: boolean;
@@ -168,9 +170,9 @@ export function QuickGenerationStage({
           <div className="flex min-w-0 items-center gap-3 text-xs font-bold text-stone-600">
             <span className="relative grid size-9 shrink-0 place-items-center rounded-[var(--radius-md)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
               <BrainCircuit className="size-4" />
-              {!paused ? <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[var(--pbl-bg)] bg-emerald-500 motion-safe:animate-pulse" /> : null}
+              {!paused ? <span className={cn("absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[var(--pbl-bg)] motion-safe:animate-pulse", recovering ? "bg-amber-500" : "bg-emerald-500")} /> : null}
             </span>
-            <span className="truncate">{failed ? "课程页面生成未完成" : paused ? "生成已暂停，等待大纲确认" : message || "正在生成课程"}</span>
+            <span className="truncate">{failed ? "课程页面生成未完成" : recovering ? "正在自动恢复" : paused ? "生成已暂停，等待大纲确认" : message || "正在生成课程"}</span>
           </div>
           {failed ? (
             <button
@@ -244,8 +246,14 @@ export function QuickGenerationStage({
                     transition={reducedMotion ? { duration: 0 } : { duration: .76, ease: [.22, 1, .36, 1] }}
                   >
                     <span aria-hidden className="absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
-                    {!paused && !completed && !failed ? <motion.span aria-hidden className="absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent" animate={{ x: [-120, 860] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }} /> : null}
-                    <ArtifactCard artifact={displayed} active={!paused && !completed && !failed} />
+                    {!paused && !completed && !failed && !recovering ? <motion.span aria-hidden className="absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent" animate={{ x: [-120, 860] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }} /> : null}
+                    <ArtifactCard artifact={displayed} active={!paused && !completed && !failed && !recovering} />
+                    {recovering && !failed ? (
+                      <div className="absolute inset-x-5 bottom-5 z-30 flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50/95 px-4 py-3 text-amber-950 shadow-sm backdrop-blur sm:inset-x-7" role="status">
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                        <div><p className="text-xs font-semibold">正在自动恢复</p><p className="mt-1 text-[11px] leading-5 text-amber-800">任务心跳暂时中断，系统正在重新连接后台生成任务。已完成内容已经保存。</p></div>
+                      </div>
+                    ) : null}
                     {failed ? (
                       <div className="absolute inset-x-5 bottom-5 z-30 flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50/95 px-4 py-3 text-amber-950 shadow-sm backdrop-blur sm:inset-x-7">
                         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
@@ -266,11 +274,11 @@ export function QuickGenerationStage({
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--pbl-border)]">
                 <motion.div
                   animate={{ width: `${progress}%` }}
-                  className="quick-progress-current relative h-full rounded-full bg-[linear-gradient(90deg,#1d4ed8_0%,#2563eb_48%,#60a5fa_58%,#2563eb_68%,#1d4ed8_100%)] [background-size:220%_100%]"
+                  className={cn("quick-progress-current relative h-full rounded-full bg-[linear-gradient(90deg,#1d4ed8_0%,#2563eb_48%,#60a5fa_58%,#2563eb_68%,#1d4ed8_100%)] [background-size:220%_100%]", recovering && "!bg-amber-400 [animation:none!important]")}
                   data-testid="quick-generation-progress-flow"
                   transition={{ duration: .7, ease: "easeOut" }}
                 >
-                  <span aria-hidden className="quick-progress-tip absolute -right-0.5 top-1/2 size-2 -translate-y-1/2 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(96,165,250,.75)]" />
+                  {!recovering ? <span aria-hidden className="quick-progress-tip absolute -right-0.5 top-1/2 size-2 -translate-y-1/2 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(96,165,250,.75)]" /> : null}
                 </motion.div>
               </div>
               <span className="w-11 text-right text-xs font-black tabular-nums text-blue-800">{progress}%</span>
@@ -278,7 +286,7 @@ export function QuickGenerationStage({
             <div className="mx-auto mt-3 flex max-w-[760px] flex-wrap items-center justify-between gap-x-5 gap-y-2 text-[11px] font-semibold text-stone-500">
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 <span className="inline-flex items-center gap-1.5"><Clock3 className="size-3.5" />已用时 {formatElapsed(elapsedSeconds)}</span>
-                <span>{paused ? "预计剩余时间将在继续后更新" : remainingLabel}</span>
+                <span>{recovering ? "正在重新连接后台生成任务" : paused ? "预计剩余时间将在继续后更新" : remainingLabel}</span>
               </div>
               <span>{backgroundEnabled ? "可以离开，任务会继续生成" : "当前环境请保持页面打开"}</span>
             </div>
