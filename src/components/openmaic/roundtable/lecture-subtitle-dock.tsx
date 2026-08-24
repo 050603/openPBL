@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   ChevronLeft,
@@ -187,14 +187,19 @@ export function resolveActiveCueIndex(
   return exactText >= 0 ? exactText : 0;
 }
 
-export function scrollSubtitleIntoView(container: HTMLElement, active: HTMLElement): void {
+export function scrollSubtitleIntoView(
+  container: HTMLElement,
+  active: HTMLElement,
+  behavior: ScrollBehavior = 'smooth',
+): void {
   // The scroll viewport is positioned, so each direct subtitle button's
   // offsetTop is local to this container. Avoid scrollIntoView here: browsers
   // may choose a page ancestor and move the whole lesson instead of the rail.
-  const targetTop = active.offsetTop - (container.clientHeight - active.offsetHeight) / 2;
-  const top = Math.max(0, targetTop);
+  const targetTop = active.offsetTop + active.offsetHeight / 2 - container.clientHeight / 2;
+  const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  const top = Math.min(maxTop, Math.max(0, targetTop));
   if (typeof container.scrollTo === 'function') {
-    container.scrollTo({ top, behavior: 'smooth' });
+    container.scrollTo({ top, behavior });
   } else {
     container.scrollTop = top;
   }
@@ -300,12 +305,30 @@ export function LectureSubtitleDock({
     globalThis.setTimeout(() => { didDragRef.current = false; }, 0);
   }, []);
 
-  useEffect(() => {
-    if (isBrowsingSubtitles) return;
+  const centerActiveSubtitle = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const container = scrollRef.current;
     const active = container?.querySelector<HTMLElement>('[data-active-line="true"]');
-    if (container && active) scrollSubtitleIntoView(container, active);
-  }, [activeSubtitleLineIndex, isBrowsingSubtitles]);
+    if (!container || !active) return;
+    scrollSubtitleIntoView(container, active, behavior);
+  }, []);
+
+  useLayoutEffect(() => {
+    // Playback always owns the viewport. Manual browsing is allowed while
+    // paused, then the rail returns to the spoken sentence after the short
+    // browsing grace period.
+    if (isBrowsingSubtitles && !isPlaying) return;
+    centerActiveSubtitle('smooth');
+  }, [activeSubtitleLineIndex, centerActiveSubtitle, isBrowsingSubtitles, isPlaying]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (!isBrowsingSubtitles || isPlaying) centerActiveSubtitle('auto');
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [centerActiveSubtitle, isBrowsingSubtitles, isPlaying]);
 
   useEffect(() => () => {
     if (browsingTimerRef.current) clearTimeout(browsingTimerRef.current);
@@ -316,7 +339,7 @@ export function LectureSubtitleDock({
       aria-label="AI 授课字幕与播放控制"
       className="relative z-10 flex min-h-0 w-full shrink-0 overflow-hidden border-t border-slate-200/80 bg-white/96 dark:border-white/10 dark:bg-slate-950/96 xl:h-full xl:w-[304px] xl:border-l xl:border-t-0 xl:bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(252,254,253,0.97)_48%,rgba(241,249,246,0.94)_76%,rgba(255,255,255,0.98)_100%)] xl:dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.98)_0%,rgba(8,20,31,0.97)_52%,rgba(10,36,34,0.82)_76%,rgba(2,6,23,0.98)_100%)]"
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 py-3 xl:px-5 xl:py-4">
+      <div className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] overflow-hidden px-4 py-3 xl:px-5 xl:py-4">
         <header className="flex items-center gap-3 xl:items-start">
           <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-[14px] bg-[#edf5f2] ring-1 ring-slate-900/8 dark:ring-white/10 xl:h-12 xl:w-12">
             <img alt={teacherName} className="h-full w-full object-cover" src={teacherAvatar} />
@@ -355,16 +378,16 @@ export function LectureSubtitleDock({
 
         <div
           className={cn(
-            'relative min-w-0 flex-1 xl:min-h-0',
+            'relative min-h-0 min-w-0 overflow-hidden',
             hasKnowledgeGraph && 'xl:grid xl:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]',
           )}
           data-teaching-rail-content
         >
-          <div className="relative min-h-0 min-w-0 overflow-hidden">
+          <div className="relative h-[112px] min-h-0 min-w-0 overflow-hidden xl:h-full" data-subtitle-viewport-frame>
             <div
               aria-live="polite"
               aria-label="讲解字幕，可滚动浏览或拖动查看"
-              className="relative h-[112px] cursor-grab snap-y snap-proximity touch-pan-y overflow-y-auto overscroll-contain pr-2 [scrollbar-color:rgba(20,112,102,.28)_transparent] [scrollbar-width:thin] active:cursor-grabbing xl:h-full"
+              className="absolute inset-0 cursor-grab snap-y snap-proximity touch-pan-y overflow-y-auto overscroll-contain pr-2 [scrollbar-color:rgba(20,112,102,.28)_transparent] [scrollbar-width:thin] active:cursor-grabbing"
               onPointerCancel={handleSubtitlePointerEnd}
               onPointerDown={handleSubtitlePointerDown}
               onPointerMove={handleSubtitlePointerMove}
@@ -475,7 +498,10 @@ export function LectureSubtitleDock({
           </div>
         ) : null}
 
-        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-white/8 xl:mt-4 xl:flex-col xl:items-stretch xl:gap-4 xl:pt-4">
+        <div
+          className="relative z-20 mt-3 flex shrink-0 items-center justify-between border-t border-slate-100 bg-white/98 pt-3 dark:border-white/8 dark:bg-slate-950/98 xl:mt-4 xl:flex-col xl:items-stretch xl:gap-4 xl:pt-4"
+          data-subtitle-controls
+        >
           <div className="flex items-center justify-center gap-1 xl:justify-between">
             <IconButton disabled={!canGoPreviousCue} label="上一句" onClick={onPreviousCue}>
               <SkipBack size={17} strokeWidth={1.8} />

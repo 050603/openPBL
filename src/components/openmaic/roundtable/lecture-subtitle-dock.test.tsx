@@ -52,12 +52,22 @@ describe('long subtitle paging', () => {
 
   it('scrolls only the subtitle container instead of a page ancestor', () => {
     const scrollTo = vi.fn();
-    const container = { clientHeight: 120, scrollTo } as unknown as HTMLElement;
+    const container = { clientHeight: 120, scrollHeight: 400, scrollTo } as unknown as HTMLElement;
     const active = { offsetTop: 240, offsetHeight: 24 } as unknown as HTMLElement;
 
     scrollSubtitleIntoView(container, active);
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 192, behavior: 'smooth' });
+  });
+
+  it('clamps the centered subtitle position to the scrollable range', () => {
+    const scrollTo = vi.fn();
+    const container = { clientHeight: 120, scrollHeight: 300, scrollTo } as unknown as HTMLElement;
+    const active = { offsetTop: 280, offsetHeight: 40 } as unknown as HTMLElement;
+
+    scrollSubtitleIntoView(container, active);
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 180, behavior: 'smooth' });
   });
 
   it('keeps a complete semantic sentence intact even when it wraps visually', () => {
@@ -104,6 +114,54 @@ describe('long subtitle paging', () => {
 });
 
 describe('teaching rail layout', () => {
+  it('moves the subtitle viewport when speech advances to the next sentence', () => {
+    const sharedProps = {
+      activeActionIndex: 0,
+      autoPlay: true,
+      canGoNext: false,
+      canGoNextCue: false,
+      canGoPrevious: false,
+      canGoPreviousCue: false,
+      cues: [{ actionIndex: 0, text: '第一句话。第二句话。第三句话。' }],
+      currentText: '第一句话。第二句话。第三句话。',
+      engineMode: 'playing' as const,
+      muted: false,
+      onCycleSpeed: vi.fn(),
+      onToggleAutoPlay: vi.fn(),
+      onToggleMute: vi.fn(),
+      playbackSpeed: 1,
+      sceneIndex: 0,
+      scenesCount: 1,
+      teacherAvatar: '/teacher.webp',
+      teacherName: '知知',
+    };
+    const { rerender } = render(
+      <TeachingKnowledgeGraphProvider graph={undefined} points={[]}>
+        <LectureSubtitleDock {...sharedProps} speechProgress={0} />
+      </TeachingKnowledgeGraphProvider>,
+    );
+    const viewport = screen.getByLabelText('讲解字幕，可滚动浏览或拖动查看');
+    const secondLine = screen.getByRole('button', { name: '从此处重新播放：第二句话。' });
+    const scrollTo = vi.fn();
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 120 },
+      scrollHeight: { configurable: true, value: 400 },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    Object.defineProperties(secondLine, {
+      offsetHeight: { configurable: true, value: 80 },
+      offsetTop: { configurable: true, value: 160 },
+    });
+
+    rerender(
+      <TeachingKnowledgeGraphProvider graph={undefined} points={[]}>
+        <LectureSubtitleDock {...sharedProps} speechProgress={0.5} />
+      </TeachingKnowledgeGraphProvider>,
+    );
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 140, behavior: 'smooth' });
+  });
+
   it('shares the available height between subtitles and the knowledge graph by ratio', () => {
     Element.prototype.scrollIntoView = vi.fn();
     render(
@@ -143,6 +201,12 @@ describe('teaching rail layout', () => {
     );
     expect(screen.getByLabelText('当前课程知识图谱').className).toContain('h-full');
     expect(screen.getByLabelText('当前课程知识图谱').className).not.toContain('h-[176px]');
+    const viewportFrame = document.querySelector('[data-subtitle-viewport-frame]') as HTMLElement;
+    expect(viewportFrame.className).toContain('overflow-hidden');
+    expect(screen.getByLabelText('讲解字幕，可滚动浏览或拖动查看').className).toContain('absolute');
+    const controls = document.querySelector('[data-subtitle-controls]') as HTMLElement;
+    expect(controls.className).toContain('shrink-0');
+    expect(controls.className).toContain('z-20');
   });
 
   it('keeps context hidden during auto-follow and reveals it for manual browsing', () => {
