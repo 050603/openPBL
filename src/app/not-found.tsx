@@ -77,7 +77,7 @@ export default function NotFound() {
 
         {/* 底部签名 */}
         <p className="mt-16 text-xs text-[var(--pbl-text-subtle)]">
-          openPBL · 项目式课堂协作系统
+          PrAIxis · AI inside practice.
         </p>
       </main>
     </div>

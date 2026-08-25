@@ -12,8 +12,9 @@ import { ChunkLoadRecovery } from "@/lib/runtime/chunk-load-recovery";
 import { DesktopAccessGuard } from "@/components/desktop-access-guard";
 
 export const metadata: Metadata = {
-  title: "openPBL - 项目共创平台",
-  description: "学生端与教师端一体化项目式学习平台界面原型",
+  title: "PrAIxis - 与 AI 一起实践，让学习真正发生",
+  description:
+    "PrAIxis 是将 AI 融入项目式学习实践的教学平台，贯通教师备课、课堂协同、项目创作、成果评价与学习反思。",
 };
 
 export default function RootLayout({

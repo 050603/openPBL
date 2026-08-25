@@ -17,6 +17,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { PraixisLogoMark } from "@/components/brand/praixis-logo";
 import { cn } from "@/lib/utils";
 import { COURSE_STATUS_LABEL } from "@/lib/session/types";
 import type { CourseStatus } from "@/lib/session/types";
@@ -52,7 +53,7 @@ type OpenPanel = "courses" | "notifications" | "profile" | null;
 export function DashboardShell({
   role,
   phase = "",
-  title = "AI 授知项目共创平台",
+  title = "与 AI 一起实践的项目课堂",
   subtitle,
   course,
   children,
@@ -140,7 +141,7 @@ export function DashboardShell({
             <LogoMark role={role} />
             <div className="hidden min-w-0 sm:block">
               <div className="flex items-baseline gap-1">
-                <span className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">openPBL</span>
+                <span className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">PrAIxis</span>
               </div>
               <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
             </div>
@@ -416,15 +417,7 @@ export function LogoMark({ role = "teacher" }: { role?: Role }) {
   // 使用统一品牌 Logo 图标（不再按 role 切换颜色，保持品牌一致性）
   return (
     <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/brand/logo-icon.png"
-        alt="openPBL"
-        width={36}
-        height={36}
-        className="h-9 w-9 object-contain"
-        draggable={false}
-      />
+      <PraixisLogoMark size={36} />
       {/* 角色 dot 标识 */}
       <span
         className={cn(

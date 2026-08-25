@@ -54,7 +54,7 @@ export function DesktopAccessGuard({ children }: { children: ReactNode }) {
               <path d="m18 20 4 4 8-9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
             </svg>
           </span>
-          <p className="desktop-access-blocker__eyebrow">openPBL 桌面课堂</p>
+          <p className="desktop-access-blocker__eyebrow">PrAIxis 实践课堂</p>
           <h1>请使用电脑访问</h1>
           <p>为了更好的使用体验，请使用电脑访问。</p>
           <p className="desktop-access-blocker__hint">

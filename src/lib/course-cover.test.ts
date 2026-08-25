@@ -46,7 +46,7 @@ describe("course cover generation", () => {
 
     for (const fixedInstruction of [
       "warm educational narrative illustration",
-      "consistent OpenPBL course-cover visual system",
+      "consistent PrAIxis course-cover visual system",
       "suitable for display in a real school classroom",
       "one believable project moment",
       "investigating, making, testing or presenting",

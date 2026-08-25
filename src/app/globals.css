@@ -1416,6 +1416,384 @@ select {
   transform: translateY(0);
 }
 
+/* PrAIxis 命名动画：Praxis → Pr·AI·xis */
+.praixis-origin {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(20, 184, 166, 0.1), transparent 30%),
+    radial-gradient(circle at 18% 18%, rgba(99, 102, 241, 0.08), transparent 26%),
+    #fff;
+}
+
+.praixis-origin::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0.45;
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at center, black, transparent 72%);
+}
+
+.praixis-origin__eyebrow {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+}
+
+.praixis-origin__stage {
+  position: relative;
+  min-height: 500px;
+  padding: 58px 24px 32px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.praixis-origin__stage::before {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  width: 280px;
+  height: 150px;
+  content: "";
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(20, 184, 166, 0.16);
+  filter: blur(52px);
+  animation: praixis-origin-glow 12s ease-in-out infinite;
+}
+
+.praixis-origin__word {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  color: #082f6b;
+  font-family: var(--font-editorial, "Noto Serif SC", serif);
+  font-size: clamp(4.2rem, 11vw, 8.5rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.055em;
+}
+
+.praixis-origin__mutable {
+  position: relative;
+  display: inline-block;
+  width: 0.72em;
+  height: 1em;
+  color: #0f766e;
+  animation: praixis-origin-width 12s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.praixis-origin__a,
+.praixis-origin__ai {
+  position: absolute;
+  inset: 0 auto auto 0;
+  white-space: nowrap;
+  transform-origin: 50% 70%;
+}
+
+.praixis-origin__a {
+  left: 0.075em;
+  top: 0.055em;
+  animation: praixis-origin-a 12s ease-in-out infinite;
+}
+
+.praixis-origin__ai {
+  color: #0fb9b1;
+  opacity: 0;
+  transform: translateY(0.35em) scale(0.45);
+  text-shadow: 0 12px 42px rgba(20, 184, 166, 0.25);
+  animation: praixis-origin-ai 12s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.praixis-origin__meaning {
+  position: relative;
+  z-index: 1;
+  min-height: 265px;
+  margin-top: 30px;
+}
+
+.praixis-origin__praxis-copy,
+.praixis-origin__praixis-copy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.praixis-origin__praxis-copy {
+  animation: praixis-origin-old-copy 12s ease-in-out infinite;
+}
+
+.praixis-origin__praixis-copy {
+  opacity: 0;
+  transform: translateY(18px);
+  animation: praixis-origin-new-copy 12s ease-in-out infinite;
+}
+
+.praixis-origin__greek {
+  display: inline-flex;
+  padding: 6px 13px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.praixis-origin__praxis-copy > p {
+  margin-top: 16px;
+  color: var(--pbl-text-strong);
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-weight: 650;
+}
+
+.praixis-origin__praxis-copy > p strong {
+  color: #0f766e;
+  font-weight: 800;
+}
+
+.praixis-origin__taxonomy-group {
+  position: relative;
+  width: min(100%, 720px);
+  margin-top: 18px;
+  padding-bottom: 44px;
+}
+
+.praixis-origin__taxonomy-group::before {
+  position: absolute;
+  right: 10px;
+  bottom: 32px;
+  left: 10px;
+  height: 13px;
+  content: "";
+  border-right: 1.5px solid rgba(13, 148, 136, 0.48);
+  border-bottom: 1.5px solid rgba(13, 148, 136, 0.48);
+  border-left: 1.5px solid rgba(13, 148, 136, 0.48);
+  border-radius: 0 0 12px 12px;
+}
+
+.praixis-origin__taxonomy-group::after {
+  position: absolute;
+  bottom: 17px;
+  left: 50%;
+  width: 1.5px;
+  height: 16px;
+  content: "";
+  transform: translateX(-50%);
+  background: rgba(13, 148, 136, 0.48);
+}
+
+.praixis-origin__taxonomy {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.praixis-origin__taxonomy > span {
+  display: flex;
+  min-height: 76px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--pbl-border);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.88);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
+
+.praixis-origin__taxonomy strong {
+  color: #334155;
+  font-family: var(--font-editorial, serif);
+  font-size: 15px;
+}
+
+.praixis-origin__taxonomy small {
+  color: var(--pbl-text-muted);
+  font-size: 11px;
+}
+
+.praixis-origin__taxonomy > .is-praxis {
+  border-color: rgba(13, 148, 136, 0.32);
+  background: linear-gradient(135deg, #ecfeff, #f0fdfa);
+  box-shadow: 0 12px 34px rgba(13, 148, 136, 0.12);
+}
+
+.praixis-origin__taxonomy > .is-praxis strong,
+.praixis-origin__taxonomy > .is-praxis small {
+  color: #0f766e;
+}
+
+.praixis-origin__praxis-copy .praixis-origin__aristotle {
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 15px;
+  transform: translateX(-50%);
+  border: 1.5px solid rgba(13, 148, 136, 0.38);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f0fdfa, #ecfeff);
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 10px 28px rgba(13, 148, 136, 0.15);
+}
+
+.praixis-origin__aristotle span {
+  padding-right: 8px;
+  border-right: 1px solid rgba(13, 148, 136, 0.2);
+  color: #0f4c81;
+  font-family: var(--font-editorial, serif);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.praixis-origin__thesis {
+  color: var(--pbl-text-strong);
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+  font-weight: 850;
+  letter-spacing: -0.03em;
+}
+
+.praixis-origin__roles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.praixis-origin__roles span {
+  padding: 8px 13px;
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ecfeff, #eef2ff);
+  color: #0f4c81;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.praixis-origin__praixis-copy > p:last-child {
+  margin-top: 22px;
+  color: var(--pbl-text-muted);
+  font-size: 14px;
+}
+
+.praixis-origin__praixis-copy strong {
+  margin-left: 0.35em;
+  color: #0f766e;
+  font-weight: 800;
+}
+
+.praixis-origin__closing {
+  position: relative;
+  margin: 34px auto 0;
+  max-width: 760px;
+  color: var(--pbl-text-muted);
+  font-size: clamp(0.95rem, 2vw, 1.1rem);
+  line-height: 1.9;
+}
+
+.praixis-origin__closing span,
+.praixis-origin__closing strong {
+  color: #0f9e99;
+  font-weight: 800;
+}
+
+@keyframes praixis-origin-width {
+  0%, 36%, 100% { width: 0.72em; }
+  46%, 90% { width: 1.22em; }
+}
+
+@keyframes praixis-origin-a {
+  0%, 34% { opacity: 1; transform: translateY(0) scale(1); }
+  44%, 92% { opacity: 0; transform: translateY(-0.28em) scale(0.6); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes praixis-origin-ai {
+  0%, 36%, 100% { opacity: 0; transform: translateY(0.35em) scale(0.45); }
+  48%, 90% { opacity: 1; transform: translateY(0) scale(1); }
+  96% { opacity: 0; transform: translateY(-0.2em) scale(0.75); }
+}
+
+@keyframes praixis-origin-old-copy {
+  0%, 34% { opacity: 1; transform: translateY(0); }
+  43%, 96% { opacity: 0; transform: translateY(-14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes praixis-origin-new-copy {
+  0%, 40%, 100% { opacity: 0; transform: translateY(18px); }
+  50%, 90% { opacity: 1; transform: translateY(0); }
+  96% { opacity: 0; transform: translateY(-12px); }
+}
+
+@keyframes praixis-origin-glow {
+  0%, 36%, 100% { opacity: 0.45; transform: translateX(-50%) scale(0.82); }
+  50%, 90% { opacity: 0.9; transform: translateX(-50%) scale(1.18); }
+}
+
+@media (max-width: 640px) {
+  .praixis-origin__stage {
+    min-height: 590px;
+    padding-inline: 16px;
+  }
+
+  .praixis-origin__meaning {
+    min-height: 345px;
+  }
+
+  .praixis-origin__taxonomy {
+    grid-template-columns: 1fr;
+  }
+
+  .praixis-origin__taxonomy > span {
+    min-height: 58px;
+  }
+
+  .praixis-origin__taxonomy-group {
+    padding-bottom: 54px;
+  }
+
+  .praixis-origin__praxis-copy .praixis-origin__aristotle {
+    max-width: calc(100vw - 80px);
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .praixis-origin__mutable { width: 1.22em; }
+  .praixis-origin__a,
+  .praixis-origin__praxis-copy { display: none; }
+  .praixis-origin__ai,
+  .praixis-origin__praixis-copy {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* 滚动提示动画 */
 .pbl-scroll-hint {
   animation: pbl-scroll-hint-bounce 2s ease-in-out infinite;

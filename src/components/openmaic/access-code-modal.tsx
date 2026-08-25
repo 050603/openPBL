@@ -118,7 +118,7 @@ export function AccessCodeModal({ open, onSuccess }: AccessCodeModalProps) {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.25, duration: 0.4 }}
               >
-                openPBL AI Classroom
+                PrAIxis · AI inside practice
               </motion.p>
 
               {/* Form */}

@@ -11,7 +11,7 @@ import {
   User,
   UserPlus,
 } from "lucide-react";
-import { OpenPblLogo } from "@/components/brand/open-pbl-logo";
+import { PraixisLogo } from "@/components/brand/praixis-logo";
 
 type RegistrationStatus = {
   loading: boolean;
@@ -133,8 +133,8 @@ export default function TeacherRegisterPage() {
     <div className="min-h-screen bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
       <header className="border-b border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
         <div className="mx-auto flex min-h-16 max-w-5xl items-center px-5">
-          <Link href="/" aria-label="OpenPBL 首页">
-            <OpenPblLogo variant="horizontal" height={28} />
+          <Link href="/" aria-label="PrAIxis 首页">
+            <PraixisLogo variant="horizontalSolid" height={28} />
           </Link>
           <span className="ml-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--pbl-text-subtle)]">
             · 首次初始化

@@ -11,7 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { AnimatePresence, LayoutGroup } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { OpenPblLogo } from "@/components/brand/open-pbl-logo";
+import { PraixisLogo } from "@/components/brand/praixis-logo";
 import { CourseGenerationGlyph } from "@/components/course-workshop-animation";
 import { QuickOutlineReviewDialog } from "@/components/teacher/quick-outline-review-dialog";
 import { QuickGenerationStage } from "@/components/teacher/quick-generation-stage";
@@ -416,7 +416,7 @@ export function FastCourseGenerator({
 
       <div className="w-full max-w-[820px]">
         <div className="mb-10 flex justify-center">
-          <OpenPblLogo height={82} variant="horizontal" />
+          <PraixisLogo height={82} variant="horizontal" />
         </div>
 
         <div className="overflow-visible rounded-[22px] border border-stone-300 bg-white shadow-[0_22px_70px_rgba(28,25,23,.11)] transition-shadow focus-within:shadow-[0_24px_75px_rgba(28,25,23,.13)]">

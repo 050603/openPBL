@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Lock, User } from "lucide-react";
+import { PraixisLogo } from "@/components/brand/praixis-logo";
 
 export default function TeacherLoginPage() {
   const router = useRouter();
@@ -44,14 +45,7 @@ export default function TeacherLoginPage() {
     <div className="min-h-screen bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
       <header className="border-b border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
         <div className="mx-auto flex min-h-16 max-w-5xl items-center gap-3 px-5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/logo-horizontal.png"
-            alt="openPBL"
-            height={28}
-            className="h-7 w-auto object-contain"
-            draggable={false}
-          />
+          <PraixisLogo variant="horizontalSolid" height={28} />
           <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--pbl-text-subtle)]">
             · 教师登录
           </span>

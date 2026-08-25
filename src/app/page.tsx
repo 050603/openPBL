@@ -3,7 +3,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
-  Bot,
   ClipboardCheck,
   Flag,
   GraduationCap,
@@ -12,10 +11,10 @@ import {
   PenTool,
   Presentation,
   RotateCw,
-  Sparkles,
   UsersRound,
 } from "lucide-react";
-import { OpenPblLogo } from "@/components/brand/open-pbl-logo";
+import { PraixisLogo } from "@/components/brand/praixis-logo";
+import { BrandOriginStory } from "@/components/home/brand-origin-story";
 import { CosmicReveal } from "@/components/home/cosmic-reveal";
 
 const STAGES = [
@@ -72,33 +71,33 @@ const STAGES = [
 const FEATURES = [
   {
     icon: Layers,
-    title: "人机协同 PBL 平台",
-    desc: "一个平台覆盖项目式学习全流程链路——从课程设计、课堂组织到成果评价与反思，教师与 AI 协同推进每一个环节。",
-    points: ["覆盖 PBL 全流程链路", "教师与 AI 协同推进", "新型课堂解决方案"],
+    title: "贯通每一步",
+    desc: "从驱动问题到成果反思，课程设计、课堂组织与学习证据在同一条实践链路中持续流动。",
+    points: ["六阶段自然衔接", "过程与成果彼此印证", "每一步都可回看、可延续"],
     accent: "from-indigo-50 to-violet-50",
     iconBg: "from-indigo-500 to-violet-600",
   },
   {
     icon: BookOpen,
-    title: "教师备课",
-    desc: "教师在一个平台完成课程主题设定、知识范围圈定与课程生成，自动产出课程大纲与课件，备课效率显著提升。",
-    points: ["主题与知识范围设定", "自动生成课程大纲与课件", "备课与课堂无缝衔接"],
+    title: "更从容地备课",
+    desc: "围绕真实问题设定主题与知识边界，由 AI 协助生成并打磨课程大纲、课堂内容与项目任务。",
+    points: ["从真实问题组织课程", "AI 协助生成与打磨", "备课成果直接进入课堂"],
     accent: "from-amber-50 to-orange-50",
     iconBg: "from-amber-500 to-orange-500",
   },
   {
     icon: GraduationCap,
-    title: "课堂讲授",
-    desc: "教师在课堂中开展教学，AI 协助组织课堂节奏与答疑；学生进度实时同步，让教师随时掌握课堂状态。",
-    points: ["教师主导课堂组织", "AI 协助讲授与答疑", "学生进度实时同步"],
+    title: "看见每一次推进",
+    desc: "教师掌握课堂节奏与关键判断，AI 在讲授、答疑和过程支持中随时响应，学生进度清晰可见。",
+    points: ["教师始终掌握课堂", "AI 在实践现场协同", "学习状态实时同步"],
     accent: "from-blue-50 to-cyan-50",
     iconBg: "from-blue-500 to-cyan-500",
   },
   {
     icon: ClipboardCheck,
-    title: "课后评价",
-    desc: "教师在一个平台完成学生成果评价、过程证据审核与反思引导，形成完整的学习闭环与可复用证据。",
-    points: ["成果评价与反馈", "过程证据审核", "学习反思与证据沉淀"],
+    title: "让成长有据可循",
+    desc: "把作品、反馈、过程证据与学习反思连接起来，让评价不仅指向结果，也照亮下一次实践。",
+    points: ["作品与过程共同评价", "反馈推动持续迭代", "反思沉淀为可迁移经验"],
     accent: "from-emerald-50 to-teal-50",
     iconBg: "from-emerald-500 to-teal-500",
   },
@@ -109,7 +108,7 @@ export default function Home() {
     <div className="min-h-screen bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
       <SiteHeader />
       <Hero />
-      <Highlights />
+      <BrandOriginStory />
       <Features />
       <Workflow />
       <Entry />
@@ -128,9 +127,9 @@ function SiteHeader() {
         <Link
           href="/"
           className="flex items-center transition-opacity hover:opacity-80"
-          aria-label="openPBL 首页"
+          aria-label="PrAIxis 首页"
         >
-          <OpenPblLogo variant="horizontal" height={30} />
+          <PraixisLogo variant="horizontalSolid" height={30} priority />
         </Link>
         <nav className="flex items-center gap-2 md:gap-3">
           <a
@@ -189,24 +188,25 @@ function Hero() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-500 opacity-75" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-indigo-500" />
           </span>
-          New Classroom Model · 2026
+          Praxis + AI · AI inside practice
         </div>
 
         {/* 巨型横版 Logo —— 不使用 pbl-hero-text（初始 opacity:0），避免动画卡住导致 logo 不可见 */}
         <div className="mb-10 pbl-float-soft">
-          <OpenPblLogo
+          <PraixisLogo
             variant="horizontal"
             height={130}
+            priority
             style={{ filter: "drop-shadow(0 16px 48px rgba(99, 102, 241, 0.25))" }}
           />
         </div>
 
         {/* 一句话定位 —— 渐变文字 */}
         <h1
-          className="pbl-hero-text whitespace-nowrap text-[length:clamp(2rem,5.5vw,4rem)] font-extrabold leading-[1.08] tracking-tight"
+          className="pbl-hero-text text-[length:clamp(2rem,5.5vw,4rem)] font-extrabold leading-[1.08] tracking-tight [text-wrap:balance]"
           style={{ animationDelay: "0.25s" }}
         >
-          <span className="pbl-display-gradient">让项目式学习拥有更多可能</span>
+          <span className="pbl-display-gradient">与 AI 一起实践，让学习真正发生</span>
         </h1>
 
         {/* 副标题 */}
@@ -214,7 +214,7 @@ function Hero() {
           className="pbl-hero-text mt-7 max-w-3xl text-[16px] leading-7 text-[var(--pbl-text-muted)] md:text-[17px]"
           style={{ animationDelay: "0.4s" }}
         >
-          人机协同覆盖 PBL 全流程——一个平台支持教师备课、课堂讲授与课后评价，重新定义项目式课堂。
+          AI 参与教学实践。学生在 AI 与教师共同指导下探究、设计、创作与反馈，并始终保有判断与行动，让学习真正发生。
         </p>
 
         {/* 双 CTA */}
@@ -233,15 +233,6 @@ function Hero() {
           </Link>
         </div>
 
-        {/* 关键指标 */}
-        <div
-          className="pbl-hero-text mt-20 grid w-full max-w-3xl grid-cols-3 gap-4 border-t border-[var(--pbl-border)] pt-10"
-          style={{ animationDelay: "0.7s" }}
-        >
-          <HeroStat value="6" label="课堂阶段" />
-          <HeroStat value="全流程" label="链路覆盖" />
-          <HeroStat value="新" label="课堂模式" />
-        </div>
       </div>
 
       {/* 滚动提示 */}
@@ -258,138 +249,6 @@ function Hero() {
   );
 }
 
-function HeroStat({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="flex flex-col items-center">
-      <div className="pbl-stat-number text-[length:clamp(2rem,5vw,3rem)]">{value}</div>
-      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--pbl-text-subtle)]">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   3. Highlights —— 全流程链路 + 新课堂模式（双卡宣传区）
-   ============================================================ */
-function Highlights() {
-  return (
-    <section className="pbl-light-section border-b border-[var(--pbl-border)] py-20 md:py-24">
-      <div className="pbl-wide-container px-6 md:px-10">
-        <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
-          {/* 卡片 1：全流程链路 */}
-          <CosmicReveal>
-            <article className="relative h-full overflow-hidden rounded-3xl border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-8 md:p-10">
-              {/* 渐变背景 */}
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-50 via-transparent to-violet-50/50" />
-              <div className="relative">
-                {/* 标签 */}
-                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-indigo-700">
-                  <Layers size={12} />
-                  全流程链路
-                </div>
-                {/* 标题 */}
-                <h3 className="whitespace-nowrap text-[length:clamp(1.625rem,3vw,2.125rem)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
-                  <span className="pbl-display-gradient">覆盖 PBL 全流程链路</span>
-                </h3>
-                {/* 描述 */}
-                <p className="mt-4 max-w-xl text-[15px] leading-7 text-[var(--pbl-text-muted)]">
-                  一个平台打通项目式学习的每一个环节——从课程设计、项目启动、知识学习、方案构思、项目实践、成果汇报到学习反思，形成可持续循环的学习闭环。
-                </p>
-                {/* 流程链路 */}
-                <div className="mt-6 flex flex-wrap items-center gap-2">
-                  {["课程设计", "项目启动", "知识学习", "方案构思", "项目实践", "成果汇报", "学习反思"].map((item, idx, arr) => (
-                    <div key={item} className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pbl-border)] bg-white/80 px-3 py-1.5 text-[12px] font-semibold text-[var(--pbl-text)]">
-                        <span className="grid h-4 w-4 place-items-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
-                          {idx + 1}
-                        </span>
-                        {item}
-                      </span>
-                      {idx < arr.length - 1 ? (
-                        <ArrowRight size={12} className="shrink-0 text-[var(--pbl-text-subtle)]" />
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-                {/* 底部小注 */}
-                <p className="mt-5 text-[12px] leading-5 text-[var(--pbl-text-subtle)]">
-                  前一阶段的产出成为下一阶段的输入，第六阶段的反思产出会成为下一个项目的起点。
-                </p>
-              </div>
-            </article>
-          </CosmicReveal>
-
-          {/* 卡片 2：新课堂模式 */}
-          <CosmicReveal delay={100}>
-            <article className="relative h-full overflow-hidden rounded-3xl border border-[var(--pbl-border)] bg-[var(--pbl-surface)] p-8 md:p-10">
-              {/* 渐变背景 */}
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-emerald-50 via-transparent to-teal-50/50" />
-              <div className="relative">
-                {/* 标签 */}
-                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-700">
-                  <Sparkles size={12} />
-                  新课堂模式
-                </div>
-                {/* 标题 */}
-                <h3 className="whitespace-nowrap text-[length:clamp(1.625rem,3vw,2.125rem)] font-extrabold leading-[1.1] tracking-tight text-[var(--pbl-text-strong)]">
-                  <span className="pbl-display-gradient">新型人机协同课堂</span>
-                </h3>
-                {/* 描述 */}
-                <p className="mt-4 max-w-xl text-[15px] leading-7 text-[var(--pbl-text-muted)]">
-                  重新定义教师与 AI 在课堂中的协作方式：教师主导课堂组织与决策，AI 协助讲授与答疑，两者在一个平台上协同推进六阶段课堂闭环。
-                </p>
-                {/* 三大特征 */}
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <ModeFeature
-                    icon={<GraduationCap size={16} />}
-                    title="教师主导"
-                    desc="组织课堂、决策节奏、评价成果"
-                  />
-                  <ModeFeature
-                    icon={<Bot size={16} />}
-                    title="AI 协同"
-                    desc="协助讲授、答疑、过程记录"
-                  />
-                  <ModeFeature
-                    icon={<Layers size={16} />}
-                    title="平台一体"
-                    desc="备课、授课、评价同一平台"
-                  />
-                </div>
-                {/* 底部小注 */}
-                <p className="mt-5 text-[12px] leading-5 text-[var(--pbl-text-subtle)]">
-                  教师可以在同一平台完成备课、课堂讲授与课后评价，无需在多个工具之间切换。
-                </p>
-              </div>
-            </article>
-          </CosmicReveal>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ModeFeature({
-  icon,
-  title,
-  desc,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-[var(--pbl-border)] bg-white/80 p-4">
-      <div className="mb-2 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
-        {icon}
-      </div>
-      <h4 className="text-[13px] font-bold text-[var(--pbl-text-strong)]">{title}</h4>
-      <p className="mt-1 text-[11px] leading-4 text-[var(--pbl-text-muted)]">{desc}</p>
-    </div>
-  );
-}
-
 /* ============================================================
    4. Features —— 4 个核心能力卡片
    ============================================================ */
@@ -403,14 +262,14 @@ function Features() {
         <CosmicReveal className="mb-16">
           <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--pbl-text-subtle)]">
             <span className="h-px w-8 bg-[var(--pbl-text-strong)]" />
-            核心能力
+            TEACH · LEARN · CREATE
           </div>
-          <h2 className="whitespace-nowrap text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
-            一个平台，
-            <span className="pbl-display-gradient">人机协同覆盖 PBL 全链路。</span>
+          <h2 className="text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)] [text-wrap:balance]">
+            从一堂课，
+            <span className="pbl-display-gradient">走向一次真正的创造。</span>
           </h2>
           <p className="mt-5 max-w-4xl text-[15px] leading-7 text-[var(--pbl-text-muted)]">
-            面向新型课堂的一体化解决方案：教师在一个平台完成备课、课堂讲授与课后评价，AI 协同推进项目式学习的每一个环节。
+            PrAIxis 让教师、学生与 AI 围绕同一个真实问题协同工作，让知识进入行动，让每一次行动留下可见的成长证据。
           </p>
         </CosmicReveal>
 
@@ -490,13 +349,13 @@ function Workflow() {
 
       <div className="pbl-wide-container relative z-10 px-6 md:px-10">
         <CosmicReveal className="mb-16 max-w-3xl">
-          <div className="pbl-cosmic-chapter mb-4">课堂流程</div>
+          <div className="pbl-cosmic-chapter mb-4">LEARN BY DOING</div>
           <h2 className="text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
-            六个阶段，
-            <span className="pbl-display-gradient">构成学习闭环。</span>
+            问题引路，
+            <span className="pbl-display-gradient">作品作答。</span>
           </h2>
           <p className="mt-5 text-[15px] leading-7 text-[var(--pbl-text-muted)]">
-            教师与 AI 协同推进每一阶段：教师主导课堂组织，AI 协助讲授与答疑，前一阶段的产出成为下一阶段的输入。第六阶段的反思产出，会成为下一个项目的起点。
+            六个阶段把“知道”推进到“做到”：每一次产出都成为下一步的依据，最终由成果回应问题，再由反思开启新的实践。
           </p>
         </CosmicReveal>
 
@@ -576,15 +435,15 @@ function Entry() {
         <CosmicReveal className="mb-14 text-center">
           <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--pbl-text-subtle)]">
             <span className="h-px w-8 bg-[var(--pbl-text-strong)]" />
-            开始使用
+            STEP INTO PRACTICE
             <span className="h-px w-8 bg-[var(--pbl-text-strong)]" />
           </div>
           <h2 className="text-[length:clamp(2rem,5vw,3.25rem)] font-extrabold leading-[1.05] tracking-tight text-[var(--pbl-text-strong)]">
-            选择身份，
-            <span className="pbl-display-gradient">进入课堂。</span>
+            下一次实践，
+            <span className="pbl-display-gradient">从这里开始。</span>
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-[15px] leading-7 text-[var(--pbl-text-muted)]">
-            教师在一个平台完成备课、课堂讲授与课后评价；学生通过邀请码加入课堂，开展项目学习。
+            教师创建并引领项目课堂，学生通过邀请码进入实践现场，与 AI 一起把想法变成作品。
           </p>
         </CosmicReveal>
 
@@ -701,10 +560,10 @@ function SiteFooter() {
       <div className="pbl-wide-container px-6 md:px-10">
         <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
           <div className="flex items-center gap-3">
-            <OpenPblLogo variant="horizontal" height={28} />
+            <PraixisLogo variant="horizontalCompact" height={28} />
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[12px] font-medium text-[var(--pbl-text-muted)]">
-            <span>人机协同 PBL 平台</span>
+            <span>Praxis + AI</span>
             <span className="hidden md:inline text-[var(--pbl-text-subtle)]">·</span>
             <span>备课</span>
             <span className="hidden md:inline text-[var(--pbl-text-subtle)]">·</span>
@@ -715,7 +574,7 @@ function SiteFooter() {
             <span>六阶段闭环</span>
           </div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--pbl-text-subtle)]">
-            © 2026 openPBL
+            © 2026 PrAIxis · AI inside practice.
           </div>
         </div>
       </div>

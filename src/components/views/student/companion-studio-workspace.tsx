@@ -1193,7 +1193,7 @@ function StudioDialog({
       >
         <header>
           <div>
-            <span className="studio-dialog__eyebrow">OPENPBL WORKSPACE</span>
+            <span className="studio-dialog__eyebrow">PRAIXIS WORKSPACE</span>
             <div className="studio-dialog__title-row">
               <h2 id="studio-dialog-title">{title}</h2>
               {badge ? <span className="studio-dialog__badge">{badge}</span> : null}
