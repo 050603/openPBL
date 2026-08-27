@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@plugin "tailwind-scrollbar-hide";
+
+@custom-variant dark (&:is(.dark *));
+
 /* ============================================================
    OpenPBL Design System v3 — 教育温暖风
    设计原则：温暖、亲和、有教育感
@@ -29,6 +33,25 @@
   --pbl-border: #e7e5e4;
   --pbl-border-strong: #d6d3d1;
   --pbl-border-soft: #f5f4f1;
+
+  /* Plate 官方 UI 语义色。值复用 OpenPBL 色板，组件结构和交互保持
+     Plate registry 默认实现，避免在编辑器内部另画一套控件。 */
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --primary: #6d28d9;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f4f1;
+  --secondary-foreground: #292524;
+  --muted: #f5f4f1;
+  --muted-foreground: #78716c;
+  --accent: #f5f3ff;
+  --accent-foreground: #5b21b6;
+  --border: #e7e5e4;
+  --input: #d6d3d1;
+  --ring: #8b5cf6;
+  --brand: #7c3aed;
 
   /* —— 身份色：教师端（深蓝 Blue + 暖橙强调）—— */
   /* 颜色加深到 blue-700，确保白色文字对比度 ≥ 4.5:1 (WCAG AA) */
@@ -125,14 +148,32 @@
   --duration-fast: 120ms;
   --duration-base: 200ms;
   --duration-slow: 320ms;
+  --highlight: oklch(0.852 0.199 91.936);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
   --font-sans: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
   --font-serif: "Noto Serif SC", "Songti SC", serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --color-highlight: var(--highlight);
 }
 
 * {
@@ -338,6 +379,60 @@ select {
 .quick-course-brief:focus-visible {
   outline: none !important;
   box-shadow: none !important;
+}
+
+/* The document workspace is already a full-page editing surface. Do not draw
+   a second input-style focus frame around the whole Plate editor. */
+.pbl-document-editor:focus,
+.pbl-document-editor:focus-visible,
+.pbl-document-editor:focus-within,
+.pbl-document-editor [data-slate-editor="true"]:focus,
+.pbl-document-editor [data-slate-editor="true"]:focus-visible,
+.pbl-document-editor [contenteditable="true"]:focus,
+.pbl-document-editor [contenteditable="true"]:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Keep the document canvas on Plate's original neutral light palette. The
+   surrounding project and AI surfaces continue to use OpenPBL identity colors. */
+.pbl-document-editor,
+body.plate-default-theme {
+  --background: #ffffff;
+  --foreground: oklch(0.145 0 0);
+  --card: #ffffff;
+  --card-foreground: oklch(0.145 0 0);
+  --popover: #ffffff;
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --brand: oklch(0.623 0.214 259.815);
+  background: #ffffff;
+  color: var(--foreground);
+}
+
+/* Plate toolbar overlays use the original floating-card treatment: the
+   surface is separated by elevation instead of a visible outline. These
+   menus render through Radix portals, so scope them through the temporary
+   body theme class rather than the editor DOM subtree. */
+body.plate-default-theme [data-slot="dropdown-menu-content"],
+body.plate-default-theme [data-slot="dropdown-menu-sub-content"],
+body.plate-default-theme [data-slot="popover-content"] {
+  z-index: 90;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--popover);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 16%);
 }
 
 ::selection {
@@ -1876,4 +1971,9 @@ select {
   .resource-block-arrival {
     animation: none;
   }
+}
+
+.dark {
+  --highlight: oklch(0.852 0.199 91.936);
+  --brand: oklch(0.707 0.165 254.624);
 }

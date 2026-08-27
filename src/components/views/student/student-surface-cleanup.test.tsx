@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 
-vi.mock("@/components/rich-text-editor", () => ({ RichTextEditor: () => <div>项目编辑器</div> }));
+vi.mock("@/components/plate-document-editor", () => ({ PlateDocumentEditor: () => <div>项目编辑器</div> }));
 vi.mock("./companion-roundtable", () => ({ CompanionRoundtable: () => <div>AI 伴学圆桌</div> }));
 vi.mock("@/lib/session/store", () => ({ useSession: () => ({ studentId: "s1", studentName: "张三", user: { name: "张三" }, upsertSubmission: vi.fn(), addActivity: vi.fn(), updateStudentProgress: vi.fn() }) }));
 

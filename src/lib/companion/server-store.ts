@@ -27,7 +27,9 @@ export async function appendCompanionMessages(input: {
       courseId: input.courseId,
       studentId: input.studentId,
       stageKey: input.stageKey,
-      messages: [...(existing?.messages ?? []), ...input.messages].slice(-500),
+      // Collaboration records are learning evidence. Do not destructively trim
+      // older turns; the student-visible/model window is selected separately.
+      messages: [...(existing?.messages ?? []), ...input.messages],
       openingSentAt: input.openingTrigger === "stage-opening" ? existing?.openingSentAt ?? now : existing?.openingSentAt,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -39,6 +41,48 @@ export async function appendCompanionMessages(input: {
         : [...threads, thread],
     };
   }, { targetStudentId: input.studentId });
+}
+
+export async function softDeleteCompanionMessage(input: {
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  messageId: string;
+  conversationId: string;
+}): Promise<boolean> {
+  const now = new Date().toISOString();
+  let changed = false;
+  await updateCourse(input.courseId, (course) => ({
+    ...course,
+    companionThreads: (course.companionThreads ?? []).map((thread) => {
+      if (thread.studentId !== input.studentId || thread.stageKey !== input.stageKey) {
+        return thread;
+      }
+      return {
+        ...thread,
+        messages: thread.messages.map((message) => {
+          const belongsToConversation = input.conversationId === "legacy"
+            ? !message.conversationId || message.conversationId === "legacy"
+            : message.conversationId === input.conversationId;
+          if (
+            message.id !== input.messageId
+            || !belongsToConversation
+            || message.role === "system-trigger"
+          ) {
+            return message;
+          }
+          changed = true;
+          return {
+            ...message,
+            hiddenFromStudentAt: message.hiddenFromStudentAt ?? now,
+            excludedFromAiAt: message.excludedFromAiAt ?? now,
+          };
+        }),
+        updatedAt: changed ? now : thread.updatedAt,
+      };
+    }),
+  }), { targetStudentId: input.studentId });
+  return changed;
 }
 
 export function companionMessage(

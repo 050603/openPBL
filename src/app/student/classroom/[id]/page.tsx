@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Clock3,
+  FilePenLine,
   Hourglass,
   LogIn,
   MonitorUp,
@@ -152,6 +153,11 @@ export default function StudentClassroomPage() {
                   {optionalProjectionOpen ? <div className="border-t border-[var(--pbl-teacher-border)] bg-white p-3"><StudentProjectedTeacherResource projection={optionalProjection} /></div> : null}
                 </div>
               ) : null}
+              {activeStageKey === "proposal" || activeStageKey === "make" ? (
+                <AiCollaborationExperimentEntry
+                  onOpen={() => router.push(`/student/ai-collaboration/${course.id}`)}
+                />
+              ) : null}
               <section className={activeStageKey === "ai-learning"
                 ? "min-h-0 flex-1 overflow-hidden rounded-[var(--radius-lg)]"
                 : "overflow-hidden rounded-[var(--radius-lg)]"}>
@@ -173,6 +179,9 @@ export default function StudentClassroomPage() {
                 onOpenTeacherProjection={optionalProjection
                   ? () => setOptionalProjectionOpen(true)
                   : undefined}
+                onOpenAiCollaboration={activeStageKey === "proposal" || activeStageKey === "make"
+                  ? () => router.push(`/student/ai-collaboration/${course.id}`)
+                  : undefined}
                 stageKey={currentStage.key}
                 teacherProjection={optionalProjection
                   ? { title: optionalProjection.title }
@@ -191,6 +200,26 @@ export default function StudentClassroomPage() {
         </>
       ) : null}
     </DashboardShell>
+  );
+}
+
+function AiCollaborationExperimentEntry({ onOpen }: { onOpen: () => void }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-violet-200 bg-gradient-to-r from-violet-50 via-white to-indigo-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--pbl-ai)] text-white shadow-sm">
+          <FilePenLine size={21} />
+        </span>
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[.14em] text-[var(--pbl-ai)]">AI 小组协作实验</p>
+          <h2 className="mt-1 text-base font-black text-stone-950">边写项目文档，边和 AI 小组成员协作</h2>
+          <p className="mt-1 text-sm leading-6 text-stone-600">讨论、检查和整理都围绕正在编辑的文档进行；实际修改仍由你确认。</p>
+        </div>
+      </div>
+      <PrimaryButton className="h-11 shrink-0 px-5" onClick={onOpen} type="button">
+        <FilePenLine size={16} />进入 AI 协作
+      </PrimaryButton>
+    </section>
   );
 }
 

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  FilePenLine,
   FolderOpen,
   History,
   LayoutDashboard,
@@ -105,6 +106,7 @@ export function CompanionStudioWorkspace(props: {
   contextLabel: string;
   teacherProjection?: { title: string };
   onOpenTeacherProjection?: () => void;
+  onOpenAiCollaboration?: () => void;
 }) {
   const runtime = useCompanionRuntime();
   if (!runtime) return null;
@@ -117,6 +119,7 @@ function CompanionStudioRuntime({
   contextLabel,
   teacherProjection,
   onOpenTeacherProjection,
+  onOpenAiCollaboration,
   runtime,
 }: {
   course: Course;
@@ -124,6 +127,7 @@ function CompanionStudioRuntime({
   contextLabel: string;
   teacherProjection?: { title: string };
   onOpenTeacherProjection?: () => void;
+  onOpenAiCollaboration?: () => void;
   runtime: NonNullable<ReturnType<typeof useCompanionRuntime>>;
 }) {
   const session = useSession();
@@ -580,6 +584,17 @@ function CompanionStudioRuntime({
             <span>{guidance.actionLabel}</span>
             <ArrowUpRight size={13} />
           </button>
+          {onOpenAiCollaboration ? (
+            <button
+              className="studio-ai-collaboration-entry"
+              onClick={onOpenAiCollaboration}
+              type="button"
+            >
+              <FilePenLine size={14} />
+              <span>进入 AI 文档协作</span>
+              <ArrowUpRight size={13} />
+            </button>
+          ) : null}
           <span className="studio-stage-peek__counter">
             阶段 {course.currentStageIndex + 1}/{course.stages.length}
           </span>

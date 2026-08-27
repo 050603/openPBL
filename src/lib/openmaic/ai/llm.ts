@@ -287,7 +287,7 @@ export async function callLLM<T extends GenerateTextParams>(
   retryOptions?: LLMRetryOptions,
   thinking?: ThinkingConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<GenerateTextResult<any, any>> {
+): Promise<GenerateTextResult<any, any, any>> {
   return withCourseGenerationLlmSlot(
     () => callLLMWithoutCourseLimit(params, source, retryOptions, thinking),
     { signal: params.abortSignal },
@@ -300,12 +300,12 @@ async function callLLMWithoutCourseLimit<T extends GenerateTextParams>(
   retryOptions?: LLMRetryOptions,
   thinking?: ThinkingConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<GenerateTextResult<any, any>> {
+): Promise<GenerateTextResult<any, any, any>> {
   const maxAttempts = (retryOptions?.retries ?? 0) + 1;
   const validate = retryOptions?.validate ?? (maxAttempts > 1 ? DEFAULT_VALIDATE : undefined);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let lastResult: GenerateTextResult<any, any> | undefined;
+  let lastResult: GenerateTextResult<any, any, any> | undefined;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -368,7 +368,7 @@ export function streamLLM<T extends StreamTextParams>(
   source: string,
   thinking?: ThinkingConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): StreamTextResult<any, any> {
+): StreamTextResult<any, any, any> {
   throwIfAborted(params.abortSignal);
   // Resolve effective thinking config and wrap in thinkingContext
   const effectiveThinking = thinking ?? getGlobalThinkingConfig();

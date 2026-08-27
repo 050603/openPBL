@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Check, ShieldCheck } from "lucide-react";
 import { Card, Pill, PrimaryButton } from "@/components/ui";
-import { RichTextEditor } from "@/components/rich-text-editor";
+import { PlateDocumentEditor } from "@/components/plate-document-editor";
 import type { Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { emitStudentArtifactEvent } from "@/lib/companion/events";
@@ -122,7 +122,7 @@ export function WorkspaceView({ course }: { course: Course; embedded?: boolean }
             <div className="p-6">
               <h1 className="text-[26px] font-bold">{stageMode.editorTitle}</h1>
               <div className="mt-5">
-                <RichTextEditor value={documentText} onChange={setDocumentText} placeholder={stageMode.placeholder} />
+                <PlateDocumentEditor value={documentText} onChange={setDocumentText} placeholder={stageMode.placeholder} />
               </div>
             </div>
             <div className="flex h-10 items-center justify-between border-t border-stone-100 px-5 text-sm text-stone-500">

@@ -483,7 +483,9 @@ export type CompanionTriggerKind =
   | "document-saved"
   | "file-uploaded"
   | "teacher-goal"
-  | "milestone";
+  | "milestone"
+  | "document-comment-read"
+  | "conversation-reset";
 
 export type CompanionMessage = {
   id: string;
@@ -495,6 +497,12 @@ export type CompanionMessage = {
   authorId?: string;
   authorName?: string;
   triggerKind?: CompanionTriggerKind;
+  /** Groups messages into the student-visible/current model conversation. */
+  conversationId?: string;
+  /** Soft deletion: retained for learning analysis but hidden from the student. */
+  hiddenFromStudentAt?: string;
+  /** Soft deletion: retained for learning analysis but excluded from future model context. */
+  excludedFromAiAt?: string;
 };
 
 export type CompanionThread = {
