@@ -34,6 +34,24 @@ describe("PlateDocumentEditor collaboration edits", () => {
     expect(view.queryByText(/从你的问题|开始编写|Type something/i)).toBeNull();
   });
 
+  it("keeps the applied AI edit undo action inside the document toolbar", async () => {
+    const onUndo = vi.fn();
+    const view = render(
+      <PlateDocumentEditor
+        appliedAiEdit={{ title: "整理方案依据", onUndo }}
+        onChange={() => undefined}
+        value="<p>修改后的方案依据。</p>"
+      />,
+    );
+
+    const undoButton = await view.findByRole("button", {
+      name: "撤销 AI 修改“整理方案依据”",
+    });
+    expect(undoButton.closest("[role=toolbar]")).toBeTruthy();
+    fireEvent.click(undoButton);
+    expect(onUndo).toHaveBeenCalledOnce();
+  });
+
   it("exposes concrete Plate blocks for paragraph-level AI review", async () => {
     const editorRef = createRef<PlateDocumentEditorHandle>();
     render(

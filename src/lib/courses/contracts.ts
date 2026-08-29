@@ -115,6 +115,7 @@ const SubmissionActionSchema = z.object({
         "idea",
         "plan",
         "document",
+        "code",
         "resource",
         "showcase",
         "reflection",

@@ -141,6 +141,7 @@ const CLASSROOM_SUBMISSION_TYPES = [
   "idea",
   "plan",
   "document",
+  "code",
   "resource",
   "showcase",
   "reflection",

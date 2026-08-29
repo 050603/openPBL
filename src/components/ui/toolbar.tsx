@@ -265,14 +265,16 @@ export function ToolbarToggleItem({
 export function ToolbarGroup({
   children,
   className,
+  ...props
 }: React.ComponentProps<'div'>) {
   return (
     <div
       className={cn(
         'group/toolbar-group',
-        'relative hidden has-[button]:flex',
+        'relative hidden shrink-0 has-[button]:flex',
         className
       )}
+      {...props}
     >
       <div className="flex items-center">{children}</div>
 

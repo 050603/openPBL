@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  areDocumentCommentIssuesEquivalent,
   buildBatchProactiveDocumentCommentPrompts,
   buildProactiveDocumentCommentPrompts,
+  documentParagraphVersionFingerprint,
   normalizeBatchProactiveDocumentComments,
   normalizeDocumentCommentReply,
   normalizeProactiveDocumentComment,
@@ -19,6 +21,24 @@ const course = {
 } as never;
 
 describe('document comment collaboration policy', () => {
+  it('uses content rather than transient Plate IDs to identify a reviewed paragraph version', () => {
+    expect(documentParagraphVersionFingerprint('  我们选择这个方案。\n因为成本更低。  '))
+      .toBe(documentParagraphVersionFingerprint('我们选择这个方案。 因为成本更低。'));
+    expect(documentParagraphVersionFingerprint('我们选择这个方案，因为成本更低。'))
+      .not.toBe(documentParagraphVersionFingerprint('我们选择这个方案，因为效果更好。'));
+  });
+
+  it('recognizes the same issue when the model changes its label or quoted range', () => {
+    expect(areDocumentCommentIssuesEquivalent(
+      { issueType: '时间表达冗余', targetText: '在今天上午的早晨' },
+      { issueType: '重复表达', targetText: '今天上午的早晨' },
+    )).toBe(true);
+    expect(areDocumentCommentIssuesEquivalent(
+      { issueType: '时间表达冗余', targetText: '在今天上午的早晨' },
+      { issueType: '事实核验', targetText: '今天上午的早晨' },
+    )).toBe(false);
+  });
+
   it('frames proactive intervention as a paragraph-specific artifact discussion', () => {
     const prompts = buildProactiveDocumentCommentPrompts({
       course,

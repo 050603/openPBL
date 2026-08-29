@@ -12,6 +12,7 @@ const SUBMISSION_TYPE_LABELS: Record<string, string> = {
   idea: "项目想法",
   plan: "项目方案",
   document: "项目文档",
+  code: "代码成果",
   resource: "学习资料",
   showcase: "成果展示",
   reflection: "学习反思",

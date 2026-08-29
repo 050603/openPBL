@@ -12,6 +12,10 @@ export type OpenPblEditorAiContext = {
 
 type OpenPblEditorContextValue = {
   ai?: OpenPblEditorAiContext;
+  appliedAiEdit?: {
+    title: string;
+    onUndo: () => void;
+  };
   openAiMember?: () => void;
   uploadImage?: (file: File) => Promise<string>;
 };

@@ -8,6 +8,57 @@ import type {
 
 export const DOCUMENT_COMMENT_REVIEW_VERSION = 3;
 
+export function normalizeDocumentParagraphText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Stable across Plate remounts: paragraph IDs are intentionally not included. */
+export function documentParagraphVersionFingerprint(value: string): string {
+  const normalized = normalizeDocumentParagraphText(value);
+  let hash = 2_166_136_261;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `${normalized.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function canonicalIssueType(value: string): string {
+  const type = normalizeDocumentParagraphText(value);
+  if (/错别字|错字/.test(type)) return 'typo';
+  if (/标点/.test(type)) return 'punctuation';
+  if (/冗余|赘余|重复|同义反复|堆砌/.test(type)) return 'redundancy';
+  if (/搭配|主谓|动宾|定中/.test(type)) return 'collocation';
+  if (/语序|句式杂糅|成分残缺|修饰语/.test(type)) return 'grammar';
+  if (/指代|含混|含糊|歧义|概念/.test(type)) return 'clarity';
+  if (/事实|核验|来源/.test(type)) return 'fact';
+  if (/证据|依据/.test(type)) return 'evidence';
+  if (/逻辑|因果|比较|以偏概全|矛盾/.test(type)) return 'reasoning';
+  if (/项目|任务|一致性|偏离/.test(type)) return 'project';
+  return type.replace(/[\s：:、，,。.!！?？]/g, '');
+}
+
+export function areDocumentCommentIssuesEquivalent(
+  left: { issueType?: string; targetText: string },
+  right: { issueType?: string; targetText: string },
+): boolean {
+  if (canonicalIssueType(left.issueType ?? '') !== canonicalIssueType(right.issueType ?? '')) {
+    return false;
+  }
+  const leftTarget = normalizeDocumentParagraphText(left.targetText)
+    .replace(/[\s，,。.!！?？；;：“”‘’'"（）()]/g, '');
+  const rightTarget = normalizeDocumentParagraphText(right.targetText)
+    .replace(/[\s，,。.!！?？；;：“”‘’'"（）()]/g, '');
+  if (!leftTarget || !rightTarget) return false;
+  return leftTarget === rightTarget
+    || (Math.min(leftTarget.length, rightTarget.length) >= 4
+      && (leftTarget.includes(rightTarget) || rightTarget.includes(leftTarget)));
+}
+
 function clean(value: unknown, maxLength: number): string {
   return typeof value === 'string'
     ? value.replace(/[\u0000-\u001F]/g, '').trim().slice(0, maxLength)

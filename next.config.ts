@@ -53,6 +53,7 @@ const nextConfig: NextConfig = {
     "/api/openmaic/interactive-runtime/**": [
       "./node_modules/codemirror/**/*",
       "./node_modules/katex/dist/**/*",
+      "./node_modules/monaco-editor/min/vs/**/*",
       "./node_modules/pyodide/**/*",
     ],
     // sharp 的 prebuilt 二进制在运行时 dlopen vendored libvips 共享库,

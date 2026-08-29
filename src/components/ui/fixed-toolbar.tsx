@@ -13,7 +13,7 @@ export function FixedToolbar({
     <Toolbar
       {...props}
       className={cn(
-        'scrollbar-hide sticky left-0 z-[60] w-full justify-between overflow-x-auto rounded-t-lg border-b border-b-border bg-background/95 p-1 backdrop-blur-sm supports-backdrop-blur:bg-background/60',
+        'sticky left-0 z-[60] w-full justify-between overflow-hidden rounded-t-lg border-b border-b-border bg-background/95 p-1 backdrop-blur-sm supports-backdrop-blur:bg-background/60',
         className
       )}
       style={{ top: 'var(--plate-toolbar-sticky-top, 0px)', ...style }}

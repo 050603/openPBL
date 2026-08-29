@@ -1406,6 +1406,7 @@ export type ClassroomSubmission = {
     | "idea"
     | "plan"
     | "document"
+    | "code"
     | "resource"
     | "showcase"
     | "reflection"

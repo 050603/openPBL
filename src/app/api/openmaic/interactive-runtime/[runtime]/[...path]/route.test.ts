@@ -17,6 +17,17 @@ describe('interactive runtime assets', () => {
     expect(await response.text()).toContain('CodeMirror');
   });
 
+  it('serves the self-hosted Monaco editor and its Chinese messages', async () => {
+    const loader = await request('monaco', ['loader.js']);
+    const messages = await request('monaco', ['nls', 'lang', 'zh-cn.js']);
+
+    expect(loader.status).toBe(200);
+    expect(loader.headers.get('cache-control')).toContain('immutable');
+    expect(await loader.text()).toContain('define.amd');
+    expect(messages.status).toBe(200);
+    expect(Number(messages.headers.get('content-length'))).toBeGreaterThan(1_000);
+  });
+
   it('serves the packaged Pyodide loader and WASM binary', async () => {
     const loader = await request('pyodide', ['pyodide.js']);
     const wasm = await request('pyodide', ['pyodide.asm.wasm']);

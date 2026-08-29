@@ -61,7 +61,18 @@ run_server() {
   export UPLOAD_DIR="$PROJECT_ROOT/.openpbl-data/uploads"
   export WHITEBOARD_DATA_DIR="$PROJECT_ROOT/.openpbl-data/whiteboards"
 
-  exec env HOSTNAME=0.0.0.0 PORT="$FAST_PORT" node "$PROJECT_ROOT/.next-build/standalone/server.js"
+  export CODE_RUNNER_URL="http://127.0.0.1:3101"
+  export CODE_RUNNER_TOKEN="$INTERNAL_MONITOR_TOKEN"
+
+  node "$PROJECT_ROOT/scripts/code-runner-server.mjs" &
+  code_runner_pid=$!
+  cleanup_runner() {
+    kill "$code_runner_pid" 2>/dev/null || true
+    wait "$code_runner_pid" 2>/dev/null || true
+  }
+  trap cleanup_runner EXIT INT TERM
+
+  env HOSTNAME=0.0.0.0 PORT="$FAST_PORT" node "$PROJECT_ROOT/.next-build/standalone/server.js"
 }
 
 case "${1:-status}" in

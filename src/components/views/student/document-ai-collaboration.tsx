@@ -5,13 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Check,
-  CheckCircle2,
   FilePenLine,
   LoaderCircle,
   RefreshCcw,
   Save,
   ShieldCheck,
-  Undo2,
 } from "lucide-react";
 import {
   PlateDocumentEditor,
@@ -19,6 +17,7 @@ import {
   type PlateDocumentSelection,
 } from "@/components/plate-document-editor";
 import { PrimaryButton } from "@/components/ui";
+import { ArtifactTypeSelector } from "@/components/views/student/artifact-type-selector";
 import {
   AiMemberWorkspace,
   type AiMemberWorkspaceMessage,
@@ -30,11 +29,15 @@ import type {
   DocumentCollaborationResponse,
   DocumentCollaborationSuggestion,
 } from "@/lib/ai-collaboration/document-policy";
+import type { CollaborationArtifactType } from "@/lib/ai-collaboration/artifact-types";
 import type {
   DocumentAiCommentReplyResult,
   DocumentAiCommentThread,
 } from "@/lib/ai-collaboration/document-comment-types";
-import { DOCUMENT_COMMENT_REVIEW_VERSION } from "@/lib/ai-collaboration/document-comment-policy";
+import {
+  documentParagraphVersionFingerprint,
+  DOCUMENT_COMMENT_REVIEW_VERSION,
+} from "@/lib/ai-collaboration/document-comment-policy";
 import type { AiContribution } from "@/lib/learning-evidence/types";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
@@ -88,7 +91,13 @@ function nowId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
+export function DocumentAiCollaboration({
+  courseId,
+  onArtifactTypeChange,
+}: {
+  courseId: string;
+  onArtifactTypeChange: (value: CollaborationArtifactType) => void;
+}) {
   useRealtimeSync(courseId);
   const router = useRouter();
   const hydrated = useHydrated();
@@ -196,6 +205,7 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
           createdAt: string;
         }>;
         commentThreads?: DocumentAiCommentThread[];
+        reviewedParagraphFingerprints?: string[];
       };
       if (controller.signal.aborted) return;
       setConversationId(payload.conversationId || "legacy");
@@ -207,11 +217,16 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
       })));
       const commentThreads = payload.commentThreads ?? [];
       setAiCommentThreads(commentThreads);
-      analyzedParagraphsRef.current = new Set(commentThreads
-        .filter((thread) => thread.reviewVersion === DOCUMENT_COMMENT_REVIEW_VERSION)
-        .map((thread) =>
-          `${thread.blockId ?? thread.blockIndex}:${(thread.blockText ?? thread.targetText).replace(/\s+/g, " ").trim()}`
-        ));
+      const reviewedFingerprints = new Set(payload.reviewedParagraphFingerprints ?? []);
+      commentThreads
+        .filter((thread) =>
+          thread.reviewVersion === DOCUMENT_COMMENT_REVIEW_VERSION
+          && Boolean(thread.blockText)
+        )
+        .forEach((thread) => {
+          reviewedFingerprints.add(documentParagraphVersionFingerprint(thread.blockText ?? ""));
+        });
+      analyzedParagraphsRef.current = reviewedFingerprints;
     }).catch(() => undefined).finally(() => {
       if (!controller.signal.aborted) setHistoryLoaded(true);
     });
@@ -332,14 +347,11 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
         const type = item.type.toLowerCase();
         if (!["p", "blockquote", "h1", "h2", "h3"].includes(type)) return false;
         if (item.text.length < 40 || item.text.length > 2_000) return false;
-        const signature = `${item.blockId ?? item.blockIndex}:${item.text}`;
+        const signature = documentParagraphVersionFingerprint(item.text);
         const hasCompletedReview = aiCommentThreads.some((thread) =>
           thread.reviewVersion === DOCUMENT_COMMENT_REVIEW_VERSION
-          && (
-            (item.blockId && thread.blockId
-              ? item.blockId === thread.blockId
-              : item.blockIndex === thread.blockIndex)
-          )
+          && Boolean(thread.blockText)
+          && documentParagraphVersionFingerprint(thread.blockText ?? "") === signature
         );
         return !analyzedParagraphsRef.current.has(signature)
           && !hasCompletedReview
@@ -349,7 +361,7 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
 
       const requests = candidatesToReview.map((candidate) => ({
         candidate,
-        signature: `${candidate.blockId ?? candidate.blockIndex}:${candidate.text}`,
+        signature: documentParagraphVersionFingerprint(candidate.text),
       }));
       requests.forEach(({ signature }) => proactiveRequestRef.current.add(signature));
       void fetch("/api/ai-collaboration/document", {
@@ -1068,6 +1080,11 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
     router.push(`/student/classroom/${courseId}`);
   }
 
+  function changeArtifactType(value: CollaborationArtifactType) {
+    if (documentHtml !== savedContentRef.current) persistDocument(documentHtml, "auto");
+    onArtifactTypeChange(value);
+  }
+
   if (!hydrated || !course) {
     return (
       <div className="grid min-h-screen place-items-center bg-[var(--pbl-bg)] text-sm text-stone-500">
@@ -1108,6 +1125,7 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <ArtifactTypeSelector onValueChange={changeArtifactType} value="document" />
             <span className="hidden sm:inline-flex"><SaveState status={session.saveState === "error" ? "error" : saveStatus} /></span>
             <PrimaryButton
               disabled={saveStatus === "saving"}
@@ -1126,18 +1144,13 @@ export function DocumentAiCollaboration({ courseId }: { courseId: string }) {
 
       <div className="relative w-full flex-1 px-2 py-3 sm:px-3 lg:px-4">
         <section className="min-w-0 overflow-visible border-y border-[var(--pbl-border)] bg-white lg:border-x-0">
-          {undoableEdit ? (
-            <div className="px-5 pt-3">
-              <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
-                <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={14} />已应用 AI 建议“{undoableEdit.title}”</span>
-                <button className="inline-flex items-center gap-1 font-bold underline underline-offset-2" onClick={undoAiEdit} type="button"><Undo2 size={12} />撤销</button>
-              </div>
-            </div>
-          ) : null}
-
           <div className="px-1 sm:px-2">
             {documentReady ? (
               <PlateDocumentEditor
+                appliedAiEdit={undoableEdit ? {
+                  title: undoableEdit.title,
+                  onUndo: undoAiEdit,
+                } : undefined}
                 aiCommentThreads={aiCommentThreads}
                 aiContext={{
                   courseId,

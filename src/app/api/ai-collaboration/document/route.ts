@@ -13,6 +13,8 @@ import {
   buildBatchProactiveDocumentCommentPrompts,
   buildDocumentCommentReplyPrompts,
   buildProactiveDocumentCommentPrompts,
+  areDocumentCommentIssuesEquivalent,
+  documentParagraphVersionFingerprint,
   normalizeBatchProactiveDocumentComments,
   normalizeDocumentCommentReply,
   normalizeProactiveDocumentComment,
@@ -82,6 +84,7 @@ const COMMENT_THREAD_PREFIX = "ai-collaboration-comments";
 const COMMENT_META_PREFIX = "OPENPBL_DOCUMENT_COMMENT_META:";
 const COMMENT_READ_PREFIX = "OPENPBL_DOCUMENT_COMMENT_READ:";
 const COMMENT_SUGGESTION_PREFIX = "OPENPBL_DOCUMENT_COMMENT_SUGGESTION:";
+const COMMENT_REVIEW_PREFIX = "OPENPBL_DOCUMENT_COMMENT_REVIEW:";
 const COLLABORATION_TRANSIENT_RETRIES = 2;
 
 type DocumentCollaborationRequest = {
@@ -157,6 +160,61 @@ type DocumentCommentMeta = {
   createdAt: string;
   reviewVersion?: number;
 };
+
+type DocumentReviewCheckpoint = {
+  fingerprint: string;
+  blockId?: string;
+  blockIndex: number;
+  reviewedAt: string;
+  reviewVersion: number;
+};
+
+function encodeDocumentReviewCheckpoint(checkpoint: DocumentReviewCheckpoint): string {
+  return `${COMMENT_REVIEW_PREFIX}${JSON.stringify(checkpoint)}`;
+}
+
+function parseDocumentReviewCheckpoint(message: CompanionMessage): DocumentReviewCheckpoint | null {
+  if (message.role !== "system-trigger" || !message.content.startsWith(COMMENT_REVIEW_PREFIX)) {
+    return null;
+  }
+  try {
+    const raw = JSON.parse(message.content.slice(COMMENT_REVIEW_PREFIX.length)) as Record<string, unknown>;
+    const fingerprint = boundedString(raw.fingerprint, 120);
+    const blockId = boundedString(raw.blockId, 160) || undefined;
+    const blockIndex = Number(raw.blockIndex);
+    const reviewedAt = boundedString(raw.reviewedAt, 80) || message.createdAt;
+    const reviewVersion = Number(raw.reviewVersion);
+    if (
+      !fingerprint
+      || !Number.isInteger(blockIndex)
+      || blockIndex < 0
+      || !Number.isInteger(reviewVersion)
+      || reviewVersion < 1
+    ) return null;
+    return { fingerprint, blockId, blockIndex, reviewedAt, reviewVersion };
+  } catch {
+    return null;
+  }
+}
+
+function documentReviewedParagraphFingerprints(messages: CompanionMessage[]): string[] {
+  const fingerprints = new Set(messages
+    .map(parseDocumentReviewCheckpoint)
+    .filter((checkpoint): checkpoint is DocumentReviewCheckpoint =>
+      Boolean(checkpoint && checkpoint.reviewVersion === DOCUMENT_COMMENT_REVIEW_VERSION)
+    )
+    .map((checkpoint) => checkpoint.fingerprint));
+
+  documentCommentThreads(messages)
+    .filter((thread) =>
+      thread.reviewVersion === DOCUMENT_COMMENT_REVIEW_VERSION
+      && Boolean(thread.blockText)
+    )
+    .forEach((thread) => {
+      fingerprints.add(documentParagraphVersionFingerprint(thread.blockText ?? ""));
+    });
+  return [...fingerprints];
+}
 
 function encodeDocumentCommentMeta(meta: DocumentCommentMeta): string {
   return `${COMMENT_META_PREFIX}${JSON.stringify(meta)}`;
@@ -564,6 +622,9 @@ export async function GET(request: NextRequest) {
     messages,
     conversationId,
     commentThreads: documentCommentThreads(commentStore?.messages ?? []),
+    reviewedParagraphFingerprints: documentReviewedParagraphFingerprints(
+      commentStore?.messages ?? [],
+    ),
   });
 }
 
@@ -723,19 +784,32 @@ export async function POST(request: NextRequest) {
       scope.student.id,
       documentCommentThreadKey(stageKey),
     );
-    const existingThreads = documentCommentThreads(commentStore?.messages ?? []);
+    const existingMessages = commentStore?.messages ?? [];
+    const existingThreads = documentCommentThreads(existingMessages);
+    const reviewedFingerprints = new Set(
+      documentReviewedParagraphFingerprints(existingMessages),
+    );
     const threadMatchesCandidate = (
       thread: DocumentAiCommentThread,
       candidate: ProactiveParagraph,
     ) => {
-      if (candidate.blockId && thread.blockId) return candidate.blockId === thread.blockId;
-      return candidate.blockIndex === thread.blockIndex;
+      if (candidate.blockId && thread.blockId && candidate.blockId === thread.blockId) return true;
+      if (candidate.blockIndex === thread.blockIndex) return true;
+      const previousBlockText = thread.blockText?.replace(/\s+/g, " ").trim();
+      const currentBlockText = candidate.targetText.replace(/\s+/g, " ").trim();
+      return Boolean(
+        previousBlockText
+        && currentBlockText
+        && (
+          previousBlockText.includes(thread.targetText)
+          && currentBlockText.includes(thread.targetText)
+        )
+      );
     };
     const candidates = proactiveParagraphs
-      .filter((candidate) => !existingThreads.some((thread) =>
-        thread.reviewVersion === DOCUMENT_COMMENT_REVIEW_VERSION
-        && threadMatchesCandidate(thread, candidate)
-      ))
+      .filter((candidate) =>
+        !reviewedFingerprints.has(documentParagraphVersionFingerprint(candidate.targetText))
+      )
       .map((candidate) => ({
         ...candidate,
         existingComments: existingThreads
@@ -776,17 +850,28 @@ export async function POST(request: NextRequest) {
       const seenResults = new Set<string>();
       const resultsById = new Map<string, typeof reviewResults>();
       reviewResults.forEach((result) => {
+        const existingResults = resultsById.get(result.candidateId) ?? [];
+        if (existingResults.some((existing) => areDocumentCommentIssuesEquivalent(
+          { issueType: existing.issueType, targetText: existing.quotedText },
+          { issueType: result.issueType, targetText: result.quotedText },
+        ))) return;
         const fingerprint = `${result.candidateId}:${result.issueType}:${result.quotedText.replace(/\s+/g, "")}`;
         if (seenResults.has(fingerprint)) return;
         seenResults.add(fingerprint);
-        const comments = resultsById.get(result.candidateId) ?? [];
-        comments.push(result);
-        resultsById.set(result.candidateId, comments);
+        existingResults.push(result);
+        resultsById.set(result.candidateId, existingResults);
       });
       const messages: CompanionMessage[] = [];
       const commentThreads: DocumentAiCommentThread[] = [];
       candidates.forEach((candidate) => {
         (resultsById.get(candidate.candidateId) ?? []).forEach((result) => {
+          const repeatsExistingIssue = existingThreads
+            .filter((thread) => threadMatchesCandidate(thread, candidate))
+            .some((thread) => areDocumentCommentIssuesEquivalent(
+              { issueType: thread.issueType, targetText: thread.targetText },
+              { issueType: result.issueType, targetText: result.quotedText },
+            ));
+          if (repeatsExistingIssue) return;
           const id = `document-comment-${randomUUID()}`;
           const createdAt = new Date().toISOString();
           const meta: DocumentCommentMeta = {
@@ -827,6 +912,26 @@ export async function POST(request: NextRequest) {
           });
         });
       });
+      if (!reviewErrors.length) {
+        candidates.forEach((candidate) => {
+          const fingerprint = documentParagraphVersionFingerprint(candidate.targetText);
+          messages.push(companionMessage({
+            role: "system-trigger",
+            content: encodeDocumentReviewCheckpoint({
+              fingerprint,
+              blockId: candidate.blockId,
+              blockIndex: candidate.blockIndex,
+              reviewedAt: new Date().toISOString(),
+              reviewVersion: DOCUMENT_COMMENT_REVIEW_VERSION,
+            }),
+            visibility: "teacher-only",
+            triggerKind: "document-saved",
+            conversationId: `review-${fingerprint}`,
+            authorName: "系统",
+          }));
+          reviewedFingerprints.add(fingerprint);
+        });
+      }
       if (messages.length) {
         await appendCompanionMessages({
           courseId,
@@ -835,7 +940,10 @@ export async function POST(request: NextRequest) {
           messages,
         });
       }
-      return Response.json({ commentThreads });
+      return Response.json({
+        commentThreads,
+        reviewedParagraphFingerprints: [...reviewedFingerprints],
+      });
     } catch (error) {
       if (request.signal.aborted) {
         return Response.json({ error: "REQUEST_ABORTED" }, { status: 499 });

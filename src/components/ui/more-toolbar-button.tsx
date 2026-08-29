@@ -17,27 +17,56 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
 import { ToolbarButton } from './toolbar';
 
-export function MoreToolbarButton(props: DropdownMenuProps) {
+type MoreToolbarButtonProps = DropdownMenuProps & {
+  overflowContent?: React.ReactNode;
+  overflowCount?: number;
+};
+
+export function MoreToolbarButton({
+  overflowContent,
+  overflowCount = 0,
+  ...props
+}: MoreToolbarButtonProps) {
   const editor = useEditorRef();
   const [open, setOpen] = React.useState(false);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false} {...props}>
       <DropdownMenuTrigger asChild>
-        <ToolbarButton pressed={open} tooltip="更多格式">
+        <ToolbarButton
+          className="relative"
+          pressed={open}
+          tooltip={overflowCount ? `更多工具（已收起 ${overflowCount} 组）` : '更多格式'}
+        >
           <MoreHorizontalIcon />
+          {overflowCount ? (
+            <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sky-600" />
+          ) : null}
         </ToolbarButton>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        className="ignore-click-outside/toolbar flex max-h-[500px] min-w-[180px] flex-col overflow-y-auto"
-        align="start"
+        className="ignore-click-outside/toolbar flex max-h-[min(500px,calc(100vh-120px))] min-w-[180px] max-w-[min(560px,calc(100vw-24px))] flex-col overflow-y-auto"
+        align={overflowContent ? "end" : "start"}
       >
+        {overflowContent ? (
+          <>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              更多工具
+            </DropdownMenuLabel>
+            <div className="flex flex-wrap items-center gap-0.5 px-1 pb-1">
+              {overflowContent}
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuGroup>
           <DropdownMenuItem
             onSelect={() => {

@@ -89,6 +89,10 @@ type PlateDocumentEditorProps = {
   value: string;
   onChange: (html: string) => void;
   aiContext?: OpenPblEditorAiContext;
+  appliedAiEdit?: {
+    title: string;
+    onUndo: () => void;
+  };
   aiCommentThreads?: DocumentAiCommentThread[];
   pendingAiCommentSuggestion?: AiPendingCommentSuggestion;
   onSelectionChange?: (selection: PlateDocumentSelection | null) => void;
@@ -291,6 +295,7 @@ function hasMeaningfulAiComment(value: string): boolean {
 export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, PlateDocumentEditorProps>(
   function PlateDocumentEditor({
     aiContext,
+    appliedAiEdit,
     aiCommentThreads = [],
     minHeight = 650,
     onChange,
@@ -809,6 +814,7 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
     return (
       <OpenPblEditorProvider value={{
         ai: aiContext,
+        appliedAiEdit,
         openAiMember: onOpenAiMember,
         uploadImage: onImageUpload,
       }}>

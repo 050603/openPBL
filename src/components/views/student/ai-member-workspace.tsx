@@ -13,7 +13,6 @@ import {
   MessageCircleQuestion,
   MessageSquarePlus,
   Send,
-  ShieldCheck,
   Sparkles,
   Trash2,
   Undo2,
@@ -25,6 +24,7 @@ import type {
   DocumentCollaborationResponse,
 } from "@/lib/ai-collaboration/document-policy";
 import { cn } from "@/lib/utils";
+import { AiMemberMarkdown } from "./ai-member-markdown";
 
 export type AiMemberWorkspaceMessage = {
   id: string;
@@ -133,33 +133,31 @@ export function AiMemberWorkspace({
   return (
     <section
       aria-label="AI 组员工作区"
-      className="fixed inset-x-3 bottom-3 top-[76px] z-[80] flex min-h-0 flex-col overflow-hidden rounded-2xl border border-stone-200/90 bg-white text-stone-950 shadow-[0_24px_80px_-24px_rgba(28,25,23,0.36)] sm:left-auto sm:right-4 sm:w-[min(500px,calc(100vw-32px))]"
+      className="fixed inset-x-3 bottom-2 top-[72px] z-[80] flex min-h-0 flex-col overflow-hidden rounded-xl border border-stone-200/80 bg-white text-stone-950 shadow-[0_16px_48px_-24px_rgba(28,25,23,0.28)] sm:left-auto sm:right-2 sm:w-[min(500px,calc(100vw-32px))]"
     >
-      <header className="shrink-0 border-b border-stone-200 bg-white px-4 py-3.5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="relative grid size-10 shrink-0 place-items-center rounded-xl bg-stone-950 text-white shadow-sm">
-              <Bot size={19} />
-              <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-emerald-500" />
+      <header className="relative shrink-0 border-b border-stone-200/80 bg-white px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-stone-950 text-white">
+              <Bot size={15} />
+              <span className="absolute -bottom-px -right-px size-2.5 rounded-full border-2 border-white bg-emerald-500" />
             </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="font-semibold text-[15px]">AI 组员</h2>
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">协作中</span>
-              </div>
-              <p className="mt-0.5 truncate text-xs text-stone-500">{projectTitle}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="shrink-0 text-sm font-semibold">AI 组员</h2>
+              <span aria-hidden="true" className="text-stone-300">·</span>
+              <p className="truncate text-[11px] text-stone-500">{projectTitle}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
               aria-label="开始新对话"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-stone-500 transition hover:bg-stone-100 hover:text-stone-900 disabled:opacity-40"
+              className="grid size-8 place-items-center rounded-lg text-stone-500 transition hover:bg-stone-100 hover:text-stone-900 disabled:opacity-40"
               disabled={busy || Boolean(pendingChange) || Boolean(pendingDelivery)}
               onClick={() => setConfirmNewConversation(true)}
               title="开始新对话"
               type="button"
             >
-              <MessageSquarePlus size={14} />新对话
+              <MessageSquarePlus size={15} />
             </button>
             <button
               aria-label="收起 AI 组员"
@@ -173,9 +171,9 @@ export function AiMemberWorkspace({
         </div>
 
         {confirmNewConversation ? (
-          <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs leading-5 text-stone-600">
+          <div className="absolute right-3 top-11 z-30 w-[min(320px,calc(100vw-40px))] rounded-xl border border-stone-200 bg-white p-3 text-xs leading-5 text-stone-600 shadow-xl">
             <p className="font-semibold text-stone-900">开始一段新对话？</p>
-            <p className="mt-0.5">当前消息会从这里清空，也不再发送给 AI；系统仍保留原记录用于课程过程分析。</p>
+            <p className="mt-0.5">当前消息将从这里清空，不再发送给 AI；系统仍保留过程记录。</p>
             <div className="mt-2 flex justify-end gap-2">
               <button className="rounded-lg px-2.5 py-1.5 font-medium hover:bg-stone-200" onClick={() => setConfirmNewConversation(false)} type="button">取消</button>
               <button className="rounded-lg bg-stone-950 px-2.5 py-1.5 font-semibold text-white hover:bg-stone-800" onClick={() => { setConfirmNewConversation(false); onNewConversation(); }} type="button">开始新对话</button>
@@ -183,10 +181,10 @@ export function AiMemberWorkspace({
           </div>
         ) : null}
 
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-stone-100 p-1.5">
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-stone-100 p-1">
           <button
             className={cn(
-              "flex min-w-0 items-center gap-2 rounded-lg px-3 py-2.5 text-left transition",
+              "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition",
               mode === "discuss"
                 ? "bg-white text-stone-950 shadow-sm ring-1 ring-stone-200/70"
                 : "text-stone-500 hover:bg-white/60 hover:text-stone-800",
@@ -194,15 +192,12 @@ export function AiMemberWorkspace({
             onClick={() => onModeChange("discuss")}
             type="button"
           >
-            <MessageCircleQuestion className="size-4 shrink-0" />
-            <span className="min-w-0">
-              <strong className="block truncate text-xs font-semibold">一起讨论</strong>
-              <span className="block truncate text-[10px] opacity-70">分析问题，不改文档</span>
-            </span>
+            <MessageCircleQuestion className="size-3.5 shrink-0" />
+            <span className="truncate">一起讨论</span>
           </button>
           <button
             className={cn(
-              "flex min-w-0 items-center gap-2 rounded-lg px-3 py-2.5 text-left transition",
+              "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition",
               mode === "task"
                 ? "bg-white text-stone-950 shadow-sm ring-1 ring-stone-200/70"
                 : "text-stone-500 hover:bg-white/60 hover:text-stone-800",
@@ -210,17 +205,14 @@ export function AiMemberWorkspace({
             onClick={() => onModeChange("task")}
             type="button"
           >
-            <BriefcaseBusiness className="size-4 shrink-0" />
-            <span className="min-w-0">
-              <strong className="block truncate text-xs font-semibold">安排工作</strong>
-              <span className="block truncate text-[10px] opacity-70">组员交付，由你审阅</span>
-            </span>
+            <BriefcaseBusiness className="size-3.5 shrink-0" />
+            <span className="truncate">安排工作</span>
           </button>
         </div>
 
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-stone-50/80 px-4 py-4" ref={scrollRef} aria-live="polite">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-stone-50/60 px-3 py-3" ref={scrollRef} aria-live="polite">
         {!historyLoaded ? (
           <div className="grid min-h-32 place-items-center text-xs text-stone-500">
             <span className="inline-flex items-center gap-2"><LoaderCircle className="animate-spin" size={14} />加载协作记录…</span>
@@ -228,24 +220,26 @@ export function AiMemberWorkspace({
         ) : null}
 
         {historyLoaded && !messages.length ? (
-          <div className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
-            <span className="grid size-9 place-items-center rounded-lg bg-stone-100 text-stone-700"><Sparkles size={17} /></span>
-            <h3 className="mt-3 text-sm font-semibold">
+          <div className="grid min-h-28 place-items-center px-6 text-center">
+            <div>
+            <span className="mx-auto grid size-8 place-items-center rounded-full bg-stone-100 text-stone-500"><Sparkles size={15} /></span>
+            <h3 className="mt-2 text-sm font-semibold">
               {mode === "task" ? "像组长一样安排一项辅助工作" : "从正在形成的想法开始讨论"}
             </h3>
-            <p className="mt-1.5 text-xs leading-5 text-stone-500">
+            <p className="mt-1 text-xs leading-5 text-stone-500">
               {mode === "task"
-                ? "我会先对照项目学习目标判断能否接单。辅助工作完成后作为独立交付物提交给你，不会直接改动正文；核心学习任务仍由你完成。"
-                : "我会结合项目目标、当前任务和实时草稿一起分析，先帮助你看清问题，再由你作出判断。"}
+                ? "安排一项辅助工作，完成后由你审阅。"
+                : "围绕项目和当前文稿说说你的想法。"}
             </p>
+            </div>
           </div>
         ) : null}
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {messages.slice(-30).map((message) => (
             <article
               className={cn(
-                "max-w-[92%] rounded-2xl border px-3.5 py-3 text-sm leading-6 shadow-sm",
+                "group max-w-[94%] rounded-xl border px-3 py-2.5 text-[13px] leading-5",
                 message.role === "user"
                   ? "ml-auto rounded-br-md border-stone-200 bg-stone-900 text-white"
                   : message.kind === "boundary"
@@ -255,7 +249,7 @@ export function AiMemberWorkspace({
               key={message.id}
             >
               <div className={cn(
-                "mb-1.5 flex items-center justify-between gap-3 pr-0.5 text-[10px] font-medium",
+                "mb-1 flex items-center justify-between gap-3 text-[10px] font-medium",
                 message.role === "user" ? "text-stone-300" : message.kind === "boundary" ? "text-amber-700" : "text-stone-500",
               )}>
                 <span>{message.role === "user" ? "我" : message.kind === "boundary" ? "AI 组员 · 协作边界" : "AI 组员"}</span>
@@ -264,7 +258,7 @@ export function AiMemberWorkspace({
                   <button
                     aria-label="从当前对话中移除这条消息"
                     className={cn(
-                      "grid size-5 place-items-center rounded transition",
+                      "grid size-5 place-items-center rounded opacity-60 transition hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
                       message.role === "user" ? "hover:bg-white/15 hover:text-white" : "hover:bg-stone-100 hover:text-stone-800",
                     )}
                     onClick={() => onDeleteMessage(message.id)}
@@ -275,46 +269,48 @@ export function AiMemberWorkspace({
                   </button>
                 </span>
               </div>
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              {message.role === "assistant" ? (
+                <AiMemberMarkdown content={message.content} />
+              ) : (
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              )}
             </article>
           ))}
 
           {busy ? (
-            <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-stone-200 bg-white px-3.5 py-3 text-xs text-stone-500 shadow-sm">
-              <span className="flex items-center gap-2"><LoaderCircle className="animate-spin" size={14} />正在对照项目要求、当前任务和实时文稿…</span>
+            <div className="max-w-[94%] rounded-xl rounded-bl-sm border border-stone-200 bg-white px-3 py-2.5 text-xs text-stone-500">
+              <span className="flex items-center gap-2"><LoaderCircle className="animate-spin" size={13} />AI 组员正在思考…</span>
             </div>
           ) : null}
 
           {pendingChange ? (
-            <section className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="待确认的 AI 修改">
-              <div className="flex items-start gap-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-stone-900 text-white"><FilePenLine size={16} /></span>
+            <section className="rounded-xl border border-stone-200 bg-white p-3" aria-label="待确认的 AI 修改">
+              <div className="flex items-start gap-2.5">
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-stone-900 text-white"><FilePenLine size={14} /></span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">正文中待确认的修改</p>
-                  <h3 className="mt-1 text-sm font-semibold text-stone-950">{pendingChange.title}</h3>
-                  <p className="mt-1 text-xs leading-5 text-stone-500">{pendingChange.reason}</p>
+                  <p className="text-[10px] font-semibold text-stone-500">待确认的修改</p>
+                  <h3 className="mt-0.5 text-sm font-semibold text-stone-950">{pendingChange.title}</h3>
+                  <p className="mt-0.5 text-xs leading-5 text-stone-500">{pendingChange.reason}</p>
                 </div>
               </div>
 
-              <div className="mt-3 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-5 text-stone-600 ring-1 ring-inset ring-stone-200">
-                <p className="font-medium text-stone-800">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-stone-50 px-2.5 py-2 text-[10px] text-stone-600">
+                <p className="font-medium text-stone-700">
                   {pendingChange.operation === "insert"
                     ? "新增内容已在正文中标出"
                     : pendingChange.presentation === "blocks"
                       ? "较大修改已按段落在正文中标出"
                       : "局部修改已按字词在正文中标出"}
                 </p>
-                <div className="mt-1.5 flex flex-wrap gap-3">
-                  <span className="inline-flex items-center gap-1.5"><i className="size-2.5 rounded-sm bg-red-200 ring-1 ring-red-300" />红色：拟删除</span>
-                  <span className="inline-flex items-center gap-1.5"><i className="size-2.5 rounded-sm bg-emerald-200 ring-1 ring-emerald-300" />绿色：拟新增</span>
-                </div>
+                <span className="inline-flex items-center gap-1"><i className="size-2 rounded-sm bg-red-200 ring-1 ring-red-300" />拟删除</span>
+                <span className="inline-flex items-center gap-1"><i className="size-2 rounded-sm bg-emerald-200 ring-1 ring-emerald-300" />拟新增</span>
               </div>
 
               {pendingChange.error ? (
                 <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700" role="alert">{pendingChange.error}</p>
               ) : null}
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="mt-2.5 grid grid-cols-2 gap-2">
                 <button className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-700 transition hover:bg-stone-50" onClick={onRejectChange} type="button">保留原文</button>
                 <button className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-stone-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40" disabled={Boolean(pendingChange.error)} onClick={onAcceptChange} type="button"><CheckCircle2 size={14} />接受并写入</button>
               </div>
@@ -322,30 +318,27 @@ export function AiMemberWorkspace({
           ) : null}
 
           {pendingDelivery ? (
-            <section className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-[0_12px_36px_-24px_rgba(2,132,199,0.45)]" aria-label="待审阅的 AI 组员交付物">
-              <div className="border-b border-sky-100 bg-gradient-to-r from-sky-50 to-white px-4 py-3.5">
-                <div className="flex items-start gap-3">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-sky-600 text-white shadow-sm"><ClipboardCheck size={17} /></span>
+            <section className="overflow-hidden rounded-xl border border-sky-200 bg-white" aria-label="待审阅的 AI 组员交付物">
+              <div className="border-b border-sky-100 bg-sky-50/70 px-3 py-3">
+                <div className="flex items-start gap-2.5">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sky-600 text-white"><ClipboardCheck size={15} /></span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700">组员交付 · 待组长审阅</span>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-medium text-stone-500 ring-1 ring-stone-200">尚未写入文档</span>
-                    </div>
-                    <h3 className="mt-1 text-sm font-bold text-stone-950">{pendingDelivery.title}</h3>
-                    <p className="mt-1 text-xs leading-5 text-stone-600">{pendingDelivery.summary}</p>
+                    <p className="text-[10px] font-bold text-sky-700">组员交付 · 待你审阅</p>
+                    <h3 className="mt-0.5 text-sm font-bold text-stone-950">{pendingDelivery.title}</h3>
+                    <p className="mt-0.5 text-xs leading-5 text-stone-600">{pendingDelivery.summary}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-3 p-4">
-                <div className="max-h-72 overflow-y-auto rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-3">
+              <div className="space-y-2.5 p-3">
+                <div className="max-h-72 overflow-y-auto rounded-lg border border-stone-200 bg-stone-50 px-3 py-2.5">
                   <div className="prose prose-sm max-w-none text-stone-800 prose-headings:mb-2 prose-headings:mt-3 prose-p:my-2 prose-li:my-0.5 prose-table:text-xs prose-th:bg-stone-100 prose-th:p-2 prose-td:p-2">
                     <Streamdown>{pendingDelivery.content}</Streamdown>
                   </div>
                 </div>
 
                 {pendingDelivery.sources.length ? (
-                  <div className="rounded-xl border border-stone-200 bg-white p-3">
+                  <div className="rounded-lg border border-stone-200 bg-white p-2.5">
                     <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-stone-500"><ExternalLink size={12} />使用的资料来源</p>
                     <div className="mt-2 space-y-2">
                       {pendingDelivery.sources.map((source) => (
@@ -358,11 +351,11 @@ export function AiMemberWorkspace({
                   </div>
                 ) : null}
 
-                <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3">
-                  <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-stone-600"><FileInput size={12} />AI 已规划文档操作</p>
-                  <div className="mt-2 space-y-2">
+                <div className="rounded-lg border border-stone-200 bg-stone-50/80 p-2.5">
+                  <p className="flex items-center gap-1.5 text-[10px] font-bold text-stone-600"><FileInput size={12} />计划应用到文档</p>
+                  <div className="mt-1.5 space-y-1.5">
                     {pendingDelivery.documentActions.map((action, index) => (
-                      <div className="rounded-lg border border-stone-200 bg-white px-2.5 py-2" key={`${action.operation}-${index}`}>
+                      <div className="rounded-md border border-stone-200 bg-white px-2.5 py-1.5" key={`${action.operation}-${index}`}>
                         <p className="text-xs font-semibold leading-5 text-stone-800">{action.description}</p>
                         {action.targetText ? (
                           <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-stone-500">定位段落：{action.targetText}</p>
@@ -370,7 +363,7 @@ export function AiMemberWorkspace({
                       </div>
                     ))}
                   </div>
-                  <p className="mt-2 text-[10px] leading-4 text-stone-500">
+                  <p className="mt-1.5 text-[10px] leading-4 text-stone-500">
                     {deliveryChangesDocument
                       ? "位置和内容已经由 AI 确定；确认后会一次性应用，仍可撤销。"
                       : "这次交付只提供资料，不会修改当前文档。"}
@@ -390,14 +383,14 @@ export function AiMemberWorkspace({
       </div>
 
       <form
-        className="shrink-0 border-t border-stone-200 bg-white p-3.5"
+        className="shrink-0 border-t border-stone-200/80 bg-white p-2.5"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
         }}
       >
         {error ? (
-          <div className="mb-2.5 flex items-start justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" role="alert">
+          <div className="mb-2 flex items-start justify-between gap-3 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs leading-5 text-amber-800" role="alert">
             <span>{error}</span>
             <button aria-label="关闭提示" className="mt-0.5 shrink-0" onClick={onDismissError} type="button"><X size={13} /></button>
           </div>
@@ -414,9 +407,9 @@ export function AiMemberWorkspace({
           <p className="mb-2 inline-flex items-center gap-1.5 px-1 text-[10px] text-stone-500"><LoaderCircle className="animate-spin" size={11} />正在根据当前文稿更新工作建议…</p>
         ) : null}
 
-        <div className="rounded-xl border border-stone-300 bg-white p-2.5 shadow-sm transition focus-within:border-stone-500 focus-within:ring-2 focus-within:ring-stone-100">
+        <div className="flex items-end gap-2 rounded-xl border border-stone-300 bg-white p-1.5 shadow-sm transition focus-within:border-stone-500 focus-within:ring-2 focus-within:ring-stone-100">
           <textarea
-            className="max-h-40 min-h-20 w-full resize-none bg-transparent px-1 text-sm leading-6 text-stone-900 outline-none placeholder:text-stone-400"
+            className="max-h-28 min-h-12 flex-1 resize-none bg-transparent px-1.5 py-1 text-sm leading-5 text-stone-900 outline-none placeholder:text-stone-400"
             disabled={busy || Boolean(pendingChange) || Boolean(pendingDelivery)}
             maxLength={1200}
             onChange={(event) => onChangeDraft(event.target.value)}
@@ -425,18 +418,15 @@ export function AiMemberWorkspace({
               : "把你的判断、疑问或正在犹豫的地方告诉 AI 组员…"}
             value={draft}
           />
-          <div className="mt-1 flex items-center justify-between gap-3 border-t border-stone-100 pt-2">
-            <span className="flex items-center gap-1 text-[10px] text-stone-500"><ShieldCheck size={11} />AI 提供支架，你保留核心判断与最终决定</span>
-            <button
-              aria-label="发送给 AI 组员"
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-stone-950 px-3 text-xs font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={busy || Boolean(pendingChange) || Boolean(pendingDelivery) || !draft.trim()}
-              type="submit"
-            >
-              {busy ? <LoaderCircle className="animate-spin" size={13} /> : <Send size={13} />}
-              发送
-            </button>
-          </div>
+          <button
+            aria-label="发送给 AI 组员"
+            className="grid size-8 shrink-0 place-items-center rounded-lg bg-stone-950 text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={busy || Boolean(pendingChange) || Boolean(pendingDelivery) || !draft.trim()}
+            title="发送"
+            type="submit"
+          >
+            {busy ? <LoaderCircle className="animate-spin" size={14} /> : <Send size={14} />}
+          </button>
         </div>
       </form>
     </section>

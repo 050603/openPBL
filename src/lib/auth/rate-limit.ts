@@ -102,6 +102,20 @@ export const companionLimiter = new RateLimiter({
   windowMs: 60_000,
 });
 
+export const codeRunnerLimiter = new RateLimiter({
+  // Code execution consumes isolated CPU/memory slots. Keep rapid iteration
+  // responsive without allowing one student to monopolize the runner.
+  limit: 20,
+  windowMs: 60_000,
+});
+
+export const codeSuggestionLimiter = new RateLimiter({
+  // Code-aware starter chips refresh after an editing pause. Keep those
+  // lightweight refreshes separate from the student's direct AI turns.
+  limit: 20,
+  windowMs: 60_000,
+});
+
 export const imageLimiter = new RateLimiter({
   // 20 image generations per minute per user
   limit: 20,

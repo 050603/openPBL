@@ -18,6 +18,7 @@ const RUNTIME_CACHE_DIR = path.join(
 );
 const CODEMIRROR_ROOT = path.join(process.cwd(), 'node_modules', 'codemirror');
 const KATEX_ROOT = path.join(process.cwd(), 'node_modules', 'katex', 'dist');
+const MONACO_ROOT = path.join(process.cwd(), 'node_modules', 'monaco-editor', 'min', 'vs');
 const PYODIDE_ROOT = path.join(process.cwd(), 'node_modules', 'pyodide');
 let pyodidePackageFilesPromise: Promise<Set<string>> | null = null;
 
@@ -123,6 +124,8 @@ export async function GET(
       bytes = await readLocalAsset(CODEMIRROR_ROOT, pathParts);
     } else if (runtimeName === 'katex') {
       bytes = await readLocalAsset(KATEX_ROOT, pathParts);
+    } else if (runtimeName === 'monaco') {
+      bytes = await readLocalAsset(MONACO_ROOT, pathParts);
     } else if (runtimeName === 'pyodide') {
       bytes = await readLocalAsset(PYODIDE_ROOT, pathParts);
       bytes ??= await fetchAndCachePyodideAsset(pathParts);

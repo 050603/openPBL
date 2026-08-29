@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ClassroomToolPopover, shouldShowClassroomDataSidebar, TimerPanel } from "./page";
+import { ClassroomToolPopover, shouldShowClassroomDataSidebar, TimerPanel } from "./classroom-page-parts";
 import type { ClassroomTimingSnapshot } from "@/lib/classroom/timing";
 
 const snapshot: ClassroomTimingSnapshot = {

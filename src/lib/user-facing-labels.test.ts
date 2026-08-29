@@ -14,6 +14,7 @@ describe("user-facing labels", () => {
     expect(userFacingStageLabel("ai-learning")).toBe("AI 授知");
     expect(feedbackKindLabel("revision")).toBe("修改建议");
     expect(submissionTypeLabel("plan")).toBe("项目方案");
+    expect(submissionTypeLabel("code")).toBe("代码成果");
     expect(actorRoleLabel("system-trigger")).toBe("系统提醒");
   });
 

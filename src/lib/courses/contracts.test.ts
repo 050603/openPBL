@@ -19,6 +19,31 @@ describe("ActionEnvelopeSchema", () => {
     }).success).toBe(true);
   });
 
+  it("accepts a student code artifact submission", () => {
+    const now = new Date().toISOString();
+    expect(ActionEnvelopeSchema.safeParse({
+      requestId,
+      action: {
+        type: "UPSERT_SUBMISSION",
+        payload: {
+          courseId: "course-1",
+          submission: {
+            id: "submission-1",
+            courseId: "course-1",
+            studentId: "student-1",
+            studentName: "学生",
+            stageKey: "make",
+            type: "code",
+            title: "Python 项目代码",
+            content: JSON.stringify({ version: 1, language: "python", activeFileId: "main", files: [] }),
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      },
+    }).success).toBe(true);
+  });
+
   it("rejects invalid progress, unknown actions, and non-UUID request IDs", () => {
     expect(ActionEnvelopeSchema.safeParse({
       requestId,

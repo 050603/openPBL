@@ -39,8 +39,12 @@ import {
 } from './block-suggestion';
 import { Comment, CommentCreateForm } from './comment';
 
-export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = () =>
-  BlockCommentContent;
+export const BlockDiscussion: RenderNodeWrapper<AnyPluginConfig> = ({ key, ...props }) =>
+  function BlockDiscussionNodeWrapper({ children }) {
+    return (
+      <BlockCommentContent key={key} {...props}>{children}</BlockCommentContent>
+    );
+  };
 
 const BlockCommentContent = ({ children, element }: PlateElementProps) => {
   const editor = useEditorRef();
