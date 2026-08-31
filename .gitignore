@@ -27,6 +27,7 @@
 
 # generated browser bundles (rebuilt by postinstall)
 /public/vendor/maic-importer/
+/public/vendor/pdfjs/
 
 # misc
 .DS_Store

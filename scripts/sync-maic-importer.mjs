@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Copy maic-importer's built bundle to public/vendor/ so the app can
- * load it at runtime via a URL-based dynamic import.
+ * Copy browser-only document parsers to public/vendor/ so the app can
+ * load them at runtime via URL-based dynamic imports.
  *
  * Why: the bundle contains dynamic `require()` patterns (from pdfjs-dist)
  * that Turbopack rejects as a hard "Module not found: Can't resolve <dynamic>"
@@ -16,6 +16,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const srcDir = path.join(root, 'packages/@openmaic/importer/dist');
 const destDir = path.join(root, 'public/vendor/maic-importer');
+const pdfJsSrcDir = path.join(root, 'packages/@openmaic/importer/node_modules/pdfjs-dist/build');
+const pdfJsDestDir = path.join(root, 'public/vendor/pdfjs');
 
 try {
   await stat(srcDir);
@@ -29,6 +31,13 @@ await rm(destDir, { recursive: true, force: true });
 await mkdir(destDir, { recursive: true });
 await cp(srcDir, destDir, { recursive: true });
 
+await rm(pdfJsDestDir, { recursive: true, force: true });
+await mkdir(pdfJsDestDir, { recursive: true });
+await Promise.all([
+  cp(path.join(pdfJsSrcDir, 'pdf.min.mjs'), path.join(pdfJsDestDir, 'pdf.min.mjs')),
+  cp(path.join(pdfJsSrcDir, 'pdf.worker.min.mjs'), path.join(pdfJsDestDir, 'pdf.worker.min.mjs')),
+]);
+
 console.log(
-  `[sync-maic-importer] copied ${path.relative(root, srcDir)} → ${path.relative(root, destDir)}`,
+  `[sync-maic-importer] copied document parsers → public/vendor`,
 );

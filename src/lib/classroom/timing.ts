@@ -2,6 +2,7 @@ import {
   normalizePblStageKey,
   type PblModuleTimingPlan,
   type PblProjectMainline,
+  type PblStageKey,
 } from "@/lib/pbl-time-model";
 
 export type ClassroomStageTimingStatus = "pending" | "active" | "completed";
@@ -164,12 +165,24 @@ function resolvePlannedSeconds(
         + Math.max(0, Math.round(allocation.durationMin * 60)),
     );
   }
+  const targetStageKeys = new Set(
+    input.stages
+      .map((stage) => normalizePblStageKey(stage.key))
+      .filter((key): key is NonNullable<typeof key> => Boolean(key)),
+  );
+  const sourceSeconds = (key: PblStageKey): number =>
+    mainlineByStage.get(key) ?? recommendationByStage.get(key) ?? 0;
   const requested = input.stages.map((stage) => {
     const canonicalKey = normalizePblStageKey(stage.key);
     if (!canonicalKey) return 0;
-    return mainlineByStage.get(canonicalKey)
-      ?? recommendationByStage.get(canonicalKey)
-      ?? 0;
+    const ownSeconds = sourceSeconds(canonicalKey);
+    if (
+      canonicalKey === "make"
+      && !targetStageKeys.has("proposal")
+    ) {
+      return ownSeconds + sourceSeconds("proposal");
+    }
+    return ownSeconds;
   });
   if (requested.reduce((sum, value) => sum + value, 0) === courseTotalSec) {
     return requested;
@@ -244,6 +257,105 @@ export function createClassroomTimingState(
       status: stage.key === requestedActiveStageKey ? "active" : "pending",
       ...(stage.key === requestedActiveStageKey ? { startedAt: now } : {}),
     })),
+    updatedAt: now,
+  };
+}
+
+type ReconcileClassroomTimingStateInput = Omit<
+  CreateClassroomTimingStateInput,
+  "activeStageKey" | "now"
+> & {
+  state: ClassroomTimingState;
+  activeStageKey?: string;
+  now?: string;
+};
+
+/**
+ * Migrate a persisted classroom clock when the launch mode changes its stage
+ * collection. In the new five-stage flow, proposal time and elapsed progress
+ * are folded into project practice instead of being silently discarded.
+ */
+export function reconcileClassroomTimingState(
+  input: ReconcileClassroomTimingStateInput,
+): ClassroomTimingState {
+  const targetKeys = input.stages.map((stage) => stage.key);
+  if (
+    input.state.stages.length === targetKeys.length
+    && input.state.stages.every((stage, index) => stage.stageKey === targetKeys[index])
+  ) {
+    return input.state;
+  }
+
+  const mapToTarget = (key: string | undefined): string | undefined => {
+    if (!key) return undefined;
+    if (targetKeys.includes(key)) return key;
+    if (key === "proposal" && targetKeys.includes("make")) return "make";
+    return undefined;
+  };
+  const mappedActive = mapToTarget(input.state.activeStageKey)
+    ?? mapToTarget(input.activeStageKey)
+    ?? targetKeys[0];
+  const now = safeIso(input.now ?? input.state.updatedAt);
+  const baseline = createClassroomTimingState({
+    stages: input.stages,
+    totalMinutes: input.totalMinutes,
+    projectMainline: input.projectMainline,
+    moduleTimingPlan: input.moduleTimingPlan,
+    activeStageKey: mappedActive,
+    now,
+  });
+  const activeIndex = mappedActive ? targetKeys.indexOf(mappedActive) : -1;
+
+  const stages = baseline.stages.map((stage, index) => {
+    const sourceStages = input.state.stages.filter(
+      (source) => mapToTarget(source.stageKey) === stage.stageKey,
+    );
+    const elapsedSec = sourceStages.reduce(
+      (sum, source) => sum + source.elapsedSec,
+      0,
+    );
+    const adjustmentSec = sourceStages.reduce(
+      (sum, source) => sum + source.adjustmentSec,
+      0,
+    );
+    const startedAt = sourceStages
+      .map((source) => source.startedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()[0];
+    const completedAt = sourceStages
+      .map((source) => source.completedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1);
+    const status: ClassroomStageTimingStatus = input.state.status === "completed"
+      ? "completed"
+      : stage.stageKey === mappedActive
+        ? "active"
+        : activeIndex >= 0 && index < activeIndex
+          ? "completed"
+          : "pending";
+    return {
+      ...stage,
+      adjustmentSec,
+      elapsedSec,
+      status,
+      ...(startedAt ? { startedAt } : {}),
+      ...(status === "completed" && completedAt ? { completedAt } : {}),
+    };
+  });
+
+  return {
+    ...baseline,
+    status: input.state.status,
+    sessionStartedAt: input.state.sessionStartedAt,
+    sessionEndedAt: input.state.sessionEndedAt,
+    activeStageKey: input.state.status === "completed" ? undefined : mappedActive,
+    lastResumedAt:
+      input.state.status === "running"
+        ? input.state.lastResumedAt ?? now
+        : undefined,
+    pausedAt: input.state.status === "paused" ? input.state.pausedAt ?? now : undefined,
+    stages,
     updatedAt: now,
   };
 }

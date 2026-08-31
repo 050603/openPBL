@@ -46,14 +46,13 @@ import {
   throwIfAborted,
   withGenerationRetry,
 } from '@openmaic/lib/generation/generation-retry';
-import { mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
+import { mapWithConcurrencySettledOnError } from '@openmaic/lib/utils/concurrency';
 import { getClassroomSceneConcurrency } from '@openmaic/lib/server/provider-config';
 import { resolveLlmRequestTimeoutMs } from '@/lib/llm/request-policy';
 import { buildVideoManifestFromOutlines } from '@openmaic/lib/media/video-manifest';
 import { planMediaForConfirmedOutlines } from '@openmaic/lib/generation/media-planner';
 import { buildNarrationContext } from '@openmaic/lib/generation/narration-continuity';
 import { auditAndRepairGeneratedCourse } from '@openmaic/lib/generation/course-quality';
-import { applyDeepInteractionPolicy } from '@openmaic/lib/generation/deep-interaction-policy';
 import { findMissingRequiredTeachingTools } from '@openmaic/lib/generation/teaching-tool-plan';
 import { addStudentActivityPause } from '@openmaic/lib/generation/activity-gate';
 import { assertCompleteSceneGeneration } from '@openmaic/lib/generation/generation-completeness';
@@ -64,6 +63,7 @@ import type { Scene, Stage } from '@openmaic/lib/types/stage';
 import { AGENT_COLOR_PALETTE, AGENT_DEFAULT_AVATARS } from '@openmaic/lib/constants/agent-defaults';
 
 const log = createLogger('Classroom');
+const MAX_PAGE_GENERATION_RETRIES = 2;
 
 function getSpeechActionText(actions: ReadonlyArray<Action> | undefined): string {
   return (actions ?? [])
@@ -76,6 +76,7 @@ function getSpeechActionText(actions: ReadonlyArray<Action> | undefined): string
 
 export interface GenerateClassroomInput {
   requirement: string;
+  generationMode?: UserRequirements['generationMode'];
   pblProfile?: UserRequirements['pblProfile'];
   pblTeachingActivities?: UserRequirements['pblTeachingActivities'];
   pblActivityCatalog?: UserRequirements['pblActivityCatalog'];
@@ -616,6 +617,7 @@ export async function generateClassroom(
 
   const requirements: UserRequirements = {
     requirement,
+    generationMode: input.generationMode,
     pblProfile: input.pblProfile,
     pblTeachingActivities: input.pblTeachingActivities,
     pblActivityCatalog: input.pblActivityCatalog,
@@ -750,17 +752,8 @@ export async function generateClassroom(
     : confirmedOutlines.length > 0
       ? 'confirmed'
       : 'generated';
-  // Deep interaction is allowed to repair only an unconfirmed model-generated
-  // plan. A teacher-confirmed outline is authoritative: PPT, quiz, and
-  // interactive markers must survive final classroom generation unchanged.
-  if (outlineSource === 'generated') {
-    const beforeCount = baseOutlines.filter((o) => o.type === 'interactive').length;
-    baseOutlines = applyDeepInteractionPolicy(baseOutlines, outlineSource);
-    const afterCount = baseOutlines.filter((o) => o.type === 'interactive').length;
-    if (afterCount > beforeCount) {
-      log.info(`Deep interaction: added ${afterCount - beforeCount} interactive practice page(s)`);
-    }
-  }
+  // The selected outline planner owns page cadence. Never inject interaction
+  // pages after planning, and always preserve teacher-confirmed scene types.
   if (
     preparedOutlines.length === 0
     && confirmedOutlines.length > 0
@@ -873,7 +866,7 @@ export async function generateClassroom(
   // Each worker keeps content -> actions (and the bounded timing correction)
   // sequential. Only independent scenes run concurrently; drafts are
   // assembled into the stage below in the original outline order.
-  const sceneDrafts = await mapWithConcurrency(
+  const sceneDrafts = await mapWithConcurrencySettledOnError(
     outlines,
     sceneConcurrency,
     async (outline, index) => {
@@ -882,6 +875,7 @@ export async function generateClassroom(
         allowProceduralSkill: vocationalActive,
         personalProject: requirements.pblProfile?.projectMode === 'personal',
       });
+      try {
       await reportProgress({
         step: 'generating_scenes',
         // Worker-start events can arrive out of order; keep them at the
@@ -943,15 +937,18 @@ export async function generateClassroom(
           }),
         {
           label: `scene ${index + 1}/${outlines.length} content`,
-          maxRetries: 1,
+          maxRetries: MAX_PAGE_GENERATION_RETRIES,
           signal: options.signal,
           shouldRetryResult: (result) => result === null,
           onRetry: (event) => reportSceneRetry('content', event),
         },
       );
       if (!content) {
-        log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);
-        return null;
+        const error = new Error(
+          `Scene "${safeOutline.title}" returned no usable content after page-level retries`,
+        );
+        Object.assign(error, { isRetryable: true });
+        throw error;
       }
       throwIfAborted(options.signal);
 
@@ -966,7 +963,7 @@ export async function generateClassroom(
           }),
         {
           label: `scene ${index + 1}/${outlines.length} actions`,
-          maxRetries: 1,
+          maxRetries: MAX_PAGE_GENERATION_RETRIES,
           signal: options.signal,
           onRetry: (event) => reportSceneRetry('actions', event),
         },
@@ -995,7 +992,7 @@ export async function generateClassroom(
           }),
           {
             label: `scene ${index + 1}/${outlines.length} required teaching tools`,
-            maxRetries: 1,
+            maxRetries: MAX_PAGE_GENERATION_RETRIES,
             signal: options.signal,
             onRetry: (event) => reportSceneRetry('actions', event),
           },
@@ -1034,14 +1031,22 @@ export async function generateClassroom(
           actualSec: firstEstimatedSec + reservedActivitySec,
         });
         if (!firstAssessment.withinTolerance && timingPlan.targetDurationSec >= 30) {
-          const correctedActions = await generateSceneActions(safeOutline, content, sceneAiCall, {
-            ctx: buildNarrationContext(outlines, index),
-            agents,
-            languageDirective,
-            pblProfile: requirements.pblProfile,
-            teachingConstraints: requirements.teachingConstraints,
-            timingCorrection: firstAssessment.suggestions.join('；'),
-          });
+          const correctedActions = await withGenerationRetry(
+            () => generateSceneActions(safeOutline, content, sceneAiCall, {
+              ctx: buildNarrationContext(outlines, index),
+              agents,
+              languageDirective,
+              pblProfile: requirements.pblProfile,
+              teachingConstraints: requirements.teachingConstraints,
+              timingCorrection: firstAssessment.suggestions.join('；'),
+            }),
+            {
+              label: `scene ${index + 1}/${outlines.length} timing correction`,
+              maxRetries: MAX_PAGE_GENERATION_RETRIES,
+              signal: options.signal,
+              onRetry: (event) => reportSceneRetry('actions', event),
+            },
+          );
           const correctedText = getSpeechActionText(
             addStudentActivityPause(safeOutline, correctedActions),
           );
@@ -1087,7 +1092,11 @@ export async function generateClassroom(
       const scene = sceneId
         ? pageStore.getState().scenes.find((candidate) => candidate.id === sceneId) ?? null
         : null;
-      if (!scene) return null;
+      if (!scene) {
+        const error = new Error(`Scene "${safeOutline.title}" could not be assembled`);
+        Object.assign(error, { isRetryable: true });
+        throw error;
+      }
       const assembledMissingTools = findMissingRequiredTeachingTools(safeOutline, {
         sceneType: scene.type,
         content: scene.content,
@@ -1109,6 +1118,15 @@ export async function generateClassroom(
         totalScenes: outlines.length,
       });
       return { outline: safeOutline, scene, index };
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        log.error(`Scene ${index + 1}/${outlines.length} "${safeOutline.title}" failed: ${message}`);
+        throw new Error(
+          `Scene ${index + 1}/${outlines.length} "${safeOutline.title}" failed: ${message}`,
+          { cause: error },
+        );
+      }
     },
     { shouldContinue: () => !options.signal?.aborted },
   );

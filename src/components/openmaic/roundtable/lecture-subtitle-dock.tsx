@@ -387,7 +387,7 @@ export function LectureSubtitleDock({
             <div
               aria-live="polite"
               aria-label="讲解字幕，可滚动浏览或拖动查看"
-              className="absolute inset-0 cursor-grab snap-y snap-proximity touch-pan-y overflow-y-auto overscroll-contain pr-2 [scrollbar-color:rgba(20,112,102,.28)_transparent] [scrollbar-width:thin] active:cursor-grabbing"
+              className="scrollbar-hide absolute inset-0 cursor-grab snap-y snap-proximity touch-pan-y overflow-y-auto overscroll-contain active:cursor-grabbing"
               onPointerCancel={handleSubtitlePointerEnd}
               onPointerDown={handleSubtitlePointerDown}
               onPointerMove={handleSubtitlePointerMove}
@@ -406,13 +406,13 @@ export function LectureSubtitleDock({
                   <button
                     aria-label={`从此处重新播放：${line.text}`}
                     className={cn(
-                      'flex min-h-20 w-full snap-center items-center rounded-lg px-1 py-3 text-left text-[15px] leading-6 transition-[color,opacity,background-color,transform] duration-300',
+                      'flex min-h-20 w-full snap-center items-center px-1 py-3 text-left text-[15px] leading-6 transition-[color,opacity,transform] duration-300',
                       active
-                        ? 'translate-x-0.5 bg-teal-50/75 font-semibold text-slate-900 opacity-100 dark:bg-teal-400/10 dark:text-slate-50'
+                        ? 'translate-x-0.5 font-semibold text-slate-900 opacity-100 dark:text-slate-50'
                         : isBrowsingSubtitles
                           ? index < activeSubtitleLineIndex
-                            ? 'cursor-pointer text-slate-400 opacity-45 hover:bg-teal-50/70 hover:text-teal-800 hover:opacity-100 dark:text-slate-500 dark:hover:bg-teal-400/10 dark:hover:text-teal-200'
-                            : 'cursor-pointer text-slate-500 opacity-60 hover:bg-slate-50 hover:text-slate-800 hover:opacity-100 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100'
+                            ? 'cursor-pointer text-slate-400 opacity-45 hover:text-teal-800 hover:opacity-100 dark:text-slate-500 dark:hover:text-teal-200'
+                            : 'cursor-pointer text-slate-500 opacity-60 hover:text-slate-800 hover:opacity-100 dark:text-slate-400 dark:hover:text-slate-100'
                           : 'pointer-events-none text-slate-400 opacity-0 dark:text-slate-500',
                     )}
                     data-active-line={active ? 'true' : undefined}

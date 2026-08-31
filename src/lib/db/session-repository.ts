@@ -589,7 +589,13 @@ function rowToResource(
     type: row.type,
     size: row.size,
     description: row.description ?? undefined,
+    stageKey: row.stageKey ?? undefined,
     url: row.url ?? undefined,
+    previewUrl: row.previewUrl ?? undefined,
+    previewType: row.previewType ?? undefined,
+    displayMode: row.displayMode === "slides" || row.displayMode === "document"
+      ? row.displayMode
+      : undefined,
     downloadedBy: Array.from(new Set([
       ...((row.downloadedBy as string[]) ?? []),
       ...row.downloads.map((download) => download.studentId),
@@ -1356,7 +1362,11 @@ export async function saveCourse(course: Course): Promise<Course> {
           type: r.type,
           size: r.size,
           description: r.description ?? null,
+          stageKey: r.stageKey ?? null,
           url: r.url ?? null,
+          previewUrl: r.previewUrl ?? null,
+          previewType: r.previewType ?? null,
+          displayMode: r.displayMode ?? null,
           downloadedBy: asJson(r.downloadedBy ?? []),
         })),
       });

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createManagedCourseGenerationRecoveryRequest,
+  deserializeCourseGenerationFailure,
   formatCourseGenerationErrorForTeacher,
+  formatPersistedCourseGenerationErrorForTeacher,
+  serializeCourseGenerationFailure,
 } from "./failure-policy";
 
 const inferenceAbort = new Error(
@@ -13,7 +16,6 @@ describe("managed classroom-generation recovery", () => {
     expect(createManagedCourseGenerationRecoveryRequest(
       { courseId: "course-1" },
       inferenceAbort,
-      19,
     )).toMatchObject({ managedRecoveryCount: 1 });
   });
 
@@ -21,8 +23,44 @@ describe("managed classroom-generation recovery", () => {
     expect(createManagedCourseGenerationRecoveryRequest(
       { courseId: "course-1", managedRecoveryCount: 2 },
       inferenceAbort,
-      19,
     )).toBeNull();
+  });
+
+  it("recovers a transient failure that happens before the first checkpoint", () => {
+    expect(createManagedCourseGenerationRecoveryRequest(
+      { courseId: "course-1" },
+      inferenceAbort,
+    )).toMatchObject({ managedRecoveryCount: 1 });
+  });
+
+  it("preserves retry classification across persistence without exposing diagnostics", () => {
+    const persisted = serializeCourseGenerationFailure(inferenceAbort);
+
+    expect(persisted).toContain("OPENPBL_COURSE_GENERATION_FAILURE_V1");
+    expect(deserializeCourseGenerationFailure(persisted)).toMatchObject({
+      isRetryable: true,
+    });
+    const teacherMessage = formatPersistedCourseGenerationErrorForTeacher(persisted);
+    expect(teacherMessage).toContain("已经生成的页面均已保留");
+    expect(teacherMessage).not.toContain("Inference engine");
+  });
+
+  it("keeps legacy transient failure rows recoverable", () => {
+    const legacy = "AI 页面生成服务连续多次未能完成最后的课堂页面；已经生成的页面均已保留，请稍后继续。";
+    expect(deserializeCourseGenerationFailure(legacy)).toMatchObject({
+      isRetryable: true,
+    });
+  });
+
+  it("redacts common credentials from persisted diagnostics", () => {
+    const persisted = serializeCourseGenerationFailure(new Error(
+      "Authorization: Bearer live-token-123; api_key=sk-example-secret; password=hunter2",
+    ));
+
+    expect(persisted).not.toContain("live-token-123");
+    expect(persisted).not.toContain("sk-example-secret");
+    expect(persisted).not.toContain("hunter2");
+    expect(persisted).toContain("[REDACTED]");
   });
 
   it("does not expose raw model-serving diagnostics to teachers", () => {

@@ -15,6 +15,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { JoinClassForm } from "@/components/join-class-form";
 import { useSession, useHydrated } from "@/lib/session/store";
 import { clientUUID } from "@/lib/uuid";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 export default function StudentEntryPage() {
   const router = useRouter();
@@ -22,6 +23,7 @@ export default function StudentEntryPage() {
   const hydrated = useHydrated();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const newSystem = isNewOpenPblSystem();
 
   const joinedCourse = joinedCourseId
     ? courses.find((c) => c.id === joinedCourseId)
@@ -212,7 +214,7 @@ export default function StudentEntryPage() {
                   <InstructionStep
                     step={4}
                     title="跟随 AI 老师完成项目"
-                    desc="教师主导六阶段课堂，AI 伴学伙伴会提供解释、提问、质疑与反馈，但项目决定和成果由你完成。"
+                    desc={newSystem ? "跟随教师完成五阶段课堂，在 AI 授知中学习，并在项目实践工作台完成自己的文档或代码成果。" : "教师主导六阶段课堂，AI 伴学伙伴会提供解释、提问、质疑与反馈，但项目决定和成果由你完成。"}
                   />
                 </ol>
 

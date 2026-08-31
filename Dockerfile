@@ -74,6 +74,7 @@ COPY . .
 # It is intentionally not tracked in Git, so carry the generated artifact
 # into the builder explicitly.
 COPY --from=deps /app/public/vendor/maic-importer ./public/vendor/maic-importer
+COPY --from=deps /app/public/vendor/pdfjs ./public/vendor/pdfjs
 
 # Containers keep the conventional `.next` path used by the copy steps below.
 # Local `pnpm build` defaults to `.next-build` so it cannot invalidate a
@@ -99,7 +100,12 @@ LABEL org.opencontainers.image.title="openpbl-app" \
 #   - tini: tiny init that reaps zombies and forwards signals (Next.js server
 #     is a single process so this is mostly defensive; STOPSIGNAL below still
 #     works without tini).
-RUN apk add --no-cache vips wget tini su-exec
+#   - LibreOffice Impress: optional PPTX-to-PDF compatibility path for
+#     controlled templates. New-system classroom upload requires teacher-
+#     exported PDF by default. Noto CJK and Liberation provide common fallbacks.
+RUN apk add --no-cache \
+    vips wget tini su-exec \
+    libreoffice-impress font-noto-cjk font-liberation
 
 WORKDIR /app
 

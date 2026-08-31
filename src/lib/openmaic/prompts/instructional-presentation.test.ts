@@ -12,6 +12,7 @@ describe('instructional presentation prompt contract', () => {
       teacherContext: '',
       pblContext: '',
       timingBudget: 'Target: 120 seconds',
+      visualDirection: 'Use the Cobalt & Teal course visual system.',
       assignedImages: 'No images',
       languageDirective: 'Use English',
     });
@@ -20,6 +21,9 @@ describe('instructional presentation prompt contract', () => {
     expect(prompt?.system).toContain('exact evidence');
     expect(prompt?.system).toContain('durable summary');
     expect(prompt?.system).toContain('hard to understand by listening alone');
+    expect(prompt?.system).toContain('one clear visual hierarchy');
+    expect(prompt?.system).toContain('restrained course-wide palette');
+    expect(prompt?.system).toContain('one strong visual idea');
   });
 
   it('gives slide action generation a cross-discipline whiteboard decision and tools', () => {

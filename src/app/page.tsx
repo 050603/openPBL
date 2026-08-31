@@ -16,8 +16,9 @@ import {
 import { PraixisLogo } from "@/components/brand/praixis-logo";
 import { BrandOriginStory } from "@/components/home/brand-origin-story";
 import { CosmicReveal } from "@/components/home/cosmic-reveal";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
-const STAGES = [
+const LEGACY_STAGES = [
   {
     key: "launch",
     label: "项目启动",
@@ -68,6 +69,14 @@ const STAGES = [
   },
 ] as const;
 
+const NEW_STAGES = [
+  { ...LEGACY_STAGES[0], desc: "教师发布项目说明与资源，并可向全班同步投屏" },
+  { ...LEGACY_STAGES[1], label: "AI授知", desc: "保留完整 AI 课堂，支持知识讲授、互动与学习进度" },
+  { ...LEGACY_STAGES[3], desc: "学生在文档或代码工作台与 AI 组员协作完成真实产物" },
+  { ...LEGACY_STAGES[4], label: "成果汇报与评价", desc: "教师通过资源与投屏组织成果汇报和课堂评价" },
+  { ...LEGACY_STAGES[5], desc: "通过教师资源与课堂引导完成学习回顾" },
+] as const;
+
 const FEATURES = [
   {
     icon: Layers,
@@ -104,15 +113,16 @@ const FEATURES = [
 ] as const;
 
 export default function Home() {
+  const newSystem = isNewOpenPblSystem();
   return (
     <div className="min-h-screen bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
       <SiteHeader />
       <Hero />
       <BrandOriginStory />
-      <Features />
-      <Workflow />
-      <Entry />
-      <SiteFooter />
+      <Features newSystem={newSystem} />
+      <Workflow newSystem={newSystem} />
+      <Entry newSystem={newSystem} />
+      <SiteFooter newSystem={newSystem} />
     </div>
   );
 }
@@ -252,7 +262,7 @@ function Hero() {
 /* ============================================================
    4. Features —— 4 个核心能力卡片
    ============================================================ */
-function Features() {
+function Features({ newSystem }: { newSystem: boolean }) {
   return (
     <section
       id="features"
@@ -301,7 +311,9 @@ function Features() {
                     </p>
                     {/* 要点 */}
                     <ul className="mt-5 space-y-2">
-                      {f.points.map((p) => (
+                      {(newSystem && f.title === "贯通每一步"
+                        ? ["五阶段清晰衔接", "文档与代码形成真实产物", "每一步都可回看、可延续"]
+                        : f.points).map((p) => (
                         <li
                           key={p}
                           className="flex items-start gap-2 text-[13px] leading-6 text-[var(--pbl-text)]"
@@ -337,7 +349,8 @@ function Features() {
 /* ============================================================
    4. Workflow —— 亮色六阶段流程图
    ============================================================ */
-function Workflow() {
+function Workflow({ newSystem }: { newSystem: boolean }) {
+  const stages = newSystem ? NEW_STAGES : LEGACY_STAGES;
   return (
     <section
       id="workflow"
@@ -355,17 +368,17 @@ function Workflow() {
             <span className="pbl-display-gradient">作品作答。</span>
           </h2>
           <p className="mt-5 text-[15px] leading-7 text-[var(--pbl-text-muted)]">
-            六个阶段把“知道”推进到“做到”：每一次产出都成为下一步的依据，最终由成果回应问题，再由反思开启新的实践。
+            {newSystem ? "五个阶段把知识授予、项目实践与课堂资源组织连接起来，学生最终以真实文档或代码成果回应问题。" : "六个阶段把“知道”推进到“做到”：每一次产出都成为下一步的依据，最终由成果回应问题，再由反思开启新的实践。"}
           </p>
         </CosmicReveal>
 
         {/* 水平时间线 */}
         <CosmicReveal stagger>
-          <div className="relative grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-6 md:gap-x-4">
+          <div className={`relative grid grid-cols-2 gap-x-6 gap-y-10 md:gap-x-4 ${newSystem ? "md:grid-cols-5" : "md:grid-cols-6"}`}>
             {/* 连接线（仅桌面） */}
             <div className="pointer-events-none absolute left-0 right-0 top-[26px] hidden h-px bg-gradient-to-r from-transparent via-[var(--pbl-border-strong)] to-transparent md:block" />
 
-            {STAGES.map((stage, index) => {
+            {stages.map((stage, index) => {
               const Icon = stage.icon;
               return (
                 <div key={stage.key} className="group relative">
@@ -407,7 +420,7 @@ function Workflow() {
             <RotateCw size={16} className="shrink-0 text-indigo-500" />
             <p className="text-[13px] leading-6 text-[var(--pbl-text-muted)]">
               <span className="font-semibold text-[var(--pbl-text-strong)]">闭环持续循环</span>
-              ：第六阶段的反思产出，会成为下一个项目的起点。
+              ：第{newSystem ? "五" : "六"}阶段的反思产出，会成为下一个项目的起点。
             </p>
           </div>
         </CosmicReveal>
@@ -419,7 +432,7 @@ function Workflow() {
 /* ============================================================
    5. Entry —— 教师 / 学生双入口（紧凑卡片，不展开表单）
    ============================================================ */
-function Entry() {
+function Entry({ newSystem }: { newSystem: boolean }) {
   return (
     <section
       id="entry"
@@ -471,12 +484,12 @@ function Entry() {
                     教师端
                   </h3>
                   <p className="mt-2 text-[14px] leading-6 text-[var(--pbl-text-muted)]">
-                    一个平台完成备课、课堂讲授与课后评价：创建课程、组织六阶段、学生成果评价与学习反思。
+                    {newSystem ? "一个平台完成课程创建、五阶段课堂与课程结束：轻量资源授课、完整 AI 授知和文档或代码项目实践。" : "一个平台完成备课、课堂讲授与课后评价：创建课程、组织六阶段、学生成果评价与学习反思。"}
                   </p>
 
                   {/* 功能标签 */}
                   <div className="mt-4 flex flex-wrap gap-1.5">
-                    {["课程备课", "课堂讲授", "课后评价", "六阶段组织"].map((tag) => (
+                    {(newSystem ? ["课程创建", "资源投屏", "AI授知", "项目实践"] : ["课程备课", "课堂讲授", "课后评价", "六阶段组织"]).map((tag) => (
                       <span
                         key={tag}
                         className="rounded-full border border-indigo-100 bg-indigo-50/60 px-2.5 py-1 text-[11px] font-semibold text-indigo-700"
@@ -554,7 +567,7 @@ function Entry() {
 /* ============================================================
    Footer —— 简洁页脚（亮色）
    ============================================================ */
-function SiteFooter() {
+function SiteFooter({ newSystem }: { newSystem: boolean }) {
   return (
     <footer className="pbl-aurora-light border-t border-[var(--pbl-border)] py-12">
       <div className="pbl-wide-container px-6 md:px-10">
@@ -571,7 +584,7 @@ function SiteFooter() {
             <span className="hidden md:inline text-[var(--pbl-text-subtle)]">·</span>
             <span>课后评价</span>
             <span className="hidden md:inline text-[var(--pbl-text-subtle)]">·</span>
-            <span>六阶段闭环</span>
+            <span>{newSystem ? "五阶段课堂" : "六阶段闭环"}</span>
           </div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--pbl-text-subtle)]">
             © 2026 PrAIxis · AI inside practice.

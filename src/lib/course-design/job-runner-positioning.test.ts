@@ -17,6 +17,75 @@ describe("quick positioning generation", () => {
     callLLM.mockReset();
   });
 
+  it("forces every new-system outline into the student AI授知 stage", async () => {
+    const { normalizeNewSystemAiOutlines } = await import("./job-runner");
+    const outlines = normalizeNewSystemAiOutlines([{
+      id: "wrong-stage",
+      type: "pbl",
+      title: "原始页面",
+      description: "原始说明",
+      keyPoints: ["核心知识"],
+      order: 9,
+      stageKey: "launch",
+      audience: "teacher",
+    }], { totalDurationSec: 1_200, knowledgePointIds: ["kp-1"] });
+
+    expect(outlines).toHaveLength(2);
+    expect(outlines.every((item) => item.stageKey === "ai-learning")).toBe(true);
+    expect(outlines.every((item) => item.audience === "student")).toBe(true);
+    expect(outlines.some((item) => item.type === "slide")).toBe(true);
+    expect(outlines.some((item) => item.type === "quiz")).toBe(true);
+    expect(outlines.every((item) => item.knowledgePointIds?.includes("kp-1"))).toBe(true);
+  });
+
+  it("keeps an explicitly planned interaction and gives it the matching resource metadata", async () => {
+    const { normalizeNewSystemAiOutlines } = await import("./job-runner");
+    const outlines = normalizeNewSystemAiOutlines([
+      {
+        id: "explain",
+        type: "slide",
+        title: "变量关系",
+        description: "解释变量之间的关系",
+        keyPoints: ["变量"],
+        order: 0,
+      },
+      {
+        id: "explore",
+        type: "interactive",
+        title: "改变变量并比较",
+        description: "运行两种条件并比较结果",
+        keyPoints: ["变量"],
+        order: 1,
+        widgetType: "code",
+        widgetOutline: { concept: "变量实验", language: "python" },
+      },
+      {
+        id: "mastery",
+        type: "quiz",
+        title: "达标检测",
+        description: "检查迁移理解",
+        keyPoints: ["变量"],
+        order: 2,
+      },
+    ], { totalDurationSec: 900, knowledgePointIds: ["kp-1"] });
+
+    expect(outlines[0]).toMatchObject({
+      detailKind: "knowledge-explanation",
+      resourceTypes: ["ppt"],
+    });
+    expect(outlines[1]).toMatchObject({
+      type: "interactive",
+      detailKind: "interactive-practice",
+      resourceTypes: ["code-interactive"],
+      widgetType: "code",
+    });
+    expect(outlines[2]).toMatchObject({
+      type: "quiz",
+      detailKind: "other",
+      resourceTypes: [],
+    });
+  });
+
   it("repairs a blank target grade instead of letting unknown learner context flow downstream", async () => {
     callLLM
       .mockResolvedValueOnce(JSON.stringify({ name: "计算机视觉", subject: "人工智能", grade: "", hours: 2 }))

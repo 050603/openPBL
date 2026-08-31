@@ -3,6 +3,7 @@ import { DURABLE_GENERATION_TRANSIENT_RETRIES } from "@/lib/llm/request-policy";
 import {
   buildKnowledgeStructureAuditMessages,
   buildKnowledgeStructureRepairMessages,
+  generateKnowledgeStructureOnce,
   generateReviewedKnowledgeStructure,
 } from "@/lib/knowledge-structure-generation";
 import type { GenerateInput } from "@/lib/llm/types";
@@ -38,6 +39,70 @@ const candidate = {
 };
 
 describe("reviewed knowledge structure generation", () => {
+  it("generates the new-system teacher checkpoint without an AI review call", async () => {
+    const modelCall = vi.fn().mockResolvedValue(JSON.stringify(candidate));
+
+    const result = await generateKnowledgeStructureOnce(input, {}, { modelCall });
+
+    expect(result.knowledgePoints).toHaveLength(2);
+    expect(result.knowledgeGraph?.semanticReview).toBeUndefined();
+    expect(modelCall).toHaveBeenCalledTimes(1);
+    expect(modelCall.mock.calls[0][1]?.requestClass).toBe("long-generation");
+  });
+
+  it("mechanically completes malformed relationship metadata without an AI repair call", async () => {
+    const malformed = {
+      ...candidate,
+      knowledgeGraph: {
+        ...candidate.knowledgeGraph,
+        edges: [
+          {
+            id: "e-prereq",
+            source: "prereq-ml",
+            target: "kp-nlp",
+            label: "关联",
+            type: "application",
+          },
+          {
+            id: "e-wrong-level",
+            source: "kp-project",
+            target: "kp-nlp",
+            label: "迁移",
+            type: "transfer",
+          },
+        ],
+      },
+    };
+    const modelCall = vi.fn().mockResolvedValue(JSON.stringify(malformed));
+
+    const result = await generateKnowledgeStructureOnce(input, {}, { modelCall });
+
+    expect(modelCall).toHaveBeenCalledTimes(1);
+    expect(result.knowledgeGraph?.semanticReview).toBeUndefined();
+    expect(result.knowledgeGraph?.edges.length).toBeGreaterThan(0);
+    expect(result.knowledgeGraph?.edges.every((edge) => (
+      Boolean(edge.type && edge.strength && edge.rationale)
+    ))).toBe(true);
+    expect(result.knowledgeGraph?.edges.some((edge) => (
+      (edge.type === "application" || edge.type === "transfer")
+      && result.knowledgeGraph?.nodes.find((node) => node.id === edge.target)?.level === "core"
+    ))).toBe(false);
+  });
+
+  it("derives a teacher-editable draft from objectives when the model omits knowledge points", async () => {
+    const modelCall = vi.fn().mockResolvedValue(JSON.stringify({
+      knowledgePoints: [],
+      knowledgeGraph: { nodes: [], edges: [] },
+    }));
+
+    const result = await generateKnowledgeStructureOnce(input, {}, { modelCall });
+
+    expect(modelCall).toHaveBeenCalledTimes(1);
+    expect(result.knowledgePoints.map((point) => point.name)).toEqual(input.learningObjectives);
+    expect(result.knowledgeGraph?.nodes).toHaveLength(input.learningObjectives?.length ?? 0);
+    expect(result.knowledgeGraph?.semanticReview).toBeUndefined();
+  });
+
   it("asks an independent reviewer to separate lesson scope, prerequisites and necessity", () => {
     const messages = buildKnowledgeStructureAuditMessages(
       input,

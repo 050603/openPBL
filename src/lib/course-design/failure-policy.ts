@@ -99,7 +99,11 @@ export function formatFatalCourseDesignError(error: unknown): string {
   }
   if (EXHAUSTED_LOCAL_REPAIR.test(messages)) {
     const detail = [...chainMessages].reverse().find((message) => EXHAUSTED_LOCAL_REPAIR.test(message));
-    return `当前课程阶段经过多轮定向编辑后仍未通过质量检查，生成已停止且不会整项重跑；此前已经完成的内容仍会保留。具体原因：${(detail || "本阶段未通过发布校验").slice(0, 1_000)}`;
+    const marker = "具体原因：";
+    const unwrappedDetail = detail?.includes(marker)
+      ? detail.slice(detail.lastIndexOf(marker) + marker.length)
+      : detail;
+    return `当前课程阶段经过多轮定向编辑后仍未通过质量检查，生成已停止且不会整项重跑；此前已经完成的内容仍会保留。具体原因：${(unwrappedDetail || "本阶段未通过发布校验").slice(0, 1_000)}`;
   }
   return "快速生成遇到无法继续的系统错误，已安全停止；已完成的课程设计内容仍会保留，请稍后重试。";
 }

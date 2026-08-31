@@ -2,6 +2,8 @@
 
 Generate a self-contained HTML code editor with execution and test validation.
 
+{{snippet:widget-action-bridge}}
+
 ## Supported Languages
 
 - Python (via the OpenPBL same-origin Pyodide runtime)

@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { buildPrompt, PROMPT_IDS } from './index';
 
-describe('generic interactive outline cadence', () => {
-  it('requires explanation-practice alternation without arbitrary widget quotas', () => {
+describe('interactive-first outline strategy', () => {
+  it('keeps standard mode dynamic instead of enforcing a widget or page-density formula', () => {
+    const prompt = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
+      requirement: 'Teach a short concept course',
+      userProfile: '',
+      pdfContent: 'None',
+      availableImages: 'None',
+      researchContext: 'None',
+      teacherContext: '',
+    });
+    const combined = `${prompt?.system ?? ''}\n${prompt?.user ?? ''}`;
+
+    expect(combined).toContain('Do not use a fixed widget quota');
+    expect(combined).toContain('there is no widget quota');
+    expect(combined).toContain('no fixed slide-to-interaction cadence');
+    expect(combined).toContain('smaller number of complete, coherent scenes');
+    expect(combined).not.toContain('Limit to **1-2 interactive scenes per course**');
+    expect(combined).not.toContain('typically 1-2 scenes per minute');
+  });
+
+  it('prefers meaningful learner action without a mechanical page cadence or widget quota', () => {
     const prompt = buildPrompt(PROMPT_IDS.INTERACTIVE_OUTLINES, {
       requirement: 'Teach a short concept course',
       userProfile: '',
@@ -13,14 +32,14 @@ describe('generic interactive outline cadence', () => {
     });
     const combined = `${prompt?.system ?? ''}\n${prompt?.user ?? ''}`;
 
-    expect(combined).toContain('mandatory explanation-practice cadence');
-    expect(combined).toContain('one or at most two closely related');
-    expect(combined).toContain('quiz does not count as the required interaction');
+    expect(combined).toContain('interactive-first');
+    expect(combined).toContain('do not follow a fixed pages-per-interaction cadence');
+    expect(combined).toContain('There are no widget-type quotas');
+    expect(combined).toContain('not a repeating page formula');
     expect(combined).toContain('Interactions are ungraded learning environments');
-    expect(combined).toContain('matching, sorting, ordering, or drag-to-answer');
     expect(combined).toContain('correctness judgment belongs in a `quiz` scene');
-    expect(combined).toContain('not a fixed widget percentage');
-    expect(combined).not.toContain('Minimum 2 scenes');
+    expect(combined).not.toContain('mandatory explanation-practice cadence');
+    expect(combined).not.toContain('After every one or two explanation slides');
     expect(combined).not.toContain('70% interactive scenes');
   });
 });

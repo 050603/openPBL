@@ -60,4 +60,13 @@ describe('withGenerationRetry', () => {
       'An error occurred in model serving, error message is: [Inference engine abort. Finish reason: [UNKNOWN].]',
     ))).toBe(true);
   });
+
+  it.each(['AI_EmptyResponseBodyError', 'AI_NoOutputGeneratedError'])(
+    'treats %s as a transient provider response',
+    (name) => {
+      const error = new Error('No output generated.');
+      error.name = name;
+      expect(isRetryableGenerationError(error)).toBe(true);
+    },
+  );
 });

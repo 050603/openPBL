@@ -58,10 +58,13 @@ export function canResumeAfterValidatedTeachingOutline(input: {
 
 function normalizedRequest(value: unknown): {
   courseId: string;
+  systemMode: "legacy" | "new";
+  generationMode: "standard" | "deep-interaction";
   teacherBrief: string;
   enableImageGeneration: boolean;
   enableTTS: boolean;
   enableVideoGeneration: boolean;
+  referenceIds: string[];
 } | null {
   if (!value || typeof value !== "object") return null;
   const request = value as Record<string, unknown>;
@@ -71,10 +74,21 @@ function normalizedRequest(value: unknown): {
   if (typeof request.courseId !== "string" || typeof request.teacherBrief !== "string") return null;
   return {
     courseId: request.courseId,
+    systemMode: request.systemMode === "new" ? "new" : "legacy",
+    generationMode: request.generationMode === "deep-interaction"
+      ? "deep-interaction"
+      : "standard",
     teacherBrief: request.teacherBrief.trim(),
     enableImageGeneration: options.enableImageGeneration !== false,
     enableTTS: options.enableTTS !== false,
     enableVideoGeneration: options.enableVideoGeneration === true,
+    referenceIds: Array.isArray(request.referenceMaterials)
+      ? request.referenceMaterials.flatMap((material) => {
+          if (!material || typeof material !== "object") return [];
+          const id = (material as Record<string, unknown>).id;
+          return typeof id === "string" ? [id] : [];
+        }).sort()
+      : [],
   };
 }
 

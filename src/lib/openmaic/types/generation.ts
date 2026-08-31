@@ -51,6 +51,14 @@ export interface UserRequirements {
   requirement: string; // Single free-form text for all user input
   userNickname?: string; // Student nickname for personalization
   userBio?: string; // Student background for personalization
+  /**
+   * Course-planning strategy shared by streaming, background, legacy, and new-system generation.
+   * Standard mode chooses interactions only when they materially improve learning;
+   * deep-interaction mode asks the planner for an interactive-first lesson.
+   */
+  generationMode?: CourseGenerationMode;
+  /** @deprecated Compatibility alias for imported OpenMAIC requests. */
+  interactiveMode?: boolean;
   /** Shared learner-readiness and knowledge-boundary contract for every generation stage. */
   teachingConstraints?: import('@openmaic/lib/pedagogy/teaching-constraints').TeachingConstraints;
   webSearch?: boolean; // Enable web search for richer context
@@ -73,6 +81,8 @@ export interface UserRequirements {
     calibrated: boolean;
   };
 }
+
+export type CourseGenerationMode = 'standard' | 'deep-interaction';
 
 // ==================== Stage 1 Output: Scene Outlines (Simplified) ====================
 
@@ -101,6 +111,13 @@ export interface WidgetOutline {
   challenge?: string; // game - description of what player does
   playerControls?: string[]; // game - what player controls
   nodeCount?: number; // diagram - approximate node count
+  nodes?: Array<{
+    id: string;
+    label: string;
+    parentId?: string;
+    icon?: string;
+    details?: string;
+  }>; // diagram - authoritative nodes when supplied by the planner
   challengeType?: string; // code - type of coding challenge
 }
 
@@ -270,7 +287,7 @@ export interface SceneOutline {
 
 // ==================== Stage 3 Output: Generated Content ====================
 
-import type { PPTElement, SlideBackground } from '@openmaic/dsl';
+import type { PPTElement, SlideBackground, SlideTheme } from '@openmaic/dsl';
 import type { QuizQuestion } from './stage';
 
 /**
@@ -279,6 +296,7 @@ import type { QuizQuestion } from './stage';
 export interface GeneratedSlideContent {
   elements: PPTElement[];
   background?: SlideBackground;
+  theme?: SlideTheme;
   remark?: string;
 }
 

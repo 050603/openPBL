@@ -6,6 +6,7 @@ import {
   deriveClassroomTimingSnapshot,
   pauseClassroomTiming,
   resetActiveClassroomStageTiming,
+  reconcileClassroomTimingState,
   resumeClassroomTiming,
   transitionClassroomStageTiming,
 } from "./timing";
@@ -163,5 +164,42 @@ describe("classroom timing state machine", () => {
     expect(completed.status).toBe("completed");
     expect(completed.activeStageKey).toBeUndefined();
     expect(deriveClassroomTimingSnapshot(completed, "2026-07-28T01:10:00.000Z").courseElapsedSec).toBe(60);
+  });
+
+  it("folds proposal timing and progress into project practice for the five-stage system", () => {
+    const running = createClassroomTimingState({
+      stages,
+      totalMinutes: 60,
+      projectMainline,
+      activeStageKey: "proposal",
+      now: "2026-07-28T01:00:00.000Z",
+    });
+    const progressed = {
+      ...running,
+      stages: running.stages.map((stage) =>
+        stage.stageKey === "proposal" ? { ...stage, elapsedSec: 180 } : stage
+      ),
+    };
+    const reconciled = reconcileClassroomTimingState({
+      state: progressed,
+      stages: stages.filter((stage) => stage.key !== "proposal"),
+      totalMinutes: 60,
+      projectMainline,
+      now: "2026-07-28T01:03:00.000Z",
+    });
+
+    expect(reconciled.activeStageKey).toBe("make");
+    expect(reconciled.stages.map((stage) => stage.stageKey)).toEqual([
+      "launch", "ai-learning", "make", "showcase", "reflection",
+    ]);
+    expect(reconciled.stages.find((stage) => stage.stageKey === "make")).toMatchObject({
+      basePlannedSec: 1_500,
+      elapsedSec: 180,
+      status: "active",
+    });
+    expect(deriveClassroomTimingSnapshot(
+      reconciled,
+      "2026-07-28T01:03:00.000Z",
+    ).coursePlannedSec).toBe(3_600);
   });
 });

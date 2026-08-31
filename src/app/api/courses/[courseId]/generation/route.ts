@@ -11,7 +11,7 @@ import {
   startQueuedCourseGeneration,
   type PersistedCourseGenerationRequest,
 } from "@/lib/course-generation/job-runner";
-import { formatCourseGenerationErrorForTeacher } from "@/lib/course-generation/failure-policy";
+import { formatPersistedCourseGenerationErrorForTeacher } from "@/lib/course-generation/failure-policy";
 import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
@@ -38,7 +38,7 @@ function responseJob(job: Awaited<ReturnType<typeof prisma.courseGenerationJob.f
     events: job.events,
     result: job.result,
     error: job.status === "failed" && job.error
-      ? formatCourseGenerationErrorForTeacher(new Error(job.error))
+      ? formatPersistedCourseGenerationErrorForTeacher(job.error)
       : null,
     startedAt: job.startedAt?.toISOString() ?? null,
     lastHeartbeatAt: job.lastHeartbeatAt?.toISOString() ?? null,

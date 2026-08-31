@@ -22,7 +22,6 @@ import {
   AiMemberWorkspace,
   type AiMemberWorkspaceMessage,
 } from "@/components/views/student/ai-member-workspace";
-import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import type {
   DelegatedWorkDeliverable,
   DocumentCollaborationIntent,
@@ -41,6 +40,7 @@ import {
 import type { AiContribution } from "@/lib/learning-evidence/types";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
+import { collaborationBackHref, isNewOpenPblSystem } from "@/lib/system-mode";
 
 type CollaborationMessage = AiMemberWorkspaceMessage;
 
@@ -98,7 +98,6 @@ export function DocumentAiCollaboration({
   courseId: string;
   onArtifactTypeChange: (value: CollaborationArtifactType) => void;
 }) {
-  useRealtimeSync(courseId);
   const router = useRouter();
   const hydrated = useHydrated();
   const course = useCourse(courseId);
@@ -107,7 +106,9 @@ export function DocumentAiCollaboration({
   const studentId = session.studentId ?? "";
   const stage = course?.stages[course.currentStageIndex];
   const stageKey = stage?.key ?? "";
-  const supportedStage = stageKey === "proposal" || stageKey === "make";
+  const newSystem = isNewOpenPblSystem();
+  const supportedStage = (stageKey === "proposal" || stageKey === "make")
+    && (!newSystem || course?.status === "teaching");
   const editorRef = useRef<PlateDocumentEditorHandle>(null);
   const submissionIdRef = useRef<string | undefined>(undefined);
   const loadedScopeRef = useRef("");
@@ -1077,7 +1078,7 @@ export function DocumentAiCollaboration({
 
   function leaveCollaboration() {
     if (documentHtml !== savedContentRef.current) persistDocument(documentHtml, "manual");
-    router.push(`/student/classroom/${courseId}`);
+    router.push(collaborationBackHref(courseId));
   }
 
   function changeArtifactType(value: CollaborationArtifactType) {
@@ -1100,8 +1101,12 @@ export function DocumentAiCollaboration({
   if (!supportedStage) {
     return (
       <UnavailableState
-        message="AI 文档协作实验目前在方案构思与项目实践阶段开放。"
-        onBack={() => router.replace(`/student/classroom/${course.id}`)}
+        message={newSystem
+          ? course.status === "finished"
+            ? "课堂已经结束，协作成果现已只读保存。"
+            : "AI 文档协作目前仅在项目实践阶段开放。"
+          : "AI 文档协作实验目前在方案构思与项目实践阶段开放。"}
+        onBack={() => router.replace(collaborationBackHref(course.id))}
       />
     );
   }

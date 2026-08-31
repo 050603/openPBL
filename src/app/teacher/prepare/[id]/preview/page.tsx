@@ -39,6 +39,8 @@ import { checkPblStageCoverage } from "@/lib/openmaic/pbl/course-template";
 import { normalizeTeachingToolPlan } from "@/lib/openmaic/generation/teaching-tool-plan";
 import { courseDetailedEditHref } from "@/lib/courses/preparation-navigation";
 import { cn } from "@/lib/utils";
+import { getNewSystemCourseReadiness } from "@/lib/classroom/new-system-course";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -85,6 +87,13 @@ function pageTypeClass(type?: string): string {
 }
 
 function buildPublishChecks(course: Course): PublishCheck[] {
+  if (isNewOpenPblSystem()) {
+    return getNewSystemCourseReadiness(course).map((check) => ({
+      label: check.label,
+      done: check.ok,
+      detail: check.ok ? "已完成。" : check.message,
+    }));
+  }
   const evaluationWeight = course.content.evaluationPlan.flows
     ?.filter((item) => item.enabled && item.scored !== false)
     .reduce((sum, item) => sum + item.weight, 0) ?? 0;
@@ -189,6 +198,7 @@ export default function PreviewCoursePage() {
   const [resourceAuditLoaded, setResourceAuditLoaded] = useState(false);
   const [repairingResources, setRepairingResources] = useState(false);
   const [resourceRepairVersion, setResourceRepairVersion] = useState(0);
+  const newSystem = isNewOpenPblSystem();
 
   useEffect(() => {
     if (!params?.id) return;
@@ -261,11 +271,18 @@ export default function PreviewCoursePage() {
 
   async function publish() {
     setPublishing(true);
-    publishCourse(courseId);
-    setPublishing(false);
-    toast.success("课程已发布", {
-      description: "发布中心仍会保留，你可以继续核对教学编排或体验学生课堂。",
-    });
+    try {
+      publishCourse(courseId);
+      toast.success("课程已发布", {
+        description: "发布中心仍会保留，你可以继续核对教学编排或体验学生课堂。",
+      });
+    } catch (error) {
+      toast.error("课程尚未达到发布条件", {
+        description: error instanceof Error ? error.message : "请检查未完成项目。",
+      });
+    } finally {
+      setPublishing(false);
+    }
   }
 
   async function retryMissingResources() {
@@ -324,7 +341,9 @@ export default function PreviewCoursePage() {
               </div>
               <h1 className="mt-1 truncate font-editorial text-[26px] font-semibold tracking-[-0.02em] text-stone-950 sm:text-[30px]">{course.name}</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">
-                {course.subject} · {course.grade} · 核对课程内容、学习路径与发布条件
+                {course.subject} · {course.grade} · {newSystem
+                  ? `核对 AI 授知内容、动态时长（${course.content.moduleTimingPlan?.totalMinutes ?? 0} 分钟）与发布条件`
+                  : "核对课程内容、学习路径与发布条件"}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -440,7 +459,7 @@ export default function PreviewCoursePage() {
 
       <FlowActionBar
         persistent
-        back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={`/teacher/prepare/${course.id}/generate`}>上一步</Link>}
+        back={<Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--pbl-text-muted)]" href={newSystem ? `/teacher/prepare/${course.id}/verify` : `/teacher/prepare/${course.id}/generate`}>上一步</Link>}
         saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} state={session.saveState} onRetry={() => void session.retrySave()} />}
       >
         {!isPublished ? (

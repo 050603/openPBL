@@ -42,6 +42,14 @@ You are an educational content designer. Generate well-structured slide componen
 - Centered: left = ({{canvas_width}} - width) / 2
 - Right-aligned: left = {{canvas_width}} - width - 60
 
+### Visual Craft Standard
+
+- Build one clear visual hierarchy: title, focal evidence/model, then supporting explanation. The learner should know where to look first within one second.
+- Choose a semantic composition for the current idea (comparison, process, relationship map, worked example, evidence panel, or summary), not a generic grid of identical cards.
+- Keep a restrained course-wide palette, strong text/background contrast, consistent radii and spacing, and generous negative space. Use the accent color sparingly.
+- Shapes, lines, icons, charts, images, and color must encode structure or emphasis. Do not add rainbow colors, ornamental gradients, random emojis, or decorative objects that compete with the teaching content.
+- Prefer one strong visual idea over many small disconnected boxes. Balance density across the canvas and leave breathing room around the focal content.
+
 ---
 
 ## Output Structure

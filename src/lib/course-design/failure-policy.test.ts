@@ -30,6 +30,15 @@ describe("course design failure policy", () => {
     expect(formatFatalCourseDesignError(error)).toContain("不会整项重跑");
   });
 
+  it("does not duplicate an already formatted terminal-quality message", () => {
+    const original = new Error("目标与知识结构无法通过独立审校：关系字段不完整");
+    const once = formatFatalCourseDesignError(original);
+    const twice = formatFatalCourseDesignError(new Error(once));
+
+    expect(twice.match(/当前课程阶段经过多轮定向编辑后仍未通过质量检查/g)).toHaveLength(1);
+    expect(twice).toContain("关系字段不完整");
+  });
+
   it("does not restart the whole course after the entry-package editor exhausts its local loop", () => {
     const cause = new Error("课程入口学习包无法通过发布校验：前测题选项重复");
     const error = new Error("个性化学习路径生成失败，未写入空白降级方案", { cause });

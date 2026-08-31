@@ -41,6 +41,10 @@ export type PblOutcomeSpec = {
 
 export type ResourceInquiryMode = "llm" | "web-search";
 
+export type CourseGenerationTemplate =
+  | "pbl-six-stage"
+  | "new-ai-learning-only";
+
 export type PblCourseConfig = {
   /** The new classroom mode intentionally has no real student group. */
   projectMode: "personal";
@@ -56,7 +60,7 @@ export type PblCourseConfig = {
   /** Teacher-authored open PBL questions students can choose as their project focus. */
   inquiryQuestions: string[];
   evaluationModel: "tri-party";
-  generationTemplate: "pbl-six-stage";
+  generationTemplate: CourseGenerationTemplate;
 };
 
 export const PBL_COMPANION_ORDER: PblCompanionId[] = [
@@ -208,7 +212,10 @@ export function normalizePblCourseConfig(
     resourceInquiryMode: input?.resourceInquiryMode === "web-search" ? "web-search" : "llm",
     inquiryQuestions,
     evaluationModel: "tri-party",
-    generationTemplate: "pbl-six-stage",
+    generationTemplate:
+      input?.generationTemplate === "new-ai-learning-only"
+        ? "new-ai-learning-only"
+        : "pbl-six-stage",
   };
 }
 

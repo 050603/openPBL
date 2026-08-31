@@ -18,19 +18,32 @@ Use this provider/model/voice rate before deciding student AI-learning narration
 
 ## Output planning rules
 
-### Foundation-first deep-interaction cadence in student AI-learning
+### Foundation-first planning in student AI-learning
 
-- This is the default structural contract, not an optional mode. Organize the lesson as: prerequisite activation and complete explanation → concrete example, counterexample, comparison, derivation, or visible evidence → guided ungraded interaction with explanatory feedback → the next knowledge block. Only after all essential blocks are taught and practised may assessment begin.
 - Every knowledge block must visibly teach its concept, a concrete example, and at least one mechanism, relationship, step, boundary, or common misconception before the learner is assessed on it. A title-only or keyword-only slide is invalid. Use additional semantic slides when one page cannot carry a complete explanation without hiding evidence in narration.
-- Slides remain responsible for durable definitions, examples, evidence, comparisons, and summaries. Interactions let learners explore, manipulate, observe, compare, construct, or rehearse the immediately preceding `knowledgePointIds`. Do not replace teaching with widgets and do not insert an interaction before students have enough explanation to use it meaningfully.
-- A `quiz` is an assessment and does NOT satisfy the interaction requirement. Do not produce slide-only or slide/quiz-only AI-learning sequences.
-- If there is any student `ai-learning` knowledge content, generate at least one interactive practice. Longer AI-learning modules must contain repeated explanation-practice pairs rather than placing all interactions at the end.
+- Slides remain responsible for durable definitions, examples, evidence, comparisons, and summaries. Interactions are used only when learner manipulation, simulation, inspection, construction, programming, comparison, or rehearsal produces evidence that improves understanding.
 - Select the widget by teaching affordance: simulation for variable/causal models, diagram for structures and relationships, code for executable reasoning, game for applied decisions or practice, and 3D for spatial structure.
-- Every interaction must reuse the preceding block's valid `parentActivityId` and `knowledgePointIds`, and directly require prediction, manipulation or decision, observation, and explanatory feedback. Decorative clicking, animation, points, or unguided exploration is invalid.
+- Every interaction must reuse valid `parentActivityId` and `knowledgePointIds`, and directly require prediction, manipulation or decision, observation, and explanatory feedback. Decorative clicking, animation, points, or unguided exploration is invalid.
 - Interactions are ungraded exploration or operation spaces, not extra assessments. Do not request matching, sorting, ordering, drag-to-answer, multiple-choice, answer submission, correctness verdicts, knowledge scores, rankings, or pass/fail gates. If dragging is pedagogically necessary, it must directly manipulate or construct the model and must not compare the final arrangement with an answer key.
-- Mark an interaction complete after a meaningful operation or exploration loop and show what changed and why. Do not interrupt it with a quiz.
-- Split the confirmed parent duration primarily across explanation and interaction. Across student AI-learning, reserve no more than 20% of time for the terminal assessment and keep the largest share for explicit teaching.
+- Mark an interaction complete only after a meaningful operation or exploration loop and show what changed and why.
+- Reserve no more than 20% of student AI-learning time for the terminal assessment and keep the largest share for explicit teaching and meaningful practice.
+
+{{#if standardMode}}
+#### Standard mode strategy
+
+- Choose each scene type dynamically from the learning objective. Do not require an interaction after a fixed number of slides and do not manufacture one for a purely explanatory concept.
+- Use a small number of high-value interactive scenes only where they materially improve comprehension. A coherent slide-and-quiz sequence is valid when hands-on interaction would add no genuine learner agency.
+- Distribute interactions near the knowledge they apply, while allowing several complementary explanation pages, examples, or worked steps when the concept requires them.
+{{/if}}
+
+{{#if deepInteractionMode}}
+#### Deep-interaction mode strategy
+
+- Prefer interactive-first learning where the subject supports meaningful hands-on exploration, but still decide page types from knowledge dependencies and learner needs rather than a repeating slide/widget formula.
+- A short or abstract lesson may need only one excellent interaction; a longer experimental, spatial, or programming lesson may justify several. There are no widget-type quotas.
+- Keep slides whenever they are the clearest way to establish definitions, evidence, reasoning, examples, misconceptions, or summaries. Do not replace teaching with widgets.
 - Deep interaction applies only to student `ai-learning`. Keep `launch`, `proposal`, `make`, `showcase`, and `reflection` teacher-facing and PPT/script-only under the phase contract.
+{{/if}}
 
 ### One terminal mastery assessment
 

@@ -34,6 +34,47 @@ function job(overrides: Partial<QuickClassroomGenerationSnapshot> = {}): QuickCl
 }
 
 describe("buildQuickClassroomArtifacts", () => {
+  it("builds a detailed AI-learning production blueprint for the new system", () => {
+    const aiLearningJob = job({
+      scenesGenerated: 0,
+      totalScenes: 4,
+      requestPreview: {
+        courseTitle: "理解生成式人工智能",
+        sceneOutlines: [
+          { id: "1", title: "认识生成模型", type: "slide", stageKey: "ai-learning", estimatedDuration: 240 },
+          { id: "2", title: "观察模型如何预测", type: "interactive", stageKey: "ai-learning", estimatedDuration: 300 },
+          { id: "3", title: "检查核心概念", type: "quiz", stageKey: "ai-learning", estimatedDuration: 180 },
+          { id: "4", title: "理解使用边界", type: "slide", stageKey: "ai-learning", estimatedDuration: 240 },
+        ],
+        enableImageGeneration: true,
+        enableVideoGeneration: false,
+        enableTTS: true,
+      },
+    });
+
+    const artifacts = buildQuickClassroomArtifacts(aiLearningJob, { aiLearningOnly: true });
+    const blueprint = artifacts[0];
+
+    expect(blueprint).toMatchObject({
+      id: "ai-learning-generation-plan",
+      title: "开始制作可上课的 AI 授知内容",
+      visualization: {
+        generationPlan: {
+          totalScenes: 4,
+          estimatedDuration: 960,
+          assets: { images: true, videos: false, tts: true },
+        },
+      },
+    });
+    expect(blueprint.visualization?.generationPlan?.scenes.map((scene) => scene.title)).toEqual([
+      "认识生成模型",
+      "观察模型如何预测",
+      "检查核心概念",
+      "理解使用边界",
+    ]);
+    expect(resolveQuickClassroomActiveArtifactId(aiLearningJob, { aiLearningOnly: true })).toBe("ai-learning-generation-plan");
+  });
+
   it("uses readable fallbacks for malformed generated labels", () => {
     const artifacts = buildQuickClassroomArtifacts(job({
       scenesGenerated: 1,
@@ -50,6 +91,51 @@ describe("buildQuickClassroomArtifacts", () => {
       label: "课程学习阶段 · 1",
       value: "未命名课程页面",
     });
+  });
+
+  it("keeps the live workbench during parallel page production and recovery", () => {
+    for (const step of ["generating_scenes", "recovering_scenes", "persisting", "completed"]) {
+      const snapshot = job({ step, scenesGenerated: 4 });
+      const artifacts = buildQuickClassroomArtifacts(snapshot, { aiLearningOnly: true });
+      expect(resolveQuickClassroomActiveArtifactId(snapshot, { aiLearningOnly: true })).toBe("ai-learning-generation-plan");
+      expect(artifacts[0].visualization?.generationPlan).toMatchObject({ completedScenes: 4, phaseIndex: 1 });
+      expect(artifacts.some((artifact) => artifact.id.startsWith("classroom-pages-"))).toBe(false);
+    }
+  });
+
+  it.each([
+    ["queued", "queued", -1],
+    ["running", "initializing", 0],
+    ["running", "generating_scenes", 1],
+    ["running", "generating_adaptive_resources", 2],
+    ["running", "generating_tts_assets", 2],
+    ["running", "generating_course_cover", 3],
+    ["running", "auditing_resources", 4],
+    ["completed", "completed", 5],
+  ] as const)("uses actual job phase for %s / %s", (status, step, phaseIndex) => {
+    const artifact = buildQuickClassroomArtifacts(job({ status, step }), { aiLearningOnly: true })[0];
+    expect(artifact.visualization?.generationPlan).toMatchObject({ status, phaseIndex });
+  });
+
+  it("retains the last observed phase after failure without marking more pages complete", () => {
+    const snapshot = job({
+      status: "failed", step: "failed", scenesGenerated: 2,
+      events: [{ step: "generating_scenes", progress: 40, message: "正在制作页面", scenesGenerated: 2, totalScenes: 6, ts: 1 }],
+    });
+    const artifact = buildQuickClassroomArtifacts(snapshot, { aiLearningOnly: true })[0];
+    expect(artifact.title).toBe("AI 授知内容等待继续");
+    expect(artifact.visualization?.generationPlan).toMatchObject({ completedScenes: 2, phaseIndex: 1, status: "failed" });
+  });
+
+  it("handles missing outlines and does not promise teacher resources in the new system", () => {
+    const empty = buildQuickClassroomArtifacts(job({
+      status: "queued", step: "queued", totalScenes: 0, scenesGenerated: 0, requestPreview: undefined,
+    }), { aiLearningOnly: true })[0];
+    expect(empty.visualization?.generationPlan).toMatchObject({ totalScenes: 0, scenes: [], phaseIndex: -1 });
+
+    const artifacts = buildQuickClassroomArtifacts(job({ status: "completed", step: "completed" }), { aiLearningOnly: true });
+    expect(JSON.stringify(artifacts)).not.toContain("教师资源");
+    expect(resolveQuickClassroomActiveArtifactId(job({ status: "completed", step: "completed" }), { aiLearningOnly: true })).toBe("classroom-persisting");
   });
 
   it("continues the quick canvas with real outline titles and forward-only page batches", () => {

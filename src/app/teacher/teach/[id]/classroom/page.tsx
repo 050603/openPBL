@@ -54,6 +54,7 @@ import {
 } from "@/lib/classroom/timing";
 import { copyTextToClipboard } from "@/lib/browser/copy-text";
 import { normalizeInviteCode } from "@/lib/session/invite-code";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 import {
   ClassroomToolPopover,
   formatClock,
@@ -154,8 +155,11 @@ export default function TeachClassroomPage() {
   }
 
   const currentStage = course.stages[course.currentStageIndex];
-  const showDataSidebar = shouldShowClassroomDataSidebar(currentStage?.key, focusMode);
-  const companionStageActive = currentStage?.key === "proposal" || currentStage?.key === "make";
+  const newSystem = isNewOpenPblSystem();
+  const showDataSidebar = (!newSystem || currentStage?.key === "ai-learning")
+    && shouldShowClassroomDataSidebar(currentStage?.key, focusMode);
+  const companionStageActive = !newSystem
+    && (currentStage?.key === "proposal" || currentStage?.key === "make");
   const canPrev = course.currentStageIndex > 0;
   const canNext = course.currentStageIndex < course.stages.length - 1;
   const timerText = timingSnapshot?.activeStage
@@ -344,6 +348,7 @@ export default function TeachClassroomPage() {
       uiState: {
         ...(course.uiState ?? {}),
         teacherResourceProjection: null,
+        resourceProjection: null,
         ...(classroomTiming ? { classroomTiming } : {}),
       },
     });
@@ -429,7 +434,7 @@ export default function TeachClassroomPage() {
               {attentionRows.length ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[9px] font-bold text-white">{attentionRows.length}</span> : null}
             </button>
           ) : null}
-          {currentStage?.key === "showcase" ? <button aria-label="进入投影展示模式" className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setPresentationMode(true)} type="button"><Maximize2 size={14} /></button> : null}
+          {!newSystem && currentStage?.key === "showcase" ? <button aria-label="进入投影展示模式" className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600" onClick={() => setPresentationMode(true)} type="button"><Maximize2 size={14} /></button> : null}
           {/* 查看课程 */}
           <Link
             className="grid h-8 w-8 place-items-center rounded-[var(--radius-xs)] border border-stone-200 bg-white/80 text-stone-600 transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
@@ -518,7 +523,7 @@ export default function TeachClassroomPage() {
 
           <StageProgress course={course} onSelect={requestStage} />
 
-          {currentStage && hasTeacherResources && currentStage.key !== "ai-learning" ? (
+          {!newSystem && currentStage && hasTeacherResources && currentStage.key !== "ai-learning" ? (
             <TeacherStageResources course={course} stageKey={currentStage.key} />
           ) : null}
 
@@ -731,7 +736,7 @@ export default function TeachClassroomPage() {
         reserveSpace={false}
         saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}
       >
-        {canNext ? <Button onClick={() => requestStage(course.currentStageIndex + 1)}>检查条件并进入下一阶段</Button> : <Button onClick={() => setEndDialogOpen(true)}>检查评价并结束课程</Button>}
+        {canNext ? <Button onClick={() => requestStage(course.currentStageIndex + 1)}>检查条件并进入下一阶段</Button> : <Button onClick={() => setEndDialogOpen(true)}>{newSystem ? "结束课程" : "检查评价并结束课程"}</Button>}
       </FlowActionBar>
 
       {targetStageIndex !== null ? <StageGateDialog course={course} onConfirm={confirmStage} onOpenChange={(open) => { if (!open) setTargetStageIndex(null); }} open targetIndex={targetStageIndex} /> : null}
@@ -739,7 +744,7 @@ export default function TeachClassroomPage() {
       <AlertDialog onOpenChange={setEndDialogOpen} open={endDialogOpen}>
         <AlertDialogContent>
           <AlertDialogTitle>结束本次课堂？</AlertDialogTitle>
-          <AlertDialogDescription>课堂结束后学生将进入只读回看。结束前请确认多元评价和学生反思已经完成；系统不会自动跳转离开当前页面。</AlertDialogDescription>
+          <AlertDialogDescription>{newSystem ? "课堂结束后学生将进入只读回看。结束前请确认授课资源和项目实践产物已经保存；系统不会自动跳转离开当前页面。" : "课堂结束后学生将进入只读回看。结束前请确认多元评价和学生反思已经完成；系统不会自动跳转离开当前页面。"}</AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>继续授课</AlertDialogCancel>
             <AlertDialogAction onClick={endClass}>结束课堂</AlertDialogAction>

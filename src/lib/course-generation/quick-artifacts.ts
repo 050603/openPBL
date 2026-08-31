@@ -55,21 +55,27 @@ const STAGE_LABELS: Record<string, string> = {
 
 export function buildQuickClassroomArtifacts(
   job: QuickClassroomGenerationSnapshot | null,
+  config: { aiLearningOnly?: boolean } = {},
 ): CourseDesignGenerationArtifact[] {
   if (!job) return [];
   const outlines = job.requestPreview?.sceneOutlines ?? [];
-  const artifacts: CourseDesignGenerationArtifact[] = [{
-    id: "classroom-generation-plan",
-    kind: "timeline",
-    eyebrow: "课堂内容生成 · 制作计划",
-    title: "开始制作可上课的课程内容",
-    summary: `${job.totalScenes || outlines.length} 个课堂页面与配套资源`,
-    accent: "orange",
-    items: summarizeStages(outlines),
-  }];
+  const aiLearningOnly = config.aiLearningOnly === true;
+  const artifacts: CourseDesignGenerationArtifact[] = [aiLearningOnly
+    ? buildAiLearningGenerationPlan(job, outlines)
+    : {
+        id: "classroom-generation-plan",
+        kind: "timeline",
+        eyebrow: "课堂内容生成 · 制作计划",
+        title: "开始制作可上课的课程内容",
+        summary: `${job.totalScenes || outlines.length} 个课堂页面与配套资源`,
+        accent: "orange",
+        items: summarizeStages(outlines),
+      }];
 
   const completedCount = Math.min(job.scenesGenerated, outlines.length || job.totalScenes);
-  const pageMilestones = Math.max(0, Math.ceil(completedCount / 3));
+  // The new-system workbench stays visible while independent pages complete.
+  // An aggregate completion count does not identify which parallel page finished.
+  const pageMilestones = aiLearningOnly ? 0 : Math.max(0, Math.ceil(completedCount / 3));
   for (let milestone = 0; milestone < pageMilestones; milestone += 1) {
     const end = Math.min(completedCount, (milestone + 1) * 3);
     const start = milestone * 3;
@@ -96,13 +102,13 @@ export function buildQuickClassroomArtifacts(
       id: "classroom-routing",
       kind: "outcome",
       eyebrow: "课堂内容生成 · 内容分流",
-      title: "学生课堂与教师资源",
-      summary: "课堂主体、教师引导与活动支架",
+      title: aiLearningOnly ? "正在关联 AI 授知课堂" : "学生课堂与教师资源",
+      summary: aiLearningOnly ? "保存学生学习页面，并与本次课程关联" : "课堂主体、教师引导与活动支架",
       accent: "blue",
       items: [
         { label: "学生课堂", value: `${job.result?.studentSceneCount ?? job.scenesGenerated} 个课堂页面` },
-        { label: "教师资源", value: job.result?.teacherSceneCount ? `${job.result.teacherSceneCount} 个授课资源` : "正在整理教师引导与活动支架" },
-        { label: "课堂关联", value: "主课、教师资源与个性化分支" },
+        ...(!aiLearningOnly ? [{ label: "教师资源", value: job.result?.teacherSceneCount ? `${job.result.teacherSceneCount} 个授课资源` : "正在整理教师引导与活动支架" }] : []),
+        { label: "课堂关联", value: aiLearningOnly ? "AI 授知主课与个性化分支" : "主课、教师资源与个性化分支" },
       ],
     });
   }
@@ -199,11 +205,11 @@ export function buildQuickClassroomArtifacts(
       kind: "audit",
       eyebrow: "课堂内容生成 · 自动保存",
       title: job.status === "completed" ? "课程内容已经生成并保存" : "正在保存并核对课程内容",
-      summary: "学生课堂、教师资源与个性化内容",
+      summary: aiLearningOnly ? "AI 授知课堂与个性化学习内容" : "学生课堂、教师资源与个性化内容",
       accent: "green",
       items: [
         { label: "学生课堂", value: `${job.result?.studentSceneCount ?? job.scenesGenerated} 个学生页面已写入课程` },
-        { label: "教师资源", value: `${job.result?.teacherSceneCount ?? 0} 个教师资源页面已关联` },
+        ...(!aiLearningOnly ? [{ label: "教师资源", value: `${job.result?.teacherSceneCount ?? 0} 个教师资源页面已关联` }] : []),
         { label: "课程存档", value: job.status === "completed" ? "已自动保存" : "正在保存" },
         ...(job.result?.qualityReport?.summary
           ? [{ label: "生成检查", value: job.result.qualityReport.summary }]
@@ -217,8 +223,16 @@ export function buildQuickClassroomArtifacts(
 
 export function resolveQuickClassroomActiveArtifactId(
   job: QuickClassroomGenerationSnapshot | null,
+  options: { aiLearningOnly?: boolean } = {},
 ): string | undefined {
   if (!job) return undefined;
+  if (options.aiLearningOnly && ["queued", "initializing", "researching", "generating_outlines", "generating_scenes", "recovering_scenes", "persisting", "failed", "cancelled"].includes(job.step) && job.status !== "completed") {
+    return "ai-learning-generation-plan";
+  }
+  // The classroom builder also reports "completed" before optional resources
+  // finish. Only the persisted job status means the entire course is finished.
+  if (options.aiLearningOnly && job.step === "completed" && job.status !== "completed") return "ai-learning-generation-plan";
+  if (options.aiLearningOnly && job.step === "auditing_resources") return "ai-learning-generation-plan";
   if (job.status === "completed" || job.step === "completed") return "classroom-persisting";
   if (job.step === "persisting_assets") return "classroom-persisting";
   if (job.step === "generation_resources_ready") return "classroom-resources-ready";
@@ -232,7 +246,7 @@ export function resolveQuickClassroomActiveArtifactId(
   if (job.step === "generating_scenes" && job.scenesGenerated > 0) {
     return `classroom-pages-${Math.max(1, Math.ceil(job.scenesGenerated / 3))}`;
   }
-  return "classroom-generation-plan";
+  return options.aiLearningOnly ? "ai-learning-generation-plan" : "classroom-generation-plan";
 }
 
 export function combineQuickGenerationProgress(
@@ -274,6 +288,84 @@ function summarizeStages(outlines: QuickClassroomScenePreview[]): CourseDesignGe
   }));
 }
 
+function buildAiLearningGenerationPlan(
+  job: QuickClassroomGenerationSnapshot,
+  outlines: QuickClassroomScenePreview[],
+): CourseDesignGenerationArtifact {
+  const totalScenes = job.totalScenes || outlines.length;
+  const totalSeconds = outlines.reduce((total, outline) => total + Math.max(0, outline.estimatedDuration ?? 0), 0);
+  const counts = outlines.reduce<Record<string, number>>((result, outline) => {
+    result[outline.type] = (result[outline.type] ?? 0) + 1;
+    return result;
+  }, {});
+  const completedScenes = Math.max(0, Math.min(job.scenesGenerated, totalScenes));
+  const phaseIndex = resolveAiLearningPhase(job);
+  const title = job.status === "failed" ? "AI 授知内容等待继续"
+    : job.status === "cancelled" ? "AI 授知内容制作已中断"
+    : job.status === "cancelling" ? "正在中断 AI 授知内容制作"
+    : job.status === "completed" ? "AI 授知课堂内容已生成"
+    : job.step === "recovering_scenes" ? "正在恢复 AI 授知内容制作"
+    : completedScenes > 0 ? "正在制作 AI 授知课堂内容"
+    : "开始制作可上课的 AI 授知内容";
+
+  return {
+    id: "ai-learning-generation-plan",
+    kind: "timeline",
+    eyebrow: "AI 授知内容生成 · 制作蓝图",
+    title,
+    summary: totalScenes > 0
+      ? `${totalScenes} 个课堂页面 · 知识讲解、互动练习与节点检测按教学顺序编排`
+      : "正在整理课堂结构，页面计划就绪后将在这里展示",
+    accent: "blue",
+    items: [
+      { label: "知识讲解", value: `${counts.slide ?? 0} 个页面`, meta: "建立概念、案例与方法支架" },
+      { label: "互动练习", value: `${counts.interactive ?? 0} 个页面`, meta: "通过操作与即时反馈深化理解" },
+      { label: "节点检测", value: `${counts.quiz ?? 0} 个页面`, meta: "随知识小节检查学习达成" },
+      { label: "课堂节奏", value: formatTotalDuration(totalSeconds), meta: "讲解、思考、练习与反馈交替进行" },
+    ],
+    visualization: {
+      generationPlan: {
+        scope: "ai-learning",
+        totalScenes,
+        estimatedDuration: totalSeconds,
+        completedScenes,
+        status: job.status === "running" && job.step === "recovering_scenes" ? "recovering" : job.status,
+        phaseIndex,
+        message: job.message,
+        scenes: outlines.map((outline) => ({
+          id: outline.id,
+          title: userFacingName(outline.title, "未命名课程页面"),
+          type: outline.type,
+          typeLabel: resourceLabel(outline.type),
+          estimatedDuration: outline.estimatedDuration,
+        })),
+        assets: {
+          images: job.requestPreview?.enableImageGeneration === true,
+          videos: job.requestPreview?.enableVideoGeneration === true,
+          tts: job.requestPreview?.enableTTS === true,
+        },
+      },
+    },
+  };
+}
+
+function resolveAiLearningPhase(job: QuickClassroomGenerationSnapshot): number {
+  if (job.status === "completed") return 5;
+  if (job.status === "queued") return -1;
+  const phaseForStep = (step: string): number | undefined => {
+    if (["initializing", "researching", "generating_outlines"].includes(step)) return 0;
+    if (["generating_scenes", "recovering_scenes", "persisting", "completed", "separating_classrooms", "saving_classrooms"].includes(step)) return 1;
+    if (["checking_adaptive_resources", "generating_adaptive_resources", "adaptive_resources_ready", "generating_media", "generating_tts", "generating_media_assets", "generating_tts_assets", "persisting_assets"].includes(step)) return 2;
+    if (["generating_course_cover", "course_cover_ready", "course_cover_failed"].includes(step)) return 3;
+    if (["auditing_resources", "generation_resources_ready"].includes(step)) return 4;
+    return undefined;
+  };
+  // Failure/cancellation overwrite the step, but keep the last observed phase.
+  const latestPhase = [job.step, ...job.events.slice().reverse().map((event) => event.step)]
+    .map(phaseForStep).find((phase) => phase !== undefined);
+  return latestPhase ?? (job.scenesGenerated > 0 ? 1 : 0);
+}
+
 function resourceLabel(type: string): string {
   if (type === "interactive") return "互动页面";
   if (type === "quiz") return "测验页面";
@@ -285,4 +377,9 @@ function formatDuration(seconds?: number): string {
   if (!seconds || seconds <= 0) return "按页面内容控制时长";
   const minutes = Math.max(1, Math.round(seconds / 60));
   return `约 ${minutes} 分钟`;
+}
+
+function formatTotalDuration(seconds: number): string {
+  if (seconds <= 0) return "按页面内容动态安排";
+  return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟`;
 }

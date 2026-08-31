@@ -371,7 +371,11 @@ model CourseResource {
   type         String
   size         String
   description  String?            @db.Text
+  stageKey     String?
   url          String?
+  previewUrl   String?
+  previewType  String?
+  displayMode  String?            // document | slides
   downloadedBy Json               @default("[]") // string[] of studentIds
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
@@ -380,6 +384,7 @@ model CourseResource {
 
   @@unique([courseId, id])
   @@index([courseId])
+  @@index([courseId, stageKey])
 }
 
 // ============================================================================
@@ -919,18 +924,21 @@ model SessionMeta {
 // ============================================================================
 
 model UploadFile {
-  id             String    @id @default(uuid())
-  fileName       String
-  storedName     String
-  courseId       String?
-  uploadedById   String
-  uploadedByRole String
-  size           Int
-  mimeType       String
-  referencedBy   Json      @default("[]") // string[] of upload IDs referencing this file
-  refCount       Int       @default(0)
-  createdAt      DateTime  @default(now())
-  deletedAt      DateTime?
+  id                String    @id @default(uuid())
+  fileName          String
+  storedName        String
+  courseId          String?
+  uploadedById      String
+  uploadedByRole    String
+  size              Int
+  mimeType          String
+  previewStoredName String?   @unique
+  previewMimeType   String?
+  previewSize       Int?
+  referencedBy      Json      @default("[]") // string[] of upload IDs referencing this file
+  refCount          Int       @default(0)
+  createdAt         DateTime  @default(now())
+  deletedAt         DateTime?
 
   @@unique([storedName])
   @@index([courseId])

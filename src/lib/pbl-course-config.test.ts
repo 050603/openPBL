@@ -27,6 +27,12 @@ describe("PBL course configuration", () => {
     );
   });
 
+  it("preserves the explicit new-system AI-only generation template", () => {
+    expect(normalizePblCourseConfig({
+      generationTemplate: "new-ai-learning-only",
+    }).generationTemplate).toBe("new-ai-learning-only");
+  });
+
   it("uses the fixed role set without teacher configuration", () => {
     const config = normalizePblCourseConfig({ companionIds: ["critic", "critic"] });
 

@@ -111,6 +111,13 @@ export function assessKnowledgeGraphQuality(
   if (edges.some((edge) => !edge.id.trim())) issues.push("图谱关系 ID 不能为空");
   const edgeKeys = validEdges.map((edge) => `${edge.source}\u0000${edge.target}\u0000${edge.label.trim()}`);
   if (new Set(edgeKeys).size !== edgeKeys.length) issues.push("图谱包含重复关系");
+  const directedPairs = validEdges.map((edge) => `${edge.source}\u0000${edge.target}`);
+  if (new Set(directedPairs).size !== directedPairs.length) {
+    issues.push("同一对知识节点存在多条重叠关系；每个方向只保留最准确的一条关系");
+  }
+  if (validEdges.length > nodes.length * 2) {
+    issues.push("图谱关系过密，会产生难以阅读的交叉连线；请删除可由传递路径表达的冗余关系");
+  }
   if (validEdges.some((edge) => !edge.label.trim() || /^(关联|相关|关系)$/.test(edge.label.trim()))) {
     issues.push("关系必须说明具体语义，不能只写“关联”或“相关”");
   }
@@ -130,6 +137,24 @@ export function assessKnowledgeGraphQuality(
     && prerequisiteNodes.some((node) => node.id === edge.target)
   )) {
     issues.push("知识依赖方向错误：本课目标不能指向课前先修节点");
+  }
+  const levelRank = { foundation: 0, core: 1, application: 2, extension: 3 } as const;
+  const lessonNodeById = new Map(lessonNodes.map((node) => [node.id, node]));
+  if (validEdges.some((edge) => {
+    if (edge.type === "contrast" || edge.type === "required-prerequisite") return false;
+    const source = lessonNodeById.get(edge.source);
+    const target = lessonNodeById.get(edge.target);
+    if (!source?.level || !target?.level) return false;
+    return levelRank[source.level] > levelRank[target.level];
+  })) {
+    issues.push("本课知识关系存在从高阶应用倒指基础概念的逆向进阶，请按基础、核心、应用、拓展方向组织");
+  }
+  if (validEdges.some((edge) => {
+    if (edge.type !== "application" && edge.type !== "transfer") return false;
+    const target = lessonNodeById.get(edge.target);
+    return Boolean(target?.level && levelRank[target.level] < levelRank.application);
+  })) {
+    issues.push("application 或 transfer 关系应指向应用层或拓展层节点");
   }
 
   const requiredPrerequisiteEdges = validEdges.filter((edge) =>

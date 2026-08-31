@@ -5,6 +5,10 @@ import terser from '@rollup/plugin-terser';
 import json from '@rollup/plugin-json';
 import globals from 'rollup-plugin-node-globals';
 import builtins from 'rollup-plugin-node-builtins';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const onwarn = (warning) => {
   if (warning.code === 'CIRCULAR_DEPENDENCY') return;
@@ -12,6 +16,15 @@ const onwarn = (warning) => {
 };
 
 const plugins = [
+  {
+    name: 'resolve-dom-node-types',
+    resolveId(source) {
+      if (source === 'dom-node-types') {
+        return path.join(packageRoot, 'node_modules/dom-node-types/index.js');
+      }
+      return null;
+    },
+  },
   nodeResolve({ browser: true, preferBuiltins: false }),
   commonjs(),
   json(),

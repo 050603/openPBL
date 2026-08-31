@@ -5,10 +5,11 @@ import type { Course } from "@/lib/session/types";
 import StudentClassroomPage from "./page";
 
 const runtimeStats = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "course-1" }),
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace: navigation.replace }),
 }));
 
 vi.mock("@/lib/session/store", () => ({
@@ -144,6 +145,8 @@ const course = {
 
 describe("student classroom workspace policy", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
+    navigation.replace.mockReset();
     runtimeStats.mounts = 0;
     runtimeStats.unmounts = 0;
     window.sessionStorage.clear();
@@ -161,6 +164,23 @@ describe("student classroom workspace policy", () => {
         mode: "optional",
       },
     };
+  });
+
+  it("opens the dedicated artifact workspace during new-system project practice", () => {
+    vi.stubEnv("NEXT_PUBLIC_OPENPBL_SYSTEM_MODE", "new");
+    course.stages = [{
+      key: "make",
+      label: "项目实践",
+      description: "文档或代码协作",
+      view: "ai-collaboration",
+    }] as Course["stages"];
+    course.uiState = {};
+
+    render(<StudentClassroomPage />);
+
+    expect(navigation.replace).toHaveBeenCalledWith("/student/ai-collaboration/course-1");
+    expect(screen.getByText("正在进入项目实践协作工作台…")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "companion-workspace" })).toBeNull();
   });
 
   it("defaults a supported stage to the AI companion scene", () => {

@@ -24,6 +24,8 @@ import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
 import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 import type { TeacherResourceProjection } from "@/lib/session/types";
 import { useCoursePresence } from "@/hooks/use-course-presence";
+import { StudentResourceProjection } from "@/components/classroom/simple-stage-resources";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 export default function StudentClassroomPage() {
   const params = useParams<{ id: string }>();
@@ -39,6 +41,7 @@ export default function StudentClassroomPage() {
     heartbeat: true,
   });
   const [optionalProjectionOpen, setOptionalProjectionOpen] = useState(false);
+  const newSystem = isNewOpenPblSystem();
   const activeStageKey = course?.stages[course.currentStageIndex]?.key;
   const workspacePolicy = getStageWorkspacePolicy(
     course?.stageWorkspacePolicies,
@@ -58,6 +61,16 @@ export default function StudentClassroomPage() {
     if (!hydrated) return;
     if (joinedCourseId && joinedCourseId !== params?.id) router.replace("/student");
   }, [hydrated, joinedCourseId, params?.id, router]);
+
+  useEffect(() => {
+    if (
+      !newSystem
+      || !hydrated
+      || course?.status !== "teaching"
+      || course.stages[course.currentStageIndex]?.view !== "ai-collaboration"
+    ) return;
+    router.replace(`/student/ai-collaboration/${course.id}`);
+  }, [course, hydrated, newSystem, router]);
 
   const displayName = studentName || (user.name && user.name !== "教师" ? user.name : "学生");
 
@@ -101,6 +114,30 @@ export default function StudentClassroomPage() {
       : null;
   const forcedProjection = projectedResource && projectedResource.mode !== "optional" ? projectedResource : null;
   const optionalProjection = projectedResource?.mode === "optional" ? projectedResource : null;
+  const uploadedProjection =
+    course.uiState?.resourceProjection?.stageKey === currentStage?.key
+      ? course.uiState.resourceProjection
+      : null;
+  const uploadedProjectionResource = uploadedProjection
+    ? course.resources?.find((resource) => resource.id === uploadedProjection.resourceId)
+    : undefined;
+
+  if (newSystem && isTeaching && currentStage?.view === "ai-collaboration") {
+    return (
+      <DashboardShell
+        role="student"
+        userName={displayName}
+        variant="bare"
+        currentCourse={{ id: course.id, name: course.name, status: course.status }}
+        currentStage={{ index: course.currentStageIndex, total, label: currentStage.label }}
+        hideCourseSwitcher
+      >
+        <div className="grid min-h-72 place-items-center text-sm text-stone-500">
+          <span className="inline-flex items-center gap-2">正在进入项目实践协作工作台…</span>
+        </div>
+      </DashboardShell>
+    );
+  }
 
   return (
     <DashboardShell
@@ -198,6 +235,12 @@ export default function StudentClassroomPage() {
             </CompanionRuntimeProvider>
           )}
         </>
+      ) : null}
+      {uploadedProjectionResource ? (
+        <StudentResourceProjection
+          projection={uploadedProjection!}
+          resource={uploadedProjectionResource}
+        />
       ) : null}
     </DashboardShell>
   );

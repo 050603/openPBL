@@ -1,7 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CourseDesignGenerationArtifact } from "@/lib/session/types";
 import { QuickGenerationStage } from "./quick-generation-stage";
+import { buildQuickClassroomArtifacts, type QuickClassroomGenerationSnapshot } from "@/lib/course-generation/quick-artifacts";
+
+const motionPreference = vi.hoisted(() => ({ reduced: false }));
+vi.mock("motion/react", async (importOriginal) => ({
+  ...await importOriginal<typeof import("motion/react")>(),
+  useReducedMotion: () => motionPreference.reduced,
+}));
 
 const outlineArtifact: CourseDesignGenerationArtifact = {
   id: "course-outline",
@@ -19,9 +26,113 @@ const outlineArtifact: CourseDesignGenerationArtifact = {
   ],
 };
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  motionPreference.reduced = false;
+});
 
 describe("QuickGenerationStage", () => {
+  it("shows the new-system AI-learning blueprint as a detailed production workspace", () => {
+    render(
+      <QuickGenerationStage
+        activeArtifactId="ai-learning-generation-plan"
+        artifacts={[{
+          id: "ai-learning-generation-plan",
+          kind: "timeline",
+          eyebrow: "AI 授知内容生成 · 制作蓝图",
+          title: "开始制作可上课的 AI 授知内容",
+          summary: "4 个课堂页面，将知识讲解、互动练习与节点检测编排成完整学习链路",
+          accent: "blue",
+          items: [
+            { label: "知识讲解", value: "2 个页面" },
+            { label: "互动练习", value: "1 个页面" },
+            { label: "节点检测", value: "1 个页面" },
+          ],
+          visualization: {
+            generationPlan: {
+              scope: "ai-learning",
+              totalScenes: 4,
+              estimatedDuration: 960,
+              completedScenes: 0,
+              status: "running",
+              phaseIndex: 1,
+              message: "正在制作课堂页面",
+              scenes: [
+                { id: "1", title: "认识生成模型", type: "slide", typeLabel: "课件页面", estimatedDuration: 240 },
+                { id: "2", title: "观察模型如何预测", type: "interactive", typeLabel: "互动页面", estimatedDuration: 300 },
+                { id: "3", title: "检查核心概念", type: "quiz", typeLabel: "测验页面", estimatedDuration: 180 },
+                { id: "4", title: "理解使用边界", type: "slide", typeLabel: "课件页面", estimatedDuration: 240 },
+              ],
+              assets: { images: true, videos: false, tts: true },
+            },
+          },
+        }]}
+        backgroundEnabled
+        brief="生成一节 AI 授知课"
+        cancelling={false}
+        completed={false}
+        confirmCancel={false}
+        message="准备制作课堂页面"
+        onCancel={vi.fn()}
+        onOpenCourse={vi.fn()}
+        onReview={vi.fn()}
+        paused={false}
+        progress={64}
+        remainingLabel="预计还需约 4 分钟"
+        reviewAvailable={false}
+        startedAt={null}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "开始制作可上课的 AI 授知内容" })).toBeTruthy();
+    expect(screen.getByLabelText("AI 授知内容生成流水线")).toBeTruthy();
+    expect(screen.getByText("页面制作")).toBeTruthy();
+    expect(screen.getByText("学习资源")).toBeTruthy();
+    expect(screen.getByText("审校保存")).toBeTruthy();
+    expect(screen.getByText("认识生成模型")).toBeTruthy();
+    expect(screen.getByText("观察模型如何预测")).toBeTruthy();
+    expect(screen.getByText("预计授课 约 16 分钟")).toBeTruthy();
+    expect(screen.queryByText("理解使用边界")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "查看全部 4 页" }));
+    expect(screen.getByText("理解使用边界")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "收起页面" }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "收起页面" }));
+    expect(screen.queryByText("理解使用边界")).toBeNull();
+  });
+
+  it("updates aggregate page progress and stops live effects during recovery or reduced motion", () => {
+    const snapshot: QuickClassroomGenerationSnapshot = {
+      status: "running", step: "generating_scenes", progress: 40,
+      message: "正在制作课堂页面", scenesGenerated: 0, totalScenes: 4, events: [],
+      requestPreview: {
+        sceneOutlines: [{ id: "p1", title: "第一节课", type: "slide", estimatedDuration: 180 }],
+        enableImageGeneration: false, enableVideoGeneration: false, enableTTS: false,
+      },
+    };
+    const props = {
+      activeArtifactId: "ai-learning-generation-plan", backgroundEnabled: true,
+      brief: "生成 AI 授知课", cancelling: false, completed: false, confirmCancel: false,
+      message: snapshot.message, onCancel: vi.fn(), onOpenCourse: vi.fn(), onReview: vi.fn(),
+      paused: false, progress: 70, remainingLabel: "正在制作", reviewAvailable: false, startedAt: null,
+    };
+    const artifacts = (completed: number) => buildQuickClassroomArtifacts({ ...snapshot, scenesGenerated: completed }, { aiLearningOnly: true });
+    const { rerender } = render(<QuickGenerationStage {...props} artifacts={artifacts(0)} />);
+    expect(screen.getByTestId("ai-plan-shimmer")).toBeTruthy();
+    rerender(<QuickGenerationStage {...props} artifacts={artifacts(2)} />);
+    expect(screen.getByRole("progressbar", { name: "课堂页面制作进度" }).getAttribute("aria-valuenow")).toBe("2");
+    const currentStep = within(screen.getByLabelText("AI 授知内容生成流水线")).getAllByRole("listitem").find((item) => item.getAttribute("aria-current") === "step");
+    expect(currentStep?.textContent).toContain("页面制作");
+
+    rerender(<QuickGenerationStage {...props} artifacts={artifacts(2)} recovering />);
+    expect(screen.queryByTestId("ai-plan-shimmer")).toBeNull();
+    expect(screen.getByText("正在恢复 · 已完成 2 页")).toBeTruthy();
+
+    motionPreference.reduced = true;
+    rerender(<QuickGenerationStage {...props} artifacts={artifacts(2)} />);
+    expect(screen.getByTestId("ai-plan-shimmer").className).toContain("motion-reduce:hidden");
+    expect(screen.getByRole("progressbar", { name: "课堂页面制作进度" }).getAttribute("aria-valuenow")).toBe("2");
+  });
+
   it("renders one scrollable course outline card with timing and flowing progress", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-10T10:01:05.000Z"));
@@ -54,7 +165,46 @@ describe("QuickGenerationStage", () => {
     expect(screen.getByTestId("quick-generation-progress-flow")).toBeTruthy();
     expect(screen.getByTestId("quick-generation-card-scroll").className).toContain("overflow-y-auto");
 
-    fireEvent.click(screen.getByRole("button", { name: /查看详细大纲/ }));
+    fireEvent.click(screen.getByRole("button", { name: /查看课程大纲并确认/ }));
+    expect(onReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a timed knowledge-graph checkpoint before generating the outline", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T10:00:00.000Z"));
+    const onReview = vi.fn();
+    render(
+      <QuickGenerationStage
+        artifacts={[{
+          id: "knowledge-graph",
+          kind: "graph",
+          eyebrow: "知识图谱",
+          title: "AI 授知知识图谱",
+          summary: "大纲将采用这份知识结构。",
+          accent: "blue",
+          items: [{ label: "核心", value: "机器学习" }],
+        }]}
+        backgroundEnabled
+        brief="设计一节 AI 课程"
+        cancelling={false}
+        completed={false}
+        confirmCancel={false}
+        message="知识图谱已生成"
+        onCancel={vi.fn()}
+        onOpenCourse={vi.fn()}
+        onReview={onReview}
+        paused={false}
+        progress={55}
+        remainingLabel="预计还需约 5 分钟"
+        reviewAvailable
+        reviewAvailableUntil="2026-08-10T10:00:20.000Z"
+        reviewKind="knowledge"
+        startedAt="2026-08-10T09:59:00.000Z"
+      />,
+    );
+
+    expect(screen.getByText("20 秒后自动继续")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /查看知识图谱并确认/ }));
     expect(onReview).toHaveBeenCalledTimes(1);
   });
 

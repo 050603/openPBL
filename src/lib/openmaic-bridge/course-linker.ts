@@ -17,6 +17,7 @@ export interface ClassroomLinkInfo {
   teacherResourceScenes?: TeacherResourceScene[];
   /** Canonical, media-planned outlines used to generate the persisted scenes. */
   sceneOutlines?: SceneOutline[];
+  systemMode?: "legacy" | "new";
 }
 
 export async function linkClassroomToCourse(
@@ -28,7 +29,9 @@ export async function linkClassroomToCourse(
   throwIfAborted(options.signal);
   await updateCourse(courseId, (course): Course => {
     throwIfAborted(options.signal);
-    const teacherResources = info.teacherResourceScenes
+    const teacherResources = info.systemMode === "new"
+      ? undefined
+      : info.teacherResourceScenes
       ? {
           generatedAt: new Date().toISOString(),
           scenes: info.teacherResourceScenes,
@@ -37,7 +40,9 @@ export async function linkClassroomToCourse(
     return {
       ...course,
       aiLearningClassroomId: classroomId,
-      ...(info.teacherClassroomId !== undefined
+      ...(info.systemMode === "new"
+        ? { teacherClassroomId: undefined }
+        : info.teacherClassroomId !== undefined
         ? { teacherClassroomId: info.teacherClassroomId || undefined }
         : {}),
       content: {
@@ -50,10 +55,12 @@ export async function linkClassroomToCourse(
                 info.sceneOutlines as unknown as OpenMaicSceneOutlineSnapshot[],
             }
           : {}),
-        ...(info.teacherClassroomId !== undefined
+        ...(info.systemMode === "new"
+          ? { teacherClassroomId: undefined, teacherResources: undefined }
+          : info.teacherClassroomId !== undefined
           ? { teacherClassroomId: info.teacherClassroomId || undefined }
           : {}),
-        ...(info.teacherResourceScenes
+        ...(info.systemMode !== "new" && info.teacherResourceScenes
           ? { teacherResources }
           : {}),
       },

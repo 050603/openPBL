@@ -6,6 +6,8 @@ import {
   BrainCircuit,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   AlertTriangle,
   GitBranch,
@@ -55,6 +57,8 @@ export function QuickGenerationStage({
   startedAt,
   paused,
   reviewAvailable,
+  reviewAvailableUntil,
+  reviewKind,
   backgroundEnabled,
   cancelling,
   confirmCancel,
@@ -77,6 +81,8 @@ export function QuickGenerationStage({
   startedAt: string | null;
   paused: boolean;
   reviewAvailable: boolean;
+  reviewAvailableUntil?: string | null;
+  reviewKind?: "knowledge" | "outline" | null;
   backgroundEnabled: boolean | null;
   cancelling: boolean;
   confirmCancel: boolean;
@@ -133,10 +139,10 @@ export function QuickGenerationStage({
   }, [activeArtifactId, activeIndex, artifactIds, artifacts, artifacts.length, reducedMotion]);
 
   useEffect(() => {
-    if (!startedAt) return;
+    if (!startedAt && !reviewAvailableUntil) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [startedAt]);
+  }, [reviewAvailableUntil, startedAt]);
 
   const safeActiveIndex = artifacts.length > 0
     ? Math.min(Math.max(activeIndex, 0), artifacts.length - 1)
@@ -156,6 +162,16 @@ export function QuickGenerationStage({
     : 0;
   const previousArtifact = safeActiveIndex > 0 ? artifacts[safeActiveIndex - 1] : null;
   const nextArtifact = safeActiveIndex >= 0 && safeActiveIndex < artifacts.length - 1 ? artifacts[safeActiveIndex + 1] : null;
+  const activeReviewKind = reviewKind ?? "outline";
+  const reviewMatchesCard = activeReviewKind === "knowledge"
+    ? displayed.kind === "graph"
+    : displayed.kind === "pages";
+  const reviewCountdown = reviewAvailableUntil
+    ? Math.max(0, Math.ceil((new Date(reviewAvailableUntil).getTime() - now) / 1_000))
+    : null;
+  const reviewButtonLabel = activeReviewKind === "knowledge"
+    ? "查看知识图谱并确认"
+    : "查看课程大纲并确认";
 
   return (
     <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-bg)] text-[var(--pbl-text-strong)]">
@@ -170,9 +186,9 @@ export function QuickGenerationStage({
           <div className="flex min-w-0 items-center gap-3 text-xs font-bold text-stone-600">
             <span className="relative grid size-9 shrink-0 place-items-center rounded-[var(--radius-md)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
               <BrainCircuit className="size-4" />
-              {!paused ? <span className={cn("absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[var(--pbl-bg)] motion-safe:animate-pulse", recovering ? "bg-amber-500" : "bg-emerald-500")} /> : null}
+              {!paused && !completed && !failed && !cancelling ? <span className={cn("absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[var(--pbl-bg)] motion-safe:animate-pulse", recovering ? "bg-amber-500" : "bg-emerald-500")} /> : null}
             </span>
-            <span className="truncate">{failed ? "课程页面生成未完成" : recovering ? "正在自动恢复" : paused ? "生成已暂停，等待大纲确认" : message || "正在生成课程"}</span>
+            <span className="truncate">{failed ? "课程页面生成未完成" : recovering ? "正在自动恢复" : paused ? activeReviewKind === "knowledge" ? "生成已暂停，等待知识图谱确认" : "生成已暂停，等待课程大纲确认" : message || "正在生成课程"}</span>
           </div>
           {failed ? (
             <button
@@ -205,7 +221,7 @@ export function QuickGenerationStage({
 
         <main className="mx-auto grid w-full max-w-[1120px] flex-1 place-items-center py-7 sm:py-9">
           <div className="w-full max-w-[820px]">
-            <div className="relative isolate mx-auto h-[min(520px,calc(100vh-250px))] min-h-[430px] [perspective:1800px]">
+            <div className={cn("relative isolate mx-auto [perspective:1800px]", displayed.visualization?.generationPlan ? "h-[720px] sm:h-[min(620px,calc(100vh-220px))] sm:min-h-[550px]" : "h-[min(520px,calc(100vh-250px))] min-h-[430px]")}>
               <motion.div
                 aria-hidden
                 animate={reducedMotion ? undefined : { opacity: [.42, .65, .42], scaleX: [.92, 1.04, .92] }}
@@ -231,7 +247,7 @@ export function QuickGenerationStage({
                 <span className="absolute right-3 top-5 max-h-36 overflow-hidden text-[8px] font-semibold tracking-[.12em] text-[var(--pbl-teacher)] [writing-mode:vertical-rl]">{compactSideTitle(nextArtifact?.title, "继续生成")}</span>
               </motion.div>
               <motion.div
-                animate={reducedMotion ? undefined : { rotateZ: [-.16, .14, -.16], y: [-5, 4, -5] }}
+                animate={reducedMotion || displayed.visualization?.generationPlan ? { rotateZ: 0, y: 0 } : { rotateZ: [-.16, .14, -.16], y: [-5, 4, -5] }}
                 className="absolute inset-0 z-10"
                 transition={{ duration: 6.8, repeat: Infinity, ease: "easeInOut" }}
               >
@@ -246,8 +262,12 @@ export function QuickGenerationStage({
                     transition={reducedMotion ? { duration: 0 } : { duration: .76, ease: [.22, 1, .36, 1] }}
                   >
                     <span aria-hidden className="absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
-                    {!paused && !completed && !failed && !recovering ? <motion.span aria-hidden className="absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent" animate={{ x: [-120, 860] }} transition={{ duration: 3.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }} /> : null}
-                    <ArtifactCard artifact={displayed} active={!paused && !completed && !failed && !recovering} />
+                    {!paused && !completed && !failed && !recovering && !cancelling ? <span aria-hidden className="quick-card-scan absolute left-0 top-0 h-px w-28 bg-gradient-to-r from-transparent via-[var(--pbl-teacher)] to-transparent motion-reduce:hidden" /> : null}
+                    <ArtifactCard
+                      artifact={displayed}
+                      active={!paused && !completed && !failed && !recovering && !cancelling}
+                      suspendedLabel={failed ? "等待重试" : recovering ? "正在恢复" : cancelling ? "正在中断" : paused ? "已暂停" : undefined}
+                    />
                     {recovering && !failed ? (
                       <div className="absolute inset-x-5 bottom-5 z-30 flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50/95 px-4 py-3 text-amber-950 shadow-sm backdrop-blur sm:inset-x-7" role="status">
                         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
@@ -260,10 +280,17 @@ export function QuickGenerationStage({
                         <div><p className="text-xs font-semibold">课程生成未完成</p><p className="mt-1 text-[11px] leading-5 text-amber-800">{failureMessage || "已完成页面均已保留，可以从断点继续生成。"}</p></div>
                       </div>
                     ) : null}
-                    {reviewAvailable && displayed.kind === "pages" ? (
-                      <button className="absolute bottom-5 left-5 z-20 inline-flex h-10 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)] sm:left-7" onClick={onReview} type="button">
-                        查看详细大纲 <ArrowRight className="size-3.5" />
-                      </button>
+                    {reviewAvailable && reviewMatchesCard ? (
+                      <div className="absolute bottom-5 left-5 z-20 flex items-center gap-3 sm:left-7">
+                        <button className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--pbl-teacher)] px-4 text-xs font-semibold text-white shadow-[var(--shadow-raised)] transition hover:bg-[var(--pbl-teacher-hover)]" onClick={onReview} type="button">
+                          {reviewButtonLabel} <ArrowRight className="size-3.5" />
+                        </button>
+                        {!paused && reviewCountdown !== null ? (
+                          <span className="rounded-full border border-blue-100 bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-stone-500 shadow-sm">
+                            {reviewCountdown > 0 ? `${reviewCountdown} 秒后自动继续` : "正在自动继续"}
+                          </span>
+                        ) : null}
+                      </div>
                     ) : null}
                   </motion.article>
                 </AnimatePresence>
@@ -274,11 +301,11 @@ export function QuickGenerationStage({
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--pbl-border)]">
                 <motion.div
                   animate={{ width: `${progress}%` }}
-                  className={cn("quick-progress-current relative h-full rounded-full bg-[linear-gradient(90deg,#1d4ed8_0%,#2563eb_48%,#60a5fa_58%,#2563eb_68%,#1d4ed8_100%)] [background-size:220%_100%]", recovering && "!bg-amber-400 [animation:none!important]")}
+                  className={cn("quick-progress-current relative h-full rounded-full bg-[linear-gradient(90deg,#1d4ed8_0%,#2563eb_48%,#60a5fa_58%,#2563eb_68%,#1d4ed8_100%)] [background-size:220%_100%]", recovering && "!bg-amber-400", (recovering || paused || completed || failed || cancelling) && "[animation:none!important]")}
                   data-testid="quick-generation-progress-flow"
                   transition={{ duration: .7, ease: "easeOut" }}
                 >
-                  {!recovering ? <span aria-hidden className="quick-progress-tip absolute -right-0.5 top-1/2 size-2 -translate-y-1/2 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(96,165,250,.75)]" /> : null}
+                  {!recovering && !paused && !completed && !failed && !cancelling ? <span aria-hidden className="quick-progress-tip absolute -right-0.5 top-1/2 size-2 -translate-y-1/2 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(96,165,250,.75)]" /> : null}
                 </motion.div>
               </div>
               <span className="w-11 text-right text-xs font-black tabular-nums text-blue-800">{progress}%</span>
@@ -297,16 +324,21 @@ export function QuickGenerationStage({
       <style>{`
         @keyframes quick-progress-current { from { background-position: 100% 50% } to { background-position: 0% 50% } }
         @keyframes quick-progress-tip { 0%, 100% { opacity: .45; transform: translateY(-50%) scale(.72) } 50% { opacity: 1; transform: translateY(-50%) scale(1) } }
+        @keyframes quick-card-scan { from { transform: translateX(-120px) } to { transform: translateX(860px) } }
+        @keyframes quick-plan-shimmer { from { transform: translateX(-90px) skewX(-12deg) } to { transform: translateX(270px) skewX(-12deg) } }
         .quick-progress-current { animation: quick-progress-current 3.6s ease-in-out infinite alternate; }
         .quick-progress-tip { animation: quick-progress-tip 2.2s ease-in-out infinite; }
-        @media (prefers-reduced-motion: reduce) { .quick-progress-current, .quick-progress-tip { animation: none; } }
+        .quick-card-scan { animation: quick-card-scan 4.8s ease-in-out infinite; }
+        .quick-plan-shimmer { animation: quick-plan-shimmer 4.5s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .quick-progress-current, .quick-progress-tip, .quick-card-scan, .quick-plan-shimmer { animation: none; } }
       `}</style>
     </div>
   );
 }
 
-function ArtifactCard({ artifact, active }: { artifact: CourseDesignGenerationArtifact; active: boolean }) {
-  const Icon = ICONS[artifact.kind];
+function ArtifactCard({ artifact, active, suspendedLabel }: { artifact: CourseDesignGenerationArtifact; active: boolean; suspendedLabel?: string }) {
+  const reducedMotion = useReducedMotion();
+  const Icon = artifact.visualization?.generationPlan ? BrainCircuit : ICONS[artifact.kind];
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [hasOverflow, setHasOverflow] = useState(artifact.items.length > 3);
   const [atBottom, setAtBottom] = useState(false);
@@ -323,13 +355,14 @@ function ArtifactCard({ artifact, active }: { artifact: CourseDesignGenerationAr
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(area);
+    if (area.firstElementChild) observer.observe(area.firstElementChild);
     return () => observer.disconnect();
   }, [artifact.id, artifact.items.length]);
 
   const showFade = hasOverflow && !atBottom;
 
   return (
-    <div className="flex h-full min-h-0 flex-col pb-10">
+    <div className={cn("flex h-full min-h-0 flex-col", artifact.visualization?.generationPlan && !suspendedLabel ? "pb-1" : "pb-10")}>
       <div className="flex shrink-0 items-start justify-between gap-5 border-b border-[var(--pbl-border-soft)] pb-4">
         <div className="min-w-0">
           <p className={cn("text-[10px] font-semibold tracking-[.15em]", accentText(artifact.accent))}>{artifact.eyebrow}</p>
@@ -337,7 +370,7 @@ function ArtifactCard({ artifact, active }: { artifact: CourseDesignGenerationAr
           <p className="mt-1.5 line-clamp-2 max-w-[650px] text-[12px] leading-5 text-[var(--pbl-text-muted)]">{artifact.summary}</p>
         </div>
         <motion.span
-          animate={active ? { rotate: [0, -10, 8, 0], scale: [1, 1.13, 1] } : undefined}
+          animate={active && !reducedMotion ? { rotate: [0, -10, 8, 0], scale: [1, 1.13, 1] } : undefined}
           className={cn("grid size-10 shrink-0 place-items-center rounded-[var(--radius-md)] border", accentSurface(artifact.accent))}
           transition={{ duration: 3.2, repeat: Infinity, repeatDelay: .8, ease: "easeInOut" }}
         ><Icon className="size-5" /></motion.span>
@@ -347,16 +380,22 @@ function ArtifactCard({ artifact, active }: { artifact: CourseDesignGenerationAr
         <div
           className="absolute inset-0 overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable]"
           data-testid="quick-generation-card-scroll"
+          aria-label="课程生成内容详情"
+          tabIndex={0}
           ref={scrollAreaRef}
           onScroll={(event) => {
             const target = event.currentTarget;
             setAtBottom(target.scrollTop + target.clientHeight >= target.scrollHeight - 8);
           }}
         >
-          <ArtifactBody artifact={artifact} />
+          <ArtifactBody artifact={artifact} active={active} suspendedLabel={suspendedLabel} />
         </div>
         {showFade ? (
-          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-white/0 via-white/80 to-white" />
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 flex h-16 items-end justify-center bg-gradient-to-b from-white/0 via-white/80 to-white pb-1">
+            {artifact.id === "ai-learning-generation-plan" ? (
+              <span className="rounded-full border border-blue-100 bg-white/95 px-2.5 py-1 text-[10px] font-semibold text-blue-700 shadow-sm">向下查看完整生成过程</span>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {active ? <span aria-hidden className="absolute bottom-0 left-0 h-1 w-full bg-gradient-to-r from-transparent via-blue-500/55 to-transparent motion-safe:animate-pulse" /> : null}
@@ -364,7 +403,8 @@ function ArtifactCard({ artifact, active }: { artifact: CourseDesignGenerationAr
   );
 }
 
-function ArtifactBody({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
+function ArtifactBody({ artifact, active, suspendedLabel }: { artifact: CourseDesignGenerationArtifact; active: boolean; suspendedLabel?: string }) {
+  if (artifact.visualization?.generationPlan) return <AiLearningGenerationPlanPreview artifact={artifact} active={active} suspendedLabel={suspendedLabel} />;
   if (artifact.id.startsWith("classroom-pages-")) return <PageProductionPreview artifact={artifact} />;
   if (artifact.id === "classroom-media-assets") return <ResourceProductionPreview artifact={artifact} />;
   if (artifact.id === "classroom-tts-assets") return <TtsProductionPreview artifact={artifact} />;
@@ -376,6 +416,165 @@ function ArtifactBody({ artifact }: { artifact: CourseDesignGenerationArtifact }
   if (artifact.kind === "branches") return <BranchPreview artifact={artifact} />;
   if (artifact.kind === "audit") return <AuditPreview artifact={artifact} />;
   return <FactsPreview artifact={artifact} />;
+}
+
+function AiLearningGenerationPlanPreview({ artifact, active, suspendedLabel }: { artifact: CourseDesignGenerationArtifact; active: boolean; suspendedLabel?: string }) {
+  const reducedMotion = useReducedMotion();
+  const [expanded, setExpanded] = useState(false);
+  const plan = artifact.visualization?.generationPlan;
+  if (!plan) return <TimelinePreview artifact={artifact} />;
+
+  const sceneCounts = plan.scenes.reduce<Record<string, number>>((counts, scene) => {
+    counts[scene.type] = (counts[scene.type] ?? 0) + 1;
+    return counts;
+  }, {});
+  const assetLabels = [
+    plan.assets.images ? "配图" : null,
+    plan.assets.videos ? "视频" : null,
+    plan.assets.tts ? "语音" : null,
+  ].filter((label): label is string => Boolean(label));
+  const phases = [
+    { label: "内容编排", icon: Network },
+    { label: "页面制作", icon: BookOpenCheck },
+    { label: "学习资源", icon: Route },
+    { label: "课程封面", icon: Sparkles },
+    { label: "审校保存", icon: ShieldCheck },
+  ];
+  const statusLabels = { queued: "等待开始", running: "正在生成", recovering: "正在恢复", cancelling: "正在中断", cancelled: "已中断", completed: "已完成", failed: "等待重试" };
+  const statusLabel = suspendedLabel ?? statusLabels[plan.status];
+  const isRunning = active && plan.status === "running";
+  const pageProgress = plan.totalScenes > 0 ? Math.min(100, (plan.completedScenes / plan.totalScenes) * 100) : 0;
+  const visibleScenes = expanded ? plan.scenes : plan.scenes.slice(0, 3);
+
+  return (
+    <div className="grid min-h-[300px] gap-4 sm:grid-cols-[230px_minmax(0,1fr)]">
+      <motion.section
+        animate={{ opacity: 1, x: 0 }}
+        className="relative isolate min-h-[184px] overflow-hidden rounded-[18px] bg-[linear-gradient(145deg,#102a72_0%,#1d4ed8_48%,#4338ca_100%)] p-4 text-white shadow-[0_20px_42px_-30px_rgba(30,64,175,.9)] sm:min-h-[244px]"
+        initial={false}
+      >
+        <div aria-hidden className="absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(255,255,255,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:28px_28px]" />
+        {isRunning ? <span aria-hidden className="quick-plan-shimmer absolute inset-y-0 w-20 bg-gradient-to-r from-transparent via-white/15 to-transparent motion-reduce:hidden" data-testid="ai-plan-shimmer" /> : null}
+        <div aria-hidden className="absolute -right-12 -top-12 size-36 rounded-full border-[24px] border-white/[.07]" />
+        <div className="relative flex h-full flex-col">
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[9px] font-semibold tracking-[.12em]">
+              <BrainCircuit className="size-3" />AI 授知
+            </span>
+            <span className="text-[10px] font-medium text-blue-100">内容制作</span>
+          </div>
+
+          <div className="mt-3 flex items-end gap-2 sm:mt-5">
+            <strong className="font-editorial text-[42px] font-semibold leading-none tabular-nums sm:text-[50px]">{plan.completedScenes}</strong>
+            <span className="pb-1 text-[13px] font-semibold tabular-nums text-blue-100">/ {plan.totalScenes || "—"} 页已完成</span>
+          </div>
+          <div aria-label="课堂页面制作进度" aria-valuemax={plan.totalScenes || 100} aria-valuemin={0} aria-valuenow={plan.completedScenes} aria-valuetext={plan.totalScenes > 0 ? `已完成 ${plan.completedScenes} / ${plan.totalScenes} 页` : "等待页面计划"} className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/20" role="progressbar">
+            <motion.div animate={{ width: `${pageProgress}%` }} className="h-full rounded-full bg-sky-200" initial={false} transition={{ duration: reducedMotion ? 0 : .5 }} />
+          </div>
+          <p className="mt-2 text-[11px] leading-4 text-blue-100">
+            预计授课 {formatPlanDuration(plan.estimatedDuration)}
+          </p>
+
+          <div className="mt-auto grid grid-cols-3 gap-1.5 pt-3 sm:pt-5">
+            {[
+              { label: "讲解", value: sceneCounts.slide ?? 0 },
+              { label: "互动", value: sceneCounts.interactive ?? 0 },
+              { label: "检测", value: sceneCounts.quiz ?? 0 },
+            ].map((stat) => (
+              <div className="rounded-[10px] border border-white/15 bg-white/10 px-2 py-1.5 text-center backdrop-blur-sm sm:py-2" key={stat.label}>
+                <strong className="block text-[15px] leading-none tabular-nums">{stat.value}</strong>
+                <span className="mt-1 block text-[10px] text-blue-100">{stat.label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-center text-[10px] text-blue-100">按已确认大纲统计</p>
+        </div>
+      </motion.section>
+
+      <section className="min-w-0 rounded-[18px] border border-blue-100/80 bg-[linear-gradient(180deg,#f8fbff_0%,#fff_58%)] px-4 py-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold tracking-[.06em] text-blue-700">生成流程</p>
+            <p className="mt-1 text-[11px] text-[var(--pbl-text-muted)]">讲解、互动与检测一同制作</p>
+          </div>
+          <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold", suspendedLabel || ["failed", "cancelled", "cancelling", "recovering"].includes(plan.status) ? "bg-amber-50 text-amber-800" : "bg-blue-50 text-blue-700")}>
+            <span className={cn("size-1.5 rounded-full bg-current", isRunning && "motion-safe:animate-pulse")} />{statusLabel}
+          </span>
+        </div>
+
+        <ol aria-label="AI 授知内容生成流水线" className="mt-3 grid grid-cols-5">
+          {phases.map((phase, index) => {
+            const PhaseIcon = phase.icon;
+            const state = index < plan.phaseIndex ? "done" : index === plan.phaseIndex ? "current" : "pending";
+            return (
+              <motion.li
+                animate={{ opacity: 1, y: 0 }}
+                aria-current={state === "current" ? "step" : undefined}
+                className="relative min-w-0 text-center"
+                initial={false}
+                key={phase.label}
+                transition={{ delay: index * .08 }}
+              >
+                {index < phases.length - 1 ? (
+                  <span aria-hidden className={cn("absolute left-[58%] right-[-42%] top-[13px] h-px", state === "done" ? "bg-blue-400" : "bg-blue-100")} />
+                ) : null}
+                <span className={cn(
+                  "relative mx-auto grid size-7 place-items-center rounded-full border bg-white",
+                  state === "done" && "border-blue-600 bg-blue-600 text-white",
+                  state === "current" && "border-blue-300 text-blue-700 ring-4 ring-blue-100/80",
+                  state === "pending" && "border-stone-200 text-stone-500",
+                )}>
+                  {state === "done" ? <Check className="size-3.5" /> : <PhaseIcon className="size-3" />}
+                </span>
+                <p className={cn("mt-2 text-[10px] font-semibold", state === "pending" ? "text-stone-500" : "text-[var(--pbl-text)]")}>{phase.label}</p>
+                <span className="sr-only">{state === "done" ? "已完成" : state === "current" ? statusLabel : "待开始"}</span>
+              </motion.li>
+            );
+          })}
+        </ol>
+
+        <div className="mt-3 rounded-[10px] bg-blue-50/70 px-3 py-2">
+          <p aria-live="polite" className="text-[11px] leading-5 text-blue-900" role="status">
+            {suspendedLabel ? `${suspendedLabel} · 已完成 ${plan.completedScenes} 页` : plan.message || statusLabel}
+          </p>
+          <p className="mt-0.5 text-[10px] leading-4 text-blue-700">配套资源：分层学习{assetLabels.length > 0 ? ` · ${assetLabels.join(" · ")}` : ""}</p>
+        </div>
+
+        <div className="mt-3 border-t border-blue-100 pt-2.5">
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold text-[var(--pbl-text)]">页面编排预览</p>
+            <span className="text-[10px] text-[var(--pbl-text-muted)]">按教学顺序</span>
+          </div>
+          <div className="space-y-1">
+            {visibleScenes.map((scene, index) => (
+              <motion.div
+                animate={{ opacity: 1, x: 0 }}
+                className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2 rounded-[9px] border border-transparent bg-white px-2 py-1.5 shadow-[0_5px_18px_-16px_rgba(30,64,175,.7)] ring-1 ring-blue-50"
+                initial={false}
+                key={scene.id}
+                transition={{ delay: Math.min(.28 + index * .07, .5) }}
+              >
+                <span className="grid size-6 place-items-center rounded-[7px] bg-blue-50 text-[10px] font-bold tabular-nums text-blue-700">{String(index + 1).padStart(2, "0")}</span>
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-[11px] font-semibold leading-4 text-[var(--pbl-text)]" title={scene.title}>{scene.title}</p>
+                  <p className="mt-0.5 text-[10px] text-[var(--pbl-text-muted)]">{scene.typeLabel} · {formatPlanDuration(scene.estimatedDuration ?? 0)}</p>
+                </div>
+                <span className={cn("rounded-full px-2 py-1 text-[10px] font-semibold", sceneTypeSurface(scene.type))}>{shortSceneType(scene.type)}</span>
+              </motion.div>
+            ))}
+            {plan.scenes.length === 0 ? (
+              <div className="rounded-[9px] border border-dashed border-blue-200 bg-white/70 px-3 py-4 text-center text-[11px] text-[var(--pbl-text-muted)]">正在整理页面标题与学习顺序</div>
+            ) : null}
+          </div>
+          {plan.scenes.length > 3 ? (
+            <button aria-expanded={expanded} className="mt-2 flex min-h-9 w-full items-center justify-center gap-1 rounded-lg text-[11px] font-semibold text-blue-700 transition hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" onClick={() => setExpanded((value) => !value)} type="button">
+              {expanded ? <>收起页面 <ChevronUp className="size-3.5" /></> : <>查看全部 {plan.scenes.length} 页 <ChevronDown className="size-3.5" /></>}
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function FactsPreview({ artifact }: { artifact: CourseDesignGenerationArtifact }) {
@@ -767,6 +966,25 @@ function compactSideTitle(title: string | undefined, fallback: string): string {
   const normalized = (title || fallback).replace(/\s+/g, " ").trim();
   const characters = Array.from(normalized);
   return characters.length > 11 ? `${characters.slice(0, 11).join("")}…` : normalized;
+}
+
+function formatPlanDuration(seconds: number): string {
+  if (seconds <= 0) return "动态时长";
+  return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟`;
+}
+
+function shortSceneType(type: string): string {
+  if (type === "interactive") return "互动";
+  if (type === "quiz") return "检测";
+  if (type === "pbl") return "任务";
+  return "讲解";
+}
+
+function sceneTypeSurface(type: string): string {
+  if (type === "interactive") return "bg-violet-50 text-violet-700";
+  if (type === "quiz") return "bg-amber-50 text-amber-700";
+  if (type === "pbl") return "bg-emerald-50 text-emerald-700";
+  return "bg-blue-50 text-blue-700";
 }
 
 function accentText(accent: CourseDesignGenerationArtifact["accent"]): string {

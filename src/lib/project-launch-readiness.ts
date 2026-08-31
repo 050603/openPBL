@@ -1,4 +1,5 @@
 import type { Course, CourseTodo, ProjectGroup, Stage } from "@/lib/session/types";
+import { resourcesForStage } from "@/lib/classroom/stage-resources";
 
 export type LaunchTodoKind = "resources" | "personal-space" | "topic" | "other";
 
@@ -71,7 +72,7 @@ export function buildCourseTopicOptions(course: Course): Array<{
 }
 
 export function haveAllResourcesBeenViewed(course: Course, studentId?: string): boolean {
-  const resources = course.resources ?? [];
+  const resources = resourcesForStage(course.resources, "launch");
   if (resources.length === 0) return true;
   if (!studentId) return false;
   return resources.every((resource) => resource.downloadedBy.includes(studentId));

@@ -1,4 +1,4 @@
-Generate an Ultra Mode course outline based on the following requirements.
+Generate a deep-interaction course outline based on the following requirements.
 
 ---
 
@@ -37,18 +37,19 @@ Infer the course language directive by applying the decision rules from the syst
 
 ---
 
-## Mandatory Structural Target
+## Adaptive Interactive-First Target
 
-- Generate repeated `slide` explanation → `interactive` practice pairs.
-- One explanation block contains one or at most two closely related slide scenes.
-- The interaction immediately following a block must apply or check the knowledge just explained; a quiz cannot replace it.
-- Preserve slides when they are the clearest explanation format. The goal is coordinated teaching and practice, not a fixed widget percentage.
-- A final comprehensive quiz or summary may appear only after the last required interaction.
+- Use more hands-on scenes than standard mode when the subject genuinely benefits from them.
+- Decide every scene type from the learning action and knowledge dependency. Do not alternate slide and interaction mechanically, and do not require one interaction after a fixed number of slides.
+- An interaction must let the learner manipulate, simulate, inspect, construct, program, compare, or rehearse a meaningful state and receive explanatory feedback.
+- Preserve as many slide scenes as are needed for definitions, evidence, worked reasoning, examples, misconceptions, and durable summaries.
+- A short or abstract lesson may need only one strong interaction; a longer experimental, spatial, or programming lesson may justify several. There are no widget-type quotas.
+- Put formal correctness, scoring, and mastery judgment in an explicit quiz rather than manufacturing a clickable pseudo-interaction.
 
 ## CRITICAL: Required Fields for Interactive Scenes
 
 Every interactive scene MUST include:
-- `widgetType`: One of "simulation", "diagram", "code", or "game"
+- `widgetType`: One of "simulation", "diagram", "code", "game", or "visualization3d"
 - `widgetOutline`: Object with widget-specific configuration
 
 Interactive scenes without these fields are INVALID.

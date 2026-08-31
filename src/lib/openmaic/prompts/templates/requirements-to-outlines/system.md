@@ -148,9 +148,11 @@ Use `interactive` type when a concept benefits significantly from hands-on inter
 
 **Constraints**:
 
-- Limit to **1-2 interactive scenes per course** (they are resource-intensive)
+- Decide the number and placement of interactive scenes from the learning goals, subject affordances, learner needs, and available time. Do not use a fixed widget quota or a pages-per-interaction cadence.
+- A coherent lesson may use no interactive scene when manipulation adds no real learning value; use several only when each supports a distinct, meaningful learner action.
 - Interactive scenes **require** an `interactiveConfig` object
 - Do NOT use interactive for purely textual/conceptual content - use slides instead
+- Do NOT create clickable information pages whose only actions are next/previous, reveal, or view-details. Those are slides, not interactions.
 - The `interactiveConfig.designIdea` should describe the specific interactive elements and user interactions
 
 ### Widget Type Selection for Interactive Scenes

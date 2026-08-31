@@ -356,8 +356,16 @@ OPENPBL_INITIAL_TEACHER_PASSWORD='replace-with-a-strong-password' \
 
 ### 6. 启动系统
 
+原始系统（保留六阶段完整流程）：
+
 ```bash
-pnpm dev
+pnpm dev:legacy
+```
+
+新系统（五阶段轻量流程，默认端口 3100）：
+
+```bash
+pnpm dev:new
 ```
 
 打开：
@@ -367,7 +375,7 @@ pnpm dev
 - 首次教师注册：<http://localhost:3000/teacher/register>
 - 学生入口：<http://localhost:3000/student>
 
-如需将 Next.js 固定运行在 `3100` 端口，可使用 `pnpm dev:next`。仓库还提供 Windows 双版本本地运行脚本：`pnpm dev:dual`、`pnpm versions:status` 和 `pnpm dev:stop`，具体规则见 [VERSIONING.md](VERSIONING.md)。
+`pnpm dev` 仍等价于启动原始系统，便于回退。新旧模式使用独立构建目录，可以同时运行；生产构建与启动命令见 [VERSIONING.md](VERSIONING.md)。
 
 ## 基本使用方法
 

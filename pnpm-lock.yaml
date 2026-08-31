@@ -596,6 +596,9 @@ importers:
       '@xmldom/xmldom':
         specifier: ^0.9.9
         version: 0.9.10
+      dom-node-types:
+        specifier: 1.0.1
+        version: 1.0.1
       jpegxr:
         specifier: ^0.3.0
         version: 0.3.0

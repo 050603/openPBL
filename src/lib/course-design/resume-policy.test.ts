@@ -120,5 +120,33 @@ describe("quick-design resume policy", () => {
       ...request,
       teacherBrief: "设计一节机器人课程",
     })).toBe(false);
+    expect(isSameCourseDesignRequest(request, {
+      ...request,
+      generationMode: "deep-interaction",
+    })).toBe(false);
+    expect(isSameCourseDesignRequest({
+      ...request,
+      generationMode: "standard",
+    }, request)).toBe(true);
+    expect(isSameCourseDesignRequest({
+      ...request,
+      referenceMaterials: [{ id: "reference-1", fileName: "资料一.md" }],
+    }, {
+      ...request,
+      referenceMaterials: [{ id: "reference-2", fileName: "资料二.md" }],
+    })).toBe(false);
+    expect(isSameCourseDesignRequest({
+      ...request,
+      referenceMaterials: [
+        { id: "reference-2", fileName: "资料二.md" },
+        { id: "reference-1", fileName: "资料一.md" },
+      ],
+    }, {
+      ...request,
+      referenceMaterials: [
+        { id: "reference-1", fileName: "资料一.md" },
+        { id: "reference-2", fileName: "资料二.md" },
+      ],
+    })).toBe(true);
   });
 });

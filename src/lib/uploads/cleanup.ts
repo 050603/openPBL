@@ -12,7 +12,8 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db/client";
 
-const dataDir = path.join(process.cwd(), ".openpbl-data", "uploads");
+const dataDir = process.env.UPLOAD_DIR?.trim()
+  || path.join(process.cwd(), ".openpbl-data", "uploads");
 
 export type CleanupResult = { deleted: string[]; failed: string[] };
 
@@ -43,8 +44,10 @@ export async function cleanupOrphanFiles(): Promise<CleanupResult> {
     return { deleted, failed };
   }
 
-  const records = await prisma.uploadFile.findMany({ select: { storedName: true } });
-  const known = new Set(records.map((r) => r.storedName));
+  const records = await prisma.uploadFile.findMany({
+    select: { storedName: true, previewStoredName: true },
+  });
+  const known = new Set(records.flatMap(storedNamesFor));
 
   for (const entry of entries) {
     const full = path.join(dataDir, entry);
@@ -79,15 +82,17 @@ export async function cleanupCourseFiles(courseId: string): Promise<CleanupResul
 
   const records = await prisma.uploadFile.findMany({
     where: { courseId },
-    select: { id: true, storedName: true },
+    select: { id: true, storedName: true, previewStoredName: true },
   });
 
   for (const record of records) {
-    try {
-      await safeUnlink(record.storedName);
-      deleted.push(record.storedName);
-    } catch {
-      failed.push(record.storedName);
+    for (const storedName of storedNamesFor(record)) {
+      try {
+        await safeUnlink(storedName);
+        deleted.push(storedName);
+      } catch {
+        failed.push(storedName);
+      }
     }
   }
 
@@ -127,15 +132,17 @@ export async function cleanupExpiredFiles(retentionDays: number): Promise<Cleanu
       courseId: { in: courseIds },
       createdAt: { lt: cutoff },
     },
-    select: { id: true, storedName: true },
+    select: { id: true, storedName: true, previewStoredName: true },
   });
 
   for (const record of records) {
-    try {
-      await safeUnlink(record.storedName);
-      deleted.push(record.storedName);
-    } catch {
-      failed.push(record.storedName);
+    for (const storedName of storedNamesFor(record)) {
+      try {
+        await safeUnlink(storedName);
+        deleted.push(storedName);
+      } catch {
+        failed.push(storedName);
+      }
     }
   }
 
@@ -146,4 +153,13 @@ export async function cleanupExpiredFiles(retentionDays: number): Promise<Cleanu
   }
 
   return { deleted, failed };
+}
+
+function storedNamesFor(record: {
+  storedName: string;
+  previewStoredName?: string | null;
+}): string[] {
+  return record.previewStoredName
+    ? [record.storedName, record.previewStoredName]
+    : [record.storedName];
 }

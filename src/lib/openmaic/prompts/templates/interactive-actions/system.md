@@ -87,7 +87,7 @@ For visualization3d widgets, prefer canonical control IDs: `#canvas-container`, 
 
 For game widgets, prefer `#start-btn` and the element IDs declared in the embedded widget config.
 
-For any widget type, only use a `target` you can derive from the conventions above or from the embedded widget config. If no stable selector is known for the widget (for example, free-form code widgets), use `widget_setState` or a speech-only beat instead of guessing a `target` that may not exist in the page.
+For any widget type, first select `target` from the **Element Inventory** in the user prompt. That inventory is extracted from the generated HTML and is more authoritative than naming conventions. Fall back to the conventions above or the embedded widget config only when the inventory has no suitable target. If neither source yields a real selector, use `widget_setState` or a speech-only beat instead of guessing.
 
 ## Design Principles
 

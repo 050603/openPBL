@@ -9,7 +9,8 @@ import path from "node:path";
 import type { UploadFile } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 
-const dataDir = path.join(process.cwd(), ".openpbl-data", "uploads");
+const dataDir = process.env.UPLOAD_DIR?.trim()
+  || path.join(process.cwd(), ".openpbl-data", "uploads");
 
 function normalizeRefs(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -48,11 +49,15 @@ export async function decrementRef(fileId: string, refBy: string): Promise<void>
   const nextRefs = refs.filter((r) => r !== refBy);
 
   if (nextRefs.length === 0) {
-    try {
-      await unlink(path.join(dataDir, record.storedName));
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") throw err;
+    for (const storedName of [record.storedName, record.previewStoredName].filter(
+      (value): value is string => Boolean(value),
+    )) {
+      try {
+        await unlink(path.join(dataDir, storedName));
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") throw err;
+      }
     }
     await prisma.uploadFile.delete({ where: { id: fileId } }).catch(() => undefined);
     return;

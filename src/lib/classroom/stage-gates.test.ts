@@ -11,6 +11,7 @@ import {
   type LearningEvidenceKind,
   type LearningEvidencePayloadByKind,
 } from "@/lib/learning-evidence/types";
+import { getStagesForSystemMode } from "@/lib/system-mode";
 
 const now = "2026-07-31T00:00:00.000Z";
 
@@ -53,6 +54,42 @@ function evidence<Kind extends LearningEvidenceKind>(
 }
 
 describe("evaluateStageGate", () => {
+  it("uses lightweight resource gates for the new system and requires a real practice artifact", () => {
+    const previousMode = process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE;
+    process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE = "new";
+    try {
+      const newStages = getStagesForSystemMode("new");
+      const base = course({ stages: newStages, currentStageIndex: 0 });
+      const launch = evaluateStageGate(base, 0);
+      expect(launch.canAdvance).toBe(true);
+      expect(launch.blockers).toEqual([]);
+      expect(launch.warnings.map((item) => item.code)).toContain("stage-resources");
+
+      const practice = evaluateStageGate({ ...base, currentStageIndex: 2 }, 2);
+      expect(practice.blockers.map((item) => item.code)).toContain("collaboration-artifact");
+      const withArtifact = evaluateStageGate({
+        ...base,
+        currentStageIndex: 2,
+        submissions: [{
+          id: "submission-1",
+          courseId: base.id,
+          studentId: "s1",
+          stageKey: "make",
+          type: "document",
+          title: "项目成果协作文档",
+          content: "<p>节水方案与测试记录</p>",
+          createdAt: now,
+          updatedAt: now,
+        }],
+      }, 2);
+      expect(withArtifact.canAdvance).toBe(true);
+      expect(withArtifact.completed).toContain("所有学生均已保存项目实践产物");
+    } finally {
+      if (previousMode === undefined) delete process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE;
+      else process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE = previousMode;
+    }
+  });
+
   it("blocks launch without a participant", () => expect(evaluateStageGate(course({ students: [] }), 0).blockers.map((item) => item.code)).toContain("participants"));
   it("requires every student to select a teacher-provided research direction during launch", () => {
     expect(evaluateStageGate(course(), 0).blockers.map((item) => item.code)).toContain("launch-selection");

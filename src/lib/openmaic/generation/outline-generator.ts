@@ -31,7 +31,6 @@ import type { AICallFn, GenerationResult, GenerationCallbacks } from './pipeline
 import { createLogger } from '@openmaic/lib/logger';
 import { formatTeachingConstraintsForPrompt } from '@openmaic/lib/pedagogy/teaching-constraints';
 import { resolveOutlinePromptPlan } from './outline-prompt-plan';
-import { applyDeepInteractionPolicy } from './deep-interaction-policy';
 import { splitLongStudentSlides } from './student-slide-duration-policy';
 import { ensureTerminalMasteryAssessment } from './terminal-mastery-assessment-policy';
 import { ensureTeachingToolPlans } from './teaching-tool-plan';
@@ -132,7 +131,10 @@ export async function generateSceneOutlinesFromRequirements(
 
   // Use simplified prompt variables
   const isPblCourse = requirements.pblProfile?.generationTemplate === 'pbl-six-stage';
-  const promptPlan = resolveOutlinePromptPlan(requirements);
+  const promptPlan = resolveOutlinePromptPlan(
+    requirements,
+    requirements.taskEngineMode === true,
+  );
   const promptId = promptPlan.promptId;
   const prompts = buildPrompt(promptId, {
     // New simplified variables
@@ -157,6 +159,9 @@ export async function generateSceneOutlinesFromRequirements(
     requiredTeacherResourceStages: isPblCourse
       ? PBL_REQUIRED_TEACHER_RESOURCE_STAGE_KEYS.join(', ')
       : '',
+    deepInteractionMode: promptPlan.deepInteractionMode,
+    standardMode: !promptPlan.deepInteractionMode,
+    generationMode: promptPlan.generationMode,
   });
 
   if (!prompts) {
@@ -211,8 +216,11 @@ export async function generateSceneOutlinesFromRequirements(
     }));
 
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
+    // Scene types and cadence are curriculum decisions made by the selected
+    // outline planner. Do not manufacture interaction pages after planning:
+    // that was the source of low-value "click next / view details" filler.
     const withTerminalAssessment = ensureTerminalMasteryAssessment(
-      applyDeepInteractionPolicy(enforcePblOutlineContract(enriched, requirements)),
+      enforcePblOutlineContract(enriched, requirements),
     );
     const durationSafeOutlines = splitLongStudentSlides(withTerminalAssessment);
     const parentActivities = (requirements.pblActivityCatalog ?? []).map((activity) => ({

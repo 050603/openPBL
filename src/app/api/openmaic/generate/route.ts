@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
 
   const {
     requirement,
+    generationMode,
     pblProfile,
     moduleTimingPlan,
     pblTeachingActivities,
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
     agentMode = 'default',
   } = body as {
     requirement?: string;
+    generationMode?: unknown;
     pblProfile?: import('@openmaic/lib/types/generation').UserRequirements['pblProfile'];
     moduleTimingPlan?: PblModuleTimingPlan;
     pblTeachingActivities?: import('@openmaic/lib/types/generation').UserRequirements['pblTeachingActivities'];
@@ -227,6 +229,9 @@ export async function POST(request: NextRequest) {
 
   const generationInput = {
     requirement,
+    generationMode: generationMode === 'deep-interaction'
+      ? 'deep-interaction' as const
+      : 'standard' as const,
     pblProfile,
     pblTeachingActivities,
     pblActivityCatalog,

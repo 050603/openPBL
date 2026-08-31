@@ -5,6 +5,7 @@ import { ProjectMakingView } from "./project-making";
 import { ProposalReviewView } from "./proposal-review";
 import { ReflectionView } from "./reflection";
 import { ShowcaseView } from "./showcase";
+import { SimplifiedStudentStageView } from "@/components/classroom/simple-stage-resources";
 
 export function StudentStageView({
   view,
@@ -20,6 +21,15 @@ export function StudentStageView({
       return <ProjectLaunchView course={course} />;
     case "ai-learning":
       return <AiLearningView course={course} />;
+    case "simple-resource":
+      return (
+        <SimplifiedStudentStageView
+          course={course}
+          stageKey={course.stages[course.currentStageIndex]?.key ?? "launch"}
+        />
+      );
+    case "ai-collaboration":
+      return <ProjectMakingView course={course} />;
     case "group":
       return <ProposalReviewView course={course} embedded={embedded} />;
     case "workspace":

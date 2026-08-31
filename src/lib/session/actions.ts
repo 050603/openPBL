@@ -34,13 +34,20 @@ import type {
   LearningSignal,
 } from "./types";
 import { DEFAULT_EVALUATION_FLOWS } from "./types";
-import { DEFAULT_STAGES } from "./types";
 import { getStageWorkspacePolicy } from "@/lib/classroom/stage-workspace-policy";
+import {
+  getOpenPblSystemMode,
+  getStagesForSystemMode,
+  inferStageCollectionMode,
+  mapStageKeyToSystemMode,
+  reconcileCourseGenerationMode,
+} from "@/lib/system-mode";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import { OPERATIONAL_SIGNAL_RETENTION_DAYS } from "@/lib/learning-evidence/types";
 import {
   completeClassroomTiming,
   createClassroomTimingState,
+  reconcileClassroomTimingState,
   transitionClassroomStageTiming,
 } from "@/lib/classroom/timing";
 
@@ -246,6 +253,7 @@ export function applySessionAction(
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
+          resourceProjection: null,
           ...(classroomTiming ? { classroomTiming } : {}),
         },
         // A new class starts with no project spaces. Each student receives one
@@ -267,6 +275,7 @@ export function applySessionAction(
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
+          resourceProjection: null,
           ...(classroomTiming ? { classroomTiming } : {}),
         },
         updatedAt: touchedAt,
@@ -327,6 +336,7 @@ export function applySessionAction(
         uiState: {
           ...(course.uiState ?? {}),
           teacherResourceProjection: null,
+          resourceProjection: null,
           classroomTiming,
         },
         // Preserve course resources: content, stages, pblConfig,
@@ -359,6 +369,7 @@ export function applySessionAction(
                 : {
                     ...(c.uiState ?? {}),
                     teacherResourceProjection: null,
+                    resourceProjection: null,
                     ...(classroomTiming ? { classroomTiming } : {}),
                   },
             updatedAt: touchedAt,
@@ -391,6 +402,7 @@ export function applySessionAction(
                 : {
                     ...(c.uiState ?? {}),
                     teacherResourceProjection: null,
+                    resourceProjection: null,
                     ...(classroomTiming ? { classroomTiming } : {}),
                   },
             updatedAt: touchedAt,
@@ -921,11 +933,36 @@ function activity(actor: string, action: string, detail: string | undefined, cre
 }
 
 export function normalizeCourse(course: Course): Course {
-  const previousStageKey = course.stages?.[course.currentStageIndex]?.key;
-  const stages = DEFAULT_STAGES.map((stage) => ({ ...stage }));
+  const systemMode = getOpenPblSystemMode();
+  const sourceMode = inferStageCollectionMode(course.stages);
+  const observedStageKey = course.stages?.[course.currentStageIndex]?.key;
+  const rememberedStageKeys = {
+    legacy:
+      course.uiState?.systemStageKeyByMode?.legacy
+      ?? mapStageKeyToSystemMode(observedStageKey, "legacy"),
+    new:
+      course.uiState?.systemStageKeyByMode?.new
+      ?? mapStageKeyToSystemMode(observedStageKey, "new"),
+  };
+  if (sourceMode === systemMode && observedStageKey) {
+    rememberedStageKeys[systemMode] = mapStageKeyToSystemMode(
+      observedStageKey,
+      systemMode,
+    );
+  }
+  const rememberedStageCollections = {
+    ...(course.uiState?.systemStagesByMode ?? {}),
+    ...(sourceMode ? {
+      [sourceMode]: course.stages.map((stage) => ({ ...stage })),
+    } : {}),
+  };
+  const stages = systemMode === "legacy" && rememberedStageCollections.legacy?.length
+    ? rememberedStageCollections.legacy.map((stage) => ({ ...stage }))
+    : getStagesForSystemMode(systemMode);
+  rememberedStageCollections[systemMode] = stages.map((stage) => ({ ...stage }));
   const currentStageIndex = Math.max(
     0,
-    stages.findIndex((stage) => stage.key === previousStageKey),
+    stages.findIndex((stage) => stage.key === rememberedStageKeys[systemMode]),
   );
   const existingPersonalProjects = course.groups ?? [];
   const personalProjects = (course.students ?? []).map((student) => {
@@ -954,12 +991,15 @@ export function normalizeCourse(course: Course): Course {
   const normalized: Course = {
     ...course,
     pblConfig: normalizePblCourseConfig(course.pblConfig),
-    stageWorkspacePolicies: Object.fromEntries(
-      stages.map((stage) => [
-        stage.key,
-        getStageWorkspacePolicy(course.stageWorkspacePolicies, stage.key),
-      ]),
-    ),
+    stageWorkspacePolicies: {
+      ...(course.stageWorkspacePolicies ?? {}),
+      ...Object.fromEntries(
+        stages.map((stage) => [
+          stage.key,
+          getStageWorkspacePolicy(course.stageWorkspacePolicies, stage.key),
+        ]),
+      ),
+    },
     stages,
     currentStageIndex,
     classConfig: course.classConfig
@@ -1012,6 +1052,9 @@ export function normalizeCourse(course: Course): Course {
     uiState: {
       ...(course.uiState ?? {}),
       teacherResourceProjection: course.uiState?.teacherResourceProjection ?? null,
+      resourceProjection: course.uiState?.resourceProjection ?? null,
+      systemStageKeyByMode: rememberedStageKeys,
+      systemStagesByMode: rememberedStageCollections,
     },
     content: {
       ...course.content,
@@ -1026,7 +1069,28 @@ export function normalizeCourse(course: Course): Course {
       },
     },
   };
-  return normalized;
+  const selected = reconcileCourseGenerationMode(normalized, systemMode);
+  const classroomTiming = selected.uiState?.classroomTiming;
+  if (!classroomTiming) return selected;
+  const stageKeysMatch = classroomTiming.stages.length === selected.stages.length
+    && classroomTiming.stages.every(
+      (stage, index) => stage.stageKey === selected.stages[index]?.key,
+    );
+  if (stageKeysMatch) return selected;
+  return {
+    ...selected,
+    uiState: {
+      ...(selected.uiState ?? {}),
+      classroomTiming: reconcileClassroomTimingState({
+        state: classroomTiming,
+        stages: selected.stages,
+        totalMinutes: Math.max(1, selected.hours * 60),
+        projectMainline: selected.content.projectMainline,
+        moduleTimingPlan: selected.content.moduleTimingPlan,
+        activeStageKey: selected.stages[selected.currentStageIndex]?.key,
+      }),
+    },
+  };
 }
 
 function isWithinOperationalRetention(value: string): boolean {

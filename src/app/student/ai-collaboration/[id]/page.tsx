@@ -1,18 +1,33 @@
 "use client";
 
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import { CodeAiCollaboration } from "@/components/views/student/code-ai-collaboration";
 import { DocumentAiCollaboration } from "@/components/views/student/document-ai-collaboration";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import {
   isCollaborationArtifactType,
   type CollaborationArtifactType,
 } from "@/lib/ai-collaboration/artifact-types";
+import { useCourse, useHydrated } from "@/lib/session/store";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 export default function StudentAiCollaborationPage() {
   const params = useParams<{ id: string }>();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const course = useCourse(params.id);
+  const hydrated = useHydrated();
+  const newSystem = isNewOpenPblSystem();
+  useRealtimeSync(params.id);
+  const currentStage = course?.stages[course.currentStageIndex];
+  const returningToClassroom = Boolean(
+    hydrated
+    && newSystem
+    && course
+    && (course.status !== "teaching" || currentStage?.view !== "ai-collaboration"),
+  );
   const requestedArtifact = searchParams.get("artifact");
   const artifactType: CollaborationArtifactType = isCollaborationArtifactType(requestedArtifact)
     ? requestedArtifact
@@ -24,6 +39,19 @@ export default function StudentAiCollaborationPage() {
     else next.set("artifact", value);
     const query = next.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  useEffect(() => {
+    if (!returningToClassroom || !course) return;
+    router.replace(`/student/classroom/${course.id}`);
+  }, [course, returningToClassroom, router]);
+
+  if (returningToClassroom) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[var(--pbl-bg)] text-sm text-stone-500">
+        正在进入新的课堂阶段…
+      </div>
+    );
   }
 
   if (artifactType === "python" || artifactType === "c") {

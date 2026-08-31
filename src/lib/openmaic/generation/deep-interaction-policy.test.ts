@@ -22,104 +22,34 @@ function outline(overrides: Partial<SceneOutline> = {}): SceneOutline {
   };
 }
 
-describe('deep interaction outline policy', () => {
-  it('treats teacher-confirmed PPT, quiz, and interactive types as immutable', () => {
-    const confirmed = [
-      outline({ id: 'confirmed-ppt' }),
-      outline({ id: 'confirmed-quiz', type: 'quiz', resourceTypes: [] }),
+describe('deep interaction outline policy compatibility', () => {
+  it('never manufactures interaction pages after model or teacher planning', () => {
+    const planned = [
+      outline({ id: 's1' }),
+      outline({ id: 's2' }),
+      outline({ id: 'quiz', type: 'quiz' }),
+    ];
+
+    expect(applyDeepInteractionPolicy(planned, 'generated')).toEqual(planned);
+    expect(applyDeepInteractionPolicy(planned, 'confirmed')).toEqual(planned);
+  });
+
+  it('preserves a deliberately planned interaction without adding a duplicate', () => {
+    const planned = [
+      outline({ id: 'explanation' }),
       outline({
-        id: 'confirmed-interactive',
+        id: 'practice',
         type: 'interactive',
-        widgetType: 'diagram',
-        widgetOutline: { diagramType: 'system', concept: 'causal relationship' },
+        widgetType: 'simulation',
+        widgetOutline: { concept: 'variable model' },
         resourceTypes: ['interactive-demo'],
       }),
     ];
 
-    expect(applyDeepInteractionPolicy(confirmed, 'confirmed')).toEqual(confirmed);
+    expect(applyDeepInteractionPolicy(planned)).toEqual(planned);
   });
 
-  it('adds a related interaction after one explanation and before the final quiz', () => {
-    const explanation = outline();
-    const quiz = outline({ id: 'quiz', type: 'quiz', title: 'Comprehensive check' });
-
-    const result = applyDeepInteractionPolicy([explanation, quiz]);
-
-    expect(result.map((item) => item.type)).toEqual(['slide', 'interactive', 'quiz']);
-    expect(result[1]).toMatchObject({
-      detailKind: 'interactive-practice',
-      parentActivityId: 'ai-module',
-      knowledgePointIds: ['kp-1'],
-      targetDurationSec: 42,
-      estimatedDuration: 42,
-    });
-    expect(result[0]).toMatchObject({ targetDurationSec: 78, estimatedDuration: 78 });
-    expect((result[0].targetDurationSec ?? 0) + (result[1].targetDurationSec ?? 0)).toBe(120);
-  });
-
-  it('creates the requested explanation-practice cadence without replacing explanation slides', () => {
-    const slides = [
-      outline({ id: 's1', title: 'Concept A', knowledgePointIds: ['a'] }),
-      outline({ id: 's2', title: 'Concept B', knowledgePointIds: ['b'] }),
-      outline({ id: 's3', title: 'Concept C', knowledgePointIds: ['c'] }),
-      outline({ id: 's4', title: 'Concept D', knowledgePointIds: ['d'] }),
-    ];
-
-    const result = applyDeepInteractionPolicy(slides);
-
-    expect(result.map((item) => item.type)).toEqual([
-      'slide', 'slide', 'interactive', 'slide', 'slide', 'interactive',
-    ]);
-    expect(result.filter((item) => item.type === 'slide')).toHaveLength(4);
-    expect(result[2].knowledgePointIds).toEqual(['a', 'b']);
-    expect(result[5].knowledgePointIds).toEqual(['c', 'd']);
-  });
-
-  it('uses an existing matching interaction and does not add a duplicate', () => {
-    const existing = outline({
-      id: 'practice',
-      type: 'interactive',
-      widgetType: 'simulation',
-      widgetOutline: { concept: 'variable model' },
-      resourceTypes: ['interactive-demo'],
-    });
-    const sequence = [outline({ id: 'explain' }), existing];
-
-    expect(applyDeepInteractionPolicy(sequence)).toHaveLength(2);
-    expect(applyDeepInteractionPolicy(applyDeepInteractionPolicy(sequence)))
-      .toEqual(applyDeepInteractionPolicy(sequence));
-  });
-
-  it('never changes teacher resources outside student AI learning', () => {
-    const launch = outline({
-      id: 'launch',
-      stageKey: 'launch',
-      audience: 'teacher',
-      generationPurpose: 'teacher-resource',
-    });
-    const make = outline({
-      id: 'make',
-      stageKey: 'make',
-      audience: 'teacher',
-      generationPurpose: 'facilitation-scaffold',
-    });
-
-    expect(applyDeepInteractionPolicy([launch, make])).toEqual([launch, make]);
-  });
-
-  it('supports generic non-PBL course outlines that have no stage metadata', () => {
-    const generic = outline({
-      stageKey: undefined,
-      audience: undefined,
-      generationPurpose: undefined,
-      parentActivityId: undefined,
-    });
-
-    expect(applyDeepInteractionPolicy([generic]).map((item) => item.type))
-      .toEqual(['slide', 'interactive']);
-  });
-
-  it('selects widgets from teaching affordance', () => {
+  it('selects widgets from teaching affordance for explicit interactive planning', () => {
     const forTitle = (title: string) => outline({ title, description: title, keyPoints: [title] });
 
     expect(suggestTeachingWidget(forTitle('Python loop debugging practice')).widgetType).toBe('code');

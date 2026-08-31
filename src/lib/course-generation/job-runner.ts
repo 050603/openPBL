@@ -43,7 +43,8 @@ import {
 import { generateCourseCoverImageOnServer } from "@/lib/course-cover-server";
 import {
   createManagedCourseGenerationRecoveryRequest,
-  formatCourseGenerationErrorForTeacher,
+  deserializeCourseGenerationFailure,
+  serializeCourseGenerationFailure,
 } from "@/lib/course-generation/failure-policy";
 import { auditCourseGeneratedResources } from "@/lib/course-generation/resource-audit-server";
 
@@ -139,6 +140,7 @@ export async function resetCourseGenerationCheckpoints(jobId: string): Promise<v
 
 export type PersistedCourseGenerationRequest = GenerateClassroomInput & {
   courseId: string;
+  systemMode?: "legacy" | "new";
   courseTitle?: string;
   moduleTimingPlan?: unknown;
   adaptiveBranchCount?: number;
@@ -623,8 +625,7 @@ export async function resumeRecoverableCourseGenerationJob(
   const request = job.request as unknown as PersistedCourseGenerationRequest;
   const recoveryRequest = createManagedCourseGenerationRecoveryRequest(
     request,
-    new Error(job.error),
-    completedPageCount,
+    deserializeCourseGenerationFailure(job.error),
   );
   if (!recoveryRequest) return job;
   const recoveryCount = recoveryRequest.managedRecoveryCount ?? 1;
@@ -696,6 +697,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
   const generationInput = { ...request };
   const courseId = generationInput.courseId;
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).courseId;
+  delete (generationInput as Partial<PersistedCourseGenerationRequest>).systemMode;
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).moduleTimingPlan;
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).adaptiveBranchCount;
   delete (generationInput as Partial<PersistedCourseGenerationRequest>).managedRecoveryCount;
@@ -759,6 +761,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
       teacherClassroomId: split.teacherClassroomId,
       teacherResourceScenes: split.teacherResourceScenes,
       sceneOutlines: generated.assetContext.outlines,
+      systemMode: request.systemMode,
     }, { signal: controller.signal });
     await serializeWorkerWrite(() => persistWorkerPhase(job, {
       step: "checking_adaptive_resources",
@@ -894,7 +897,6 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
     const recoveryRequest = createManagedCourseGenerationRecoveryRequest(
       request,
       error,
-      completedPageCount,
     );
     if (recoveryRequest) {
       const recoveryCount = recoveryRequest.managedRecoveryCount ?? 1;
@@ -926,7 +928,7 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
         status: "failed",
         step: "failed",
         message: "课程生成未完成",
-        error: formatCourseGenerationErrorForTeacher(error),
+        error: serializeCourseGenerationFailure(error),
         estimatedRemainingSeconds: null,
         completedAt: new Date(),
         lastHeartbeatAt: new Date(),

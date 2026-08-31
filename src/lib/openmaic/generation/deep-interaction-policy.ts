@@ -1,4 +1,4 @@
-import type { SceneOutline, SceneResourceType } from '@openmaic/lib/types/generation';
+import type { SceneOutline } from '@openmaic/lib/types/generation';
 
 type TeachingWidgetSuggestion = {
   widgetType: NonNullable<SceneOutline['widgetType']>;
@@ -111,165 +111,13 @@ export function suggestTeachingWidget(outline: SceneOutline): TeachingWidgetSugg
 }
 
 /**
- * Apply the default explanation-practice cadence after the PBL routing contract
- * has normalized phase, audience, and purpose metadata.
+ * @deprecated Interaction cadence is now selected by the outline prompt. This
+ * compatibility export intentionally preserves the model/teacher plan exactly
+ * and must never manufacture pages after planning.
  */
 export function applyDeepInteractionPolicy(
   outlines: ReadonlyArray<SceneOutline>,
-  source: OutlineSource = 'generated',
+  _source: OutlineSource = 'generated',
 ): SceneOutline[] {
-  // Once the teacher has confirmed the outline, its resource types are the
-  // generation contract. Default deep interaction may shape planning, but must never
-  // silently turn a confirmed PPT page into a different resource afterwards.
-  if (source === 'confirmed') return [...outlines];
-
-  const result: SceneOutline[] = [];
-  const usedIds = new Set(outlines.map((outline) => outline.id).filter(Boolean));
-  let explanationBlock: SceneOutline[] = [];
-  let changed = false;
-
-  const isStudentKnowledge = (outline: SceneOutline): boolean => {
-    const isStructuredStudentScene = outline.stageKey === 'ai-learning'
-      && outline.audience === 'student'
-      && outline.generationPurpose === 'knowledge-teaching';
-    const isUnstructuredCourseScene = !outline.stageKey && !outline.audience;
-    return isStructuredStudentScene || isUnstructuredCourseScene;
-  };
-  const sameScope = (left: SceneOutline, right: SceneOutline): boolean =>
-    (left.parentActivityId ?? left.stageKey ?? 'course')
-      === (right.parentActivityId ?? right.stageKey ?? 'course');
-
-  for (let index = 0; index < outlines.length; index += 1) {
-    const outline = outlines[index];
-    const next = outlines[index + 1];
-
-    if (!isStudentKnowledge(outline)) {
-      explanationBlock = [];
-      result.push(outline);
-      continue;
-    }
-
-    if (outline.type === 'interactive') {
-      explanationBlock = [];
-      result.push(outline);
-      continue;
-    }
-
-    if (outline.type !== 'slide') {
-      explanationBlock = [];
-      result.push(outline);
-      continue;
-    }
-
-    result.push(outline);
-    explanationBlock.push(outline);
-
-    const nextIsMatchingInteraction = Boolean(
-      next
-      && isStudentKnowledge(next)
-      && next.type === 'interactive'
-      && sameScope(outline, next),
-    );
-    const blockMustClose = explanationBlock.length >= 2
-      || !next
-      || !isStudentKnowledge(next)
-      || next.type !== 'slide'
-      || !sameScope(outline, next);
-
-    if (!nextIsMatchingInteraction && blockMustClose) {
-      const lastResultIndex = result.length - 1;
-      const { explanation, interaction } = deriveInteractionPractice(
-        explanationBlock,
-        usedIds,
-      );
-      result[lastResultIndex] = explanation;
-      result.push(interaction);
-      explanationBlock = [];
-      changed = true;
-    }
-  }
-
-  return changed
-    ? result.map((outline, index) => ({ ...outline, order: index + 1 }))
-    : result;
-}
-
-function deriveInteractionPractice(
-  explanationBlock: ReadonlyArray<SceneOutline>,
-  usedIds: Set<string>,
-): { explanation: SceneOutline; interaction: SceneOutline } {
-  const source = explanationBlock[explanationBlock.length - 1];
-  const knowledgePointIds = Array.from(new Set(
-    explanationBlock.flatMap((outline) => outline.knowledgePointIds ?? []),
-  ));
-  const keyPoints = Array.from(new Set(
-    explanationBlock.flatMap((outline) => outline.keyPoints ?? []),
-  ));
-  const usesCjk = /[\u3400-\u9fff]/.test(source.title);
-  const practiceLabel = usesCjk ? '互动实践' : 'Interactive practice';
-  const description = usesCjk
-    ? `通过预测、操作、观察和解释，应用并检验前面讲解的“${source.title}”相关知识；系统提供解释性反馈和迁移检查。`
-    : `Apply and check the preceding ${source.title} knowledge through prediction, manipulation, observation, and explanation, with explanatory feedback and a transfer check.`;
-  const widgetSeed: SceneOutline = {
-    ...source,
-    title: source.title,
-    description: explanationBlock.map((outline) => outline.description).join(' '),
-    keyPoints,
-    knowledgePointIds,
-  };
-  const { widgetType, widgetOutline } = suggestTeachingWidget(widgetSeed);
-  const resourceTypes: SceneResourceType[] = [
-    widgetType === 'code' ? 'code-interactive' : 'interactive-demo',
-  ];
-  const id = uniquePracticeId(`${source.id || 'scene'}-interactive-practice`, usedIds);
-  const targetSplit = splitDuration(source.targetDurationSec);
-  const estimateSplit = splitDuration(source.estimatedDuration);
-  const explanation: SceneOutline = {
-    ...source,
-    ...(targetSplit ? { targetDurationSec: targetSplit.explanation } : {}),
-    ...(estimateSplit ? { estimatedDuration: estimateSplit.explanation } : {}),
-  };
-  const interaction: SceneOutline = {
-    ...source,
-    id,
-    type: 'interactive',
-    title: `${source.title} · ${practiceLabel}`,
-    description,
-    keyPoints,
-    knowledgePointIds,
-    detailKind: 'interactive-practice',
-    resourceTypes,
-    widgetType,
-    widgetOutline,
-    mediaGenerations: undefined,
-    suggestedImageIds: undefined,
-    ...(targetSplit ? { targetDurationSec: targetSplit.interaction } : {}),
-    ...(estimateSplit ? { estimatedDuration: estimateSplit.interaction } : {}),
-  };
-
-  return { explanation, interaction };
-}
-
-function splitDuration(
-  duration: number | undefined,
-): { explanation: number; interaction: number } | undefined {
-  if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 2) {
-    return undefined;
-  }
-  const interaction = Math.max(1, Math.round(duration * 0.35));
-  return {
-    explanation: Math.max(1, duration - interaction),
-    interaction,
-  };
-}
-
-function uniquePracticeId(base: string, usedIds: Set<string>): string {
-  let candidate = base;
-  let suffix = 2;
-  while (usedIds.has(candidate)) {
-    candidate = `${base}-${suffix}`;
-    suffix += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
+  return [...outlines];
 }

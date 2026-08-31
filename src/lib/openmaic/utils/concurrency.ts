@@ -73,3 +73,37 @@ export async function mapWithConcurrency<T, R>(
 ): Promise<Array<R | undefined>> {
   return Promise.all(lazyBoundedMap(items, limit, fn, options));
 }
+
+/**
+ * Stop dispatching queued items after the first worker error, but wait for all
+ * workers that were already in flight to settle before rejecting. This avoids
+ * the Promise.all fail-fast trap where callers publish a terminal state while
+ * sibling work is still mutating durable checkpoints in the background.
+ */
+export async function mapWithConcurrencySettledOnError<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  options?: { shouldContinue?: () => boolean },
+): Promise<Array<R | undefined>> {
+  let failed = false;
+  let firstError: unknown;
+  const results = await mapWithConcurrency(
+    items,
+    limit,
+    async (item, index) => {
+      try {
+        return await fn(item, index);
+      } catch (error) {
+        if (!failed) firstError = error;
+        failed = true;
+        return undefined;
+      }
+    },
+    {
+      shouldContinue: () => !failed && (options?.shouldContinue?.() ?? true),
+    },
+  );
+  if (failed) throw firstError;
+  return results;
+}

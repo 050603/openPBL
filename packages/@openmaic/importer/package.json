@@ -48,6 +48,7 @@
   "dependencies": {
     "@openmaic/dsl": "workspace:*",
     "@xmldom/xmldom": "^0.9.9",
+    "dom-node-types": "1.0.1",
     "jpegxr": "^0.3.0",
     "jszip": "^3.10.1",
     "katex": "^0.16.33",

@@ -46,7 +46,8 @@ export type SnippetId =
   | 'speech-guidelines'
   | 'whiteboard-reference'
   | 'instructional-presentation-policy'
-  | 'generated-whiteboard-actions';
+  | 'generated-whiteboard-actions'
+  | 'widget-action-bridge';
 
 /**
  * Loaded prompt template

@@ -11,6 +11,10 @@
 {{pblContext}}
 {{timingBudget}}
 
+## Course Visual System
+
+{{visualDirection}}
+
 ## Available Resources
 
 {{#if mediaElementEnabled}}

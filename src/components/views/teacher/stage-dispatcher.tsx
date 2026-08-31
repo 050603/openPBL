@@ -4,6 +4,8 @@ import { ProjectLaunchTeacherView } from "./project-launch";
 import { ReflectionTeacherView } from "./reflection";
 import { ShowcaseTeacherView } from "./showcase";
 import { CompanionMonitor } from "./companion-monitor";
+import { SimplifiedTeacherStageView } from "@/components/classroom/simple-stage-resources";
+import { AiCollaborationTeacherMonitor } from "./ai-collaboration-monitor";
 
 /**
  * Teacher-side stage view dispatcher.
@@ -34,6 +36,15 @@ export function TeacherStageView({
           onSelectStudent={onSelectStudent}
         />
       );
+    case "simple-resource":
+      return (
+        <SimplifiedTeacherStageView
+          course={course}
+          stageKey={course.stages[course.currentStageIndex]?.key ?? "launch"}
+        />
+      );
+    case "ai-collaboration":
+      return <AiCollaborationTeacherMonitor course={course} />;
     case "group":
       return <CompanionMonitor className="mt-0" course={course} stageKey="proposal" />;
     case "workspace":

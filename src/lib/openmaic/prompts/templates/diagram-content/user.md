@@ -33,11 +33,13 @@ Generate a complete HTML diagram with:
 3. Do not signal completion for opening the page, revealing one node, or decorative interaction. Completion is a playback milestone, not a grade or mastery claim.
 
 ### Visual Structure
-1. **SVG nodes** with icons, labels, and click-to-show details
+1. **SVG nodes** with icons and labels; selecting a node must expose evidence or relationships needed for the current prediction/comparison, not merely open a glossary card
 2. **Edges with arrows** connecting nodes (calculate endpoints from node dimensions)
-3. **Step-by-step reveal** (下一步/上一步)
+3. **Guided exploration**: keep the key structure visible, let learners choose and compare meaningful paths, and show what changed in their relationship summary
 4. **High contrast**: White nodes on dark background, light edge labels
 5. **Mobile-friendly**: Collapsible sidebar, doesn't block diagram
 6. **First node visible** on load
+
+Do not turn the diagram into a slide deck with only 下一步/上一步, next/previous, reveal, or 查看详情/view-details controls. Navigation and disclosure alone are not a learning interaction.
 
 Embed config in `<script type="application/json" id="widget-config">`.

@@ -173,4 +173,25 @@ describe("knowledge graph quality", () => {
     expect(quality.ok).toBe(false);
     expect(quality.issues.join("；")).toContain("至少需要 1 项真实课前先修");
   });
+
+  it("rejects overlapping edges and backward instructional progression", () => {
+    const graph: KnowledgeGraph = {
+      nodes: points.map((point) => ({
+        ...point,
+        label: point.name,
+        instructionalRole: "lesson",
+      })),
+      edges: [
+        { id: "e-1", source: "kp-3", target: "kp-1", label: "反向支撑", type: "supports", strength: "helpful", rationale: "错误的倒序关系" },
+        { id: "e-2", source: "kp-3", target: "kp-1", label: "再次应用", type: "application", strength: "helpful", rationale: "同一方向的重叠关系" },
+      ],
+    };
+
+    const quality = assessKnowledgeGraphQuality(graph, points);
+
+    expect(quality.ok).toBe(false);
+    expect(quality.issues.join("；")).toContain("每个方向只保留最准确的一条关系");
+    expect(quality.issues.join("；")).toContain("逆向进阶");
+    expect(quality.issues.join("；")).toContain("应指向应用层或拓展层");
+  });
 });

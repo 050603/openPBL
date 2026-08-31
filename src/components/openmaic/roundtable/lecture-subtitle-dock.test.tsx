@@ -203,7 +203,13 @@ describe('teaching rail layout', () => {
     expect(screen.getByLabelText('当前课程知识图谱').className).not.toContain('h-[176px]');
     const viewportFrame = document.querySelector('[data-subtitle-viewport-frame]') as HTMLElement;
     expect(viewportFrame.className).toContain('overflow-hidden');
-    expect(screen.getByLabelText('讲解字幕，可滚动浏览或拖动查看').className).toContain('absolute');
+    const subtitleViewport = screen.getByLabelText('讲解字幕，可滚动浏览或拖动查看');
+    expect(subtitleViewport.className).toContain('absolute');
+    expect(subtitleViewport.className).toContain('scrollbar-hide');
+    expect(subtitleViewport.className).not.toContain('[scrollbar-width:thin]');
+    const activeSubtitle = screen.getByRole('button', { name: '从此处重新播放：当前字幕。' });
+    expect(activeSubtitle.className).not.toContain('bg-teal');
+    expect(activeSubtitle.className).not.toContain('rounded-lg');
     const controls = document.querySelector('[data-subtitle-controls]') as HTMLElement;
     expect(controls.className).toContain('shrink-0');
     expect(controls.className).toContain('z-20');

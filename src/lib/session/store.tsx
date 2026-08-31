@@ -55,7 +55,9 @@ import type {
 } from "./types";
 import type { ActionAck } from "@/lib/courses/contracts";
 import { clientUUID } from "@/lib/uuid";
-import { DEFAULT_EVALUATION_FLOWS, DEFAULT_STAGES } from "./types";
+import { DEFAULT_EVALUATION_FLOWS } from "./types";
+import { getStagesForSystemMode, isNewOpenPblSystem } from "@/lib/system-mode";
+import { getNewSystemCourseReadiness } from "@/lib/classroom/new-system-course";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import {
   DEFAULT_NEW_COURSE_HOURS,
@@ -1054,7 +1056,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           drivingQuestion: input.drivingQuestion ?? "",
           pblConfig: normalizePblCourseConfig(input.pblConfig),
           status: "draft",
-          stages: input.stages ?? DEFAULT_STAGES,
+          stages: input.stages ?? getStagesForSystemMode(),
           currentStageIndex: 0,
           content: input.content ?? {
             pblOutline: "",
@@ -1121,9 +1123,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         commit({ type: "SET_COURSE_STAGES", payload: { id, stages } });
       },
       publishCourse(id) {
+        if (isNewOpenPblSystem()) {
+          const course = state.courses.find((item) => item.id === id);
+          const blocker = course
+            ? getNewSystemCourseReadiness(course).find((check) => !check.ok)
+            : undefined;
+          if (!course || blocker) {
+            throw new Error(blocker?.message ?? "课程不存在，无法发布。");
+          }
+        }
         commit({ type: "PUBLISH_COURSE", payload: { id } });
       },
       startTeaching(id, classConfig) {
+        if (isNewOpenPblSystem()) {
+          const course = state.courses.find((item) => item.id === id);
+          const blockers = course
+            ? getNewSystemCourseReadiness(course).filter((check) => !check.ok)
+            : [];
+          if (!course || blockers.length > 0) {
+            throw new Error(
+              blockers[0]?.message ?? "课程不存在，无法开始授课。",
+            );
+          }
+        }
         const code = generateInviteCode(6);
         commit({
           type: "START_TEACHING",

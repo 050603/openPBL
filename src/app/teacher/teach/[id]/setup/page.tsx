@@ -21,6 +21,8 @@ import { Card, Pill, PrimaryButton } from "@/components/ui";
 import { useSession, useCourse, useHydrated } from "@/lib/session/store";
 import { useCoursePresence } from "@/hooks/use-course-presence";
 import { normalizePblCourseConfig, type ResourceInquiryMode } from "@/lib/pbl-course-config";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
+import { getNewSystemCourseReadiness } from "@/lib/classroom/new-system-course";
 
 export default function TeachSetupPage() {
   const params = useParams<{ id: string }>();
@@ -37,6 +39,7 @@ export default function TeachSetupPage() {
   const existing = course?.classConfig;
   const [totalStudents, setTotalStudents] = useState<number>(existing?.totalStudents ?? 32);
   const [restarting, setRestarting] = useState(false);
+  const [startError, setStartError] = useState<string>();
 
   // Sync local state if course changes
   useEffect(() => {
@@ -46,6 +49,11 @@ export default function TeachSetupPage() {
 
   const inviteCode = course?.inviteCode;
   const isTeaching = course?.status === "teaching";
+  const newSystem = isNewOpenPblSystem();
+  const readinessChecks = course && newSystem
+    ? getNewSystemCourseReadiness(course)
+    : [];
+  const readinessBlockers = readinessChecks.filter((check) => !check.ok);
   const resourceInquiryMode = normalizePblCourseConfig(course?.pblConfig).resourceInquiryMode;
 
   function setResourceInquiryMode(mode: ResourceInquiryMode) {
@@ -78,14 +86,19 @@ export default function TeachSetupPage() {
 
   function start() {
     if (!course) return;
-    const code = startTeaching(course.id, {
-      groupMode: "solo",
-      totalStudents: Math.max(1, Number(totalStudents) || 1),
-      perGroup: 1,
-      crossClass: false,
-    });
-    router.push(`/teacher/teach/${course.id}/classroom`);
-    return code;
+    setStartError(undefined);
+    try {
+      const code = startTeaching(course.id, {
+        groupMode: "solo",
+        totalStudents: Math.max(1, Number(totalStudents) || 1),
+        perGroup: 1,
+        crossClass: false,
+      });
+      router.push(`/teacher/teach/${course.id}/classroom`);
+      return code;
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : "课程尚未准备完成");
+    }
   }
 
   function handleRestart() {
@@ -130,12 +143,37 @@ export default function TeachSetupPage() {
 
       <div className="grid grid-cols-[1fr_400px] gap-5">
         <div className="space-y-5">
+          {newSystem && readinessBlockers.length > 0 ? (
+            <Card className="border-amber-200 bg-amber-50/70">
+              <h2 className="text-lg font-bold text-amber-950">开课前还需完成 {readinessBlockers.length} 项</h2>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-amber-900">
+                {readinessBlockers.map((check) => (
+                  <li key={check.id}>• {check.label}：{check.message}</li>
+                ))}
+              </ul>
+              <Link
+                className="mt-4 inline-flex h-10 items-center rounded-[7px] bg-amber-900 px-4 text-sm font-bold text-white hover:bg-amber-800"
+                href={`/teacher/prepare/${course.id}/verify`}
+              >
+                返回备课生成
+              </Link>
+            </Card>
+          ) : null}
           <Card>
-            <h2 className="text-xl font-bold">课堂协作方式</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[8px] border border-blue-300 bg-blue-50 p-4"><div className="flex items-center gap-2 font-bold text-blue-800"><Users size={19} />每名学生独立完成项目</div><p className="mt-2 text-sm leading-6 text-stone-600">学生承担构思、决策、制作、汇报与反思，不再进行真实学生分组。</p></div>
-              <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />方案与实践支持</div><p className="mt-2 text-sm leading-6 text-stone-600">方案构思和项目实践阶段会自动提供适合当前任务的伴学支持，无需教师额外配置。</p></div>
-            </div>
+            <h2 className="text-xl font-bold">{newSystem ? "新版五阶段课堂" : "课堂协作方式"}</h2>
+            {newSystem ? (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm leading-6 text-stone-600">项目启动、成果汇报与评价、学习反思采用轻量资源授课；AI 授知保留完整功能；项目实践使用文档或代码协作工作台。</p>
+                <div className="grid gap-2 sm:grid-cols-5">
+                  {course.stages.map((stage, index) => <div className="rounded-[8px] border border-blue-100 bg-blue-50/70 p-3" key={stage.key}><span className="text-xs font-black text-blue-700">阶段 {index + 1}</span><p className="mt-1 text-sm font-bold text-stone-900">{stage.label}</p></div>)}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[8px] border border-blue-300 bg-blue-50 p-4"><div className="flex items-center gap-2 font-bold text-blue-800"><Users size={19} />每名学生独立完成项目</div><p className="mt-2 text-sm leading-6 text-stone-600">学生承担构思、决策、制作、汇报与反思，不再进行真实学生分组。</p></div>
+                <div className="rounded-[8px] border border-violet-200 bg-violet-50 p-4"><div className="flex items-center gap-2 font-bold text-violet-800"><Sparkles size={19} />方案与实践支持</div><p className="mt-2 text-sm leading-6 text-stone-600">方案构思和项目实践阶段会自动提供适合当前任务的伴学支持，无需教师额外配置。</p></div>
+              </div>
+            )}
           </Card>
 
           <Card>
@@ -165,7 +203,7 @@ export default function TeachSetupPage() {
             <p className="mt-4 text-sm leading-6 text-stone-500">每位加入课堂的学生都会自动获得一个私有项目空间。</p>
           </Card>
 
-          <Card>
+          {!newSystem ? <Card>
             <h2 className="text-xl font-bold">资料查询方式</h2>
             <p className="mt-2 text-sm leading-6 text-stone-500">设置学生在 AI 伴学“资料角”输入问题后的回答方式。</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -188,7 +226,7 @@ export default function TeachSetupPage() {
                 <span className="mt-2 block text-sm leading-6 text-stone-600">搜索网络并展示来源链接；需先在教师设置的“联网搜索”中配置 Tavily API Key。</span>
               </button>
             </div>
-          </Card>
+          </Card> : null}
 
           <Card>
             <h2 className="text-xl font-bold">课程信息确认</h2>
@@ -288,6 +326,7 @@ export default function TeachSetupPage() {
             ) : (
               <PrimaryButton
                 className="h-12 w-full text-base"
+                disabled={newSystem && readinessBlockers.length > 0}
                 onClick={start}
                 type="button"
               >
@@ -299,6 +338,7 @@ export default function TeachSetupPage() {
                 ? "课堂已开启，可随时进入教室推进阶段"
                 : "点击开始上课后，邀请码将激活，学生可加入"}
             </p>
+            {startError ? <p className="mt-2 text-center text-xs font-semibold text-red-700">{startError}</p> : null}
           </Card>
 
           {(isTeaching || course.status === "finished") && (

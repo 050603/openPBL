@@ -61,4 +61,19 @@ describe('widget knowledge-teaching contract', () => {
     expect(user).toContain('meaningful exploration');
     expect(user).toContain('Do not signal completion');
   });
+
+  it.each(widgetPromptIds)('%s preserves the baseline classroom-to-widget action contract', (promptId) => {
+    const prompt = buildPrompt(promptId, {
+      title: 'Widget action contract',
+      description: 'A meaningful learner activity.',
+      keyPoints: '1. Observe a relationship',
+    });
+    const system = prompt?.system ?? '';
+
+    expect(system).toContain('SET_WIDGET_STATE');
+    expect(system).toContain('HIGHLIGHT_ELEMENT');
+    expect(system).toContain('ANNOTATE_ELEMENT');
+    expect(system).toContain('REVEAL_ELEMENT');
+    expect(system).toContain("window.addEventListener('message'");
+  });
 });

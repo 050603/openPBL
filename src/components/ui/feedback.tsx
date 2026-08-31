@@ -8,8 +8,11 @@ export function AppToaster() {
   return (
     <Toaster
       closeButton
-      position="top-right"
+      duration={4_000}
+      offset={24}
+      position="bottom-right"
       richColors={false}
+      visibleToasts={3}
       toastOptions={{
         classNames: {
           toast: "!rounded-[var(--radius-md)] !border-[var(--pbl-border)] !bg-[var(--pbl-surface-raised)] !text-[var(--pbl-text)] !shadow-[var(--shadow-floating)]",

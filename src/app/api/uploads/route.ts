@@ -8,6 +8,15 @@ import { authenticateRequest, requireSameOrigin } from "@/lib/auth/request-guard
 import { checkDistributedRateLimit } from "@/lib/auth/distributed-rate-limit";
 import { rateLimitedResponse } from "@/lib/auth/rate-limit";
 import { publishCourseEvent } from "@/lib/realtime/event-bus";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
+import {
+  convertPresentationToPdf,
+  PresentationConversionError,
+} from "@/lib/uploads/presentation-converter";
+import {
+  GENERATION_REFERENCE_ACCEPT,
+  generationReferenceMarker,
+} from "@/lib/course-design/generation-references";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +29,9 @@ const UploadFieldsSchema = z.object({
   title: z.string().trim().max(200).optional(),
   courseId: z.string().trim().min(1).max(128).optional(),
   bindAsCourseResource: z.literal("true").optional(),
+  stageKey: z.string().trim().min(1).max(64).optional(),
+  pdfDisplayMode: z.enum(["document", "slides"]).optional(),
+  purpose: z.enum(["generation-reference"]).optional(),
 });
 
 type AllowedUploadType = {
@@ -108,6 +120,7 @@ export async function POST(request: Request) {
   }
 
   let targetPath: string | null = null;
+  let previewTargetPath: string | null = null;
   let failureStage = "parse-form-data";
   try {
     const form = await request.formData().catch(() => {
@@ -137,6 +150,9 @@ export async function POST(request: Request) {
       title: getOptionalText(form, "title"),
       courseId: getOptionalText(form, "courseId"),
       bindAsCourseResource: getOptionalText(form, "bindAsCourseResource"),
+      stageKey: getOptionalText(form, "stageKey"),
+      pdfDisplayMode: getOptionalText(form, "pdfDisplayMode"),
+      purpose: getOptionalText(form, "purpose"),
     };
     const parsedFields = UploadFieldsSchema.safeParse(rawFields);
     if (!parsedFields.success) {
@@ -145,11 +161,25 @@ export async function POST(request: Request) {
 
     const courseId = parsedFields.data.courseId ?? null;
     const bindAsCourseResource = parsedFields.data.bindAsCourseResource === "true";
+    const isGenerationReference = parsedFields.data.purpose === "generation-reference";
     if (bindAsCourseResource && auth.claims.role !== "teacher") {
       throw new UploadHttpError("FORBIDDEN", "只有教师可以发布课程资源。", 403);
     }
     if (bindAsCourseResource && !courseId) {
       throw new UploadHttpError("COURSE_REQUIRED", "发布课程资源时必须指定课程。", 400);
+    }
+    if (isGenerationReference && auth.claims.role !== "teacher") {
+      throw new UploadHttpError("FORBIDDEN", "只有教师可以上传课程生成参考资料。", 403);
+    }
+    if (isGenerationReference && !courseId) {
+      throw new UploadHttpError("COURSE_REQUIRED", "上传课程生成参考资料时必须指定课程。", 400);
+    }
+    if (isGenerationReference && !GENERATION_REFERENCE_ACCEPT.split(",").includes(extension)) {
+      throw new UploadHttpError(
+        "UNSUPPORTED_GENERATION_REFERENCE",
+        "课程生成参考资料支持 PDF、Word、PPT、TXT 和 Markdown 文件。",
+        415,
+      );
     }
     if (auth.claims.role === "student" && (!courseId || courseId !== auth.claims.courseId)) {
       throw new UploadHttpError("FORBIDDEN", "学生只能向当前课程上传文件。", 403);
@@ -159,6 +189,17 @@ export async function POST(request: Request) {
       if (courseExists !== 1) {
         throw new UploadHttpError("COURSE_NOT_FOUND", "课程不存在或已被删除。", 404);
       }
+    }
+    const isNewClassroomPptx = extension === ".pptx"
+      && bindAsCourseResource
+      && Boolean(parsedFields.data.stageKey)
+      && isNewOpenPblSystem();
+    if (isNewClassroomPptx && !isPresentationConversionEnabled()) {
+      throw new UploadHttpError(
+        "PPTX_CLASSROOM_REQUIRES_PDF",
+        "为避免字体、图形和版式错位，请先在 PowerPoint 中导出 PDF，再上传到课堂。",
+        415,
+      );
     }
 
     failureStage = "inspect-file";
@@ -188,12 +229,56 @@ export async function POST(request: Request) {
       throw new UploadHttpError("INVALID_FILE_SIZE", "文件大小无效。", 413);
     }
 
+    let previewStoredName: string | null = null;
+    let previewMimeType: string | null = null;
+    let previewSize: number | null = null;
+    let previewUrl: string | null = null;
+    let previewType: string | null = null;
+    const needsClassroomPdf = isNewClassroomPptx && isPresentationConversionEnabled();
+    if (needsClassroomPdf) {
+      failureStage = "convert-presentation";
+      previewStoredName = `${id}.classroom.pdf`;
+      previewTargetPath = path.join(dataDir, previewStoredName);
+      try {
+        const preview = await convertPresentationToPdf({
+          sourcePath: targetPath,
+          targetPath: previewTargetPath,
+        });
+        previewMimeType = preview.mimeType;
+        previewSize = preview.size;
+        previewUrl = `/api/uploads/${id}?variant=classroom`;
+        previewType = "PDF";
+      } catch (error) {
+        if (error instanceof PresentationConversionError) {
+          console.warn("[uploads] Presentation conversion rejected", {
+            requestId,
+            code: error.code,
+            diagnostic: error.diagnostic,
+          });
+          throw new UploadHttpError(
+            "PRESENTATION_CONVERSION_FAILED",
+            "这份 PPT 无法生成稳定的课堂版，请将演示文稿导出为 PDF 后重新上传。",
+            error.code === "CONVERTER_UNAVAILABLE" ? 503 : 422,
+          );
+        }
+        throw error;
+      }
+    }
+
     const title = parsedFields.data.title || originalName;
     const fileType = extension.slice(1).toUpperCase();
     const formattedSize = formatSize(info.size);
     const url = `/api/uploads/${id}`;
+    const displayMode = needsClassroomPdf
+      ? "slides"
+      : extension === ".pdf" && bindAsCourseResource
+        ? parsedFields.data.pdfDisplayMode ?? null
+        : null;
     failureStage = "bind-database";
     const durableEvent = await prisma.$transaction(async (tx) => {
+      const generationReference = isGenerationReference && courseId
+        ? generationReferenceMarker(courseId)
+        : null;
       await tx.uploadFile.create({
         data: {
           id,
@@ -204,8 +289,11 @@ export async function POST(request: Request) {
           uploadedByRole: auth.claims.role,
           size: info.size,
           mimeType: expected.mime,
-          referencedBy: bindAsCourseResource ? [id] : [],
-          refCount: bindAsCourseResource ? 1 : 0,
+          previewStoredName,
+          previewMimeType,
+          previewSize,
+          referencedBy: bindAsCourseResource ? [id] : generationReference ? [generationReference] : [],
+          refCount: bindAsCourseResource || generationReference ? 1 : 0,
         },
       });
       if (bindAsCourseResource && courseId) {
@@ -216,8 +304,14 @@ export async function POST(request: Request) {
             title,
             type: fileType,
             size: formattedSize,
-            description: "教师在项目启动阶段补充的课程资源",
+            description: parsedFields.data.stageKey
+              ? "教师为当前课堂阶段补充的授课资源"
+              : "教师补充的课程资源",
+            stageKey: parsedFields.data.stageKey ?? null,
             url,
+            previewUrl,
+            previewType,
+            displayMode,
             downloadedBy: [],
           },
         });
@@ -264,12 +358,29 @@ export async function POST(request: Request) {
     }
 
     return Response.json(
-      { id, title, fileName: originalName, fileType, size: formattedSize, url, boundToCourse: bindAsCourseResource },
+      {
+        id,
+        title,
+        fileName: originalName,
+        fileType,
+        size: formattedSize,
+        url,
+        previewUrl: previewUrl ?? undefined,
+        previewType: previewType ?? undefined,
+        convertedToPdf: Boolean(previewUrl),
+        displayMode: displayMode ?? undefined,
+        stageKey: parsedFields.data.stageKey,
+        boundToCourse: bindAsCourseResource,
+        purpose: parsedFields.data.purpose,
+      },
       { status: 201, headers: { "x-request-id": requestId } },
     );
   } catch (error) {
     if (targetPath) {
       await unlink(/* turbopackIgnore: true */ targetPath).catch(() => undefined);
+    }
+    if (previewTargetPath) {
+      await unlink(/* turbopackIgnore: true */ previewTargetPath).catch(() => undefined);
     }
     if (error instanceof UploadHttpError) {
       return apiError(requestId, error.code, error.message, error.status);
@@ -327,4 +438,10 @@ function formatSize(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function isPresentationConversionEnabled(): boolean {
+  return /^(?:1|true|yes|on)$/i.test(
+    process.env.OPENPBL_PPTX_CLASSROOM_CONVERSION_ENABLED?.trim() ?? "",
+  );
 }

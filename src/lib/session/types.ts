@@ -46,6 +46,8 @@ export const COURSE_STATUS_LABEL: Record<CourseStatus, string> = {
 export type StageViewKey =
   | "project-launch"
   | "ai-learning"
+  | "ai-collaboration"
+  | "simple-resource"
   | "group"
   | "workspace"
   | "proposal-review"
@@ -101,7 +103,14 @@ export type CourseResource = {
   type: string;
   size: string;
   description?: string;
+  /** Lightweight new-system resources are scoped to a classroom stage. */
+  stageKey?: string;
   url?: string;
+  /** Fixed-layout derivative used for in-browser classroom presentation. */
+  previewUrl?: string;
+  previewType?: string;
+  /** PDF classroom behavior: continuous reading or page-by-page presentation. */
+  displayMode?: "document" | "slides";
   downloadedBy: string[];
 };
 
@@ -384,6 +393,44 @@ export type CourseUiState = {
   aiAnalysisRefreshedAt?: string;
   /** 教师当前投屏的 OpenMAIC 授课资源；null 表示已停止投屏。 */
   teacherResourceProjection?: TeacherResourceProjection | null;
+  /** 新旧启动模式分别保存课堂位置，切换模式时互不覆盖。 */
+  systemStageKeyByMode?: Partial<Record<"legacy" | "new", string>>;
+  /** 切换模式时保留另一套系统的完整阶段定义，避免覆盖旧课堂配置。 */
+  systemStagesByMode?: Partial<Record<"legacy" | "new", Stage[]>>;
+  /** 当前课程内容属于哪一套生成契约，不能仅凭运行时环境推断。 */
+  activeGenerationMode?: "legacy" | "new";
+  /**
+   * 新旧系统各自的备课产物快照。新版重新生成 AI 授知时不会覆盖旧版
+   * 六阶段大纲、教师资源和课堂 ID，之后用旧命令启动仍可恢复原内容。
+   */
+  systemGenerationByMode?: Partial<
+    Record<"legacy" | "new", CourseGenerationModeSnapshot>
+  >;
+  /** 教师选择并向当前阶段全班投屏的上传资源。 */
+  resourceProjection?: ClassroomResourceProjection | null;
+};
+
+export type ClassroomResourceProjection = {
+  resourceId: string;
+  stageKey: string;
+  title: string;
+  startedAt: string;
+  /** 教师端课堂播放器的当前位置；学生端只读跟随。 */
+  viewState?: ClassroomResourceViewState;
+};
+
+export type ClassroomResourceViewState = {
+  /** PDF 当前滚动比例，取值 0-1。 */
+  scrollRatio?: number;
+  /** PDF/PPT 当前页码，从 1 开始。 */
+  page?: number;
+  /** 音视频当前播放位置，单位为秒。 */
+  mediaTime?: number;
+  mediaPlaying?: boolean;
+  mediaPlaybackRate?: number;
+  /** 用于播放中的时间推算和客户端去重。 */
+  updatedAt: string;
+  revision: number;
 };
 
 /** Student-facing workspace surfaces available during a classroom stage. */
@@ -1086,7 +1133,7 @@ export type CourseContent = {
   _openmaicScenesCount?: number;
   /** Confirmed OpenMAIC outline snapshot used by the final classroom generator. */
   _openmaicSceneOutlines?: OpenMaicSceneOutlineSnapshot[];
-  /** AI module recommendation and teacher-confirmed fixed-total allocation. */
+  /** AI授知动态时长计划；旧版课程也复用该字段保存教师确认的全阶段分配。 */
   moduleTimingPlan?: PblModuleTimingPlan;
   /**
    * 教师授课资源：从 OpenMAIC 生成结果中拆分出的课程引入与 PBL 题目讲解内容。
@@ -1107,6 +1154,13 @@ export type CourseContent = {
   adaptiveLearningPlan?: AdaptiveLearningPlan;
   /** Traceable outputs and quality gates produced by the quick-design mode. */
   designGenerationTrace?: CourseDesignGenerationTrace;
+};
+
+export type CourseGenerationModeSnapshot = {
+  aiLearningClassroomId?: string;
+  teacherClassroomId?: string;
+  dynamicFacilitationScaffolds?: DynamicFacilitationScaffold[];
+  content: CourseContent;
 };
 
 export type CourseDesignGenerationTraceEntry = {
@@ -1138,6 +1192,29 @@ export type CourseDesignGenerationArtifact = {
   visualization?: {
     knowledgeGraph?: KnowledgeGraph;
     knowledgePoints?: KnowledgePoint[];
+    /** A scene-by-scene production plan for the AI-learning classroom. */
+    generationPlan?: {
+      scope: "ai-learning";
+      totalScenes: number;
+      estimatedDuration: number;
+      completedScenes: number;
+      status: "queued" | "running" | "recovering" | "cancelling" | "cancelled" | "completed" | "failed";
+      /** -1 means queued; otherwise the current phase in the production workflow. */
+      phaseIndex: number;
+      message: string;
+      scenes: Array<{
+        id: string;
+        title: string;
+        type: string;
+        typeLabel: string;
+        estimatedDuration?: number;
+      }>;
+      assets: {
+        images: boolean;
+        videos: boolean;
+        tts: boolean;
+      };
+    };
   };
 };
 

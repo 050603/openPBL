@@ -37,7 +37,10 @@ import type {
 } from "@/lib/session/types";
 import { DEFAULT_EVALUATION_FLOWS } from "@/lib/session/types";
 import { resolveDimensionRole } from "@/lib/evaluation/responsibility";
-import type { SceneOutline } from "@/lib/openmaic/types/generation";
+import type {
+  CourseGenerationMode,
+  SceneOutline,
+} from "@/lib/openmaic/types/generation";
 import { normalizeTeachingToolPlan } from "@/lib/openmaic/generation/teaching-tool-plan";
 import type { AgentInfo } from "@/lib/openmaic/generation/generation-pipeline";
 import { I18nProvider } from "@/lib/openmaic/hooks/use-i18n";
@@ -103,6 +106,7 @@ import {
 import { confirmAdaptiveLearningPlan, evaluateAdaptiveLearningPlanQuality } from "@/lib/adaptive-learning";
 import { FastCourseGenerator } from "@/components/teacher/fast-course-generator";
 import type { StageGenerationCardData } from "@/components/teacher/stage-generation-card-stack";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 // ===== SceneOutline ↔ LessonOutlineSection 转换 =====
 function sceneOutlineToLessonSection(
@@ -460,8 +464,9 @@ export default function VerifyCoursePage() {
   }
 
   const [flowStepKey, setFlowStepKey] = useState<PreparationStepKey>("base");
+  const newSystem = isNewOpenPblSystem();
   const [generationMode, setGenerationMode] = useState<"quick" | "detailed">(
-    resolvePreparationGenerationMode(pathname),
+    newSystem ? "quick" : resolvePreparationGenerationMode(pathname),
   );
   // 知识图谱视图状态
   const [kgViewMode, setKgViewMode] = useState<"graph" | "list">("graph");
@@ -474,6 +479,7 @@ export default function VerifyCoursePage() {
   const abortRef = useRef<AbortController | null>(null);
   // OpenMAIC SceneOutline[] 状态：OutlinesEditor 直接编辑此数组
   const [sceneOutlines, setSceneOutlines] = useState<SceneOutline[]>([]);
+  const [lessonGenerationMode, setLessonGenerationMode] = useState<CourseGenerationMode>("standard");
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
   const stageKeys = useMemo(
     () => (course?.stages ?? []).map((s) => s.key),
@@ -1176,6 +1182,7 @@ export default function VerifyCoursePage() {
         body: JSON.stringify({
           requirements: {
             requirement,
+            generationMode: lessonGenerationMode,
             pblProfile: course.pblConfig,
             moduleTimingPlan: (content ?? course.content).moduleTimingPlan,
             pblTeachingActivities: buildTeacherActivityRequirements(content ?? course.content),
@@ -1294,6 +1301,7 @@ export default function VerifyCoursePage() {
     persistContentSnapshot,
     content,
     sceneOutlines,
+    lessonGenerationMode,
     ttsProviderId,
     ttsModelId,
     ttsVoiceId,
@@ -2749,7 +2757,11 @@ export default function VerifyCoursePage() {
       }
     >
       {generationMode === "quick" ? (
-        <FastCourseGenerator course={course} onOpenDetailed={openDetailedMode} />
+        <FastCourseGenerator
+          course={course}
+          onOpenDetailed={openDetailedMode}
+          simplified={newSystem}
+        />
       ) : (
       <>
       <PreparationJourney
@@ -3069,6 +3081,38 @@ export default function VerifyCoursePage() {
                 title="主课脚本"
               />
               <div className="flex flex-wrap items-center gap-2">
+                <div aria-label="课程生成模式" className="inline-flex rounded-[7px] border border-stone-200 bg-stone-50 p-0.5" role="group">
+                  <button
+                    aria-pressed={lessonGenerationMode === "standard"}
+                    className={cn(
+                      "h-8 rounded-[5px] px-3 text-xs font-bold transition",
+                      lessonGenerationMode === "standard"
+                        ? "bg-white text-stone-900 shadow-sm"
+                        : "text-stone-500 hover:text-stone-800",
+                    )}
+                    disabled={outlineStreaming}
+                    onClick={() => setLessonGenerationMode("standard")}
+                    title="按教学必要性动态安排少量高价值互动"
+                    type="button"
+                  >
+                    普通模式
+                  </button>
+                  <button
+                    aria-pressed={lessonGenerationMode === "deep-interaction"}
+                    className={cn(
+                      "h-8 rounded-[5px] px-3 text-xs font-bold transition",
+                      lessonGenerationMode === "deep-interaction"
+                        ? "bg-white text-violet-700 shadow-sm"
+                        : "text-stone-500 hover:text-stone-800",
+                    )}
+                    disabled={outlineStreaming}
+                    onClick={() => setLessonGenerationMode("deep-interaction")}
+                    title="优先生成有真实操作价值的模拟、编程和探索页面"
+                    type="button"
+                  >
+                    深度交互
+                  </button>
+                </div>
                 <button
                   className="inline-flex h-9 items-center gap-1.5 rounded-[6px] bg-[var(--pbl-teacher)] px-3.5 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-50"
                   disabled={outlineStreaming}

@@ -44,7 +44,7 @@ describe("PBL course prompt", () => {
     expect(prompt?.user).toContain("knowledgePointIds");
   });
 
-  it("always injects the foundation-first deep-interaction cadence", () => {
+  it("injects distinct dynamic strategies for standard and deep-interaction modes", () => {
     const common = {
       requirement: "课程：校园节能设计",
       pblProfile: formatPblCourseConfigForPrompt(DEFAULT_PBL_COURSE_CONFIG),
@@ -56,18 +56,26 @@ describe("PBL course prompt", () => {
 
     const normal = buildPrompt(PROMPT_IDS.PBL_COURSE, {
       ...common,
+      standardMode: true,
+      deepInteractionMode: false,
     });
     const interactive = buildPrompt(PROMPT_IDS.PBL_COURSE, {
       ...common,
+      standardMode: false,
+      deepInteractionMode: true,
     });
 
-    expect(normal?.user).toContain("Foundation-first deep-interaction cadence");
-    expect(interactive?.user).toContain("Foundation-first deep-interaction cadence");
+    expect(normal?.user).toContain("Standard mode strategy");
+    expect(normal?.user).toContain("A coherent slide-and-quiz sequence is valid");
+    expect(normal?.user).not.toContain("Deep-interaction mode strategy");
+    expect(interactive?.user).toContain("Deep-interaction mode strategy");
+    expect(interactive?.user).toContain("There are no widget-type quotas");
+    expect(interactive?.user).not.toContain("Standard mode strategy");
     expect(interactive?.user).toContain("its concept, a concrete example");
-    expect(interactive?.user).toContain("A `quiz` is an assessment and does NOT satisfy");
     expect(interactive?.user).toContain("Interactions are ungraded exploration or operation spaces");
     expect(interactive?.user).toContain("matching, sorting, ordering, drag-to-answer");
     expect(interactive?.user).toContain("PPT/script-only");
     expect(interactive?.user).toContain("Decorative clicking");
+    expect(interactive?.user).toContain("do not force a fixed number of pages");
   });
 });

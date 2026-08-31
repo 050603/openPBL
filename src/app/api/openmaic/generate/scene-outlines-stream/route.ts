@@ -29,7 +29,6 @@ import {
   enforcePblOutlineContract,
   normalizeSceneOutlinesForDuration,
 } from '@openmaic/lib/generation/outline-generator';
-import { applyDeepInteractionPolicy } from '@openmaic/lib/generation/deep-interaction-policy';
 import { ensureTerminalMasteryAssessment } from '@openmaic/lib/generation/terminal-mastery-assessment-policy';
 import { splitLongStudentSlides } from '@openmaic/lib/generation/student-slide-duration-policy';
 import { resolveOutlinePromptPlan } from '@openmaic/lib/generation/outline-prompt-plan';
@@ -421,6 +420,9 @@ export async function POST(req: NextRequest) {
       ttsTimingContext: requirements.ttsTimingContext
         ? JSON.stringify(requirements.ttsTimingContext, null, 2)
         : 'No explicit calibration; use the conservative natural-speed fallback.',
+      deepInteractionMode: promptPlan.deepInteractionMode,
+      standardMode: !promptPlan.deepInteractionMode,
+      generationMode: promptPlan.generationMode,
     });
 
     if (!prompts) {
@@ -639,9 +641,7 @@ export async function POST(req: NextRequest) {
             const contractOutlines = requirements.pblProfile?.generationTemplate === 'pbl-six-stage'
               ? enforcePblOutlineContract(parsedOutlines, requirements)
               : parsedOutlines;
-            const modeAwareOutlines = ensureTerminalMasteryAssessment(
-              applyDeepInteractionPolicy(contractOutlines),
-            );
+            const modeAwareOutlines = ensureTerminalMasteryAssessment(contractOutlines);
             const normalizedOutlines = normalizeSceneOutlinesForDuration(
               splitLongStudentSlides(modeAwareOutlines),
             );
@@ -653,6 +653,7 @@ export async function POST(req: NextRequest) {
               languageDirective: languageDirective || DEFAULT_LANGUAGE_DIRECTIVE,
               courseTitle: courseTitle || undefined,
               taskEngineMode,
+              generationMode: promptPlan.generationMode,
             });
             controller.enqueue(encoder.encode(`data: ${doneEvent}\n\n`));
           } else {

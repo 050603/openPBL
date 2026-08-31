@@ -21,4 +21,12 @@ describe('Content Security Policy', () => {
       ]),
     });
   });
+
+  it('traces runtime prompt templates into standalone builds', () => {
+    expect(nextConfig.outputFileTracingIncludes).toMatchObject({
+      '/**': expect.arrayContaining([
+        './src/lib/openmaic/prompts/**/*',
+      ]),
+    });
+  });
 });

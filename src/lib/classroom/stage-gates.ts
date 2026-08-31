@@ -2,6 +2,7 @@ import type { Course, Stage } from "@/lib/session/types";
 import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
 import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
 import { isReadyMadeDeliverableRequest } from "@/lib/learning-evidence/ai-policy";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 export type StageGateItem = {
   code: string;
@@ -36,6 +37,47 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
   const blockers: StageGateItem[] = [];
   const warnings: StageGateItem[] = [];
   const completed: string[] = [];
+
+  if (isNewOpenPblSystem()) {
+    if (stage.key === "make") {
+      const studentsWithoutArtifact = course.students
+        .filter((student) => !(course.submissions ?? []).some((submission) =>
+          submission.stageKey === "make"
+          && submission.studentId === student.id
+          && (submission.type === "document" || submission.type === "code")
+          && submission.content.trim().length > 0))
+        .map((student) => student.id);
+      if (studentsWithoutArtifact.length) {
+        blockers.push({
+          code: "collaboration-artifact",
+          message: `${studentsWithoutArtifact.length} 名学生尚未保存文档或代码项目产物`,
+          targetIds: studentsWithoutArtifact,
+        });
+      } else if (course.students.length) {
+        completed.push("所有学生均已保存项目实践产物");
+      } else {
+        warnings.push({
+          code: "participants",
+          message: "当前尚无学生进入课堂",
+          targetIds: [],
+        });
+      }
+      return { canAdvance: blockers.length === 0, stage, blockers, warnings, completed };
+    }
+
+    if (stage.key !== "ai-learning") {
+      const resourceCount = (course.resources ?? []).filter((resource) =>
+        resource.stageKey === stage.key
+        || (stage.key === "launch" && !resource.stageKey)).length;
+      if (resourceCount) completed.push(`本阶段已准备 ${resourceCount} 份授课资源`);
+      else warnings.push({
+        code: "stage-resources",
+        message: "本阶段尚未上传授课资源，可继续切换阶段",
+        targetIds: [course.id],
+      });
+      return { canAdvance: true, stage, blockers, warnings, completed };
+    }
+  }
 
   if (stage.key === "launch") {
     if (!course.summary.trim() || !course.drivingQuestion.trim()) blockers.push({ code: "project-brief", message: "项目说明和驱动问题需要完整", targetIds: [course.id] });

@@ -3,7 +3,11 @@
 // 路径改写: @/lib/utils/concurrency → @openmaic/lib/utils/concurrency
 import { describe, expect, it } from 'vitest';
 
-import { lazyBoundedMap, mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
+import {
+  lazyBoundedMap,
+  mapWithConcurrency,
+  mapWithConcurrencySettledOnError,
+} from '@openmaic/lib/utils/concurrency';
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -121,5 +125,38 @@ describe('lazyBoundedMap', () => {
     );
     expect(ran).toEqual([1, 2]); // fn ran only twice
     expect(out).toEqual([1, 2, undefined, undefined, undefined]); // skipped → undefined
+  });
+});
+
+describe('mapWithConcurrencySettledOnError', () => {
+  it('stops queued work and waits for already-running workers before rejecting', async () => {
+    const started: number[] = [];
+    let releaseInFlight!: () => void;
+    const inFlight = new Promise<void>((resolve) => {
+      releaseInFlight = resolve;
+    });
+    let rejected = false;
+
+    const result = mapWithConcurrencySettledOnError(
+      [0, 1, 2, 3],
+      2,
+      async (item) => {
+        started.push(item);
+        if (item === 0) throw new Error('first page failed');
+        await inFlight;
+        return item;
+      },
+    );
+    void result.catch(() => {
+      rejected = true;
+    });
+
+    await tick();
+    expect(started).toEqual([0, 1]);
+    expect(rejected).toBe(false);
+
+    releaseInFlight();
+    await expect(result).rejects.toThrow('first page failed');
+    expect(started).toEqual([0, 1]);
   });
 });

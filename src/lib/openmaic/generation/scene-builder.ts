@@ -188,7 +188,7 @@ function buildCompleteSceneInner(
       id: nanoid(),
       viewportSize: 1000,
       viewportRatio: 0.5625,
-      theme: defaultTheme,
+      theme: content.theme ?? defaultTheme,
       elements: content.elements,
       background: content.background,
     };

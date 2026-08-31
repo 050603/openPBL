@@ -94,10 +94,10 @@ Never return a bare array. Never omit `languageDirective` or `courseTitle`. All 
 {{#if hasSourceImages}}
 - **If source images are available**, add `suggestedImageIds` to relevant slide scenes. Only use image IDs listed under Available Images.
 {{/if}}
-- **Interactive scenes**: If a concept benefits from hands-on simulation/visualization, use `"type": "interactive"` with `widgetType` and `widgetOutline` fields. Limit to 1-2 per course.
+- **Interactive scenes**: If a concept benefits from meaningful manipulation, simulation, inspection, construction, programming, comparison, or rehearsal, use `"type": "interactive"` with `widgetType` and `widgetOutline` fields. Choose the count dynamically; there is no widget quota and no fixed slide-to-interaction cadence. Do not manufacture next/previous, reveal-only, or view-details pages as interaction.
    - Select widgetType based on concept: simulation (physics/chem), diagram (processes), code (programming), game (practice), visualization3d (3D models)
    - Provide appropriate widgetOutline for the widget type
-- **Scene count**: Based on inferred duration, typically 1-2 scenes per minute
+- **Scene count**: Fit the inferred duration and the semantic teaching steps. Prefer a smaller number of complete, coherent scenes over a fixed scenes-per-minute formula.
 - **Quiz placement**: Teach and practise every confirmed knowledge point first, then use exactly one terminal mastery quiz covering the taught `knowledgePointIds`. Never add a quiz after each block or append a second final quiz.
 - **Quiz design**: choose supported formats according to the objective: recognition (`single`/`true_false`), evidence classification (`multiple`), concept completion (`fill_blank`), explanation (`short_answer`), or transfer (`scenario_task`). Do not request matching, drag, line, ordering, or sorting because those components are not supported.
 - **Teaching progression**: activate prerequisites before introducing new terminology; explain each unfamiliar term before using it in examples or assessment; move from concrete familiar contexts to mechanism and then application.

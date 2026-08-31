@@ -29,6 +29,7 @@ import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 import {
   isProjectLaunchTodo,
 } from "@/lib/project-launch-readiness";
+import { resourcesForStage } from "@/lib/classroom/stage-resources";
 
 export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const session = useSession();
@@ -39,6 +40,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
   const [deletingResourceId, setDeletingResourceId] = useState<string | null>(null);
   const [resourceMessage, setResourceMessage] = useState<string | null>(null);
   const totalSeats = course.classConfig?.totalStudents ?? 40;
+  const launchResources = resourcesForStage(course.resources, "launch");
   const joined = course.students.length;
   const rate = Math.min(100, Math.round((joined / totalSeats) * 100));
   const projectSpaces = course.students.filter((student) => course.groups?.some((project) => project.members.some((member) => member.studentId === student.id))).length;
@@ -97,6 +99,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
       form.append("title", file.name);
       form.append("courseId", course.id);
       form.append("bindAsCourseResource", "true");
+      form.append("stageKey", "launch");
       const response = await fetch("/api/uploads", { method: "POST", body: form });
       if (!response.ok) {
         const errorPayload = await response.json().catch(() => null) as { message?: string; requestId?: string } | null;
@@ -177,7 +180,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
         </div>
         {resourceMessage ? <p aria-live="polite" className={cn("mt-2 rounded-md px-3 py-2 text-xs", resourceMessage.startsWith("已") ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>{resourceMessage}</p> : null}
         <div className="mt-3 grid max-h-32 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-          {(course.resources ?? []).map((resource) => (
+          {launchResources.map((resource) => (
             <div className="group flex min-w-0 items-center gap-2 rounded-[8px] border border-stone-200 bg-white p-1.5 pl-2.5 transition hover:border-[var(--pbl-teacher-border)] hover:bg-[var(--pbl-teacher-soft)]/30" key={resource.id}>
               <a className="flex min-w-0 flex-1 items-center gap-2.5" href={resource.url || "#"} rel="noreferrer" target="_blank">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[7px] bg-[var(--pbl-teacher-soft)] text-[10px] font-black text-[var(--pbl-teacher)]">{courseResourceTypeLabel(resource.type)}</span>
@@ -196,7 +199,7 @@ export function ProjectLaunchTeacherView({ course }: { course: Course }) {
               </button>
             </div>
           ))}
-          {!course.resources?.length ? <div className="rounded-[8px] border border-dashed border-stone-300 px-4 py-3 text-center text-xs text-stone-500 sm:col-span-2 xl:col-span-3">尚未上传材料，学生端暂不会显示额外资源。</div> : null}
+          {!launchResources.length ? <div className="rounded-[8px] border border-dashed border-stone-300 px-4 py-3 text-center text-xs text-stone-500 sm:col-span-2 xl:col-span-3">尚未上传材料，学生端暂不会显示额外资源。</div> : null}
         </div>
       </Card>
 

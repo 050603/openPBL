@@ -1,26 +1,22 @@
-# openPBL 双版本运行约定
+# openPBL 新旧系统运行约定
 
-<!-- OPENPBL_LEGACY_BOUNDARY -->
+新旧系统保存在同一代码库中，通过明确的启动命令选择。旧版六阶段实现不会被删除；新版只启用五阶段流程，并在运行时隔离旧版复杂课堂功能。
 
-旧系统不复制进开发源码目录，而是固定在独立 Git 工作树中。这个边界确保旧实现可以被完整删除，不会把兼容代码永久留在新系统里。
+| 模式 | 开发命令 | 默认地址 | 生产构建 | 生产启动 | 构建目录 |
+| --- | --- | --- | --- | --- | --- |
+| 原始系统（六阶段） | `pnpm dev:legacy` | `http://localhost:3000` | `pnpm build:legacy` | `pnpm start:legacy` | `.next-legacy-dev` / `.next-legacy` |
+| 新系统（五阶段） | `pnpm dev:new` | `http://localhost:3100` | `pnpm build:new` | `pnpm start:new` | `.next-new-dev` / `.next-new` |
 
-| 版本 | 分支 | 本地目录 | 默认地址 | 数据目录 |
-| --- | --- | --- | --- | --- |
-| 稳定版 | `codex/stable-v1` | `C:\code\openPBL-stable` | `http://localhost:3000` | `C:\code\openPBL-stable\.openpbl-data` |
-| 开发版 | `codex/openpbl-v2-dev` | `C:\code\openPBL` | `http://localhost:3100` | `C:\code\openPBL\.openpbl-data` |
+`pnpm dev`、`pnpm build`、`pnpm start` 继续指向原始系统，作为兼容和回退入口。开发缓存和生产产物也彼此隔离；生产环境必须先执行同模式的构建命令，再执行对应的启动命令。
 
-## 日常命令
+生产启动命令会使用 Next.js standalone 服务，并自动把 `public` 与对应构建的静态资源放入独立运行目录。端口需要调整时，可设置 `PORT` 环境变量；新版默认 3100，原始系统默认 3000。
 
-- `pnpm dev:dual`：后台同时启动稳定版和开发版。
-- `pnpm versions:status`：查看两个版本的地址与运行状态。
-- `pnpm dev:stop`：停止两个由脚本启动的进程。
-- `pnpm promote:new`：输入确认短语后，停止服务、删除稳定工作树与稳定分支，并让新系统在 3000 端口运行。
+## 新系统五阶段
 
-运行日志和 PID 写入 `.openpbl-runtime`，不提交到仓库。两套系统拥有独立的 `.next`、依赖和演示数据，可以同时修改与运行。
+1. 项目启动：教师上传授课资源并选择投屏，学生可自主查看或接收投屏。
+2. AI 授知：保留原有完整 AI 授知功能。
+3. 项目实践：合并原方案与制作阶段，学生在文档、Python 或 C 工作台中与 AI 组员协作。
+4. 成果汇报与评价：轻量资源查看与投屏。
+5. 学习反思：轻量资源查看与投屏。
 
-## 删除标记
-
-- `OPENPBL_LEGACY_BOUNDARY`：只出现在版本边界文档与管理脚本中。
-- `OPENPBL_DEV_ENTRY`：用于标记新系统入口和新架构文件。
-
-最终晋升不依赖逐文件搜索旧组件；`pnpm promote:new` 删除完整稳定工作树和分支，因此不会残留旧系统源码。
+课程数据共用现有持久化层，但两种模式分别记住当前课堂阶段；资源按阶段保存。切换启动模式不会删除课程、历史课堂、旧阶段数据或旧界面源码。

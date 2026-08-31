@@ -2,6 +2,8 @@
 
 Generate a self-contained HTML game that is FUN, ENGAGING, and EDUCATIONAL.
 
+{{snippet:widget-action-bridge}}
+
 ## Core Principle: GAMES, NOT QUIZZES
 
 **CRITICAL: Avoid boring multiple-choice quizzes!** Students already have enough tests. Create games that are:

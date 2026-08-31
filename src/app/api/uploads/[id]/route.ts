@@ -13,6 +13,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
+const DisplayModeSchema = z.object({
+  displayMode: z.enum(["document", "slides"]),
+});
 const dataDir =
   process.env.UPLOAD_DIR?.trim() ||
   path.resolve(".openpbl-data", "uploads");
@@ -32,8 +35,17 @@ export async function GET(
   if (!file || !canAccess(auth.claims, file.courseId, file.uploadedById)) {
     return new Response(null, { status: 404 });
   }
-  if (path.basename(file.storedName) !== file.storedName) return new Response(null, { status: 404 });
-  const target = path.join(dataDir, file.storedName);
+  const classroomVariant = new URL(request.url).searchParams.get("variant") === "classroom";
+  const selectedStoredName = classroomVariant ? file.previewStoredName : file.storedName;
+  const selectedMimeType = classroomVariant ? file.previewMimeType : file.mimeType;
+  if (
+    !selectedStoredName
+    || !selectedMimeType
+    || path.basename(selectedStoredName) !== selectedStoredName
+  ) {
+    return new Response(null, { status: 404 });
+  }
+  const target = path.join(dataDir, selectedStoredName);
   let info;
   try {
     info = await stat(/* turbopackIgnore: true */ target);
@@ -54,15 +66,98 @@ export async function GET(
   return new Response(Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>, {
     status: range ? 206 : 200,
     headers: {
-      "Content-Type": file.mimeType,
+      "Content-Type": selectedMimeType,
       "Content-Length": String(end - start + 1),
       ...(range ? { "Content-Range": `bytes ${start}-${end}/${info.size}` } : {}),
       "Accept-Ranges": "bytes",
-      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(
+        classroomVariant ? classroomPreviewName(file.fileName) : file.fileName,
+      )}`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
     },
+  });
+}
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const csrfError = requireSameOrigin(request);
+  if (csrfError) return csrfError;
+  const auth = await authenticateRequest(request);
+  if ("response" in auth) return auth.response;
+  if (auth.claims.role !== "teacher") {
+    return Response.json({ message: "只有教师可以修改资源展示方式。" }, { status: 403 });
+  }
+  const parsedParams = ParamsSchema.safeParse(await context.params);
+  if (!parsedParams.success) return new Response(null, { status: 404 });
+  const parsedBody = DisplayModeSchema.safeParse(
+    await request.json().catch(() => null),
+  );
+  if (!parsedBody.success) {
+    return Response.json({ message: "资源展示方式无效。" }, { status: 400 });
+  }
+  const resource = await prisma.courseResource.findFirst({
+    where: { id: parsedParams.data.id },
+    select: {
+      id: true,
+      courseId: true,
+      type: true,
+      previewType: true,
+    },
+  });
+  const isPdf = resource?.type.toUpperCase() === "PDF"
+    || resource?.previewType?.toUpperCase() === "PDF";
+  if (!resource || !isPdf) {
+    return Response.json({ message: "只有 PDF 资源可以切换展示方式。" }, { status: 404 });
+  }
+
+  const durableEvent = await prisma.$transaction(async (tx) => {
+    await tx.courseResource.update({
+      where: { id: resource.id },
+      data: { displayMode: parsedBody.data.displayMode },
+    });
+    const updatedCourse = await tx.course.update({
+      where: { id: resource.courseId },
+      data: { version: { increment: 1 } },
+      select: { version: true },
+    });
+    return tx.courseEvent.create({
+      data: {
+        courseId: resource.courseId,
+        requestId: randomUUID(),
+        type: "UPDATE_COURSE",
+        actorId: auth.claims.sub!,
+        actorRole: auth.claims.role,
+        courseVersion: updatedCourse.version,
+        payload: { source: "course-resource-display-mode", scope: "course" },
+      },
+      select: { cursor: true, courseVersion: true },
+    });
+  });
+  try {
+    await publishCourseEvent(resource.courseId, {
+      type: "course-updated",
+      courseId: resource.courseId,
+      at: new Date().toISOString(),
+      payload: {
+        actionType: "UPDATE_COURSE",
+        courseVersion: durableEvent.courseVersion,
+        eventCursor: durableEvent.cursor.toString(),
+      },
+    });
+  } catch (error) {
+    console.error("[uploads] display mode saved; realtime publish failed", {
+      courseId: resource.courseId,
+      eventCursor: durableEvent.cursor.toString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return Response.json({
+    id: resource.id,
+    displayMode: parsedBody.data.displayMode,
   });
 }
 
@@ -143,7 +238,22 @@ export async function DELETE(
       error: error instanceof Error ? error.message : String(error),
     });
   });
+  if (file.previewStoredName && path.basename(file.previewStoredName) === file.previewStoredName) {
+    await unlink(
+      /* turbopackIgnore: true */ path.join(dataDir, file.previewStoredName),
+    ).catch((error) => {
+      console.warn("[uploads] Resource preview metadata deleted but disk cleanup failed", {
+        uploadId: file.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
   return new Response(null, { status: 204 });
+}
+
+function classroomPreviewName(fileName: string): string {
+  const parsed = path.parse(fileName);
+  return `${parsed.name}-课堂版.pdf`;
 }
 
 function canAccess(

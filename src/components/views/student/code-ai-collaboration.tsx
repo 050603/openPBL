@@ -37,7 +37,6 @@ import {
   type CodeAiWorkspaceMessage,
 } from "@/components/views/student/code-ai-member-workspace";
 import { CodeAiCommentThreadPanel } from "@/components/views/student/code-ai-comment-thread";
-import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import type { CollaborationArtifactType } from "@/lib/ai-collaboration/artifact-types";
 import {
   createCodeArtifact,
@@ -58,6 +57,7 @@ import type { CodeAiCommentThread } from "@/lib/ai-collaboration/code-comment-ty
 import type { CodeRunnerResult } from "@/lib/code-runner/client";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
+import { collaborationBackHref, isNewOpenPblSystem } from "@/lib/system-mode";
 
 loader.config({
   paths: { vs: "/api/openmaic/interactive-runtime/monaco" },
@@ -174,7 +174,6 @@ export function CodeAiCollaboration({
   language: CodeArtifactLanguage;
   onArtifactTypeChange: (value: CollaborationArtifactType) => void;
 }) {
-  useRealtimeSync(courseId);
   const router = useRouter();
   const hydrated = useHydrated();
   const course = useCourse(courseId);
@@ -182,7 +181,9 @@ export function CodeAiCollaboration({
   const studentId = session.studentId ?? "";
   const stage = course?.stages[course.currentStageIndex];
   const stageKey = stage?.key ?? "";
-  const supportedStage = stageKey === "proposal" || stageKey === "make";
+  const newSystem = isNewOpenPblSystem();
+  const supportedStage = (stageKey === "proposal" || stageKey === "make")
+    && (!newSystem || course?.status === "teaching");
   const loadedScopeRef = useRef("");
   const historyScopeRef = useRef("");
   const submissionIdRef = useRef<string | undefined>(undefined);
@@ -736,7 +737,7 @@ export function CodeAiCollaboration({
 
   function leaveCollaboration() {
     persistArtifact(serializedArtifact);
-    router.push(`/student/classroom/${courseId}`);
+    router.push(collaborationBackHref(courseId));
   }
 
   async function runCode() {
@@ -995,8 +996,14 @@ export function CodeAiCollaboration({
       <div className="grid min-h-screen place-items-center bg-[var(--pbl-bg)] px-6">
         <div className="max-w-md text-center">
           <Code2 className="mx-auto text-stone-400" size={28} />
-          <p className="mt-3 text-sm text-stone-600">{!studentId ? "学生身份尚未初始化，请重新进入课堂。" : "代码协作实验目前在方案构思与项目实践阶段开放。"}</p>
-          <PrimaryButton className="mt-4" onClick={() => router.replace(`/student/classroom/${course.id}`)} tone="slate" variant="outline">返回课堂</PrimaryButton>
+          <p className="mt-3 text-sm text-stone-600">{!studentId
+            ? "学生身份尚未初始化，请重新进入课堂。"
+            : newSystem
+              ? course.status === "finished"
+                ? "课堂已经结束，协作成果现已只读保存。"
+                : "代码协作目前仅在项目实践阶段开放。"
+              : "代码协作实验目前在方案构思与项目实践阶段开放。"}</p>
+          <PrimaryButton className="mt-4" onClick={() => router.replace(collaborationBackHref(course.id))} tone="slate" variant="outline">返回课堂</PrimaryButton>
         </div>
       </div>
     );

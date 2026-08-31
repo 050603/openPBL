@@ -56,6 +56,7 @@ import {
   mapAdaptiveGenerationProgress,
   mapPrimaryGenerationProgress,
 } from "@/lib/teacher/course-generation-progress";
+import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 const STEPS = [
   { key: "verify", label: "备课阶段" },
@@ -259,6 +260,7 @@ export default function GenerateCoursePage() {
   const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
   const ttsModelId = ttsProvidersConfig[ttsProviderId]?.modelId;
   const ttsVoiceId = ttsProvidersConfig[ttsProviderId]?.defaultVoice || ttsVoice;
+  const newSystem = isNewOpenPblSystem();
 
   const [status, setStatus] = useState<GenStatus>("loading");
   const [result, setResult] = useState<GenResult | null>(null);
@@ -314,6 +316,12 @@ export default function GenerateCoursePage() {
       setError(null);
     }
   }, [course?.id, router]);
+  useEffect(() => {
+    if (newSystem && hydrated && course?.id) {
+      router.replace(`/teacher/prepare/${course.id}/verify`);
+    }
+  }, [course?.id, hydrated, newSystem, router]);
+
   useEffect(() => {
     if (!started || status !== "loading") return;
     const timer = window.setInterval(() => {
@@ -798,14 +806,14 @@ export default function GenerateCoursePage() {
   }
 
   useEffect(() => {
-    if (!autoStartRef.current || !hydrated || !course || backgroundEnabled === null) return;
+    if (newSystem || !autoStartRef.current || !hydrated || !course || backgroundEnabled === null) return;
     autoStartRef.current = false;
     beginGeneration();
     // The auto-start request is consumed once. beginGeneration intentionally
     // remains outside the dependency list so media-option changes cannot
     // trigger a second generation run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backgroundEnabled, course, hydrated]);
+  }, [backgroundEnabled, course, hydrated, newSystem]);
 
   if (!hydrated) {
     return (
@@ -824,6 +832,14 @@ export default function GenerateCoursePage() {
             返回课程列表
           </Link>
         </div>
+      </DashboardShell>
+    );
+  }
+
+  if (newSystem) {
+    return (
+      <DashboardShell role="teacher" userName={user.name} variant="bare">
+        <div className="grid place-items-center py-20 text-stone-500">正在返回新版备课页面…</div>
       </DashboardShell>
     );
   }

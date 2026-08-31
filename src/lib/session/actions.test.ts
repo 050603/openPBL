@@ -42,6 +42,39 @@ function stateWithCourses(...courses: Course[]): SessionState {
   return { ...initialSessionState(), courses, hydrated: true };
 }
 
+describe("normalizeCourse — selectable system modes", () => {
+  it("projects five new stages without losing the remembered legacy position", () => {
+    const previousMode = process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE;
+    try {
+      const legacyAtProposal = makeCourse({
+        currentStageIndex: 2,
+        stages: DEFAULT_STAGES.map((stage) =>
+          stage.key === "proposal" ? { ...stage, description: "教师定制的旧版方案阶段" } : stage),
+      });
+      process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE = "new";
+      const projectedNew = normalizeCourse(legacyAtProposal);
+      expect(projectedNew.stages.map((stage) => stage.key)).toEqual([
+        "launch", "ai-learning", "make", "showcase", "reflection",
+      ]);
+      expect(projectedNew.stages[projectedNew.currentStageIndex]?.key).toBe("make");
+
+      const newAtShowcase = normalizeCourse({ ...projectedNew, currentStageIndex: 3 });
+      process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE = "legacy";
+      const restoredLegacy = normalizeCourse(newAtShowcase);
+      expect(restoredLegacy.stages).toHaveLength(6);
+      expect(restoredLegacy.stages[restoredLegacy.currentStageIndex]?.key).toBe("proposal");
+      expect(restoredLegacy.stages[2]?.description).toBe("教师定制的旧版方案阶段");
+      expect(restoredLegacy.uiState?.systemStageKeyByMode).toEqual({
+        legacy: "proposal",
+        new: "showcase",
+      });
+    } finally {
+      if (previousMode === undefined) delete process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE;
+      else process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE = previousMode;
+    }
+  });
+});
+
 describe("applySessionAction — showcase presentation", () => {
   it("records presentation switching in the authorized canonical action", () => {
     const course = makeCourse({
@@ -626,6 +659,7 @@ describe("applySessionAction — SET_STAGE", () => {
 describe("applySessionAction — evidence-driven classroom records", () => {
   it("stores a student help request as an operational signal, not learning evidence", () => {
     const course = makeCourse({ students: [makeStudent("student-1", "张三")] });
+    const detectedAt = new Date().toISOString();
     const signal = {
       id: "help-1",
       courseId: course.id,
@@ -639,8 +673,8 @@ describe("applySessionAction — evidence-driven classroom records", () => {
       normalizedIssueKey: "student-help-request:student-1:make",
       evidenceEventIds: [],
       aiInterventionAttempts: 0,
-      firstDetectedAt: "2026-07-31T00:00:00.000Z",
-      lastDetectedAt: "2026-07-31T00:00:00.000Z",
+      firstDetectedAt: detectedAt,
+      lastDetectedAt: detectedAt,
     };
 
     const next = applySessionAction(stateWithCourses(course), {

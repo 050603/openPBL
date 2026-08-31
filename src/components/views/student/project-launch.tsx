@@ -24,6 +24,7 @@ import {
   hasSelectedProjectTopic,
   haveAllResourcesBeenViewed,
 } from "@/lib/project-launch-readiness";
+import { resourcesForStage } from "@/lib/classroom/stage-resources";
 
 const STAGE_WORK: Record<string, string> = {
   launch: "理解问题，查看材料，确定研究方向",
@@ -42,6 +43,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
   const drivingQ = course?.drivingQuestion || "暂无驱动问题，请联系教师补充。";
   const project = course.groups?.find((item) => item.members.some((member) => member.studentId === studentId));
   const resourcesRef = useRef<HTMLDivElement>(null);
+  const launchResources = useMemo(() => resourcesForStage(course.resources, "launch"), [course.resources]);
   const topicOptions = useMemo(() => buildCourseTopicOptions(course), [course]);
   const inquiryQuestions = useMemo(
     () => topicOptions.map((option) => option.value),
@@ -104,7 +106,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
 
   function viewResource(resourceId: string, url?: string) {
     session.markResourceDownloaded(course.id, resourceId);
-    const remainingResources = (course.resources ?? []).filter(
+    const remainingResources = launchResources.filter(
       (resource) =>
         resource.id !== resourceId && !(studentId && resource.downloadedBy.includes(studentId)),
     );
@@ -138,7 +140,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
         <Card>
           <div className="mb-4 flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-[10px] bg-[var(--pbl-student-soft)] text-blue-600"><Flag size={21} /></div>
-            <div><h2 className="text-xl font-bold">课程安排</h2><p className="mt-0.5 text-sm text-stone-500">六个阶段逐步完成一个完整项目。</p></div>
+            <div><h2 className="text-xl font-bold">课程安排</h2><p className="mt-0.5 text-sm text-stone-500">{course.stages.length} 个阶段逐步完成一个完整项目。</p></div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {projectTimeline.map((stage) => (
@@ -170,9 +172,9 @@ export function ProjectLaunchView({ course }: { course: Course }) {
               <div className="min-w-0 flex-1">
                 <div className="font-bold">浏览课程资源</div>
                 <div className="text-sm text-stone-500">
-                  {(course.resources?.length ?? 0) === 0
+                  {launchResources.length === 0
                     ? "教师未上传资源，本项已自动完成"
-                    : `已浏览 ${(course.resources ?? []).filter((resource) => studentId && resource.downloadedBy.includes(studentId)).length}/${course.resources?.length ?? 0}`}
+                    : `已浏览 ${launchResources.filter((resource) => studentId && resource.downloadedBy.includes(studentId)).length}/${launchResources.length}`}
                 </div>
               </div>
               {!viewedAllResources ? (
@@ -262,10 +264,10 @@ export function ProjectLaunchView({ course }: { course: Course }) {
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-bold">相关资源</h2>
-            <Pill tone="blue">{course.resources?.length ?? 0} 个</Pill>
+            <Pill tone="blue">{launchResources.length} 个</Pill>
           </div>
           <div className="space-y-3">
-            {(course.resources ?? []).map((resource) => {
+            {launchResources.map((resource) => {
               const viewed = Boolean(studentId && resource.downloadedBy.includes(studentId));
               return (
                 <button
@@ -284,7 +286,7 @@ export function ProjectLaunchView({ course }: { course: Course }) {
                 </button>
               );
             })}
-            {!course.resources?.length ? (
+            {!launchResources.length ? (
               <div className="rounded-[8px] border border-dashed border-stone-300 bg-stone-50 py-7 text-center text-sm text-stone-500">
                 教师暂未上传课程资源，无需额外操作。
               </div>

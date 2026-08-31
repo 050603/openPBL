@@ -35,6 +35,14 @@ import type { PBLPlannerV2Input, PBLProjectV2 } from '@openmaic/lib/pbl/v2/types
 import { buildPrompt, PROMPT_IDS } from '@openmaic/lib/prompts';
 import { DEFAULT_LANGUAGE_DIRECTIVE } from './outline-generator';
 import { postProcessInteractiveHtml } from './interactive-post-processor';
+import { auditInteractiveHtml } from './interactive-quality';
+import { extractInteractiveElements } from './interactive-element-inventory';
+import {
+  formatCourseVisualStyle,
+  resolveCourseVisualStyle,
+  type CourseVisualStyle,
+} from './course-visual-style';
+import { auditGeneratedSlide } from './slide-quality';
 import { parseActionsFromStructuredOutput } from './action-parser';
 import { parseJsonResponse } from './json-repair';
 import {
@@ -44,7 +52,14 @@ import {
   formatImageDescription,
   formatImagePlaceholder,
 } from './prompt-formatters';
-import type { PPTElement, Slide, SlideBackground, SlideTheme } from '@openmaic/dsl';
+import {
+  isWidgetType,
+  normalizeElement,
+  type PPTElement,
+  type Slide,
+  type SlideBackground,
+  type SlideTheme,
+} from '@openmaic/dsl';
 import type { QuizQuestion } from '@openmaic/lib/types/stage';
 import type { Action } from '@openmaic/lib/types/action';
 import type {
@@ -424,6 +439,7 @@ export async function generateSceneContent(
     formatPblSceneContext(outline, pblProfile ?? userRequirements?.pblProfile),
     formatTeachingConstraintsForPrompt(userRequirements?.teachingConstraints),
   ].filter(Boolean).join('\n\n');
+  const courseVisualStyle = resolveCourseVisualStyle(userRequirements?.requirement ?? '');
 
   // Unified path for interactive scenes (both normal and ultra mode)
   if (outline.type === 'interactive') {
@@ -464,6 +480,7 @@ export async function generateSceneContent(
         agents,
         languageDirective,
         pblContext,
+        courseVisualStyle,
         editDirective,
         baselineContent,
       );
@@ -639,125 +656,62 @@ function normalizeGeneratedVideoRefs(
 }
 
 /**
- * Fix elements with missing required fields
- * Adds default values for fields that AI might not have generated correctly
+ * Normalize model-generated elements through the shared OpenMAIC DSL contract.
+ * PDF-image aspect-ratio repair stays here because it depends on source-asset
+ * metadata that the generic DSL deliberately does not own.
  */
 function fixElementDefaults(
   elements: GeneratedSlideData['elements'],
   assignedImages?: PdfImage[],
 ): GeneratedSlideData['elements'] {
-  // Index assigned images by id once (O(m)) so the per-image-element lookup
-  // below is O(1) instead of a `.find` nested inside this map (which made the
-  // pass O(elements × images)).
   const imageMetaById = new Map((assignedImages ?? []).map((img) => [img.id, img]));
 
-  return elements.map((el) => {
-    // Fix line elements
-    if (el.type === 'line') {
-      const lineEl = el as Record<string, unknown>;
-
-      // Ensure points field exists with default values
-      if (!lineEl.points || !Array.isArray(lineEl.points) || lineEl.points.length !== 2) {
-        log.warn(`Line element missing points, adding defaults`);
-        lineEl.points = ['', ''] as [string, string]; // Default: no markers on either end
+  return elements
+    .map((element) => {
+      let normalized: PPTElement;
+      try {
+        normalized = normalizeElement(stripNulls(element));
+      } catch (error) {
+        log.warn(
+          `Dropping malformed generated element: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
       }
 
-      // Ensure start/end exist
-      if (!lineEl.start || !Array.isArray(lineEl.start)) {
-        lineEl.start = [el.left ?? 0, el.top ?? 0];
-      }
-      if (!lineEl.end || !Array.isArray(lineEl.end)) {
-        lineEl.end = [(el.left ?? 0) + (el.width ?? 100), (el.top ?? 0) + (el.height ?? 0)];
+      if (!['text', 'image', 'shape', 'line', 'chart', 'latex', 'video'].includes(normalized.type)) {
+        log.warn(`Dropping unsupported generated slide element type: ${normalized.type}`);
+        return null;
       }
 
-      // Ensure style exists
-      if (!lineEl.style) {
-        lineEl.style = 'solid';
-      }
-
-      // Ensure color exists
-      if (!lineEl.color) {
-        lineEl.color = '#333333';
-      }
-
-      return lineEl as typeof el;
-    }
-
-    // Fix text elements
-    if (el.type === 'text') {
-      const textEl = el as Record<string, unknown>;
-
-      if (!textEl.defaultFontName) {
-        textEl.defaultFontName = 'Microsoft YaHei';
-      }
-      if (!textEl.defaultColor) {
-        textEl.defaultColor = '#333333';
-      }
-      if (!textEl.content) {
-        textEl.content = '';
-      }
-
-      return textEl as typeof el;
-    }
-
-    // Fix image elements
-    if (el.type === 'image') {
-      const imageEl = el as Record<string, unknown>;
-
-      if (imageEl.fixedRatio === undefined) {
-        imageEl.fixedRatio = true;
-      }
-
-      // Correct dimensions using known aspect ratio (src is still img_id at this point)
-      if (assignedImages && typeof imageEl.src === 'string') {
-        const imgMeta = imageMetaById.get(imageEl.src);
+      if (normalized.type === 'image' && typeof normalized.src === 'string') {
+        const imgMeta = imageMetaById.get(normalized.src);
         if (imgMeta?.width && imgMeta?.height) {
           const knownRatio = imgMeta.width / imgMeta.height;
-          const curW = (el.width || 400) as number;
-          const curH = (el.height || 300) as number;
+          const curW = normalized.width || 400;
+          const curH = normalized.height || 300;
           if (Math.abs(curW / curH - knownRatio) / knownRatio > 0.1) {
-            // Keep width, correct height
             const newH = Math.round(curW / knownRatio);
             if (newH > 462) {
-              // canvas 562.5 - margins 50×2
-              const newW = Math.round(462 * knownRatio);
-              imageEl.width = newW;
-              imageEl.height = 462;
-            } else {
-              imageEl.height = newH;
+              return { ...normalized, width: Math.round(462 * knownRatio), height: 462 };
             }
+            return { ...normalized, height: newH };
           }
         }
       }
 
-      return imageEl as typeof el;
-    }
+      return normalized;
+    })
+    .filter((element): element is PPTElement => element !== null) as unknown as GeneratedSlideData['elements'];
+}
 
-    // Fix shape elements
-    if (el.type === 'shape') {
-      const shapeEl = el as Record<string, unknown>;
-
-      if (!shapeEl.viewBox) {
-        shapeEl.viewBox = `0 0 ${el.width ?? 100} ${el.height ?? 100}`;
-      }
-      if (!shapeEl.path) {
-        // Default to rectangle
-        const w = el.width ?? 100;
-        const h = el.height ?? 100;
-        shapeEl.path = `M0 0 L${w} 0 L${w} ${h} L0 ${h} Z`;
-      }
-      if (!shapeEl.fill) {
-        shapeEl.fill = '#5b9bd5';
-      }
-      if (shapeEl.fixedRatio === undefined) {
-        shapeEl.fixedRatio = false;
-      }
-
-      return shapeEl as typeof el;
-    }
-
-    return el;
-  });
+/** Treat recursive JSON nulls from the model as omitted object properties. */
+function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value) || typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, child]) => child !== null)
+      .map(([key, child]) => [key, stripNulls(child)]),
+  );
 }
 
 /**
@@ -811,6 +765,7 @@ async function generateSlideContent(
   agents?: AgentInfo[],
   languageDirective?: string,
   pblContext?: string,
+  courseVisualStyle: CourseVisualStyle = resolveCourseVisualStyle(''),
   editDirective?: string,
   baselineContent?: GeneratedSlideContent,
 ): Promise<GeneratedSlideContent | null> {
@@ -899,6 +854,7 @@ async function generateSlideContent(
     languageDirective: languageDirective || '',
     pblContext: pblContext || '',
     timingBudget: formatCombinedTimingBudget(outline),
+    visualDirection: formatCourseVisualStyle(courseVisualStyle),
     imageElementEnabled,
     generatedImageEnabled,
     generatedVideoEnabled,
@@ -1006,6 +962,12 @@ async function generateSlideContent(
     rotate: 0,
   })) as PPTElement[];
 
+  const slideQuality = auditGeneratedSlide(processedElements);
+  if (!slideQuality.passed) {
+    log.warn(`Rejected low-quality slide "${outline.title}": ${slideQuality.reasons.join('; ')}`);
+    return null;
+  }
+
   // Process background
   let background: SlideBackground | undefined;
   if (generatedData.background) {
@@ -1022,6 +984,7 @@ async function generateSlideContent(
   return {
     elements: processedElements,
     background,
+    theme: courseVisualStyle.theme,
     remark: generatedData.remark || outline.description,
   };
 }
@@ -1303,16 +1266,22 @@ export async function generateWidgetContent(
       };
       break;
 
-    case 'diagram':
+    case 'diagram': {
+      const prescribedNodes = widgetOutline.nodes ?? [];
       promptId = PROMPT_IDS.DIAGRAM_CONTENT;
       variables = {
         title: outline.title,
         diagramType: widgetOutline.diagramType || 'flowchart',
         description: outline.description,
         keyPoints: (outline.keyPoints || []).join('\n'),
+        nodeCount: widgetOutline.nodeCount ?? prescribedNodes.length,
+        prescribedNodes,
+        hasNodeCount: typeof widgetOutline.nodeCount === 'number' && widgetOutline.nodeCount > 0,
+        hasPrescribedNodes: prescribedNodes.length > 0,
         languageDirective: languageDirective || '',
       };
       break;
+    }
 
     case 'code':
       promptId = PROMPT_IDS.CODE_CONTENT;
@@ -1394,11 +1363,20 @@ export async function generateWidgetContent(
     return null;
   }
 
+  const processedHtml = postProcessInteractiveHtml(html);
+  const qualityAudit = auditInteractiveHtml(processedHtml, widgetType);
+  if (!qualityAudit.passed) {
+    log.warn(
+      `Rejected low-agency ${widgetType} widget for "${outline.title}": ${qualityAudit.reasons.join('; ')}`,
+    );
+    return null;
+  }
+
   // Extract widget config from HTML if present
-  const widgetConfig = extractWidgetConfig(html);
+  const widgetConfig = extractWidgetConfig(processedHtml, widgetType);
 
   return {
-    html: postProcessInteractiveHtml(html),
+    html: processedHtml,
     widgetType,
     widgetConfig,
   };
@@ -1407,14 +1385,20 @@ export async function generateWidgetContent(
 /**
  * Extract widget config from embedded JSON in HTML
  */
-function extractWidgetConfig(html: string): WidgetConfig | undefined {
+export function extractWidgetConfig(
+  html: string,
+  widgetType: WidgetType,
+): WidgetConfig | undefined {
   const match = html.match(
     /<script type="application\/json" id="widget-config">([\s\S]*?)<\/script>/,
   );
   if (!match) return undefined;
 
   try {
-    return JSON.parse(match[1]);
+    const parsed: unknown = JSON.parse(match[1]);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+    const config = parsed as Record<string, unknown>;
+    return (isWidgetType(config.type) ? config : { ...config, type: widgetType }) as unknown as WidgetConfig;
   } catch {
     return undefined;
   }
@@ -1541,6 +1525,9 @@ export async function generateSceneActions(
   if (outline.type === 'interactive' && 'html' in content) {
     const config = outline.interactiveConfig;
     const agentsText = formatAgentsForPrompt(agents);
+    const elementInventory = content.html
+      ? extractInteractiveElements(content.html)
+      : '';
     const prompts = buildPrompt(PROMPT_IDS.INTERACTIVE_ACTIONS, {
       title: outline.title,
       keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
@@ -1549,6 +1536,7 @@ export async function generateSceneActions(
       designIdea: config?.designIdea || '',
       widgetType: content.widgetType || outline.widgetType || '',
       widgetConfig: JSON.stringify(content.widgetConfig || {}),
+      elementInventory: elementInventory || '(no interactive elements detected)',
       courseContext: buildCourseContext(ctx),
       agents: agentsText,
       languageDirective: languageDirective || '',
@@ -1840,7 +1828,7 @@ export function createSceneWithActions(
       id: nanoid(),
       viewportSize: 1000,
       viewportRatio: 0.5625,
-      theme: defaultTheme,
+      theme: content.theme ?? defaultTheme,
       elements: content.elements,
       background: content.background,
     };
