@@ -43,6 +43,7 @@ import {
   type PblInteractionType,
 } from '@/lib/pbl-time-estimation';
 import {
+  contextualizeGenerationError,
   throwIfAborted,
   withGenerationRetry,
 } from '@openmaic/lib/generation/generation-retry';
@@ -1122,9 +1123,9 @@ export async function generateClassroom(
         if (options.signal?.aborted) throw error;
         const message = error instanceof Error ? error.message : String(error);
         log.error(`Scene ${index + 1}/${outlines.length} "${safeOutline.title}" failed: ${message}`);
-        throw new Error(
-          `Scene ${index + 1}/${outlines.length} "${safeOutline.title}" failed: ${message}`,
-          { cause: error },
+        throw contextualizeGenerationError(
+          error,
+          `Scene ${index + 1}/${outlines.length} "${safeOutline.title}" failed`,
         );
       }
     },

@@ -9,7 +9,7 @@ Type=simple
 WorkingDirectory=/home/lkj/OpenPBL/openPBL
 Environment=OPENPBL_NEW_PORT=3200
 Environment=OPENPBL_NEW_RUNNER_PORT=3201
-Environment=OPENPBL_PUBLIC_BASE_URL=http://172.16.185.157:3200
+Environment=OPENPBL_PUBLIC_BASE_URL=http://praixis.cc.cd
 ExecStart=/home/lkj/OpenPBL/openPBL/scripts/openpbl-new-test-service.sh run-app
 Restart=always
 RestartSec=5s

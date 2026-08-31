@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { type NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { isBackgroundCourseGenerationEnabled } from "@/lib/course-generation/capability";
 import {
@@ -8,7 +8,7 @@ import {
   requeueCourseGenerationFromCheckpoints,
   resumeRecoverableCourseGenerationJob,
   resetCourseGenerationCheckpoints,
-  startQueuedCourseGeneration,
+  runQueuedCourseGenerationToCompletion,
   type PersistedCourseGenerationRequest,
 } from "@/lib/course-generation/job-runner";
 import { formatPersistedCourseGenerationErrorForTeacher } from "@/lib/course-generation/failure-policy";
@@ -16,6 +16,11 @@ import { isAuthConfigured, readAuthFromRequest } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 1_800;
+
+function retainRequestBoundGeneration(courseId: string): void {
+  after(() => runQueuedCourseGenerationToCompletion(courseId));
+}
 
 async function authorize(request: NextRequest): Promise<string | null> {
   if (!isAuthConfigured()) return null;
@@ -87,12 +92,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ c
   if (body.action === "resume-from-checkpoints") {
     const resumed = await requeueCourseGenerationFromCheckpoints(courseId);
     if (!resumed) return Response.json({ error: "GENERATION_JOB_NOT_FOUND" }, { status: 404 });
-    const job = backgroundEnabled ? resumed : await startQueuedCourseGeneration(courseId);
-    return Response.json({ backgroundEnabled, job: responseJob(job) }, { status: 202 });
+    if (!backgroundEnabled) retainRequestBoundGeneration(courseId);
+    return Response.json({ backgroundEnabled, job: responseJob(resumed) }, { status: 202 });
   }
-  const job = backgroundEnabled
-    ? await prisma.courseGenerationJob.findUnique({ where: { courseId } })
-    : await startQueuedCourseGeneration(courseId);
+  if (!backgroundEnabled) retainRequestBoundGeneration(courseId);
+  const job = await prisma.courseGenerationJob.findUnique({ where: { courseId } });
   if (!job) return Response.json({ error: "GENERATION_JOB_NOT_FOUND" }, { status: 404 });
   return Response.json({ backgroundEnabled, job: responseJob(job) }, { status: 202 });
 }

@@ -44,6 +44,17 @@ wait_for_tcp() {
   return 1
 }
 
+tcp_available() {
+  /usr/bin/node -e '
+    const net = require("node:net");
+    const socket = net.connect(Number(process.argv[2]), process.argv[1]);
+    socket.setTimeout(800);
+    socket.once("connect", () => { socket.end(); process.exit(0); });
+    socket.once("error", () => process.exit(1));
+    socket.once("timeout", () => { socket.destroy(); process.exit(1); });
+  ' "$1" "$2"
+}
+
 load_shared_environment() {
   export DATABASE_URL="$(read_secret database_url.txt)"
   export JWT_SECRET="$(read_secret jwt_secret.txt)"
@@ -63,16 +74,32 @@ run_app() {
   wait_for_tcp "PostgreSQL" "127.0.0.1" "15432"
   wait_for_tcp "Redis" "127.0.0.1" "16379"
 
+  # DashScope returns generated images from an OSS acceleration hostname that
+  # is not directly reachable on this server even though its API endpoint is.
+  # Keep this proxy media-scoped: exporting HTTP_PROXY/HTTPS_PROXY here would
+  # also route LLM calls through the optional local proxy, so a proxy outage
+  # would disable AI companions and course text generation together.
+  outbound_proxy="${OPENPBL_OUTBOUND_PROXY:-}"
+  if [ -z "$outbound_proxy" ] && tcp_available "127.0.0.1" "9999"; then
+    outbound_proxy="http://127.0.0.1:9999"
+  fi
+  if [ -n "$outbound_proxy" ]; then
+    export OPENPBL_OUTBOUND_PROXY="$outbound_proxy"
+  fi
+
   mkdir -p \
     "$PROJECT_ROOT/.openpbl-data/uploads" \
     "$PROJECT_ROOT/.openpbl-data/whiteboards"
 
   export PUBLIC_BASE_URL="${OPENPBL_PUBLIC_BASE_URL:-http://172.16.185.157:$APP_PORT}"
   export TRUST_PROXY_HEADERS="true"
-  export COURSE_GENERATION_BACKGROUND_ENABLED="false"
+  # Keep durable generation owned by the server lifecycle so navigation or a
+  # completed route response cannot terminate the task that started it.
+  export COURSE_GENERATION_BACKGROUND_ENABLED="true"
   export ENABLE_WEBSOCKET="false"
   export UPLOAD_DIR="$PROJECT_ROOT/.openpbl-data/uploads"
   export WHITEBOARD_DATA_DIR="$PROJECT_ROOT/.openpbl-data/whiteboards"
+  export CLASSROOM_DATA_DIR="$PROJECT_ROOT/.openpbl-data/classrooms"
   export CODE_RUNNER_URL="http://127.0.0.1:$RUNNER_PORT"
   export CODE_RUNNER_TOKEN="$INTERNAL_MONITOR_TOKEN"
 

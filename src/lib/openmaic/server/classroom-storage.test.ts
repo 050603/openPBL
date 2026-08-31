@@ -5,7 +5,21 @@ import {
   normalizeClassroomAssetUrls,
   normalizePersistedClassroom,
   removeLegacySyntheticWhiteboardActions,
+  resolveClassroomsDir,
 } from './classroom-storage';
+
+describe('resolveClassroomsDir', () => {
+  it('keeps configured classroom storage outside replaceable build output', () => {
+    expect(resolveClassroomsDir(
+      { CLASSROOM_DATA_DIR: '/srv/openpbl/classrooms' },
+      '/app/.next/standalone',
+    )).toBe('/srv/openpbl/classrooms');
+  });
+
+  it('retains the container-compatible cwd fallback', () => {
+    expect(resolveClassroomsDir({}, '/app')).toBe('/app/data/classrooms');
+  });
+});
 
 describe('normalizeClassroomAssetUrls', () => {
   it('migrates legacy media origins without changing unrelated external URLs', () => {

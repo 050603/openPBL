@@ -3,7 +3,15 @@ import path from 'path';
 import type { Scene, Stage } from '@openmaic/lib/types/stage';
 import type { Action } from '@openmaic/lib/types/action';
 
-export const CLASSROOMS_DIR = path.join(process.cwd(), 'data', 'classrooms');
+export function resolveClassroomsDir(
+  environment: Record<string, string | undefined> = process.env,
+  cwd = process.cwd(),
+): string {
+  const configured = environment.CLASSROOM_DATA_DIR?.trim();
+  return configured ? path.resolve(configured) : path.join(cwd, 'data', 'classrooms');
+}
+
+export const CLASSROOMS_DIR = resolveClassroomsDir();
 
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });

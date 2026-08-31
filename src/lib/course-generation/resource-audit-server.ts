@@ -10,7 +10,7 @@ import { userFacingName } from "@/lib/user-facing-labels";
 
 export type CourseResourceIssue = {
   id: string;
-  type: "adaptive-resource" | "teaching-tool" | "tts" | "media";
+  type: "classroom" | "adaptive-resource" | "teaching-tool" | "tts" | "media";
   title: string;
   detail: string;
 };
@@ -23,6 +23,14 @@ export async function auditCourseGeneratedResources(courseId: string): Promise<{
   if (!course) return { issues: [] };
   const classroomId = course.aiLearningClassroomId || course.content._openmaicClassroomId;
   const classroom = classroomId ? await readClassroom(classroomId) : null;
+  const classroomIssues: CourseResourceIssue[] = classroomId && !classroom
+    ? [{
+        id: `classroom:${classroomId}`,
+        type: "classroom",
+        title: "课程课堂文件",
+        detail: "课堂文件尚未持久化，需要自动恢复",
+      }]
+    : [];
   const outlines = await resolveDurableCourseSceneOutlines(
     courseId,
     course.content._openmaicSceneOutlines ?? [],
@@ -81,5 +89,5 @@ export async function auditCourseGeneratedResources(courseId: string): Promise<{
         }]
       : [],
   );
-  return { classroomId, issues: [...adaptiveIssues, ...toolIssues, ...ttsIssues, ...mediaIssues] };
+  return { classroomId, issues: [...classroomIssues, ...adaptiveIssues, ...toolIssues, ...ttsIssues, ...mediaIssues] };
 }

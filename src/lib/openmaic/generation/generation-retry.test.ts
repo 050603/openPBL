@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LlmEmptyResponseError, LlmTimeoutError } from '@/lib/llm/errors';
-import { isRetryableGenerationError, withGenerationRetry } from './generation-retry';
+import {
+  contextualizeGenerationError,
+  isRetryableGenerationError,
+  withGenerationRetry,
+} from './generation-retry';
 
 describe('withGenerationRetry', () => {
   it('honors an upstream retryAfterMs hint for throttled requests', async () => {
@@ -69,4 +73,42 @@ describe('withGenerationRetry', () => {
       expect(isRetryableGenerationError(error)).toBe(true);
     },
   );
+
+  it('keeps transient provider metadata when page context is added', () => {
+    const providerError = Object.assign(new Error('model serving aborted'), {
+      isRetryable: true,
+      code: 'UPSTREAM_ABORT',
+      statusCode: 503,
+    });
+
+    const contextualized = contextualizeGenerationError(providerError, 'Scene 1/8 failed');
+
+    expect(contextualized.message).toContain('Scene 1/8 failed');
+    expect(contextualized.cause).toBe(providerError);
+    expect(contextualized).toMatchObject({
+      isRetryable: true,
+      code: 'UPSTREAM_ABORT',
+      statusCode: 503,
+    });
+    expect(isRetryableGenerationError(contextualized)).toBe(true);
+  });
+
+  it('allows a caller to separate same-resource retries from regeneration', async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const expiredUrl = Object.assign(new Error('signed URL expired'), {
+      statusCode: 403,
+      isRetryable: true,
+    });
+    const operation = vi.fn().mockRejectedValue(expiredUrl);
+
+    await expect(withGenerationRetry(operation, {
+      label: 'generated resource download',
+      maxRetries: 3,
+      shouldRetryError: (error) => !(error && typeof error === 'object' && 'statusCode' in error),
+      sleep,
+    })).rejects.toBe(expiredUrl);
+
+    expect(operation).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
 });

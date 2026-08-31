@@ -221,7 +221,7 @@ export function QuickGenerationStage({
 
         <main className="mx-auto grid w-full max-w-[1120px] flex-1 place-items-center py-7 sm:py-9">
           <div className="w-full max-w-[820px]">
-            <div className={cn("relative isolate mx-auto [perspective:1800px]", displayed.visualization?.generationPlan ? "h-[720px] sm:h-[min(620px,calc(100vh-220px))] sm:min-h-[550px]" : "h-[min(520px,calc(100vh-250px))] min-h-[430px]")}>
+            <div className="relative isolate mx-auto h-[min(520px,calc(100vh-250px))] min-h-[430px] [perspective:1800px]">
               <motion.div
                 aria-hidden
                 animate={reducedMotion ? undefined : { opacity: [.42, .65, .42], scaleX: [.92, 1.04, .92] }}
@@ -362,7 +362,7 @@ function ArtifactCard({ artifact, active, suspendedLabel }: { artifact: CourseDe
   const showFade = hasOverflow && !atBottom;
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col", artifact.visualization?.generationPlan && !suspendedLabel ? "pb-1" : "pb-10")}>
+    <div className="flex h-full min-h-0 flex-col pb-10">
       <div className="flex shrink-0 items-start justify-between gap-5 border-b border-[var(--pbl-border-soft)] pb-4">
         <div className="min-w-0">
           <p className={cn("text-[10px] font-semibold tracking-[.15em]", accentText(artifact.accent))}>{artifact.eyebrow}</p>
@@ -447,31 +447,29 @@ function AiLearningGenerationPlanPreview({ artifact, active, suspendedLabel }: {
   const visibleScenes = expanded ? plan.scenes : plan.scenes.slice(0, 3);
 
   return (
-    <div className="grid min-h-[300px] gap-4 sm:grid-cols-[230px_minmax(0,1fr)]">
+    <div className="grid min-h-[300px] sm:grid-cols-[230px_minmax(0,1fr)]">
       <motion.section
         animate={{ opacity: 1, x: 0 }}
-        className="relative isolate min-h-[184px] overflow-hidden rounded-[18px] bg-[linear-gradient(145deg,#102a72_0%,#1d4ed8_48%,#4338ca_100%)] p-4 text-white shadow-[0_20px_42px_-30px_rgba(30,64,175,.9)] sm:min-h-[244px]"
+        className="relative isolate min-h-[184px] overflow-hidden border-l-2 border-[var(--pbl-teacher)] bg-[linear-gradient(90deg,var(--pbl-teacher-soft),transparent_88%)] px-5 py-4 text-[var(--pbl-text)] sm:min-h-[244px]"
         initial={false}
       >
-        <div aria-hidden className="absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(255,255,255,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:28px_28px]" />
-        {isRunning ? <span aria-hidden className="quick-plan-shimmer absolute inset-y-0 w-20 bg-gradient-to-r from-transparent via-white/15 to-transparent motion-reduce:hidden" data-testid="ai-plan-shimmer" /> : null}
-        <div aria-hidden className="absolute -right-12 -top-12 size-36 rounded-full border-[24px] border-white/[.07]" />
+        {isRunning ? <span aria-hidden className="quick-plan-shimmer absolute inset-y-0 w-20 bg-gradient-to-r from-transparent via-white/80 to-transparent motion-reduce:hidden" data-testid="ai-plan-shimmer" /> : null}
         <div className="relative flex h-full flex-col">
           <div className="flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[9px] font-semibold tracking-[.12em]">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pbl-teacher-border)] bg-white px-2.5 py-1 text-[9px] font-semibold tracking-[.12em] text-[var(--pbl-teacher)]">
               <BrainCircuit className="size-3" />AI 授知
             </span>
-            <span className="text-[10px] font-medium text-blue-100">内容制作</span>
+            <span className="text-[10px] font-medium text-[var(--pbl-text-subtle)]">内容制作</span>
           </div>
 
           <div className="mt-3 flex items-end gap-2 sm:mt-5">
             <strong className="font-editorial text-[42px] font-semibold leading-none tabular-nums sm:text-[50px]">{plan.completedScenes}</strong>
-            <span className="pb-1 text-[13px] font-semibold tabular-nums text-blue-100">/ {plan.totalScenes || "—"} 页已完成</span>
+            <span className="pb-1 text-[13px] font-semibold tabular-nums text-[var(--pbl-text-muted)]">/ {plan.totalScenes || "—"} 页已完成</span>
           </div>
-          <div aria-label="课堂页面制作进度" aria-valuemax={plan.totalScenes || 100} aria-valuemin={0} aria-valuenow={plan.completedScenes} aria-valuetext={plan.totalScenes > 0 ? `已完成 ${plan.completedScenes} / ${plan.totalScenes} 页` : "等待页面计划"} className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/20" role="progressbar">
-            <motion.div animate={{ width: `${pageProgress}%` }} className="h-full rounded-full bg-sky-200" initial={false} transition={{ duration: reducedMotion ? 0 : .5 }} />
+          <div aria-label="课堂页面制作进度" aria-valuemax={plan.totalScenes || 100} aria-valuemin={0} aria-valuenow={plan.completedScenes} aria-valuetext={plan.totalScenes > 0 ? `已完成 ${plan.completedScenes} / ${plan.totalScenes} 页` : "等待页面计划"} className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--pbl-border)]" role="progressbar">
+            <motion.div animate={{ width: `${pageProgress}%` }} className="h-full rounded-full bg-[var(--pbl-teacher)]" initial={false} transition={{ duration: reducedMotion ? 0 : .5 }} />
           </div>
-          <p className="mt-2 text-[11px] leading-4 text-blue-100">
+          <p className="mt-2 text-[11px] leading-4 text-[var(--pbl-text-muted)]">
             预计授课 {formatPlanDuration(plan.estimatedDuration)}
           </p>
 
@@ -481,17 +479,17 @@ function AiLearningGenerationPlanPreview({ artifact, active, suspendedLabel }: {
               { label: "互动", value: sceneCounts.interactive ?? 0 },
               { label: "检测", value: sceneCounts.quiz ?? 0 },
             ].map((stat) => (
-              <div className="rounded-[10px] border border-white/15 bg-white/10 px-2 py-1.5 text-center backdrop-blur-sm sm:py-2" key={stat.label}>
+              <div className="border-l border-[var(--pbl-border)] px-2 py-1.5 text-center first:border-l-0 sm:py-2" key={stat.label}>
                 <strong className="block text-[15px] leading-none tabular-nums">{stat.value}</strong>
-                <span className="mt-1 block text-[10px] text-blue-100">{stat.label}</span>
+                <span className="mt-1 block text-[10px] text-[var(--pbl-text-muted)]">{stat.label}</span>
               </div>
             ))}
           </div>
-          <p className="mt-2 text-center text-[10px] text-blue-100">按已确认大纲统计</p>
+          <p className="mt-2 text-center text-[10px] text-[var(--pbl-text-subtle)]">按已确认大纲统计</p>
         </div>
       </motion.section>
 
-      <section className="min-w-0 rounded-[18px] border border-blue-100/80 bg-[linear-gradient(180deg,#f8fbff_0%,#fff_58%)] px-4 py-3.5">
+      <section className="min-w-0 border-t border-[var(--pbl-border)] px-4 py-3.5 sm:border-l sm:border-t-0 sm:pl-5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[.06em] text-blue-700">生成流程</p>

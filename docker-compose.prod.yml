@@ -11,7 +11,10 @@ x-app: &app
     ENABLE_WEBSOCKET: "true"
     WEBSOCKET_PORT: "3001"
     ENABLE_TLDRAW_SYNC: "true"
-    COURSE_GENERATION_BACKGROUND_ENABLED: "true"
+    # The legacy production image shares PostgreSQL with the separately
+    # deployed new-platform worker. It must not claim new-platform durable jobs
+    # with its stale provider routing/configuration.
+    COURSE_GENERATION_BACKGROUND_ENABLED: "false"
     TLDRAW_SYNC_PORT: "3002"
     TRUST_PROXY_HEADERS: "true"
     UPLOAD_DIR: /app/.openpbl-data/uploads

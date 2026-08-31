@@ -3,6 +3,7 @@
  *
  * Automatically routes requests through HTTP/HTTPS proxy when
  * the standard environment variables are set:
+ *   - OPENPBL_OUTBOUND_PROXY (preferred, scoped to explicit proxyFetch calls)
  *   - https_proxy / HTTPS_PROXY
  *   - http_proxy / HTTP_PROXY
  *
@@ -27,12 +28,15 @@ import { createLogger } from '@openmaic/lib/logger';
 
 const log = createLogger('ProxyFetch');
 
-function getProxyUrl(): string | undefined {
+export function resolveProxyUrl(
+  environment: Record<string, string | undefined> = process.env,
+): string | undefined {
   return (
-    process.env.https_proxy ||
-    process.env.HTTPS_PROXY ||
-    process.env.http_proxy ||
-    process.env.HTTP_PROXY ||
+    environment.OPENPBL_OUTBOUND_PROXY ||
+    environment.https_proxy ||
+    environment.HTTPS_PROXY ||
+    environment.http_proxy ||
+    environment.HTTP_PROXY ||
     undefined
   );
 }
@@ -93,7 +97,7 @@ let cachedAgent: ProxyAgent | null = null;
 let cachedProxyUrl: string | undefined;
 
 function getProxyAgent(): ProxyAgent | undefined {
-  const proxyUrl = getProxyUrl();
+  const proxyUrl = resolveProxyUrl();
   if (!proxyUrl) return undefined;
 
   // Reuse agent if proxy URL hasn't changed

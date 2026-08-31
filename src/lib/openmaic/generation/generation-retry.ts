@@ -15,6 +15,7 @@ export interface GenerationRetryOptions<T> {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   random?: () => number;
   shouldRetryResult?: (result: T) => boolean;
+  shouldRetryError?: (error: unknown) => boolean;
   onRetry?: (event: GenerationRetryEvent) => Promise<void> | void;
 }
 
@@ -173,6 +174,23 @@ export function isRetryableGenerationError(error: unknown, seen = new Set<unknow
   return retryableByMessage(error);
 }
 
+/** Add pipeline context without dropping provider retry metadata. */
+export function contextualizeGenerationError(error: unknown, context: string): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  const wrapped = new Error(`${context}: ${detail}`, { cause: error });
+  const record = isRecord(error) ? error : null;
+  if (isRetryableGenerationError(error)) {
+    Object.assign(wrapped, { isRetryable: true });
+  }
+  for (const key of ['code', 'status', 'statusCode', 'status_code'] as const) {
+    const value = record?.[key];
+    if (typeof value === 'string' || typeof value === 'number') {
+      Object.assign(wrapped, { [key]: value });
+    }
+  }
+  return wrapped;
+}
+
 function retryReason(error: unknown): string {
   const statusCode = statusCodeFrom(error);
   if (statusCode !== undefined) return `HTTP ${statusCode}`;
@@ -244,7 +262,10 @@ export async function withGenerationRetry<T>(
 
       throwIfAborted(options.signal);
 
-      if (attempt >= maxAttempts || !isRetryableGenerationError(error)) {
+      const retryable = options.shouldRetryError
+        ? options.shouldRetryError(error)
+        : isRetryableGenerationError(error);
+      if (attempt >= maxAttempts || !retryable) {
         throw error;
       }
 

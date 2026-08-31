@@ -46,6 +46,7 @@ import {
 import { throwIfAborted, withGenerationRetry } from '@openmaic/lib/generation/generation-retry';
 import { mapWithConcurrency } from '@openmaic/lib/utils/concurrency';
 import { runWithGlobalTtsProviderSlot } from '@openmaic/lib/server/tts-provider-limiter';
+import { proxyFetch } from '@openmaic/lib/server/proxy-fetch';
 import {
   hasPblRoutingMetadata,
   isStudentAiLearningScene,
@@ -142,15 +143,18 @@ async function ensureDir(dir: string) {
 
 const DOWNLOAD_TIMEOUT_MS = 120_000; // 2 minutes
 const DOWNLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+const DOWNLOAD_RETRIES = 3;
 
-async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buffer> {
+async function downloadToBufferOnce(url: string, signal?: AbortSignal): Promise<Buffer> {
   const timeoutSignal = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
   const downloadSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
   let resp: Response;
   try {
-    resp = await fetch(url, { signal: downloadSignal });
+    // Generated files may live on an OSS acceleration host that requires the
+    // deployment's media-scoped outbound proxy. LLM/API calls remain direct.
+    resp = await proxyFetch(url, { signal: downloadSignal });
   } catch (error) {
     const cause = error instanceof Error
       ? (error as Error & { cause?: unknown }).cause
@@ -165,12 +169,47 @@ async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buff
       { cause: error },
     );
   }
-  if (!resp.ok) throw new Error(`Download failed: ${resp.status} ${resp.statusText}`);
+  if (!resp.ok) {
+    throw Object.assign(
+      new Error(`Generated resource download failed: ${resp.status} ${resp.statusText}`),
+      {
+        statusCode: resp.status,
+        // Generated OSS URLs are short-lived. A fresh provider response is
+        // required after expiry/not-found instead of retrying the same URL.
+        isRetryable: resp.status === 403 || resp.status === 404 || resp.status >= 500,
+      },
+    );
+  }
   const contentLength = Number(resp.headers.get('content-length') || 0);
   if (contentLength > DOWNLOAD_MAX_SIZE) {
     throw new Error(`File too large: ${contentLength} bytes (max ${DOWNLOAD_MAX_SIZE})`);
   }
   return Buffer.from(await resp.arrayBuffer());
+}
+
+async function downloadToBuffer(url: string, signal?: AbortSignal): Promise<Buffer> {
+  return withGenerationRetry(
+    () => downloadToBufferOnce(url, signal),
+    {
+      label: `generated resource download ${new URL(url).hostname}`,
+      signal,
+      maxRetries: DOWNLOAD_RETRIES,
+      baseDelayMs: 2_000,
+      maxDelayMs: 15_000,
+      // Connection failures can reuse the same signed URL. HTTP failures are
+      // returned immediately so the outer provider retry can obtain a fresh
+      // short-lived URL instead.
+      shouldRetryError: (error) => {
+        if (!error || typeof error !== 'object') return true;
+        return !(typeof (error as { statusCode?: unknown }).statusCode === 'number');
+      },
+      onRetry: ({ attempt, maxAttempts, nextDelayMs, reason }) => {
+        log.warn(
+          `Retrying generated resource download [host=${new URL(url).hostname}, attempt=${attempt + 1}/${maxAttempts}, waitMs=${nextDelayMs}, reason=${reason}]`,
+        );
+      },
+    },
+  );
 }
 
 export function mediaServingUrl(_baseUrl: string, classroomId: string, subPath: string): string {
@@ -273,7 +312,10 @@ export async function generateMediaForClassroom(
         }, {
           label: `image ${req.elementId}`,
           signal,
-          maxRetries: providerId === 'qwen-image' ? 3 : 2,
+          // Network retries for the same generated URL happen inside
+          // downloadToBuffer. Provider retries regenerate only after that URL
+          // is genuinely unusable or expired.
+          maxRetries: providerId === 'qwen-image' ? 2 : 2,
           baseDelayMs: providerId === 'qwen-image' ? 10_000 : 1_000,
           maxDelayMs: providerId === 'qwen-image' ? 60_000 : 16_000,
           onRetry: ({ attempt, maxAttempts, nextDelayMs, reason }) => {
