@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenCheck, CheckCircle2, Clock3, Loader2 } from "lucide-react";
 import type { Scene } from "@openmaic/lib/types/stage";
 import {
@@ -20,10 +20,16 @@ import type {
   AdaptiveBranchOutline,
   AdaptiveBranchRun,
   Course,
+  KnowledgeLectureAttempt,
   StudentAdaptiveLearningState,
 } from "@/lib/session/types";
 import { readSubmittedState } from "@openmaic/lib/quiz/persistence";
 import { deriveClassroomTimingSnapshot } from "@/lib/classroom/timing";
+import { KnowledgeLectureBoard } from "@/components/views/student/knowledge-lecture-board";
+import { toast } from "@/components/ui";
+
+const QUIZ_REVIEWED_EVENT = "openpbl:knowledge-lecture-quiz-reviewed";
+const EXPLAIN_QUESTION_EVENT = "openpbl:knowledge-lecture-explain-question";
 
 type QueuedResource = {
   branch: AdaptiveBranchOutline;
@@ -80,6 +86,12 @@ export function AdaptiveAiLearningRuntime({
     hasUnqueuedPrerequisiteGap(plan, initialState),
   );
   const [preCoursePreparationError, setPreCoursePreparationError] = useState<string>();
+  const [reviewAttempt, setReviewAttempt] = useState<{
+    attempt: KnowledgeLectureAttempt;
+    questionId?: string;
+  }>();
+  const activeSceneRef = useRef<Scene | undefined>(undefined);
+  const lectureAttemptRequestsRef = useRef(new Map<string, Promise<KnowledgeLectureAttempt | undefined>>());
   const restoredPreparationStartedRef = useRef(false);
   const switchingRef = useRef(false);
   const checkpointSceneIds = useMemo(
@@ -87,6 +99,12 @@ export function AdaptiveAiLearningRuntime({
     [course.content._openmaicSceneOutlines],
   );
   const remoteAdaptiveState = course.aiLearningProgress?.[studentId]?.adaptiveLearning;
+  const lectureProgress = course.aiLearningProgress?.[studentId];
+  const lectureSections = course.content.knowledgeLectureSections ?? [];
+  const knowledgePointNames = useMemo(
+    () => new Map((course.content.knowledgePoints ?? []).map((point) => [point.id, point.name])),
+    [course.content.knowledgePoints],
+  );
   const preparedClassroomIds = useMemo(
     () => Array.from(new Set([
       ...(plan?.branches.flatMap((branch) =>
@@ -305,7 +323,94 @@ export function AdaptiveAiLearningRuntime({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function recordLectureAttempt(scene: Scene): Promise<KnowledgeLectureAttempt | undefined> {
+    const existing = (lectureProgress?.knowledgeLectureAttempts ?? []).find(
+      (attempt) => attempt.runtimeSceneId === scene.id,
+    );
+    if (existing) return Promise.resolve(existing);
+    const pending = lectureAttemptRequestsRef.current.get(scene.id);
+    if (pending) return pending;
+
+    const request = (async () => {
+      if (scene.content?.type !== "quiz") return undefined;
+      const quizOutlineId = scene.outlineId?.trim() || scene.id;
+      const section = lectureSections.find((item) => item.quizOutlineId === quizOutlineId);
+      const submitted = readSubmittedState(scene.id);
+      if (section && submitted?.kind === "reviewing") {
+        const results = new Map(submitted.results.map((result) => [result.questionId, result]));
+        const response = await fetch("/api/knowledge-lecture", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
+          body: JSON.stringify({
+            action: "record-attempt",
+            courseId: course.id,
+            studentId,
+            sectionId: section.id,
+            quizOutlineId,
+            runtimeSceneId: scene.id,
+            questions: scene.content.questions.map((question) => {
+              const result = results.get(question.id);
+              const answer = submitted.answers[question.id];
+              return {
+                questionId: question.id,
+                prompt: question.question,
+                answer: Array.isArray(answer) ? answer.join("、") : answer ?? "",
+                points: question.points ?? 1,
+                earned: result?.earned ?? 0,
+                correct: result?.correct ?? null,
+                feedback: result?.aiComment ?? question.analysis ?? "AI 已完成批阅。",
+                referenceAnswer: question.analysis,
+                knowledgePointIds: question.knowledgePointIds ?? section.knowledgePointIds,
+              };
+            }),
+          }),
+        }).catch(() => undefined);
+        if (response?.ok) {
+          const payload = await response.json() as { attempt?: KnowledgeLectureAttempt };
+          return payload.attempt;
+        } else {
+          toast.error("小测结果同步失败", { description: "批阅结果仍显示在当前页面，请稍后重新进入讲解。" });
+        }
+      }
+      return undefined;
+    })().finally(() => lectureAttemptRequestsRef.current.delete(scene.id));
+    lectureAttemptRequestsRef.current.set(scene.id, request);
+    return request;
+  }
+
+  useEffect(() => {
+    function sceneForEvent(sceneId: string): Scene | undefined {
+      return activeSceneRef.current?.id === sceneId ? activeSceneRef.current : undefined;
+    }
+    const reviewed = (event: Event) => {
+      const sceneId = (event as CustomEvent<{ sceneId?: string }>).detail?.sceneId;
+      if (!sceneId) return;
+      const scene = sceneForEvent(sceneId);
+      if (scene) void recordLectureAttempt(scene);
+    };
+    const explain = (event: Event) => {
+      const detail = (event as CustomEvent<{ sceneId?: string; questionId?: string }>).detail;
+      if (!detail?.sceneId || !detail.questionId) return;
+      const scene = sceneForEvent(detail.sceneId);
+      if (!scene) return;
+      void recordLectureAttempt(scene).then((attempt) => {
+        if (attempt) setReviewAttempt({ attempt, questionId: detail.questionId });
+      });
+    };
+    window.addEventListener(QUIZ_REVIEWED_EVENT, reviewed);
+    window.addEventListener(EXPLAIN_QUESTION_EVENT, explain);
+    return () => {
+      window.removeEventListener(QUIZ_REVIEWED_EVENT, reviewed);
+      window.removeEventListener(EXPLAIN_QUESTION_EVENT, explain);
+    };
+    // Course identity and persisted progress replace the runtime component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.id, studentId, lectureProgress?.knowledgeLectureAttempts]);
+
   async function handleMainSceneComplete(detail: { scene: Scene; quizScore?: number }) {
+    if (detail.scene.content?.type === "quiz") {
+      await recordLectureAttempt(detail.scene);
+    }
     if (!plan || adaptiveState.enabled === false || switchingRef.current) return;
     const sceneIdentity = resolveAdaptiveSceneIdentity(detail.scene);
     const anchorKnowledgePointIds = detail.scene.knowledgePointIds ?? [];
@@ -377,6 +482,10 @@ export function AdaptiveAiLearningRuntime({
     );
     if (resource) await insertResource(resource);
   }
+
+  const handleActiveSceneChange = useCallback((scene: Scene) => {
+    activeSceneRef.current = scene;
+  }, []);
 
   async function handleResourceComplete(scene: Scene) {
     const adaptiveScene = scene as Scene & {
@@ -477,33 +586,47 @@ export function AdaptiveAiLearningRuntime({
   }
 
   return (
-    <div className="relative h-full min-h-0">
+    <div className="relative flex h-full min-h-0 flex-col">
       <span className="sr-only" aria-live="polite">
         Adaptive resources play in the main course player.
       </span>
-      <StudentStageHost
-        adaptiveInsertions={adaptiveInsertions}
-        backHref={backHref}
-        classroomId={classroomId}
-        className="rounded-none border-0"
-        courseId={course.id}
-        knowledgeGraph={course.content.knowledgeGraph}
-        knowledgePoints={course.content.knowledgePoints ?? []}
-        onSceneComplete={(detail) => {
-          if (
-            (detail.scene as Scene & { openpblAdaptiveInsertionId?: string })
-              .openpblAdaptiveInsertionId
-          ) {
-            void handleResourceComplete(detail.scene);
-          } else {
-            void handleMainSceneComplete(detail);
-          }
-        }}
-        prefetchClassroomIds={preparedClassroomIds}
-        studentId={studentId}
-        studentName={studentName}
-        variant={variant}
-      />
+      <div className="min-h-0 flex-1">
+        <StudentStageHost
+          adaptiveInsertions={adaptiveInsertions}
+          backHref={backHref}
+          classroomId={classroomId}
+          className="rounded-none border-0"
+          courseId={course.id}
+          knowledgeGraph={course.content.knowledgeGraph}
+          knowledgePoints={course.content.knowledgePoints ?? []}
+          onActiveSceneChange={handleActiveSceneChange}
+          onSceneComplete={(detail) => {
+            if (
+              (detail.scene as Scene & { openpblAdaptiveInsertionId?: string })
+                .openpblAdaptiveInsertionId
+            ) {
+              void handleResourceComplete(detail.scene);
+            } else {
+              void handleMainSceneComplete(detail);
+            }
+          }}
+          prefetchClassroomIds={preparedClassroomIds}
+          studentId={studentId}
+          studentName={studentName}
+          variant={variant}
+        />
+      </div>
+      {reviewAttempt ? (
+        <KnowledgeLectureBoard
+          attempt={reviewAttempt.attempt}
+          courseId={course.id}
+          initialQuestionId={reviewAttempt.questionId}
+          initialThreads={lectureProgress?.knowledgeLectureTutorThreads ?? []}
+          knowledgePointNames={knowledgePointNames}
+          onClose={() => setReviewAttempt(undefined)}
+          studentId={studentId}
+        />
+      ) : null}
     </div>
   );
 }

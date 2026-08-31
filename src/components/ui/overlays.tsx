@@ -62,7 +62,7 @@ export function AlertDialogContent({ children, className, ...props }: ComponentP
   return (
     <AlertPrimitive.Portal>
       <AlertPrimitive.Overlay className="fixed inset-0 z-50 bg-[#0f172a]/35" />
-      <AlertPrimitive.Content className={cn("fixed left-1/2 top-1/2 z-50 grid w-[min(500px,calc(100vw-24px))] -translate-x-1/2 -translate-y-1/2 gap-5 rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-raised)] p-5 shadow-[var(--shadow-floating)] outline-none md:p-6", className)} {...props}>{children}</AlertPrimitive.Content>
+      <AlertPrimitive.Content className={cn("fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-24px)] w-[min(500px,calc(100vw-24px))] -translate-x-1/2 -translate-y-1/2 gap-5 overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-raised)] p-5 shadow-[var(--shadow-floating)] outline-none md:p-6", className)} {...props}>{children}</AlertPrimitive.Content>
     </AlertPrimitive.Portal>
   );
 }

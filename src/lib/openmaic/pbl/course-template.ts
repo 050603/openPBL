@@ -39,8 +39,8 @@ export const PBL_STAGE_DEFINITIONS: PblStageDefinition[] = [
   },
   {
     key: "ai-learning",
-    label: "AI 授知",
-    responsibility: "学生学习项目所需的核心知识，并通过 slide、quiz 或 interactive 验证理解。",
+    label: "知识讲授",
+    responsibility: "学生按关联知识点分节学习核心知识，每节通过 2—3 道简短主观题小测与 AI 助教讲解验证并巩固理解。",
     allowedAudience: "student",
     studentLearningRequired: true,
   },
@@ -271,7 +271,7 @@ export function formatPblSceneContext(
         ? "TTS 规则：本课程大纲资源是教师普通课堂资源，不生成 TTS。"
         : "",
     outline.companionPrompt ? `伴学引导提示：${outline.companionPrompt}` : "",
-    "硬性边界：学生是个人项目负责人；教师资源不能进入学生 AI 授知内容；AI 伴学只能提问、解释、质疑、建议和记录，不能替学生做最终决策或代做作品。",
+    "硬性边界：学生是个人项目负责人；教师资源不能进入学生知识讲授内容；AI 伴学只能提问、解释、质疑、建议和记录，不能替学生做最终决策或代做作品。",
   ]
     .filter(Boolean)
     .join("\n");

@@ -2,7 +2,12 @@ import type { AuthClaims } from "@/lib/auth/session";
 import type { Course } from "@/lib/session/types";
 
 export function scopeCourseForClaims(course: Course, claims: AuthClaims): Course {
-  if (claims.role === "teacher") return course;
+  const stages = (course.stages ?? []).map((stage) =>
+    stage.key === "ai-learning" && stage.label !== "知识讲授"
+      ? { ...stage, label: "知识讲授" }
+      : stage,
+  );
+  if (claims.role === "teacher") return { ...course, stages };
   const studentId = claims.studentId;
   const groupIds = new Set(
     (course.groups ?? [])
@@ -14,6 +19,10 @@ export function scopeCourseForClaims(course: Course, claims: AuthClaims): Course
 
   return {
     ...course,
+    stages,
+    aiLearningProgress: studentId && course.aiLearningProgress?.[studentId]
+      ? { [studentId]: course.aiLearningProgress[studentId] }
+      : {},
     students: course.students
       .filter((student) => student.id === studentId)
       .map((student) => ({ ...student })),

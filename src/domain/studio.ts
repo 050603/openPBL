@@ -90,7 +90,7 @@ export type PartnerRuntime = {
 
 export const learningPhases = [
   { id: 'launch', label: '项目启动', index: '01' },
-  { id: 'know', label: 'AI 授知', index: '02' },
+  { id: 'know', label: '知识讲授', index: '02' },
   { id: 'idea', label: '方案构思', index: '03' },
   { id: 'make', label: '项目实践', index: '04' },
   { id: 'share', label: '成果汇报', index: '05' },

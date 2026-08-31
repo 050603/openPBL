@@ -65,7 +65,7 @@ const POLICIES: Record<string, CompanionStagePolicy> = {
   },
   "ai-learning": {
     stageKey: "ai-learning",
-    label: "AI授知",
+    label: "知识讲授",
     objective: "建构完成当前项目所需的核心知识，并把知识与项目问题建立可解释的联系。",
     studentDeliverable: "对关键概念的自己的解释、一次理解检查或把知识用于项目的初步连接。",
     allowedCompanionIds: ["knowledge", "critic"],

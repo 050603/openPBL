@@ -39,8 +39,8 @@ describe("QuickGenerationStage", () => {
         artifacts={[{
           id: "ai-learning-generation-plan",
           kind: "timeline",
-          eyebrow: "AI 授知内容生成 · 制作蓝图",
-          title: "开始制作可上课的 AI 授知内容",
+          eyebrow: "知识讲授内容生成 · 制作蓝图",
+          title: "开始制作可上课的知识讲授内容",
           summary: "4 个课堂页面，将知识讲解、互动练习与节点检测编排成完整学习链路",
           accent: "blue",
           items: [
@@ -68,7 +68,7 @@ describe("QuickGenerationStage", () => {
           },
         }]}
         backgroundEnabled
-        brief="生成一节 AI 授知课"
+        brief="生成一节知识讲授课"
         cancelling={false}
         completed={false}
         confirmCancel={false}
@@ -84,8 +84,8 @@ describe("QuickGenerationStage", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "开始制作可上课的 AI 授知内容" })).toBeTruthy();
-    expect(screen.getByLabelText("AI 授知内容生成流水线")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "开始制作可上课的知识讲授内容" })).toBeTruthy();
+    expect(screen.getByLabelText("知识讲授内容生成流水线")).toBeTruthy();
     expect(screen.getByText("页面制作")).toBeTruthy();
     expect(screen.getByText("学习资源")).toBeTruthy();
     expect(screen.getByText("审校保存")).toBeTruthy();
@@ -111,7 +111,7 @@ describe("QuickGenerationStage", () => {
     };
     const props = {
       activeArtifactId: "ai-learning-generation-plan", backgroundEnabled: true,
-      brief: "生成 AI 授知课", cancelling: false, completed: false, confirmCancel: false,
+      brief: "生成知识讲授课", cancelling: false, completed: false, confirmCancel: false,
       message: snapshot.message, onCancel: vi.fn(), onOpenCourse: vi.fn(), onReview: vi.fn(),
       paused: false, progress: 70, remainingLabel: "正在制作", reviewAvailable: false, startedAt: null,
     };
@@ -120,7 +120,7 @@ describe("QuickGenerationStage", () => {
     expect(screen.getByTestId("ai-plan-shimmer")).toBeTruthy();
     rerender(<QuickGenerationStage {...props} artifacts={artifacts(2)} />);
     expect(screen.getByRole("progressbar", { name: "课堂页面制作进度" }).getAttribute("aria-valuenow")).toBe("2");
-    const currentStep = within(screen.getByLabelText("AI 授知内容生成流水线")).getAllByRole("listitem").find((item) => item.getAttribute("aria-current") === "step");
+    const currentStep = within(screen.getByLabelText("知识讲授内容生成流水线")).getAllByRole("listitem").find((item) => item.getAttribute("aria-current") === "step");
     expect(currentStep?.textContent).toContain("页面制作");
 
     rerender(<QuickGenerationStage {...props} artifacts={artifacts(2)} recovering />);
@@ -159,7 +159,7 @@ describe("QuickGenerationStage", () => {
 
     expect(screen.getByRole("heading", { name: "课程大纲" })).toBeTruthy();
     expect(screen.getByText("项目启动")).toBeTruthy();
-    expect(screen.getByText("AI 授知")).toBeTruthy();
+    expect(screen.getByText("知识讲授")).toBeTruthy();
     expect(screen.getByText("已用时 1 分 05 秒")).toBeTruthy();
     expect(screen.getByText("预计还需约 3 分钟")).toBeTruthy();
     expect(screen.getByTestId("quick-generation-progress-flow")).toBeTruthy();
@@ -179,7 +179,7 @@ describe("QuickGenerationStage", () => {
           id: "knowledge-graph",
           kind: "graph",
           eyebrow: "知识图谱",
-          title: "AI 授知知识图谱",
+          title: "知识讲授知识图谱",
           summary: "大纲将采用这份知识结构。",
           accent: "blue",
           items: [{ label: "核心", value: "机器学习" }],

@@ -643,7 +643,7 @@ function validateLessonOutline(
   context?: Partial<Pick<CourseContent, "knowledgePoints" | "knowledgeGraph" | "teachingOutline">>,
 ): LessonOutlineSection[] {
   if (!Array.isArray(raw) || raw.length === 0) {
-    throw new Error("AI 授知大纲生成失败：AI 未返回章节大纲。");
+    throw new Error("知识讲授大纲生成失败：AI 未返回章节大纲。");
   }
   const details = raw.map((item, index) => {
     const section = item && typeof item === "object" ? item as Partial<LessonOutlineSection> : {};
@@ -656,7 +656,7 @@ function validateLessonOutline(
     return {
       id: typeof section.id === "string" && section.id.trim() ? section.id.trim() : `lo-${index + 1}`,
       stageKey,
-      title: requireText(section.title, "AI 授知大纲"),
+      title: requireText(section.title, "知识讲授大纲"),
       objectives: Array.isArray(section.objectives)
         ? section.objectives.map((objective) => localizeGeneratedNarrative(String(objective))).filter(Boolean)
         : [],

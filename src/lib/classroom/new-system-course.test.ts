@@ -7,10 +7,12 @@ import {
   buildNewSystemTimingPlan,
   getNewSystemCourseReadiness,
   isNewSystemCourseReady,
+  isNewSystemAiTimingPlan,
+  hasExactKnowledgeLecturePageBudget,
 } from "./new-system-course";
 
 function readyCourse(): Course {
-  const timingPlan = buildNewSystemTimingPlan(90, "2026-08-30T00:00:00.000Z");
+  const timingPlan = buildNewSystemTimingPlan(27, "2026-08-30T00:00:00.000Z");
   return {
     id: "course-new-ready",
     name: "校园节能",
@@ -111,11 +113,30 @@ describe("new-system course contract", () => {
       .toBe(false);
   });
 
-  it("accepts an AI授知 duration shorter than the teacher course capacity", () => {
+  it("accepts a lecture duration within 20–40 percent of the course", () => {
     const course = readyCourse();
-    course.content.moduleTimingPlan = buildNewSystemTimingPlan(42);
+    course.content.moduleTimingPlan = buildNewSystemTimingPlan(30);
     expect(course.hours * 60).toBe(90);
     expect(getNewSystemCourseReadiness(course).find((item) => item.id === "timing")?.ok)
       .toBe(true);
+  });
+
+  it.each([12, 79, 120])("rejects an out-of-range %i minute saved plan for a 120 minute course", (minutes) => {
+    const course = readyCourse();
+    course.hours = 2;
+    course.content.moduleTimingPlan = buildNewSystemTimingPlan(minutes);
+    expect(isNewSystemAiTimingPlan(course.content.moduleTimingPlan, course.hours)).toBe(false);
+    expect(getNewSystemCourseReadiness(course).find((check) => check.id === "timing")?.ok).toBe(false);
+  });
+
+  it.each([24, 36, 48])("accepts a valid saved %i minute plan", (minutes) => {
+    expect(isNewSystemAiTimingPlan(buildNewSystemTimingPlan(minutes), 2)).toBe(true);
+  });
+
+  it("requires all page and quiz durations to sum to the approved total", () => {
+    expect(hasExactKnowledgeLecturePageBudget([{ targetDurationSec: 1260 }, { targetDurationSec: 180 }], 24)).toBe(true);
+    expect(hasExactKnowledgeLecturePageBudget([{ targetDurationSec: 1440 }, { targetDurationSec: 180 }], 24)).toBe(false);
+    expect(hasExactKnowledgeLecturePageBudget([{ targetDurationSec: NaN }], 24)).toBe(false);
+    expect(hasExactKnowledgeLecturePageBudget([], 24)).toBe(false);
   });
 });

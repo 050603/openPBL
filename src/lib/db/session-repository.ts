@@ -2190,6 +2190,12 @@ export async function archiveAndClearCourseSession(
     presentingGroupId: course.presentingGroupId ?? null,
     currentStageIndex: course.currentStageIndex,
     aiLearningProgress: course.aiLearningProgress ?? {},
+    knowledgeLecture: {
+      classroomId: course.aiLearningClassroomId ?? null,
+      knowledgePoints: course.content.knowledgePoints ?? [],
+      sections: course.content.knowledgeLectureSections ?? [],
+      sceneOutlines: course.content._openmaicSceneOutlines ?? [],
+    },
     learningEvents: course.learningEvents ?? [],
     learningEvidence: course.learningEvidence ?? [],
     artifactSnapshots: course.artifactSnapshots ?? [],

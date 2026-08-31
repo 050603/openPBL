@@ -1,5 +1,5 @@
 const GENERATED_TEXT_TERM_LABELS: ReadonlyArray<readonly [string, string]> = [
-  ["ai-learning", "AI 授知"],
+  ["ai-learning", "知识讲授"],
   ["showcase", "成果汇报与评价"],
   ["reflection", "学习反思与迁移"],
   ["proposal", "方案构思与校准"],

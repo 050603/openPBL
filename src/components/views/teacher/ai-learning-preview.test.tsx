@@ -39,7 +39,7 @@ describe("AiLearningTeacherPreview", () => {
   it("starts collapsed and unmounts the player when collapsed again", () => {
     render(<AiLearningTeacherPreview course={course} />);
 
-    const toggle = screen.getByRole("button", { name: /学生 AI 课程预览/ });
+    const toggle = screen.getByRole("button", { name: /学生知识讲授课程预览/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByTestId("student-stage-host")).toBeNull();
 
@@ -54,7 +54,7 @@ describe("AiLearningTeacherPreview", () => {
 
   it("opens the page rail and supplies the knowledge graph to the player", () => {
     render(<AiLearningTeacherPreview course={course} />);
-    fireEvent.click(screen.getByRole("button", { name: /学生 AI 课程预览/ }));
+    fireEvent.click(screen.getByRole("button", { name: /学生知识讲授课程预览/ }));
 
     expect(hostPropsSpy).toHaveBeenLastCalledWith(expect.objectContaining({
       classroomId: "classroom-1",

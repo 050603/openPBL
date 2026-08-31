@@ -116,7 +116,7 @@ export async function generateAdaptiveClassroom(input: {
     stageKey: input.stageKey,
     stageLabel:
       input.stageKey === "ai-learning"
-        ? "AI 授知"
+        ? "知识讲授"
         : input.stageKey === "proposal"
           ? "方案构思"
           : input.stageKey === "make"

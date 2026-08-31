@@ -13,26 +13,30 @@ function scene(id: string, type: SceneOutline["type"], knowledgePointIds: string
 }
 
 describe("ensureTerminalMasteryAssessment", () => {
-  it("folds block quizzes into one assessment after all teaching pages", () => {
+  it("keeps one concise subjective assessment after every knowledge section", () => {
     const result = ensureTerminalMasteryAssessment([
       scene("explain-1", "slide", ["kp-1"]),
       scene("check-1", "quiz", ["kp-1"]),
       scene("practice-2", "interactive", ["kp-2"]),
       scene("check-2", "quiz", ["kp-2"]),
     ]);
-    expect(result.map((item) => item.type)).toEqual(["slide", "interactive", "quiz"]);
-    expect(result.at(-1)).toMatchObject({
-      id: "check-2",
-      title: "主课达标测",
-      knowledgePointIds: ["kp-1", "kp-2"],
-    });
-    const teachingDuration = result.slice(0, -1).reduce(
-      (sum, item) => sum + (item.targetDurationSec ?? 0),
-      0,
-    );
-    expect((result.at(-1)?.targetDurationSec ?? 0) / (
-      teachingDuration + (result.at(-1)?.targetDurationSec ?? 0)
-    )).toBeLessThanOrEqual(0.2);
+    expect(result.map((item) => item.type)).toEqual(["slide", "quiz", "interactive", "quiz"]);
+    expect(result.filter((item) => item.type === "quiz")).toEqual([
+      expect.objectContaining({
+        id: "check-1",
+        title: "第 1 节 · 节末小测",
+        knowledgePointIds: ["kp-1"],
+        targetDurationSec: 180,
+        quizConfig: expect.objectContaining({ questionCount: 2, questionTypes: ["short_answer"] }),
+      }),
+      expect.objectContaining({
+        id: "check-2",
+        title: "第 2 节 · 节末小测",
+        knowledgePointIds: ["kp-2"],
+        targetDurationSec: 180,
+        quizConfig: expect.objectContaining({ questionCount: 2, questionTypes: ["short_answer"] }),
+      }),
+    ]);
   });
 
   it("adds one terminal assessment when the model omitted it", () => {

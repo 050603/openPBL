@@ -14,6 +14,13 @@ import {
   userFacingName,
   userFacingStageLabel,
 } from "@/lib/user-facing-labels";
+import { KnowledgeLectureHistory } from "@/components/views/teacher/knowledge-lecture-history";
+import type {
+  KnowledgeLectureSection,
+  KnowledgePoint,
+  OpenMaicSceneOutlineSnapshot,
+  StudentAiProgress,
+} from "@/lib/session/types";
 
 // History page — Server Component. Lists all archived classroom sessions for
 // the course and (when ?session=ID is present) shows the detail of one
@@ -47,6 +54,13 @@ type ArchivedData = {
     createdAt?: string;
   }>;
   groups?: Array<{ id: string; name: string; topic?: string }>;
+  aiLearningProgress?: Record<string, StudentAiProgress>;
+  knowledgeLecture?: {
+    classroomId?: string;
+    knowledgePoints?: KnowledgePoint[];
+    sections?: KnowledgeLectureSection[];
+    sceneOutlines?: OpenMaicSceneOutlineSnapshot[];
+  };
 };
 
 function formatDateTime(iso: string | Date): string {
@@ -106,6 +120,7 @@ export default async function CourseHistoryPage({
         currentCourse={{ id: course.id, name: course.name, status: course.status }}
       >
         <HistoryHeader courseId={courseId} />
+        <KnowledgeLectureHistory initialCourse={course} />
         <Card>
           <div className="py-12 text-center">
             <History className="mx-auto text-stone-300" size={48} />
@@ -142,6 +157,8 @@ export default async function CourseHistoryPage({
       currentCourse={{ id: course.id, name: course.name, status: course.status }}
     >
       <HistoryHeader courseId={courseId} />
+
+      {!selectedSessionId ? <KnowledgeLectureHistory initialCourse={course} /> : null}
 
       {sessions.length === 0 ? (
         <Card>
@@ -212,6 +229,12 @@ export default async function CourseHistoryPage({
               </Card>
             ) : (
               <div className="space-y-5">
+                <KnowledgeLectureHistory
+                  archivedLecture={selectedArchived.knowledgeLecture}
+                  archivedProgress={selectedArchived.aiLearningProgress}
+                  archivedStudentCount={selectedArchived.students?.length ?? selectedSession.studentCount}
+                  initialCourse={course}
+                />
                 <Card>
                   <div className="flex items-center justify-between">
                     <div>

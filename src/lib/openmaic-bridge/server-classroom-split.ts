@@ -49,7 +49,7 @@ export async function splitGeneratedClassroom(input: {
   );
 
   if (studentScenes.length === 0) {
-    throw new Error("PBL 生成结果没有明确标记为 AI 授知的学生学习场景");
+    throw new Error("PBL 生成结果没有明确标记为知识讲授的学生学习场景");
   }
 
   throwIfAborted(input.signal);

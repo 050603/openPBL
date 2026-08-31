@@ -4,6 +4,7 @@ import type { Course, KnowledgeGraph, KnowledgePoint } from "@/lib/session/types
 import type { CourseGenerationMode } from "@/lib/openmaic/types/generation";
 import type { GenerationReferenceMaterial } from "@/lib/course-design/generation-references";
 import type { NewSystemAiDurationRecommendation } from "@/lib/classroom/new-system-course";
+import { allocateLectureBudget, knowledgeLectureBudgetBounds } from "./knowledge-lecture-budget";
 
 type ModelCall = typeof callLLM;
 
@@ -68,22 +69,22 @@ function knowledgePointWeight(
 }
 
 export function buildNewSystemAiDurationMessages(input: NewSystemAiDurationInput) {
-  const availableMinutes = Math.max(1, Math.round(input.course.hours * 60));
+  const { courseMinutes: availableMinutes, minMinutes, maxMinutes } = knowledgeLectureBudgetBounds(input.course.hours);
   return [
     {
       role: "system" as const,
-      content: `你是 PBL 课程第二阶段“AI 授知”的教学时长规划专家。你只判断：为了让当前学段学生真正理解已确认知识图谱，并完成必要练习与一次达标检测，AI 授知课堂本身需要多少分钟。
+      content: `你是 PBL 课程第二阶段“知识讲授”的教学时长规划专家。你只判断：为了让当前学段学生真正理解已确认知识图谱，并完成必要练习，以及每个知识小节结束后的 2—3 道简短主观题小测，知识讲授课堂本身需要多少分钟。
 
 关键规则：
-1. 教师填写的 ${availableMinutes} 分钟是整节 PBL 课程可用容量的硬上限和排课背景，不是 AI 授知必须用满的目标，也不得套用 35% 或任何固定比例。
-2. 根据本课知识点数量、层级、概念抽象度、图谱依赖深度、学生已有基础、例证需求、练习与检测负荷动态判断。不要根据页数反推时间。
+1. 教师填写的 ${availableMinutes} 分钟是整节 PBL 课程总时长。第二阶段知识讲授必须占总时长的 20%–40%，即 ${minMinutes}–${maxMinutes} 分钟，这是不可突破的硬约束；其他阶段必须保留充足时间。
+2. 先在上述范围内根据知识点数量、层级、概念抽象度、依赖深度与学生基础选择一个总 durationMin，说明为何选择该时长，而不是默认取上限。确定总时长后再分配知识点预算，最后才生成课程；不要根据页数反推或扩大总时长。
 3. 每个知识点预算应覆盖必要的讲解、例证、思考或练习；共享讲解只计一次，避免重复和注水。
 4. 普通模式只安排教学必要的互动；深度交互模式需给真实操作、观察反馈与修正留出时间，但不得用“点击下一步/查看详情”一类伪互动凑时长。
-5. durationMin 必须为整数，至少能够覆盖所有本课知识点，且不得超过 ${availableMinutes}。若内容在上限内无法讲清，应返回上限并在 scopeWarning 说明需要缩减哪些范围，不得擅自增加总时长。
+5. durationMin 必须为 ${minMinutes}–${maxMinutes} 范围内的整数，包含讲解、必要互动、每节 2–5 分钟小测与基础讲评，不能在总预算外追加这些时间。若内容过多，优先合并关联知识、缩减非核心拓展与重复例证，在 scopeWarning 说明范围取舍，不得增加总时长。
 6. knowledgePointId 必须逐项使用输入中已有的精确 ID；每个本课知识点恰好出现一次；各项 durationMin 之和必须等于总 durationMin。
 
 只返回 JSON：{
-  "durationMin": 42,
+  "durationMin": ${Math.round((minMinutes + maxMinutes) / 2)},
   "rationale": "为什么该时长足以讲清且没有注水",
   "confidence": "low|medium|high",
   "knowledgePointBudgets": [
@@ -103,6 +104,7 @@ export function buildNewSystemAiDurationMessages(input: NewSystemAiDurationInput
           grade: input.course.grade,
           teacherRequestedCourseHours: input.course.hours,
           availableMinutes,
+          knowledgeLectureBudget: { minMinutes, maxMinutes, minRatio: 0.2, maxRatio: 0.4 },
           summary: input.course.summary,
           learningObjectives: input.course.learningObjectives ?? [],
           learnerProfile: input.course.learnerProfile,
@@ -127,21 +129,17 @@ export function normalizeNewSystemAiDurationRecommendation(
   const raw = asRecord(value);
   const requestedDuration = finitePositive(raw.durationMin);
   if (!requestedDuration) {
-    throw new Error("AI 授知时长判断失败：模型未返回有效的 durationMin。");
+    throw new Error("知识讲授时长判断失败：模型未返回有效的 durationMin。");
   }
   const rationale = text(raw.rationale);
   if (!rationale) {
-    throw new Error("AI 授知时长判断失败：模型未说明判断依据。");
+    throw new Error("知识讲授时长判断失败：模型未说明判断依据。");
   }
 
-  const availableMinutes = Math.max(1, Math.round(input.course.hours * 60));
-  const safetyFloor = Math.min(
-    availableMinutes,
-    Math.max(8, input.knowledgePoints.length * 2),
-  );
+  const { courseMinutes: availableMinutes, minMinutes, maxMinutes } = knowledgeLectureBudgetBounds(input.course.hours);
   const durationMin = Math.min(
-    availableMinutes,
-    Math.max(safetyFloor, Math.round(requestedDuration)),
+    maxMinutes,
+    Math.max(minMinutes, Math.round(requestedDuration)),
   );
   const rawBudgets = Array.isArray(raw.knowledgePointBudgets)
     ? raw.knowledgePointBudgets.map(asRecord)
@@ -161,18 +159,24 @@ export function normalizeNewSystemAiDurationRecommendation(
         || `${point.level ?? "core"} 层级，并结合其在知识图谱中的依赖关系分配。`,
     };
   });
+  // Fine-grained budgets must also add up to the chosen total, even when the
+  // model's original recommendation was clamped or omitted a knowledge point.
+  const unit = knowledgePointBudgets.length > durationMin ? 60 : 1;
+  const allocations = allocateLectureBudget(durationMin * unit, knowledgePointBudgets.map((budget) => budget.durationMin));
+  knowledgePointBudgets.forEach((budget, index) => { budget.durationMin = allocations[index]! / unit; });
   const confidenceValue = text(raw.confidence);
   const confidence = confidenceValue === "low" || confidenceValue === "high"
     ? confidenceValue
     : "medium";
   const modelScopeWarning = text(raw.scopeWarning);
-  const scopeWarning = requestedDuration > availableMinutes
-    ? modelScopeWarning || `模型判断需要约 ${Math.round(requestedDuration)} 分钟，已按教师课程容量压缩至 ${availableMinutes} 分钟，应缩减非核心拓展内容。`
+  const scopeWarning = requestedDuration > maxMinutes
+    ? [`模型原建议 ${Math.round(requestedDuration)} 分钟超出整课 40% 上限，已压缩至 ${maxMinutes} 分钟；后续按此预算生成内容，合并关联知识并缩减非核心拓展。`, modelScopeWarning].filter(Boolean).join(" ")
     : modelScopeWarning || undefined;
   const assumptions = textArray(raw.assumptions);
-  if (requestedDuration < safetyFloor) {
-    assumptions.push(`原始建议低于结构安全下限，已调整为 ${durationMin} 分钟以覆盖全部知识点。`);
+  if (requestedDuration < minMinutes) {
+    assumptions.push(`原始建议低于整课 20% 下限，已调整为 ${durationMin} 分钟；讲解与节末小测均包含在此预算内。`);
   }
+  assumptions.push(`知识讲授预算限定为整课 ${availableMinutes} 分钟的 20%–40%（${minMinutes}–${maxMinutes} 分钟），先确定总时长再生成课程。`);
 
   return {
     durationMin,

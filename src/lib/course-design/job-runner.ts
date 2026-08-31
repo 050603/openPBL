@@ -101,6 +101,10 @@ import {
   formatGenerationReferenceContext,
   type GenerationReferenceMaterial,
 } from "@/lib/course-design/generation-references";
+import {
+  deriveKnowledgeLectureSectionsFromOutlines,
+  organizeKnowledgeLectureOutlines,
+} from "@/lib/knowledge-lecture";
 
 const POLL_INTERVAL_MS = 1_500;
 const STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -1157,7 +1161,12 @@ async function generateMainCourseOutlines(
 
 export function normalizeNewSystemAiOutlines(
   outlines: readonly SceneOutline[],
-  input: { totalDurationSec: number; knowledgePointIds: readonly string[] },
+  input: {
+    totalDurationSec: number;
+    knowledgePointIds: readonly string[];
+    knowledgePoints?: readonly KnowledgePoint[];
+    knowledgeGraph?: KnowledgeGraph;
+  },
 ): Array<SceneOutline & OpenMaicSceneOutlineSnapshot> {
   if (outlines.length === 0) return [];
   const source = outlines.length === 1
@@ -1176,14 +1185,10 @@ export function normalizeNewSystemAiOutlines(
     60,
     Math.round(input.totalDurationSec / source.length),
   );
-  const lastIndex = source.length - 1;
-  return source.map((outline, index) => {
+  const normalized = source.map((outline, index) => {
     let type = outline.type === "pbl" ? "interactive" : outline.type;
     if (index === 0 && !source.some((item) => item.type === "slide")) {
       type = "slide";
-    }
-    if (index === lastIndex && !source.some((item) => item.type === "quiz")) {
-      type = "quiz";
     }
     const knowledgePointIds = outline.knowledgePointIds?.filter((id) =>
       input.knowledgePointIds.includes(id)
@@ -1194,7 +1199,7 @@ export function normalizeNewSystemAiOutlines(
       type,
       order: index,
       stageKey: "ai-learning",
-      stageLabel: "AI 授知",
+      stageLabel: "知识讲授",
       audience: "student",
       generationPurpose: "knowledge-teaching",
       activityId: "new-system-ai-learning",
@@ -1206,7 +1211,9 @@ export function normalizeNewSystemAiOutlines(
           : "other",
       knowledgePointIds: knowledgePointIds?.length
         ? knowledgePointIds
-        : [...input.knowledgePointIds],
+        : input.knowledgePointIds.length
+          ? [input.knowledgePointIds[index % input.knowledgePointIds.length]!]
+          : [],
       targetDurationSec,
       estimatedDuration: targetDurationSec,
       ttsPolicy: "target-duration",
@@ -1218,6 +1225,13 @@ export function normalizeNewSystemAiOutlines(
           : [],
     } as SceneOutline & OpenMaicSceneOutlineSnapshot;
   });
+  return organizeKnowledgeLectureOutlines(normalized, {
+    totalDurationSec: input.totalDurationSec,
+    knowledgePoints: input.knowledgePoints?.length
+      ? input.knowledgePoints
+      : input.knowledgePointIds.map((id) => ({ id, name: id, description: "" })),
+    knowledgeGraph: input.knowledgeGraph,
+  }).outlines;
 }
 
 async function generateNewSystemAiOutlines(
@@ -1229,10 +1243,13 @@ async function generateNewSystemAiOutlines(
   const aiAllocations = content.moduleTimingPlan?.allocations.filter(
     (allocation) => allocation.stageKey === "ai-learning",
   ) ?? [];
+  if (!isNewSystemAiTimingPlan(content.moduleTimingPlan, course.hours)) {
+    throw new Error("请先由 AI 在整课 20%–40% 范围内确定知识讲授总时长，再生成课程内容。");
+  }
   const aiDurationMin = aiAllocations.reduce(
     (sum, allocation) => sum + allocation.durationMin,
     0,
-  ) || Math.max(1, Math.round(content.moduleTimingPlan?.totalMinutes ?? course.hours * 60));
+  );
   const knowledgePointBudgets = aiAllocations.map((allocation) => ({
     knowledgePointId: allocation.knowledgePointIds?.[0],
     name: allocation.title,
@@ -1246,12 +1263,12 @@ async function generateNewSystemAiOutlines(
       formatGenerationReferenceContext(request.referenceMaterials ?? []),
       `课程说明：${course.summary}`,
       `学习目标：${JSON.stringify(course.learningObjectives ?? [])}`,
-      `本次只编写第二阶段“AI 授知”的学生学习页面。AI 已根据知识图谱判断总时长为 ${aiDurationMin} 分钟；这是本课堂的完整目标时长，不是整课固定比例。`,
+      `本次只编写第二阶段“知识讲授”的学生学习页面。AI 已在整课 ${Math.round(course.hours * 60)} 分钟的 20%–40% 范围内确定总时长为 ${aiDurationMin} 分钟。这是已锁定的完整预算，所有讲解、互动、节末小测与基础讲评都必须包含在内，不能追加时长。内容多时合并关联小节、减少重复例证与非核心拓展，而非延长课堂。`,
       `逐知识点时间预算：${JSON.stringify(knowledgePointBudgets)}。页面规划必须整体服从这些预算；可以跨页讲解同一知识点或在一页整合多个紧密关联知识点，但不得遗漏、重复计时或用低价值页面填满时长。`,
       request.generationMode === "deep-interaction"
         ? "采用深度交互策略：优先安排有真实操作价值的非评分互动，但不得按固定页数机械插入或用点击查看详情凑数。"
         : "采用普通策略：根据教学必要性动态选择讲解、互动与检测；互动可以为零或少量，不得按固定页数机械插入。",
-      "先完整教授知识图谱中的核心知识，再以一次达标检测结束。",
+      "把相互关联的知识点组织成若干小节。每小节先完成讲解与必要互动，再以 2—3 道简短主观题作为节末小测；学生只需用关键词和一两句话作答，整组预计 2—5 分钟，题目必须标注对应知识点并提供清晰评分要点，供 AI 自动批阅与助教讲解。",
       "禁止生成项目启动、项目实践、成果汇报、学习反思或任何教师授课资源；禁止把这些阶段写成页面。",
       "所有页面 audience 必须为 student，stageKey 必须为 ai-learning。",
     ].join("\n"),
@@ -1288,11 +1305,13 @@ async function generateNewSystemAiOutlines(
     },
   );
   if (!result.success || !result.data?.outlines.length) {
-    throw new Error(result.error || "AI 授知页面大纲生成失败");
+    throw new Error(result.error || "知识讲授页面大纲生成失败");
   }
   return normalizeNewSystemAiOutlines(result.data.outlines, {
     totalDurationSec: aiDurationMin * 60,
     knowledgePointIds: content.knowledgePoints.map((point) => point.id),
+    knowledgePoints: content.knowledgePoints,
+    knowledgeGraph: content.knowledgeGraph,
   });
 }
 
@@ -1547,7 +1566,7 @@ async function enqueueClassroomGeneration(
     requirement: systemMode === "new"
       ? [
           `课程：${course.name}（${course.subject}，${course.grade}）`,
-          "只根据已确认 sceneOutlines 制作第二阶段 AI 授知的学生课堂。",
+          "只根据已确认 sceneOutlines 制作第二阶段知识讲授的学生课堂。",
           "不得新增其他阶段页面，不得生成教师课堂或教师资源。",
           formatGenerationReferenceContext(referenceMaterials),
         ].join("\n")
@@ -1966,7 +1985,7 @@ async function runNewSystemCourseDesign(
 
   let course: Course = initialCourse;
   if (!resumeAtKnowledge && !resumeAtOutline) {
-    await beginStep(job, "base", 0, 5, "正在确定课程对象、课时与 AI 授知目标");
+    await beginStep(job, "base", 0, 5, "正在确定课程对象、课时与知识讲授目标");
     const seed = await inferCourseSeed(initialCourse, request, controller.signal);
     course = {
       ...initialCourse,
@@ -1997,9 +2016,9 @@ async function runNewSystemCourseDesign(
       stepIndex: 0,
       progress: 25,
       label: "课程定位",
-      summary: `已确定《${course.name}》的学习对象、课时容量和 AI 授知目标`,
+      summary: `已确定《${course.name}》的学习对象、课时容量和知识讲授目标`,
       status: "completed",
-      checks: ["课程对象已明确", "教师课时容量已记录", "只生成 AI 授知内容"],
+      checks: ["课程对象已明确", "教师课时容量已记录", "只生成知识讲授内容"],
       artifacts: [artifact(
         "new-system-base",
         "facts",
@@ -2015,7 +2034,7 @@ async function runNewSystemCourseDesign(
       )],
     });
 
-    await beginStep(job, "knowledgePoints", 1, 28, "正在生成 AI 授知知识图谱");
+    await beginStep(job, "knowledgePoints", 1, 28, "正在生成知识讲授知识图谱");
     const generated = await generateKnowledgeStructureOnce(
       stageSummaryInput(course, request, false),
       {
@@ -2127,11 +2146,11 @@ async function runNewSystemCourseDesign(
     course = reviewedCourse;
   }
 
-  let timingPlan = isNewSystemAiTimingPlan(course.content.moduleTimingPlan)
+  let timingPlan = isNewSystemAiTimingPlan(course.content.moduleTimingPlan, course.hours)
     ? course.content.moduleTimingPlan
     : undefined;
   if (!timingPlan) {
-    await beginStep(job, "aiDurationPlanning", 2, 58, "正在根据知识图谱判断 AI 授知所需时长");
+    await beginStep(job, "aiDurationPlanning", 2, 58, "正在整课 20%–40% 范围内确定知识讲授总时长");
     const durationRecommendation = await generateNewSystemAiDurationRecommendation({
       course,
       knowledgePoints: course.content.knowledgePoints,
@@ -2161,12 +2180,12 @@ async function runNewSystemCourseDesign(
       step: "aiDurationPlanning",
       stepIndex: 2,
       progress: 66,
-      label: "AI 授知时长",
-      summary: `AI 判断本次授知需要 ${timingPlan.totalMinutes} 分钟`,
+      label: "知识讲授时长",
+      summary: `AI 确定知识讲授 ${timingPlan.totalMinutes} 分钟（占整课 ${Math.round(timingPlan.totalMinutes / (course.hours * 60) * 100)}%）`,
       status: durationRecommendation.scopeWarning ? "warning" : "completed",
       checks: [
         "已按知识点层级、依赖关系与学情动态判断",
-        `未套用固定比例，教师填写的 ${Math.round(course.hours * 60)} 分钟仅作为容量上限`,
+        `已在整课 ${Math.round(course.hours * 60)} 分钟的 20%–40% 范围内确定预算，讲解、互动和小测不再额外加时`,
         `已为 ${timingPlan.allocations.length} 个知识点生成时间预算`,
         ...(durationRecommendation.scopeWarning
           ? [`范围提醒：${durationRecommendation.scopeWarning}`]
@@ -2175,7 +2194,7 @@ async function runNewSystemCourseDesign(
       artifacts: [artifact(
         "new-system-ai-duration",
         "timeline",
-        "AI 授知时长规划",
+        "知识讲授时长规划",
         `${timingPlan.totalMinutes} 分钟`,
         durationRecommendation.rationale,
         "violet",
@@ -2198,23 +2217,26 @@ async function runNewSystemCourseDesign(
     moduleTimingPlan: timingPlan,
   };
   let sceneOutlines: Array<SceneOutline & OpenMaicSceneOutlineSnapshot>;
-  if (resumeAtOutline) {
+  if (resumeAtOutline && isNewSystemAiTimingPlan(initialCourse.content.moduleTimingPlan, course.hours)) {
     sceneOutlines = normalizeNewSystemAiOutlines(sceneOutlinesFromContent(content), {
       totalDurationSec: timingPlan.totalMinutes * 60,
       knowledgePointIds: content.knowledgePoints.map((point) => point.id),
+      knowledgePoints: content.knowledgePoints,
+      knowledgeGraph: content.knowledgeGraph,
     });
     content = {
       ...content,
       lessonOutline: sceneOutlines.map(sceneOutlineToLessonSection),
       _openmaicSceneOutlines: sceneOutlines,
       _openmaicScenesCount: sceneOutlines.length,
+      knowledgeLectureSections: deriveKnowledgeLectureSectionsFromOutlines(sceneOutlines),
     };
   } else {
     await updateCourse(request.courseId, (current) => ({
       ...current,
       content,
     }));
-    await beginStep(job, "lessonOutline", 2, 68, "正在按 AI 时长预算编写授知课程大纲");
+    await beginStep(job, "lessonOutline", 2, 68, "正在按时间预算编写分节知识讲授大纲");
     sceneOutlines = await generateNewSystemAiOutlines(
       course,
       content,
@@ -2226,6 +2248,7 @@ async function runNewSystemCourseDesign(
       lessonOutline: sceneOutlines.map(sceneOutlineToLessonSection),
       _openmaicSceneOutlines: sceneOutlines,
       _openmaicScenesCount: sceneOutlines.length,
+      knowledgeLectureSections: deriveKnowledgeLectureSectionsFromOutlines(sceneOutlines),
     };
     await updateCourse(request.courseId, (current) => ({
       ...current,
@@ -2236,7 +2259,7 @@ async function runNewSystemCourseDesign(
       stepIndex: 2,
       progress: 88,
       label: "课程大纲",
-      summary: `已生成 ${sceneOutlines.length} 个 AI 授知页面，等待教师确认`,
+      summary: `已生成 ${sceneOutlines.length} 个知识讲授页面，等待教师确认`,
       status: "completed",
       checks: ["课程大纲已保存", "教师可在继续前查看和编辑"],
       artifacts: [artifact(
@@ -2244,7 +2267,7 @@ async function runNewSystemCourseDesign(
         "pages",
         "课程大纲",
         `${sceneOutlines.length} 个页面`,
-        "本大纲只包含 AI 授知阶段的知识讲解、互动练习与学习检测。",
+        "本大纲按知识小节组织讲解、互动练习与 2—3 道简短主观题小测。",
         "green",
         sceneOutlines.map((scene) => ({
           label: scene.type === "quiz" ? "学习检测" : scene.type === "interactive" ? "互动练习" : "知识讲解",
@@ -2266,7 +2289,20 @@ async function runNewSystemCourseDesign(
     if (!reviewedCourse) throw new Error("教师确认后的课程大纲读取失败");
     course = reviewedCourse;
     content = reviewedCourse.content;
-    sceneOutlines = sceneOutlinesFromContent(content) as Array<SceneOutline & OpenMaicSceneOutlineSnapshot>;
+    sceneOutlines = normalizeNewSystemAiOutlines(sceneOutlinesFromContent(content), {
+      totalDurationSec: timingPlan.totalMinutes * 60,
+      knowledgePointIds: content.knowledgePoints.map((point) => point.id),
+      knowledgePoints: content.knowledgePoints,
+      knowledgeGraph: content.knowledgeGraph,
+    });
+    content = {
+      ...content,
+      moduleTimingPlan: timingPlan,
+      lessonOutline: sceneOutlines.map(sceneOutlineToLessonSection),
+      _openmaicSceneOutlines: sceneOutlines,
+      _openmaicScenesCount: sceneOutlines.length,
+      knowledgeLectureSections: deriveKnowledgeLectureSectionsFromOutlines(sceneOutlines),
+    };
   }
 
   const completedAt = new Date().toISOString();
@@ -2294,7 +2330,7 @@ async function runNewSystemCourseDesign(
         completedAt,
         entries: traceEvents(job.trace),
         qualityScore: 100,
-        qualitySummary: `知识图谱与课程大纲均已提供教师确认窗口；AI 已将授知课堂动态规划为 ${content.moduleTimingPlan?.totalMinutes ?? 0} 分钟。`,
+        qualitySummary: `知识图谱与课程大纲均已提供教师确认窗口；AI 已在整课 20%–40% 范围内将知识讲授规划为 ${content.moduleTimingPlan?.totalMinutes ?? 0} 分钟。`,
       },
     },
   }));
@@ -2315,12 +2351,12 @@ async function runNewSystemCourseDesign(
       step: "completed",
       stepIndex: 3,
       progress: 100,
-      message: "AI 授知设计已完成，课堂页面已进入生成队列",
+      message: "知识讲授设计已完成，课堂页面已进入生成队列",
       estimatedRemainingSeconds: 0,
       qualityReport: {
         score: 100,
-        summary: "新版 AI 授知内容已按知识图谱和动态时长预算生成，并提供知识图谱与课程大纲确认窗口。",
-        checks: ["知识图谱确认", "AI 动态时长判断", "课程大纲确认", "仅生成 AI 授知页面"],
+        summary: "新版知识讲授内容已按知识图谱、分节小测和动态时长预算生成，并提供知识图谱与课程大纲确认窗口。",
+        checks: ["知识图谱确认", "动态时长判断", "分节小测", "课程大纲确认"],
       } as unknown as Prisma.InputJsonValue,
       completedAt: new Date(),
       lastHeartbeatAt: new Date(),

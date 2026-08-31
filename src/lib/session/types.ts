@@ -729,6 +729,70 @@ export type StudentAiProgress = {
   nextStageCondition?: string;
   /** Per-student adaptive path state for pretests, branch lessons, and just-in-time micro lessons. */
   adaptiveLearning?: StudentAdaptiveLearningState;
+  /** Persisted section-quiz evidence used by the student tutor and teacher live analytics. */
+  knowledgeLectureAttempts?: KnowledgeLectureAttempt[];
+  /** Question-scoped tutor conversations and the notes currently written on the explanation board. */
+  knowledgeLectureTutorThreads?: KnowledgeLectureTutorThread[];
+};
+
+export type KnowledgeLectureSection = {
+  id: string;
+  title: string;
+  order: number;
+  knowledgePointIds: string[];
+  /** Stable generation-outline ids, not runtime scene ids. */
+  sceneOutlineIds: string[];
+  quizOutlineId: string;
+  estimatedMinutes: number;
+};
+
+export type KnowledgeLectureQuestionReview = {
+  questionId: string;
+  prompt: string;
+  answer: string;
+  points: number;
+  earned: number;
+  correct: boolean | null;
+  feedback: string;
+  referenceAnswer?: string;
+  knowledgePointIds: string[];
+};
+
+export type KnowledgeLectureAttempt = {
+  id: string;
+  sectionId: string;
+  quizOutlineId: string;
+  runtimeSceneId: string;
+  submittedAt: string;
+  score: number;
+  maxScore: number;
+  knowledgePointIds: string[];
+  questions: KnowledgeLectureQuestionReview[];
+};
+
+export type KnowledgeLectureBoardNote = {
+  id: string;
+  title: string;
+  body: string;
+  kind: "concept" | "evidence" | "correction" | "example";
+  createdAt: string;
+};
+
+export type KnowledgeLectureTutorMessage = {
+  id: string;
+  role: "student" | "assistant";
+  content: string;
+  createdAt: string;
+};
+
+export type KnowledgeLectureTutorThread = {
+  id: string;
+  attemptId: string;
+  questionId: string;
+  messages: KnowledgeLectureTutorMessage[];
+  boardNotes: KnowledgeLectureBoardNote[];
+  createdAt: string;
+  updatedAt: string;
 };
 
 /**
@@ -1126,6 +1190,8 @@ export type CourseContent = {
    */
   teachingOutline?: TeachingOutlineSection[];
   lessonOutline: LessonOutlineSection[];
+  /** Sectioned structure for stage two: teaching pages followed by a short subjective quiz. */
+  knowledgeLectureSections?: KnowledgeLectureSection[];
   evaluationPlan: EvaluationPlan;
   /** 临时字段：OpenMAIC classroom ID（迁移期间使用） */
   _openmaicClassroomId?: string;
@@ -1621,9 +1687,9 @@ export const DEFAULT_STAGES: Stage[] = [
   },
   {
     key: "ai-learning",
-    label: "AI授知",
+    label: "知识讲授",
     view: "ai-learning",
-    description: "AI辅助知识学习与基础概念建构",
+    description: "分节学习核心知识，并通过节末小测与 AI 助教讲解及时巩固",
   },
   {
     key: "proposal",

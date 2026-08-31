@@ -51,7 +51,7 @@ export function auditAndRepairGeneratedCourse(
 
   const firstStudentScene = outlines.find((outline) => outline.audience === 'student' && outline.stageKey === 'ai-learning');
   if (firstStudentScene?.type === 'quiz') {
-    warnings.push('AI 授知的首个学生页面是测验，建议先激活前置知识或提供具体示例');
+    warnings.push('知识讲授的首个学生页面是测验，建议先激活前置知识或提供具体示例');
   }
   if (constraints && constraints.learningObjectives.length === 0) {
     warnings.push('课程未提供显式学习目标，当前仅按知识图谱和页面目标控制质量');

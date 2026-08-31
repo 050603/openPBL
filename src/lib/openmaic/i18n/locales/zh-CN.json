@@ -488,7 +488,7 @@
     "charCount": "字",
     "yourAnswer": "你的回答：",
     "notAnswered": "未作答",
-    "aiComment": "AI 点评",
+    "aiComment": "点评",
     "singleChoice": "单选",
     "multipleChoice": "多选",
     "shortAnswer": "简答",
@@ -500,7 +500,7 @@
     "incorrect": "错误",
     "answering": "答题中",
     "submitAnswers": "提交答案",
-    "aiGrading": "AI 正在批改中...",
+    "aiGrading": "正在批阅",
     "aiGradingWait": "请稍候，正在分析你的答案",
     "quizReport": "答题报告",
     "retry": "重新答题"

@@ -40,10 +40,11 @@ function durationInput(): NewSystemAiDurationInput {
 }
 
 describe("new-system AI duration judgment", () => {
-  it("treats teacher hours as a ceiling instead of a fixed percentage", () => {
+  it("chooses a total budget within 20–40 percent before generating content", () => {
     const messages = buildNewSystemAiDurationMessages(durationInput());
-    expect(messages[0].content).toContain("硬上限");
-    expect(messages[0].content).toContain("不得套用 35% 或任何固定比例");
+    expect(messages[0].content).toContain("20%–40%");
+    expect(messages[0].content).toContain("24–48 分钟");
+    expect(messages[0].content).toContain("确定总时长后再分配知识点预算");
     expect(messages[1].content).toContain('"availableMinutes":120');
   });
 
@@ -67,9 +68,9 @@ describe("new-system AI duration judgment", () => {
     expect(modelCall).toHaveBeenCalledOnce();
   });
 
-  it("caps an overlong judgment at the teacher-provided course capacity", () => {
+  it.each([79, 150])("caps an overlong %i minute judgment at 40 percent", (durationMin) => {
     const result = normalizeNewSystemAiDurationRecommendation({
-      durationMin: 150,
+      durationMin,
       rationale: "完整展开需要更长时间。",
       confidence: "medium",
       knowledgePointBudgets: [
@@ -80,8 +81,9 @@ describe("new-system AI duration judgment", () => {
       assumptions: [],
     }, durationInput());
 
-    expect(result.durationMin).toBe(120);
-    expect(result.scopeWarning).toContain("压缩至 120 分钟");
+    expect(result.durationMin).toBe(48);
+    expect(result.scopeWarning).toContain("压缩至 48 分钟");
+    expect(result.knowledgePointBudgets.reduce((sum, item) => sum + item.durationMin, 0)).toBe(48);
   });
 
   it("fills missing point budgets without dropping a confirmed knowledge point", () => {
@@ -97,5 +99,15 @@ describe("new-system AI duration judgment", () => {
     expect(result.knowledgePointBudgets.map((item) => item.knowledgePointId))
       .toEqual(["kp-1", "kp-2"]);
     expect(result.knowledgePointBudgets[1]?.durationMin).toBeGreaterThan(0);
+    expect(result.knowledgePointBudgets.reduce((sum, item) => sum + item.durationMin, 0)).toBe(36);
+  });
+
+  it("raises too-short advice to 20 percent, not a knowledge-count-based floor", () => {
+    const input = durationInput();
+    input.knowledgePoints = Array.from({ length: 30 }, (_, i) => ({ id: `kp-${i}`, name: `知识${i}`, description: "" }));
+    const result = normalizeNewSystemAiDurationRecommendation({ durationMin: 5, rationale: "精简讲解" }, input);
+    expect(result.durationMin).toBe(24);
+    expect(result.knowledgePointBudgets.reduce((sum, item) => sum + item.durationMin, 0)).toBeCloseTo(24);
+    expect(result.assumptions.join(" ")).toContain("20% 下限");
   });
 });

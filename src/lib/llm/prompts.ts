@@ -192,7 +192,7 @@ export function buildFullCoursePrompt(input: GenerateInput): {
   const stageList = input.stages
     .map((s) => `- ${s.label}：${s.description}`)
     .join("\n");
-  const user = `请基于以下课程信息，生成完整的 PBL 课程结构（包含 PBL 大纲、知识点、AI 授知章节大纲、评价方案）：
+  const user = `请基于以下课程信息，生成完整的 PBL 课程结构（包含 PBL 大纲、知识点、知识讲授章节大纲、评价方案）：
 
 课程名称：${input.name}
 学科：${input.subject}
@@ -211,7 +211,7 @@ ${stageList}
 1. 知识点 ${constraints.recommendedKnowledgePointRange.min}-${constraints.recommendedKnowledgePointRange.max} 个，名称精炼，粒度要比章节标题更细；每个知识点写出本节课关键信息 keyInfo
 2. knowledgePoints 只包含本课完整讲授并在课后评价的目标；knowledgeGraph 另行表达真实课前先修。入口数量与时间遵循本课程动态策略：${formatCourseEntryPolicy(entryPolicy)} 先修必须有 priorKnowledgeEvidence 与 diagnosticBoundary，并通过 required-prerequisite + required 指向受影响的本课目标；仅有帮助的背景使用 supports + helpful，不得进入前测。不得用常识题、低龄题、术语记忆题或本课预习题凑数。所有边填写 type、strength 与 rationale；允许真实的独立知识分支，不得为了连通编造因果
 3. teachingOutline 是整节课程的教案级授课大纲，先生成六个宏观课程模块（launch、ai-learning、proposal、make、showcase、reflection），必须写清平台和 AI 负责什么、教师负责什么
-4. AI 授知章节大纲必须参考知识图谱，按先修到应用的关系组织学习路径，并在 objectives/keyPoints 中覆盖核心节点
+4. 知识讲授章节大纲必须参考知识图谱，按先修到应用的关系组织学习路径，并在 objectives/keyPoints 中覆盖核心节点
 5. 评价维度 4-6 个，权重合计 100%，评价项要能检查学生对知识图谱核心节点的理解与迁移应用
 6. 语言：简体中文
 ${SCHEMA_HINT}`;
@@ -425,7 +425,7 @@ export function buildTeachingOutlinePrompt(
     .join("\n");
   const user = `请基于以下课程信息与教师已确认的知识图谱，生成整节课程授课大纲。
 
-这不是 OpenMAIC AI 授知场景大纲，而是教师备课用的教案级大纲：粒度应接近常规教案，例如“教师讲授 XX 知识点 8 分钟”“平台展示知识图谱并高亮 XX 节点”“AI 生成快速测验检查 XX 概念”“学生围绕驱动问题进行 XX 互动”等。
+这不是 OpenMAIC 知识讲授场景大纲，而是教师备课用的教案级大纲：粒度应接近常规教案，例如“教师讲授 XX 知识点 8 分钟”“平台展示知识图谱并高亮 XX 节点”“AI 生成快速测验检查 XX 概念”“学生围绕驱动问题进行 XX 互动”等。
 
 课程名称：${input.name}
 学科：${input.subject} 年级：${input.grade} 课时：${input.hours}
@@ -436,7 +436,7 @@ ${buildAuthoritativeCourseBasisPrompt(input)}
 已确认 PBL 项目说明：${context?.pblOutline || "（尚未生成，可根据课程信息推断）"}
 已确认项目主线：${JSON.stringify(context?.projectMainline ?? null)}
 教师最终确认的时间安排（最高优先级）：${JSON.stringify(context?.moduleTimingPlan ?? null)}
-每个顶级阶段必须严格使用时间安排中对应阶段的 durationMin、顺序和模块身份。多个知识点必须合并进唯一的 ai-learning 顶级阶段，不得为不同知识点重复创建 AI 授知或项目实践；reflection 必须是最后一个顶级阶段。
+每个顶级阶段必须严格使用时间安排中对应阶段的 durationMin、顺序和模块身份。多个知识点必须合并进唯一的 ai-learning 顶级阶段，并在阶段内部按关联关系分小节，不得为不同知识点重复创建顶级知识讲授或项目实践；reflection 必须是最后一个顶级阶段。
 已确认知识点与图谱：${JSON.stringify({
     knowledgePoints: context?.knowledgePoints ?? [],
     knowledgeGraph: context?.knowledgeGraph ?? null,
@@ -454,15 +454,15 @@ ${stageList}
    - aiRole：AI 负责生成、讲解、测验、反馈或高亮知识图谱的内容；没有则写“无”
    - studentActivity：学生要做的具体学习/互动任务
 3. openMaicUse 必须明确标记：
-   - "student-ai-learning"：仅用于 AI 授知阶段核心知识点内容，后续会进入学生 AI 课程
-   - "none"：普通课堂活动；OpenMAIC 仅生成教师 PPT 与讲稿，不进入学生 AI 授知课程，也不进行 TTS
-4. resourceTypes 对普通课堂活动只使用 ppt、script；interactive-demo 和 code-interactive 仅属于学生 AI 授知场景。
+   - "student-ai-learning"：仅用于知识讲授阶段核心知识点内容，后续会进入学生知识讲授课程
+   - "none"：普通课堂活动；OpenMAIC 仅生成教师 PPT 与讲稿，不进入学生知识讲授课程，也不进行 TTS
+4. resourceTypes 对普通课堂活动只使用 ppt、script；interactive-demo 和 code-interactive 仅属于学生知识讲授场景。
 5. knowledgePointIds 只能引用已确认知识点 id；若活动不直接涉及知识点，可为空数组。
 6. 大纲要有课堂可执行性，避免空泛口号。
 7. 只为可提前确定的内容生成具体结论：项目导入、任务流程、评价规则、确定知识、案例演示、操作说明、课后延伸、价值升华和迁移问题。
 8. 方案点评、作品点评、班级共性问题和汇报总结只能生成不含结论的主持支架（点评框架、追问清单、总结结构），不得预设学生表现；课堂获得真实产物、对话和观察后再动态填充。
-9. 若已提供“教师最终确认的时间安排”，必须逐项原样采用，禁止按比例重新分配；仅在没有确认时间时，才按项目启动约 10%、AI 授知约 20%、方案构思约 10%、项目实践约 40%、成果汇报约 15%、反思迁移约 5% 给出建议起点。每个模块至少 1 分钟。
-10. 所有已确认知识点 ID 必须至少出现在 AI 授知模块的 knowledgePointIds 中，并按照 foundation/core/application/extension 分级，不得新增或改写 ID。
+9. 若已提供“教师最终确认的时间安排”，必须逐项原样采用，禁止按比例重新分配；仅在没有确认时间时，才按项目启动约 10%、知识讲授约 20%、方案构思约 10%、项目实践约 40%、成果汇报约 15%、反思迁移约 5% 给出建议起点。每个模块至少 1 分钟。
+10. 所有已确认知识点 ID 必须至少出现在知识讲授模块的 knowledgePointIds 中，并按照 foundation/core/application/extension 分级，不得新增或改写 ID。
 11. 每个课程模块必须显式返回 title、durationMin、teachingGoal、teacherRole、platformRole、aiRole、studentActivity 这七个字段；字段值必须是非空字符串（durationMin 为正数）。某角色在该模块没有具体工作时也必须填写“无”，不得省略、填写 null 或空字符串。字段名必须使用示例中的英文名称。
 
 仅返回 JSON：{
@@ -523,10 +523,10 @@ ${stageList}
 
 要求：
 1. 为六个课程模块中需要细化的每个活动生成一个或多个二级条目，必须使用 parentActivityId 指向真实的课程模块 id；不能按数组位置推断父子关系。每个父模块的 targetDurationSec 合计必须等于父级 durationMin×60。
-2. AI 授知阶段（stageKey=ai-learning）只生成学生学习资源：知识讲解使用 slide，互动/代码练习使用 interactive，测验使用 quiz；每个知识细化必须关联已确认 knowledgePointIds。
+2. 知识讲授阶段（stageKey=ai-learning）只生成学生学习资源：把相互关联的知识点组成若干小节，知识讲解使用 slide，互动/代码练习使用 interactive；每小节末尾必须紧跟一个 quiz，设置 2—3 道 short_answer 主观简答题，总作答时间 2—5 分钟，回答只需关键词和一两句话。每个页面与题目必须关联已确认 knowledgePointIds。
 3. 引入、项目启动、方案构思、项目实践、成果汇报与评价、学习反思及迁移等普通课堂活动只生成教师可用的 PPT/讲稿资源或主持支架，audience 必须为 teacher，resourceTypes 只能是 ppt、script，ttsPolicy 必须是 none。
-4. 每个二级条目必须填写 detailKind、knowledgePointIds、targetDurationSec 与 ttsPolicy。AI 授知条目的 targetDurationSec 应由父模块 durationMin 按知识点难度和教学任务拆分。页面边界由你根据概念依赖、示例、方法、对比、练习、证据检查和认知负荷动态决定：相关内容可以合并为一个清晰页面，需要独立视觉焦点的内容才拆成多个条目，不得按固定秒数或固定页数机械切分。不要使用固定的“4.5 字/秒”公式，服务端会根据实际选定的 TTS provider/model 注入内容量预算，生成时必须通过增删与当前 knowledgePointIds 直接相关的有效解释、案例、反例和分步说明让讲稿贴近模型预算；不得为了填满时长引入图谱之外的知识。
-5. 必须先覆盖 foundation/core 节点，再安排 application/extension 节点；不得创造知识点 ID、改变已确认知识点含义，或超出课程年级的知识边界。每个 AI 授知条目必须能说明其内容如何服务于所列 knowledgePointIds。
+4. 每个二级条目必须填写 detailKind、knowledgePointIds、targetDurationSec 与 ttsPolicy。知识讲授条目的 targetDurationSec 应由父模块 durationMin 按知识点难度、教学任务和节末小测共同拆分。页面边界由你根据概念依赖、示例、方法、对比、练习、证据检查和认知负荷动态决定：相关内容可以合并为一个清晰页面，需要独立视觉焦点的内容才拆成多个条目，不得按固定秒数或固定页数机械切分。不要使用固定的“4.5 字/秒”公式，服务端会根据实际选定的 TTS provider/model 注入内容量预算，生成时必须通过增删与当前 knowledgePointIds 直接相关的有效解释、案例、反例和分步说明让讲稿贴近模型预算；不得为了填满时长引入图谱之外的知识。
+5. 必须先覆盖 foundation/core 节点，再安排 application/extension 节点；不得创造知识点 ID、改变已确认知识点含义，或超出课程年级的知识边界。每个知识讲授条目必须能说明其内容如何服务于所列 knowledgePointIds。
 6. objectives 必须明确写出将学习或应用的知识节点，activities 要说明学生如何通过案例、测验或小任务验证节点间关系。
 
 仅返回 JSON：{ "lessonOutline": [{ "id": "lo-1", "stageKey": "ai-learning", "title": "string", "objectives": ["string"], "activities": ["string"], "durationMin": 10, "parentActivityId": "to-1", "detailKind": "knowledge-explanation", "knowledgePointIds": ["kp-1"], "resourceTypes": ["ppt"], "targetDurationSec": 600, "ttsPolicy": "target-duration" }] }`;

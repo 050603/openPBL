@@ -57,7 +57,7 @@ describe("buildQuickClassroomArtifacts", () => {
 
     expect(blueprint).toMatchObject({
       id: "ai-learning-generation-plan",
-      title: "开始制作可上课的 AI 授知内容",
+      title: "开始制作可上课的知识讲授内容",
       visualization: {
         generationPlan: {
           totalScenes: 4,
@@ -123,7 +123,7 @@ describe("buildQuickClassroomArtifacts", () => {
       events: [{ step: "generating_scenes", progress: 40, message: "正在制作页面", scenesGenerated: 2, totalScenes: 6, ts: 1 }],
     });
     const artifact = buildQuickClassroomArtifacts(snapshot, { aiLearningOnly: true })[0];
-    expect(artifact.title).toBe("AI 授知内容等待继续");
+    expect(artifact.title).toBe("知识讲授内容等待继续");
     expect(artifact.visualization?.generationPlan).toMatchObject({ completedScenes: 2, phaseIndex: 1, status: "failed" });
   });
 

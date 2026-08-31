@@ -103,8 +103,8 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
 
   if (stage.key === "ai-learning") {
     const hasAiContent = Boolean(course.aiLearningClassroomId || course.content._openmaicClassroomId || course.content._openmaicSceneOutlines?.length);
-    if (!hasAiContent) blockers.push({ code: "ai-content", message: "AI 授知内容尚未生成或关联", targetIds: [course.id] });
-    else completed.push("AI 授知内容可用");
+    if (!hasAiContent) blockers.push({ code: "ai-content", message: "知识讲授内容尚未生成或关联", targetIds: [course.id] });
+    else completed.push("知识讲授内容可用");
     const unmet = Object.entries(course.aiLearningProgress ?? {})
       .filter(([, progress]) =>
         !isReliableAiProgress(progress) ||

@@ -2,7 +2,8 @@ import type {
   PblModuleTimingPlan,
   PblTimingRecommendationConfidence,
 } from "@/lib/pbl-time-model";
-import type { Course, KnowledgePoint, TeachingOutlineSection } from "@/lib/session/types";
+import type { Course, KnowledgePoint, OpenMaicSceneOutlineSnapshot, TeachingOutlineSection } from "@/lib/session/types";
+import { allocateLectureBudget, isKnowledgeLectureBudgetInRange } from "./knowledge-lecture-budget";
 
 export const NEW_SYSTEM_STAGE_KEYS = [
   "launch",
@@ -34,27 +35,8 @@ export type NewSystemAiDurationRecommendation = {
 };
 
 function distributeIntegerMinutes(totalMinutes: number, weights: readonly number[]): number[] {
-  if (weights.length === 0) return [];
-  const total = Math.max(weights.length, Math.round(totalMinutes));
-  const safeWeights = weights.map((weight) => Math.max(0.1, Number(weight) || 0));
-  const weightTotal = safeWeights.reduce((sum, weight) => sum + weight, 0);
-  const exact = safeWeights.map((weight) => total * weight / weightTotal);
-  const result = exact.map((value) => Math.max(1, Math.floor(value)));
-  let remainder = total - result.reduce((sum, value) => sum + value, 0);
-  const order = exact
-    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-    .sort((left, right) => right.fraction - left.fraction || left.index - right.index);
-  while (remainder > 0) {
-    result[order[(total - remainder) % order.length]!.index] += 1;
-    remainder -= 1;
-  }
-  while (remainder < 0) {
-    const target = result.reduce((best, value, index) => value > result[best]! ? index : best, 0);
-    if (result[target]! <= 1) break;
-    result[target] -= 1;
-    remainder += 1;
-  }
-  return result;
+  const unit = weights.length > totalMinutes ? 60 : 1;
+  return allocateLectureBudget(totalMinutes * unit, weights).map((value) => value / unit);
 }
 
 export function buildNewSystemAiTimingPlan(
@@ -62,7 +44,7 @@ export function buildNewSystemAiTimingPlan(
   knowledgePoints: readonly KnowledgePoint[],
   generatedAt: string = new Date().toISOString(),
 ): PblModuleTimingPlan {
-  const totalMinutes = Math.max(knowledgePoints.length || 1, Math.round(recommendation.durationMin));
+  const totalMinutes = Math.max(1, Math.round(recommendation.durationMin));
   const budgetById = new Map(recommendation.knowledgePointBudgets.map((budget) => [
     budget.knowledgePointId,
     budget,
@@ -118,19 +100,19 @@ export function buildNewSystemTimingPlan(
 ): PblModuleTimingPlan {
   const plan = buildNewSystemAiTimingPlan({
     durationMin: aiDurationMinutes,
-    rationale: "按当前知识结构为 AI 授知预留完整讲解、练习与检测时间。",
+    rationale: "按当前知识结构为知识讲授预留分节讲解、练习与节末小测时间。",
     confidence: "medium",
     knowledgePointBudgets: [{
       knowledgePointId: "all-knowledge",
       durationMin: aiDurationMinutes,
       rationale: "尚未提供逐知识点时间判断。",
     }],
-    evidence: ["AI 授知总时长"],
-    assumptions: ["该计划只描述第二阶段 AI 授知，不分配其他 PBL 阶段时间。"],
+    evidence: ["知识讲授总时长"],
+    assumptions: ["该计划只描述第二阶段知识讲授，不分配其他 PBL 阶段时间。"],
   }, [{
     id: "all-knowledge",
-    name: "AI 授知",
-    description: "当前课程的 AI 授知内容",
+    name: "知识讲授",
+    description: "当前课程的分节知识讲授内容",
     level: "core",
   }], generatedAt);
   return {
@@ -141,19 +123,21 @@ export function buildNewSystemTimingPlan(
 
 export function isNewSystemAiTimingPlan(
   timing: PblModuleTimingPlan | null | undefined,
+  courseHours?: number,
 ): timing is PblModuleTimingPlan {
   if (!timing || timing.status !== "confirmed") return false;
   const aiAllocations = timing.allocations.filter(
     (allocation) => allocation.stageKey === "ai-learning",
   );
   const aiMinutes = aiAllocations.reduce(
-    (sum, allocation) => sum + Math.max(0, Math.round(allocation.durationMin)),
+    (sum, allocation) => sum + Math.max(0, allocation.durationMin),
     0,
   );
   return aiAllocations.length > 0
     && timing.allocations.length === aiAllocations.length
-    && Math.round(timing.totalMinutes) === aiMinutes
-    && aiMinutes > 0;
+    && Math.abs(timing.totalMinutes - aiMinutes) < 0.000001
+    && aiMinutes > 0
+    && (courseHours === undefined || isKnowledgeLectureBudgetInRange(timing.totalMinutes, courseHours));
 }
 
 export function buildNewSystemAiTeachingOutline(
@@ -166,11 +150,11 @@ export function buildNewSystemAiTeachingOutline(
   return [{
     id: "new-system-ai-learning",
     stageKey: "ai-learning",
-    title: "AI 授知",
+    title: "知识讲授",
     durationMin,
     teachingGoal: "帮助学生理解完成项目所需的核心知识，并通过互动练习确认掌握情况。",
     teacherRole: "巡视学习进展，对共性困难进行现场补充讲解。",
-    platformRole: "呈现 AI 授知内容、互动练习与学习进度。",
+    platformRole: "呈现分节讲授内容、节末小测、AI 助教讲解与学习进度。",
     aiRole: "讲解核心知识，提供针对性练习并反馈学生作答。",
     studentActivity: "按顺序完成知识学习、互动练习和阶段检测。",
     activityKind: "knowledge",
@@ -179,6 +163,15 @@ export function buildNewSystemAiTeachingOutline(
     resourceTypes: ["ppt", "interactive-demo"],
     notes: "新版备课阶段唯一需要生成的课堂内容。",
   }];
+}
+
+export function hasExactKnowledgeLecturePageBudget(
+  outlines: ReadonlyArray<Pick<OpenMaicSceneOutlineSnapshot, "targetDurationSec" | "estimatedDuration">>,
+  minutes: number,
+): boolean {
+  const durations = outlines.map((outline) => outline.targetDurationSec ?? outline.estimatedDuration);
+  return durations.length > 0 && durations.every((seconds) => typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0)
+    && Math.abs(durations.reduce<number>((sum, seconds) => sum + (seconds ?? 0), 0) - minutes * 60) < 0.001;
 }
 
 function sameStageKeys(keys: readonly string[]): boolean {
@@ -196,6 +189,16 @@ export function getNewSystemCourseReadiness(
       outline.stageKey === "ai-learning"
       && outline.audience !== "teacher",
   );
+  const lectureSections = course.content.knowledgeLectureSections ?? [];
+  const hasSectionChecks = lectureSections.length > 0 && lectureSections.every((section) => {
+    const quiz = outlines.find((outline) => outline.id === section.quizOutlineId);
+    const quizConfig = quiz?.quizConfig as { questionCount?: number; questionTypes?: string[] } | undefined;
+    return section.sceneOutlineIds.length > 0
+      && quiz?.type === "quiz"
+      && (quizConfig?.questionCount ?? 0) >= 2
+      && (quizConfig?.questionCount ?? 0) <= 3
+      && quizConfig?.questionTypes?.every((type) => type === "short_answer") === true;
+  });
 
   return [
     {
@@ -208,25 +211,29 @@ export function getNewSystemCourseReadiness(
       id: "stages",
       label: "五阶段课堂流程",
       ok: sameStageKeys(course.stages.map((stage) => stage.key)),
-      message: "新版课堂必须依次包含项目启动、AI 授知、项目实践、成果汇报与评价、学习反思。",
+      message: "新版课堂必须依次包含项目启动、知识讲授、项目实践、成果汇报与评价、学习反思。",
     },
     {
       id: "timing",
-      label: "AI 授知动态时长",
-      ok: isNewSystemAiTimingPlan(timing),
-      message: "AI 授知阶段需要采用基于知识图谱动态判断的独立时长。",
+      label: "知识讲授时长（整课 20%–40%）",
+      ok: isNewSystemAiTimingPlan(timing, course.hours)
+        && (!lectureSections.length || hasExactKnowledgeLecturePageBudget(outlines, timing!.totalMinutes)),
+      message: `知识讲授须占总课时的 20%–40%（${Math.ceil(course.hours * 60 * 0.2)}–${Math.floor(course.hours * 60 * 0.4)} 分钟），由 AI 先确定总时长，再按预算生成讲解、互动和小测；旧的超长方案请重新生成。`,
     },
     {
       id: "ai-outline",
-      label: "AI 授知内容",
-      ok: aiOnlyOutlines,
-      message: "需要生成至少一页仅属于 AI 授知阶段的学生学习内容。",
+      label: "知识讲授内容",
+      // Existing published courses predate the section manifest and must stay
+      // teachable; every newly generated course writes the manifest and is
+      // held to the stricter section-check contract above.
+      ok: aiOnlyOutlines && (!lectureSections.length || hasSectionChecks),
+      message: "需要生成至少一个包含讲授页面与节末小测的知识讲授小节。",
     },
     {
       id: "ai-classroom",
-      label: "AI 学习课堂",
+      label: "知识讲授课堂",
       ok: Boolean(course.aiLearningClassroomId ?? course.content._openmaicClassroomId),
-      message: "AI 授知课堂尚未生成完成。",
+      message: "知识讲授课堂尚未生成完成。",
     },
   ];
 }

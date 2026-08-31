@@ -29,7 +29,7 @@ export function AiLearningTeacherPreview({ course }: { course: Course }) {
             <Eye size={18} />
           </span>
           <span className="min-w-0">
-            <span className="block text-base font-bold text-stone-900">学生 AI 课程预览</span>
+            <span className="block text-base font-bold text-stone-900">学生知识讲授课程预览</span>
             <span className="mt-0.5 block text-xs text-stone-500">
               {expanded ? "正在预览 · 收起后自动停止播放" : "默认收起 · 点击展开课程"}
             </span>

@@ -184,6 +184,21 @@ function resolvePlannedSeconds(
     }
     return ownSeconds;
   });
+  // New-system preparation stores only the lecture allocation. Scaling this
+  // partial plan to the whole course would turn e.g. 36 minutes into 116.
+  const lectureIndex = input.stages.findIndex((stage) => stage.key === "ai-learning");
+  const lectureSeconds = recommendationByStage.get("ai-learning") ?? 0;
+  const otherStageWeights: Record<string, number> = { launch: 10, make: 50, showcase: 15, reflection: 5 };
+  if (input.stages.length === 5 && lectureIndex >= 0
+    && input.stages.every((stage) => stage.key === "ai-learning" || stage.key in otherStageWeights)
+    && recommendationByStage.size === 1 && lectureSeconds > 0 && lectureSeconds < courseTotalSec) {
+    const remaining = courseTotalSec - lectureSeconds;
+    const others = enforceMinimums(distributeIntegerTotal(remaining,
+      input.stages.flatMap((stage, index) => index === lectureIndex ? [] : [requested[index]! || otherStageWeights[stage.key]! * 60]),
+    ), remaining);
+    let otherIndex = 0;
+    return requested.map((_, index) => index === lectureIndex ? lectureSeconds : others[otherIndex++]!);
+  }
   if (requested.reduce((sum, value) => sum + value, 0) === courseTotalSec) {
     return requested;
   }

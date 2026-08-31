@@ -71,7 +71,7 @@ const LEGACY_STAGES = [
 
 const NEW_STAGES = [
   { ...LEGACY_STAGES[0], desc: "教师发布项目说明与资源，并可向全班同步投屏" },
-  { ...LEGACY_STAGES[1], label: "AI授知", desc: "保留完整 AI 课堂，支持知识讲授、互动与学习进度" },
+  { ...LEGACY_STAGES[1], label: "知识讲授", desc: "分节讲授核心知识，支持节末小测、AI 批阅与助教讲解" },
   { ...LEGACY_STAGES[3], desc: "学生在文档或代码工作台与 AI 组员协作完成真实产物" },
   { ...LEGACY_STAGES[4], label: "成果汇报与评价", desc: "教师通过资源与投屏组织成果汇报和课堂评价" },
   { ...LEGACY_STAGES[5], desc: "通过教师资源与课堂引导完成学习回顾" },
@@ -484,12 +484,12 @@ function Entry({ newSystem }: { newSystem: boolean }) {
                     教师端
                   </h3>
                   <p className="mt-2 text-[14px] leading-6 text-[var(--pbl-text-muted)]">
-                    {newSystem ? "一个平台完成课程创建、五阶段课堂与课程结束：轻量资源授课、完整 AI 授知和文档或代码项目实践。" : "一个平台完成备课、课堂讲授与课后评价：创建课程、组织六阶段、学生成果评价与学习反思。"}
+                    {newSystem ? "一个平台完成课程创建、五阶段课堂与课程结束：轻量资源授课、分节知识讲授和文档或代码项目实践。" : "一个平台完成备课、课堂讲授与课后评价：创建课程、组织六阶段、学生成果评价与学习反思。"}
                   </p>
 
                   {/* 功能标签 */}
                   <div className="mt-4 flex flex-wrap gap-1.5">
-                    {(newSystem ? ["课程创建", "资源投屏", "AI授知", "项目实践"] : ["课程备课", "课堂讲授", "课后评价", "六阶段组织"]).map((tag) => (
+                    {(newSystem ? ["课程创建", "资源投屏", "知识讲授", "项目实践"] : ["课程备课", "课堂讲授", "课后评价", "六阶段组织"]).map((tag) => (
                       <span
                         key={tag}
                         className="rounded-full border border-indigo-100 bg-indigo-50/60 px-2.5 py-1 text-[11px] font-semibold text-indigo-700"

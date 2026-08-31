@@ -2,7 +2,20 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Button } from "./button";
 import { FormField, Input } from "./form";
-import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "./overlays";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "./overlays";
 import { FlowActionBar, SaveStatus } from "./states";
 
 describe("openPBL shared UI", () => {
@@ -26,6 +39,24 @@ describe("openPBL shared UI", () => {
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps destructive confirmation actions visible and reachable", () => {
+    render(
+      <AlertDialog defaultOpen>
+        <AlertDialogContent>
+          <AlertDialogTitle>删除课程？</AlertDialogTitle>
+          <AlertDialogDescription>此操作不可撤销。</AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction>永久删除</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>,
+    );
+
+    expect(screen.getByRole("alertdialog").className).toContain("overflow-y-auto");
+    expect(screen.getByRole("button", { name: "永久删除" }).className).toContain("bg-destructive");
   });
 
   it("announces save failures and supports retry", () => {

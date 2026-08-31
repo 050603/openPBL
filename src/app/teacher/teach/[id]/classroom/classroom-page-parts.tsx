@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Clock3, Pause, Play, RotateCcw, X } from "lucide-react";
 import { ProgressBar } from "@/components/ui";
 import type { ClassroomTimingSnapshot } from "@/lib/classroom/timing";
+import { userFacingStageLabel } from "@/lib/user-facing-labels";
 import { cn } from "@/lib/utils";
 
 export function shouldShowClassroomDataSidebar(
@@ -109,7 +110,7 @@ export function TimerPanel({
         overtime ? "border-rose-200 bg-rose-50" : "border-blue-100 bg-blue-50/60",
       )}>
         <div className="text-[11px] font-semibold text-stone-500">
-          {active?.label ?? "课程已结束"} · {overtime ? "已超时" : "阶段剩余"}
+          {active ? userFacingStageLabel(active.stageKey, active.label) : "课程已结束"} · {overtime ? "已超时" : "阶段剩余"}
         </div>
         <div className={cn(
           "mt-1 font-mono text-[38px] font-bold leading-none",
@@ -159,7 +160,7 @@ export function TimerPanel({
           <div key={stage.stageKey}>
             <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
               <span className={cn("truncate font-semibold", stage.status === "active" ? "text-[var(--pbl-teacher)]" : "text-stone-600")}>
-                {stage.status === "completed" ? "✓ " : stage.status === "active" ? "● " : ""}{stage.label}
+                {stage.status === "completed" ? "✓ " : stage.status === "active" ? "● " : ""}{userFacingStageLabel(stage.stageKey, stage.label)}
               </span>
               <span className={cn("shrink-0 font-mono", stage.overrunSec > 0 ? "text-rose-600" : "text-stone-400")}>
                 {formatMinutes(stage.elapsedSec)} / {formatMinutes(stage.plannedSec)}

@@ -38,7 +38,7 @@ const ICONS: Record<CourseDesignGenerationArtifact["kind"], typeof Sparkles> = {
 
 const STAGE_LABELS: Record<string, string> = {
   launch: "项目启动",
-  "ai-learning": "AI 授知",
+  "ai-learning": "知识讲授",
   proposal: "方案构思",
   make: "项目实现",
   showcase: "成果汇报",
@@ -457,7 +457,7 @@ function AiLearningGenerationPlanPreview({ artifact, active, suspendedLabel }: {
         <div className="relative flex h-full flex-col">
           <div className="flex items-center justify-between gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pbl-teacher-border)] bg-white px-2.5 py-1 text-[9px] font-semibold tracking-[.12em] text-[var(--pbl-teacher)]">
-              <BrainCircuit className="size-3" />AI 授知
+              <BrainCircuit className="size-3" />知识讲授
             </span>
             <span className="text-[10px] font-medium text-[var(--pbl-text-subtle)]">内容制作</span>
           </div>
@@ -500,7 +500,7 @@ function AiLearningGenerationPlanPreview({ artifact, active, suspendedLabel }: {
           </span>
         </div>
 
-        <ol aria-label="AI 授知内容生成流水线" className="mt-3 grid grid-cols-5">
+        <ol aria-label="知识讲授内容生成流水线" className="mt-3 grid grid-cols-5">
           {phases.map((phase, index) => {
             const PhaseIcon = phase.icon;
             const state = index < plan.phaseIndex ? "done" : index === plan.phaseIndex ? "current" : "pending";

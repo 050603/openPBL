@@ -78,10 +78,10 @@ const ACTIONS: Record<string, MissionActionDefinition[]> = {
   "ai-learning": [
     {
       id: "ai-learning",
-      label: "完成当前 AI 授知活动",
-      description: "沿用现有 AI 授知流程；本阶段不使用新的项目证据任务。",
+      label: "完成当前知识讲授活动",
+      description: "完成分节知识讲授、节末小测与必要的助教讲解；本阶段不使用新的项目证据任务。",
       evidenceKinds: [],
-      doneWhen: "达到当前 AI 授知阶段原有完成条件。",
+      doneWhen: "完成当前知识讲授阶段的全部小节。",
     },
   ],
   proposal: [
@@ -145,7 +145,7 @@ const ACTIONS: Record<string, MissionActionDefinition[]> = {
 
 const COMPLETION: Record<string, string[]> = {
   launch: ["了解课程流程并选择研究方向"],
-  "ai-learning": ["沿用原 AI 授知阶段完成条件"],
+  "ai-learning": ["完成知识讲授阶段全部小节与节末小测"],
   proposal: ["形成一份能够实施和验证的项目方案", "教师确认方案方向"],
   make: ["保存作品制作过程", "提交一个可查看的作品版本"],
   showcase: ["最终作品可检查", "汇报包含主张、证据和局限", "完成 AI 追问与教师现场评价"],

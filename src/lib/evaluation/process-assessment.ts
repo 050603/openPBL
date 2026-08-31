@@ -58,7 +58,7 @@ export function uniqueEvidenceGaps(gaps: string[]): string[] {
 
 const STAGE_LABELS: Record<string, string> = {
   launch: "项目启动",
-  "ai-learning": "AI授知",
+  "ai-learning": "知识讲授",
   proposal: "方案构思与校准",
   make: "项目实践",
   showcase: "成果汇报与评价",

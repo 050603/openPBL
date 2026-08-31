@@ -6,63 +6,38 @@ function isStudentKnowledgeScene(outline: SceneOutline): boolean {
   ) || (!outline.stageKey && !outline.audience);
 }
 
-/**
- * Normalizes generated student teaching pages to one terminal mastery
- * assessment. Earlier quizzes are folded into the final assessment so the
- * main lesson remains explanation -> practice -> feedback, not test-taking.
- */
-export function ensureTerminalMasteryAssessment(
-  outlines: readonly SceneOutline[],
-): SceneOutline[] {
-  const studentKnowledge = outlines.filter(isStudentKnowledgeScene);
-  if (studentKnowledge.length === 0) return [...outlines];
+function unique(values: readonly string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
 
-  const quizzes = studentKnowledge.filter((outline) => outline.type === "quiz");
-  const taughtScenes = studentKnowledge.filter((outline) => outline.type !== "quiz");
-  const knowledgePointIds = Array.from(new Set(
-    taughtScenes.flatMap((outline) => outline.knowledgePointIds ?? []),
-  ));
-  if (knowledgePointIds.length === 0) return [...outlines];
-
-  const anchor = taughtScenes.at(-1)!;
-  const taughtDurationSec = taughtScenes.reduce(
-    (sum, scene) => sum + (scene.targetDurationSec ?? scene.estimatedDuration ?? 0),
-    0,
-  );
-  const existingQuizDurationSec = quizzes.reduce(
-    (sum, quiz) => sum + (quiz.targetDurationSec ?? quiz.estimatedDuration ?? 0),
-    0,
-  );
-  // quiz / (teaching + quiz) <= 20%, therefore quiz <= teaching / 4.
-  const assessmentBudgetSec = taughtDurationSec > 0
-    ? Math.max(60, Math.floor(taughtDurationSec / 4))
-    : 3 * 60;
-  const mergedQuiz: SceneOutline = {
-    ...anchor,
-    id: quizzes.at(-1)?.id || `mastery-assessment-${anchor.id || "course"}`,
+function normalizeSectionQuiz(
+  anchor: SceneOutline,
+  quiz: SceneOutline | undefined,
+  knowledgePointIds: string[],
+  sectionIndex: number,
+): SceneOutline {
+  const questionCount = knowledgePointIds.length >= 3 ? 3 : 2;
+  const plannedSeconds = quiz?.targetDurationSec ?? quiz?.estimatedDuration;
+  const targetDurationSec = typeof plannedSeconds === "number" && Number.isFinite(plannedSeconds)
+    ? Math.max(120, Math.min(300, Math.round(plannedSeconds)))
+    : questionCount === 3 ? 240 : 180;
+  return {
+    ...(quiz ?? anchor),
+    id: quiz?.id || `section-${sectionIndex + 1}-check-${anchor.id || "knowledge"}`,
     type: "quiz",
-    title: "主课达标测",
-    description: "在完整讲解与互动练习后，集中检验本节课各知识点的理解与迁移；每题需标注对应知识点，供课后拓展资源进行个性化选择。",
-    keyPoints: [
-      "覆盖本节课已经完整讲解的核心知识点",
-      "同时检查概念理解、应用与迁移",
-      "只进行一次计分测验，不在测验后追加新的测验",
-    ],
-    teachingObjective: "形成各知识点的终结性掌握证据，并据此选择不计分的课后拓展资源。",
-    detailKind: "knowledge-explanation",
+    title: `第 ${sectionIndex + 1} 节 · 节末小测`,
+    description: `围绕本小节设置 ${questionCount} 道简短主观题。学生只需用关键词和一两句话作答，预计 ${Math.round(targetDurationSec / 60)} 分钟完成；每题必须标注对应知识点并提供 AI 评分要点。`,
+    keyPoints: unique([...(quiz?.keyPoints ?? []), ...(anchor.keyPoints ?? [])]),
+    teachingObjective: "形成小节级知识点理解证据，并在提交后进入 AI 助教逐题讲解。",
+    detailKind: "other",
     knowledgePointIds,
-    targetDurationSec: Math.min(
-      8 * 60,
-      assessmentBudgetSec,
-      existingQuizDurationSec || 5 * 60,
-    ),
+    targetDurationSec,
+    estimatedDuration: targetDurationSec,
     ttsPolicy: "target-duration",
     quizConfig: {
-      difficulty: quizzes.at(-1)?.quizConfig?.difficulty ?? "medium",
-      questionTypes: quizzes.at(-1)?.quizConfig?.questionTypes?.length
-        ? quizzes.at(-1)!.quizConfig!.questionTypes
-        : ["single", "multiple", "true_false"],
-      questionCount: Math.max(4, Math.min(8, knowledgePointIds.length + 2)),
+      difficulty: quiz?.quizConfig?.difficulty ?? "medium",
+      questionTypes: ["short_answer"],
+      questionCount,
     },
     widgetType: undefined,
     widgetOutline: undefined,
@@ -70,14 +45,55 @@ export function ensureTerminalMasteryAssessment(
     mediaGenerations: undefined,
     suggestedImageIds: undefined,
   };
+}
 
-  const withoutStudentQuizzes = outlines.filter(
-    (outline) => !(isStudentKnowledgeScene(outline) && outline.type === "quiz"),
-  );
-  const lastStudentIndex = withoutStudentQuizzes.reduce(
-    (last, outline, index) => isStudentKnowledgeScene(outline) ? index : last,
-    -1,
-  );
-  withoutStudentQuizzes.splice(lastStudentIndex + 1, 0, mergedQuiz);
-  return withoutStudentQuizzes.map((outline, index) => ({ ...outline, order: index }));
+/**
+ * Keeps generated knowledge sections intact and guarantees that each section
+ * ends with a short subjective check. Older outlines with no section markers
+ * remain one section for backward compatibility.
+ */
+export function ensureTerminalMasteryAssessment(
+  outlines: readonly SceneOutline[],
+): SceneOutline[] {
+  const studentKnowledge = outlines.filter(isStudentKnowledgeScene);
+  if (studentKnowledge.length === 0) return [...outlines];
+
+  const generatedSections: Array<{ teaching: SceneOutline[]; quiz?: SceneOutline }> = [];
+  let teaching: SceneOutline[] = [];
+  for (const outline of studentKnowledge) {
+    if (outline.type === "quiz") {
+      if (teaching.length) {
+        generatedSections.push({ teaching, quiz: outline });
+        teaching = [];
+      }
+      continue;
+    }
+    teaching.push(outline);
+  }
+  if (teaching.length) generatedSections.push({ teaching });
+  if (!generatedSections.length) return [...outlines];
+
+  const normalizedStudent = generatedSections.flatMap((section, sectionIndex) => {
+    const knowledgePointIds = unique(section.teaching.flatMap((outline) => outline.knowledgePointIds ?? []));
+    if (!knowledgePointIds.length) return section.teaching;
+    const anchor = section.teaching.at(-1)!;
+    return [
+      ...section.teaching,
+      normalizeSectionQuiz(anchor, section.quiz, knowledgePointIds, sectionIndex),
+    ];
+  });
+
+  let inserted = false;
+  const result: SceneOutline[] = [];
+  for (const outline of outlines) {
+    if (isStudentKnowledgeScene(outline)) {
+      if (!inserted) {
+        result.push(...normalizedStudent);
+        inserted = true;
+      }
+      continue;
+    }
+    result.push(outline);
+  }
+  return result.map((outline, index) => ({ ...outline, order: index }));
 }

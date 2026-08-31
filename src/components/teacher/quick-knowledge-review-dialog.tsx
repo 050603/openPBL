@@ -198,7 +198,7 @@ export function QuickKnowledgeReviewDialog({
           <div>
             <p className="text-xs font-bold uppercase tracking-[.14em] text-blue-700">快速生成已暂停</p>
             <h2 className="mt-1 font-editorial text-xl font-semibold text-stone-950">知识图谱</h2>
-            <p className="mt-1 text-xs text-stone-500">确认后的知识点与关系将直接用于生成 AI 授知课程大纲。</p>
+            <p className="mt-1 text-xs text-stone-500">确认后的知识点与关系将直接用于生成分节知识讲授课程大纲。</p>
           </div>
           <button aria-label="缩小并返回快速生成卡片" className="grid size-9 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 transition hover:border-stone-400 hover:text-stone-900" onClick={onClose} type="button">
             <Minimize2 size={16} />

@@ -46,8 +46,10 @@ import type { PlaybackSyncState, StageExperience } from '@openmaic/components/st
 import {
   PLAYBACK_ACTIVITY_COMPLETE_EVENT,
   PLAYBACK_ACTIVITY_RESET_EVENT,
+  PLAYBACK_MODAL_BLOCK_EVENT,
   isPlaybackActivityComplete,
   type PlaybackActivityEventDetail,
+  type PlaybackModalBlockDetail,
 } from '@openmaic/lib/playback/activity-events';
 
 /**
@@ -260,6 +262,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const autoStartRef = useRef(false);
     const handledAutoplaySceneIdRef = useRef<string | null>(null);
     const completedActivitySceneIdsRef = useRef(new Set<string>());
+    const modalPlaybackBlockedRef = useRef(false);
     // Discussion buffer-level pause state (distinct from soft-pause which aborts SSE)
     const [isDiscussionPaused, setIsDiscussionPaused] = useState(false);
 
@@ -275,13 +278,26 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         if (!detail?.sceneId) return;
         completedActivitySceneIdsRef.current.delete(detail.sceneId);
       };
+      const onModalBlock = (event: Event) => {
+        const detail = (event as CustomEvent<PlaybackModalBlockDetail>).detail;
+        modalPlaybackBlockedRef.current = Boolean(detail?.blocked);
+        if (!detail?.blocked) return;
+        engineRef.current?.pause();
+        const paused = chatAreaRef.current?.pauseActiveLiveBuffer();
+        if (paused) {
+          discussionTTS.pause();
+          setIsDiscussionPaused(true);
+        }
+      };
       window.addEventListener(PLAYBACK_ACTIVITY_COMPLETE_EVENT, onComplete);
       window.addEventListener(PLAYBACK_ACTIVITY_RESET_EVENT, onReset);
+      window.addEventListener(PLAYBACK_MODAL_BLOCK_EVENT, onModalBlock);
       return () => {
         window.removeEventListener(PLAYBACK_ACTIVITY_COMPLETE_EVENT, onComplete);
         window.removeEventListener(PLAYBACK_ACTIVITY_RESET_EVENT, onReset);
+        window.removeEventListener(PLAYBACK_MODAL_BLOCK_EVENT, onModalBlock);
       };
-    }, []);
+    }, [discussionTTS]);
 
     /**
      * Resume a soft-paused topic: re-call /chat with existing session messages.
@@ -700,6 +716,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           if (autoPlayLecture) {
             const completedSceneId = currentScene?.id;
             setTimeout(() => {
+              if (modalPlaybackBlockedRef.current) return;
               const stageState = useStageStore.getState();
               if (!useSettingsStore.getState().autoPlayLecture) return;
               const allScenes = stageState.scenes;
@@ -761,6 +778,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         currentScene?.id !== autoplaySceneId ||
         handledAutoplaySceneIdRef.current === autoplaySceneId
       ) return;
+      if (modalPlaybackBlockedRef.current) return;
       const engine = engineRef.current;
       if (!engine) return;
       handledAutoplaySceneIdRef.current = autoplaySceneId;

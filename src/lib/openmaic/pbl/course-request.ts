@@ -49,7 +49,7 @@ export function buildTeacherActivityRequirements(
       openMaicUse: "none",
       resourceTypes: ["ppt", "script"] as SceneResourceType[],
       requirement:
-        "必须单独生成普通课堂活动所需的教师 PPT 与讲稿，并在教师课堂资源中解析；不得进入学生 AI 授知播放界面。",
+        "必须单独生成普通课堂活动所需的教师 PPT 与讲稿，并在教师课堂资源中解析；不得进入学生知识讲授播放界面。",
     }));
 }
 
@@ -120,7 +120,7 @@ export function buildPblCourseRequirement(
       ? `课程大纲只能引用以下已确认知识点 ID，请保持 knowledgePointIds 与备课目标一致，并优先覆盖 foundation/core 后再安排 application/extension：\n${JSON.stringify(content.knowledgePoints.map((point) => ({ id: point.id, name: point.name, level: point.level })), null, 2)}`
       : "",
     content?.teachingOutline?.length
-      ? `普通课堂活动的教师资源清单（每条都要单独生成和解析，AI 授知阶段除外）：\n${JSON.stringify(buildTeacherActivityRequirements(content), null, 2)}`
+      ? `普通课堂活动的教师资源清单（每条都要单独生成和解析，知识讲授阶段除外）：\n${JSON.stringify(buildTeacherActivityRequirements(content), null, 2)}`
       : "",
     outlines?.length
       ? `已确认场景大纲：\n${JSON.stringify(outlines, null, 2)}`

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildNewSystemTimingPlan } from "./new-system-course";
 import {
   adjustClassroomStageTiming,
   completeClassroomTiming,
@@ -34,6 +35,29 @@ const projectMainline = {
 };
 
 describe("classroom timing state machine", () => {
+  it.each([24, 36, 48])("does not expand a %i minute lecture-only plan to fill the 120 minute course", (minutes) => {
+    const state = createClassroomTimingState({
+      stages: stages.filter((stage) => stage.key !== "proposal"),
+      totalMinutes: 120,
+      moduleTimingPlan: buildNewSystemTimingPlan(minutes),
+      now: "2026-08-31T00:00:00.000Z",
+    });
+    expect(state.stages.find((stage) => stage.stageKey === "ai-learning")?.basePlannedSec).toBe(minutes * 60);
+    expect(state.stages.reduce((sum, stage) => sum + stage.basePlannedSec, 0)).toBe(120 * 60);
+    expect(state.stages.every((stage) => stage.basePlannedSec >= 60)).toBe(true);
+  });
+
+  it("uses the new lecture budget even when an older project mainline remains", () => {
+    const state = createClassroomTimingState({
+      stages: stages.filter((stage) => stage.key !== "proposal"),
+      totalMinutes: 120,
+      projectMainline,
+      moduleTimingPlan: buildNewSystemTimingPlan(36),
+    });
+    expect(state.stages.find((stage) => stage.stageKey === "ai-learning")?.basePlannedSec).toBe(2160);
+    expect(state.stages.reduce((sum, stage) => sum + stage.basePlannedSec, 0)).toBe(7200);
+  });
+
   it("starts from the confirmed six-stage mainline", () => {
     const state = createClassroomTimingState({
       stages,

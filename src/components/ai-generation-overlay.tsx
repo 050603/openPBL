@@ -53,7 +53,7 @@ const TASK_STAGES: Record<AiTaskKind, { title: string; stages: Stage[] }> = {
     title: "生成课程资源大纲",
     stages: [
       { label: "解析课程模块与知识点对齐", weight: 3 },
-      { label: "生成 AI 授知与教师授课资源", weight: 5 },
+      { label: "生成知识讲授与教师授课资源", weight: 5 },
       { label: "关联知识点与课程模块", weight: 3 },
       { label: "校验资源覆盖度", weight: 2 },
     ],

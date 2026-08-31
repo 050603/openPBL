@@ -537,7 +537,7 @@ export function buildAdaptiveResourceRequirement(
     : [];
   const purposeRules = prerequisite
     ? [
-        "这是课前先决知识补缺，不是本课新授内容的缩略版。每个被诊断的先修能力必须至少生成一页完整 AI 授知内容，不得只给答案或一段口头说明。",
+        "这是课前先决知识补缺，不是本课新授内容的缩略版。每个被诊断的先修能力必须至少生成一页完整知识讲授内容，不得只给答案或一段口头说明。",
         "本资源只允许修复一个独立先修知识缺口；不得顺带回顾其他前测知识或扩展成综合基础课。",
         prerequisitePoint ? `课前应会依据：${prerequisitePoint.expectedPriorKnowledgeEvidence}` : "课前应会依据必须来自已确认方案。",
         prerequisitePoint ? `进入主课的诊断边界：${prerequisitePoint.diagnosticBoundary}` : "只讲到足以进入主课的边界。",
@@ -1556,7 +1556,7 @@ export function evaluateAdaptiveBranchDecision(input: {
       },
       {
         key: "time",
-        label: prerequisite ? "先决补缺时间规则" : "AI 授知剩余时间",
+        label: prerequisite ? "先决补缺时间规则" : "知识讲授剩余时间",
         expected: prerequisite
           ? "发现缺口后必须先补充，不占用主课或拓展时间额度"
           : `至少 ${Math.ceil(timeRequired / 60)} 分钟`,

@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  GraduationCap,
   Image as ImageIcon,
   KeyRound,
   Loader2,
@@ -59,7 +60,7 @@ import { ServerProvidersInit } from "@openmaic/components/server-providers-init"
 import { I18nProvider } from "@openmaic/lib/hooks/use-i18n";
 import { ThemeProvider } from "@openmaic/lib/hooks/use-theme";
 
-type TabKey = "llm" | "tts" | "asr" | "image" | "video" | "web-search" | "pdf" | "agent-voice";
+type TabKey = "llm" | "tts" | "asr" | "image" | "video" | "web-search" | "pdf" | "agent-voice" | "knowledge-tutor";
 
 type ProviderMeta = {
   id: string;
@@ -132,6 +133,7 @@ const TABS: Array<{
   { key: "web-search", label: "联网搜索", shortLabel: "搜索", section: "web-search", icon: Search },
   { key: "pdf", label: "PDF 解析", shortLabel: "PDF", section: "pdf", icon: FileText },
   { key: "agent-voice", label: "智能体音色", shortLabel: "音色", section: "tts", icon: Users },
+  { key: "knowledge-tutor", label: "知识讲授助教", shortLabel: "知识助教", section: "providers", icon: GraduationCap },
 ];
 
 const TAB_COPY: Record<TabKey, { title: string }> = {
@@ -158,6 +160,9 @@ const TAB_COPY: Record<TabKey, { title: string }> = {
   },
   "agent-voice": {
     title: "智能体音色",
+  },
+  "knowledge-tutor": {
+    title: "知识讲授助教",
   },
 };
 
@@ -231,6 +236,7 @@ function getProvidersForTab(tab: TabKey): ProviderMeta[] {
         description: (provider as { features?: string[] }).features?.join("、"),
       }));
     case "agent-voice":
+    case "knowledge-tutor":
       return [];
   }
 }
@@ -476,6 +482,146 @@ function AgentVoiceConfig() {
 
       {testResult ? <ResultNotice result={testResult} /> : null}
     </div>
+  );
+}
+
+type KnowledgeTutorSettings = {
+  modelString?: string;
+  ttsProviderId?: string;
+  ttsModelId?: string;
+  ttsVoice?: string;
+  ttsSpeed?: number;
+};
+
+function KnowledgeTutorConfig() {
+  const { ttsProvidersConfig } = useSettingsStore();
+  const [settings, setSettings] = useState<KnowledgeTutorSettings>({ ttsSpeed: 1 });
+  const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<ResultState>(null);
+  const voiceProviders = useMemo(
+    () => getEnabledProvidersWithVoices(ttsProvidersConfig),
+    [ttsProvidersConfig],
+  );
+  const selectedVoiceProvider = voiceProviders.find((item) => item.providerId === settings.ttsProviderId);
+
+  useEffect(() => {
+    void Promise.all([
+      fetch("/api/knowledge-lecture/settings").then((response) => response.json()),
+      fetch("/api/openmaic/provider-config?section=providers").then((response) => response.json()),
+    ]).then(([settingsPayload, providerPayload]) => {
+      const configured = (providerPayload?.providers ?? {}) as Record<string, SavedConfig>;
+      const options = Object.entries(configured).flatMap(([providerId, config]) => {
+        if (!config.hasApiKey && config.enabled === undefined) return [];
+        const provider = PROVIDERS[providerId as keyof typeof PROVIDERS];
+        const models = config.models?.length ? config.models : provider?.models.map((model) => model.id) ?? [];
+        return models.map((modelId) => ({
+          value: `${providerId}:${modelId}`,
+          label: `${provider?.name ?? providerId} · ${provider?.models.find((item) => item.id === modelId)?.name ?? modelId}`,
+        }));
+      });
+      setModelOptions(options);
+      setSettings(settingsPayload?.settings ?? { ttsSpeed: 1 });
+    }).catch(() => setResult({ ok: false, message: "知识助教配置读取失败。" }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/knowledge-lecture/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.settings) throw new Error("保存失败");
+      setSettings(payload.settings);
+      setResult({ ok: true, message: "知识讲授助教的模型与音色已保存。" });
+    } catch (cause) {
+      setResult({ ok: false, message: cause instanceof Error ? cause.message : "保存失败" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testVoice() {
+    if (!settings.ttsProviderId || !settings.ttsVoice) return;
+    setTesting(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/openmaic/generate/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "这是一段知识讲授助教的示范讲解。我们先看题目条件，再梳理判断依据。",
+          audioId: `knowledge_tutor_test_${Date.now()}`,
+          ttsProviderId: settings.ttsProviderId,
+          ttsModelId: settings.ttsModelId,
+          ttsVoice: settings.ttsVoice,
+          ttsSpeed: settings.ttsSpeed ?? 1,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      const base64 = payload?.base64 ?? payload?.data?.base64;
+      const format = payload?.format ?? payload?.data?.format ?? "mp3";
+      if (!response.ok || !base64) throw new Error("试听生成失败");
+      await new Audio(`data:audio/${format};base64,${base64}`).play();
+      setResult({ ok: true, message: "正在试听知识助教音色。" });
+    } catch (cause) {
+      setResult({ ok: false, message: cause instanceof Error ? cause.message : "试听失败" });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  if (loading) return <EmptyPanel text="正在读取知识助教配置…" />;
+
+  return (
+    <section className="overflow-hidden rounded-[12px] border border-stone-200 bg-white">
+      <div className="border-b border-stone-200 bg-stone-50/70 px-5 py-4">
+        <h3 className="font-bold text-stone-950">错题讲解模型与声音</h3>
+        <p className="mt-1 text-xs leading-5 text-stone-500">学生打开逐题讲解时，助教会用这里指定的模型生成板书，并用所选音色自动朗读。</p>
+      </div>
+      <div className="grid gap-5 p-5 md:grid-cols-2">
+        <Field label="讲解模型" helper="仅显示已在 AI 大模型页完成配置的模型。" icon={Bot}>
+          <select className="h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={settings.modelString ?? ""} onChange={(event) => setSettings((current) => ({ ...current, modelString: event.target.value || undefined }))}>
+            <option value="">跟随系统默认模型</option>
+            {modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </Field>
+        <Field label="语音服务" helper="请先在语音朗读页配置并启用服务。" icon={Volume2}>
+          <select className="h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-sm outline-none focus:border-[var(--pbl-teacher)]" value={settings.ttsProviderId ?? ""} onChange={(event) => {
+            const provider = voiceProviders.find((item) => item.providerId === event.target.value);
+            setSettings((current) => ({ ...current, ttsProviderId: event.target.value || undefined, ttsModelId: provider?.modelGroups[0]?.modelId, ttsVoice: provider?.voices[0]?.id }));
+          }}>
+            <option value="">浏览器默认语音（兜底）</option>
+            {voiceProviders.map((provider) => <option key={provider.providerId} value={provider.providerId}>{provider.providerName}</option>)}
+          </select>
+        </Field>
+        <Field label="讲解音色" icon={Users}>
+          <select disabled={!selectedVoiceProvider} className="h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-sm outline-none disabled:bg-stone-100" value={settings.ttsVoice ?? ""} onChange={(event) => setSettings((current) => ({ ...current, ttsVoice: event.target.value || undefined }))}>
+            <option value="">选择音色</option>
+            {(selectedVoiceProvider?.modelGroups.length ?? 0) > 1
+              ? selectedVoiceProvider?.modelGroups.map((group) => <optgroup key={group.modelId} label={group.modelName}>{group.voices.map((voice) => <option key={`${group.modelId}:${voice.id}`} value={voice.id}>{voice.name}</option>)}</optgroup>)
+              : selectedVoiceProvider?.voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
+          </select>
+        </Field>
+        <Field label="讲解语速" helper={`${(settings.ttsSpeed ?? 1).toFixed(1)} 倍速`} icon={SlidersHorizontal}>
+          <input className="w-full accent-[var(--pbl-teacher)]" type="range" min="0.7" max="1.3" step="0.1" value={settings.ttsSpeed ?? 1} onChange={(event) => setSettings((current) => ({ ...current, ttsSpeed: Number(event.target.value) }))} />
+        </Field>
+      </div>
+      <div className="border-t border-stone-200 px-5 py-4">
+        <div className="flex flex-wrap gap-2">
+          <PrimaryButton className="h-10" disabled={saving} onClick={() => void save()}>{saving ? <Loader2 className="animate-spin" size={15} /> : <Save size={15} />}保存配置</PrimaryButton>
+          <PrimaryButton className="h-10" variant="outline" disabled={testing || !settings.ttsProviderId || !settings.ttsVoice} onClick={() => void testVoice()}>{testing ? <Loader2 className="animate-spin" size={15} /> : <Volume2 size={15} />}试听音色</PrimaryButton>
+        </div>
+        <ResultNotice result={result} />
+      </div>
+    </section>
   );
 }
 
@@ -923,7 +1069,7 @@ export default function TeacherSettingsPage() {
         </div>
 
         <nav aria-label="AI 服务类型" className="overflow-x-auto p-2">
-            <div className="grid min-w-[760px] grid-cols-8 gap-1">
+            <div className="grid min-w-[880px] grid-cols-9 gap-1">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key;
@@ -973,7 +1119,7 @@ export default function TeacherSettingsPage() {
             <main className="min-w-0">
               <div className="mb-4 flex min-h-8 items-center justify-between gap-3">
                 <h2 className="truncate text-lg font-bold text-stone-900 sm:text-xl">{tabCopy.title}</h2>
-                {activeTab !== "agent-voice" ? (
+                {activeTab !== "agent-voice" && activeTab !== "knowledge-tutor" ? (
                   <span className="shrink-0 text-xs font-medium tabular-nums text-stone-500">
                     {configuredProvidersCount}/{providers.length} 已配置
                   </span>
@@ -987,7 +1133,9 @@ export default function TeacherSettingsPage() {
                 </div>
               ) : null}
 
-              {activeTab === "agent-voice" ? (
+              {activeTab === "knowledge-tutor" ? (
+                <KnowledgeTutorConfig />
+              ) : activeTab === "agent-voice" ? (
                 <AgentVoiceConfig />
               ) : activeTab === "llm" ? (
                 <div className="grid items-start gap-4 lg:grid-cols-[304px_minmax(0,1fr)]">

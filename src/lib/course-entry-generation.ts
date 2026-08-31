@@ -708,7 +708,7 @@ function compilePlan(
         .map((scene) => scene.id),
       sceneType: "slide",
       targetDurationSec: 210,
-      generationGuidance: `严格按四段生成至少一页 AI 授知资源：① ${point.reviewResource.misconception}；② ${point.reviewResource.explanation}；③ ${point.reviewResource.workedExample}；④ ${point.reviewResource.bridgeCheck}。不得定义、解释或练习本课新授目标。该资源是主课程中的插入片段，直接开始讲解，不得问候、欢迎、重新介绍课程或正式告别；结尾只用一句自然衔接返回后续内容。`,
+      generationGuidance: `严格按四段生成至少一页知识讲授资源：① ${point.reviewResource.misconception}；② ${point.reviewResource.explanation}；③ ${point.reviewResource.workedExample}；④ ${point.reviewResource.bridgeCheck}。不得定义、解释或练习本课新授目标。该资源是主课程中的插入片段，直接开始讲解，不得问候、欢迎、重新介绍课程或正式告别；结尾只用一句自然衔接返回后续内容。`,
       trigger,
       status: "draft",
     };

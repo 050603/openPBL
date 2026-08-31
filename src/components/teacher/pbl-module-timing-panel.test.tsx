@@ -109,7 +109,7 @@ describe("PblModuleTimingPanel", () => {
 
     expect(container.textContent).toContain("标准难度");
     expect(container.textContent).toContain("已有知识基础为空");
-    expect(container.textContent).toContain("基础层（训练数据）需在AI 授知阶段学习");
+    expect(container.textContent).toContain("基础层（训练数据）需在知识讲授阶段学习");
     expect(container.textContent).not.toMatch(/priorKnowledge|learningNeeds|knowledgeGraph|foundation|standard|ai-learning|proposal|make|showcase|reflection|kp-\d+/i);
   });
 });

@@ -149,6 +149,8 @@ interface StudentStageHostProps {
     completedSceneCount: number;
     totalSceneCount: number;
   }) => void;
+  /** Reports the currently visible runtime scene, including its stable outline id. */
+  onActiveSceneChange?: (scene: Scene) => void;
   /** Plays an independently generated branch or micro lesson without course progress writes. */
   standalone?: boolean;
   /** Prepared adaptive classrooms to splice into the already-mounted player. */
@@ -357,6 +359,7 @@ export function StudentStageHost({
   mode = 'student',
   className,
   onSceneComplete,
+  onActiveSceneChange,
   standalone = false,
   adaptiveInsertions = [],
   prefetchClassroomIds = [],
@@ -369,7 +372,7 @@ export function StudentStageHost({
 }: StudentStageHostProps) {
   const [state, setState] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
-  const [loadingMessage, setLoadingMessage] = useState('正在加载 AI 课堂...');
+  const [loadingMessage, setLoadingMessage] = useState('正在加载知识讲授课堂...');
   const [activeMediaClassroomId, setActiveMediaClassroomId] = useState(classroomId);
   const [autoplaySceneId, setAutoplaySceneId] = useState<string>();
 
@@ -465,7 +468,7 @@ export function StudentStageHost({
         : {}),
       ...(scene ? {
         content: {
-          stageLabel: scene.stageLabel ?? 'AI 授知',
+          stageLabel: scene.stageLabel ?? '知识讲授',
           sceneTitle: scene.title,
           sceneIndex: sceneIndex + 1,
           sceneType: scene.type,
@@ -487,7 +490,7 @@ export function StudentStageHost({
     classroomLoadControllerRef.current = loadController;
     setState('loading');
     setErrorMsg(undefined);
-    setLoadingMessage('正在加载 AI 课堂...');
+    setLoadingMessage('正在加载知识讲授课堂...');
     try {
       // 1. 拉取课堂
       let classroom: ClassroomPayload | undefined;
@@ -497,10 +500,10 @@ export function StudentStageHost({
           { cache: 'no-store', signal: loadController.signal },
         );
         if (!res.ok) {
-          throw new Error(res.status === 404 ? 'AI 课堂不存在或已被移除' : `加载失败（HTTP ${res.status}）`);
+          throw new Error(res.status === 404 ? '知识讲授课堂不存在或已被移除' : `加载失败（HTTP ${res.status}）`);
         }
         const json = (await res.json()) as { success: boolean; classroom?: ClassroomPayload };
-        if (!json.success || !json.classroom) throw new Error('AI 课堂内容为空');
+        if (!json.success || !json.classroom) throw new Error('知识讲授课堂内容为空');
         classroom = json.classroom;
         if (!requirePreparedAudio || isClassroomAudioPrepared(classroom)) break;
         if (classroom.assetGeneration?.status === 'partial-failure') {
@@ -518,14 +521,14 @@ export function StudentStageHost({
       }
       const { stage, scenes } = classroom;
       if (!Array.isArray(scenes) || scenes.length === 0) {
-        setErrorMsg('AI 课堂未包含任何场景');
+        setErrorMsg('知识讲授课堂未包含任何页面');
         setState('error');
         return;
       }
 
       const studentScenes = standalone ? scenes : selectStudentLearningScenes(scenes);
       if (studentScenes.length === 0) {
-        setErrorMsg('AI 课堂中没有可供学生学习的场景');
+        setErrorMsg('知识讲授课堂中没有可供学生学习的页面');
         setState('error');
         return;
       }
@@ -614,6 +617,8 @@ export function StudentStageHost({
         generationComplete: true,
         generationStatus: 'completed',
       });
+      const visibleInitialScene = initialQueue.scenes.find((scene) => scene.id === initialSceneId);
+      if (visibleInitialScene) onActiveSceneChange?.(visibleInitialScene);
       const initialAdaptiveScene = initialQueue.scenes.find(
         (scene) => scene.id === initialSceneId,
       ) as AdaptiveScene | undefined;
@@ -668,7 +673,7 @@ export function StudentStageHost({
         classroomLoadControllerRef.current = null;
       }
     }
-  }, [classroomId, courseId, flushTelemetry, mode, queueTelemetry, requirePreparedAudio, standalone, studentId, trackingEnabled]);
+  }, [classroomId, courseId, flushTelemetry, mode, onActiveSceneChange, queueTelemetry, requirePreparedAudio, standalone, studentId, trackingEnabled]);
 
   const loadPreparedClassroom = useCallback(
     (preparedClassroomId: string) =>
@@ -903,6 +908,7 @@ export function StudentStageHost({
         const currentScene = current.scenes.find(
           (scene) => scene.id === current.currentSceneId,
         ) as AdaptiveScene | undefined;
+        if (currentScene) onActiveSceneChange?.(currentScene);
         setActiveMediaClassroomId(
           currentScene?.openpblAdaptiveClassroomId ?? classroomId,
         );
@@ -924,7 +930,7 @@ export function StudentStageHost({
         unsubscribeRef.current = null;
       }
     };
-  }, [classroomId, flushTelemetry, queueTelemetry, reportProgress, settleScene, state]);
+  }, [classroomId, flushTelemetry, onActiveSceneChange, queueTelemetry, reportProgress, settleScene, state]);
 
   useEffect(() => {
     if (state !== 'ready' || !trackingEnabled) return;

@@ -59,7 +59,7 @@ describe("TimerPanel", () => {
     );
 
     expect(screen.getByText("05:00")).toBeTruthy();
-    expect(screen.getByText(/AI 授知 · 阶段剩余/)).toBeTruthy();
+    expect(screen.getByText(/知识讲授 · 阶段剩余/)).toBeTruthy();
     expect(screen.getByText("课程已用 / 计划")).toBeTruthy();
     expect(screen.getByText(/提前 1 分/)).toBeTruthy();
 

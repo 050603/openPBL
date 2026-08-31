@@ -254,7 +254,7 @@ export function deriveStageReadiness(
       status,
       checks: [{
         id: "ai-learning-existing-flow",
-        label: "完成原 AI 授知流程",
+        label: "完成知识讲授流程",
         satisfied: completed,
         evidenceIds: [],
       }],

@@ -19,6 +19,7 @@ import {
   withGenerationRetry,
 } from "@openmaic/lib/generation/generation-retry";
 import { getCourse, updateCourse } from "@/lib/session/server-store";
+import { hasExactKnowledgeLecturePageBudget, isNewSystemAiTimingPlan } from "@/lib/classroom/new-system-course";
 import {
   adaptiveBranchGenerationSignature,
   selectAdaptiveBranchesForGeneration,
@@ -477,7 +478,7 @@ export async function generateAdaptiveBranchResource(
         targetDurationSec: branch.targetDurationSec,
         order: 0,
         stageKey: "ai-learning",
-        stageLabel: "AI 授知",
+        stageLabel: "知识讲授",
         audience: "student",
         generationPurpose: "knowledge-teaching",
         detailKind: "knowledge-explanation",
@@ -785,6 +786,15 @@ async function runJobWithCourseGenerationContext(job: CourseGenerationJob): Prom
 
   try {
     const checkpointState = await loadCheckpointState(job.id);
+    if (request.systemMode === "new" || request.pblProfile?.generationTemplate === "new-ai-learning-only") {
+      const course = await getCourse(courseId);
+      const timing = course?.content.moduleTimingPlan;
+      const outlines = checkpointState.preparedOutlines.length ? checkpointState.preparedOutlines : generationInput.sceneOutlines ?? [];
+      if (!course || !isNewSystemAiTimingPlan(timing, course.hours)
+        || !hasExactKnowledgeLecturePageBudget(outlines, timing.totalMinutes)) {
+        throw new Error("知识讲授时长必须占整课 20%–40%，且讲解与小测合计必须等于已确定预算。请重新规划知识讲授后生成，不可继续使用旧的超长页面或检查点。");
+      }
+    }
     const generated = await generateClassroom(generationInput, {
       signal: controller.signal,
       preparedOutlines: checkpointState.preparedOutlines,

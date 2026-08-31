@@ -55,6 +55,11 @@
   --input: #d6d3d1;
   --ring: #8b5cf6;
   --brand: #7c3aed;
+  /* Shadcn/Plate/OpenMAIC buttons use the generic destructive token. Keep it
+     wired to the OpenPBL danger palette so destructive actions never degrade
+     to transparent backgrounds with white (therefore invisible) labels. */
+  --destructive: var(--pbl-danger);
+  --destructive-foreground: #ffffff;
 
   /* —— 身份色：教师端（深蓝 Blue + 暖橙强调）—— */
   /* 颜色加深到 blue-700，确保白色文字对比度 ≥ 4.5:1 (WCAG AA) */
@@ -173,6 +178,8 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-brand: var(--brand);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --font-sans: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
   --font-serif: "Noto Serif SC", "Songti SC", serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;

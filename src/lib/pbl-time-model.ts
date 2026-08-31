@@ -121,8 +121,8 @@ export const PBL_MODULE_DEFINITIONS: readonly PblModuleDefinition[] = [
   {
     stageKey: 'ai-learning',
     kind: 'knowledge',
-    label: 'AI 授知',
-    defaultTitle: 'AI 授知：核心知识与方法建构',
+    label: '知识讲授',
+    defaultTitle: '知识讲授：分节建构核心知识与方法',
     resourcePlan: '学生 slide、quiz 或 interactive，按知识点难度递进',
   },
   {

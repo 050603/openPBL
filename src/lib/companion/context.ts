@@ -168,7 +168,7 @@ export function buildCompanionContext(course: Course, studentId: string | undefi
       `当前阶段状态=${readiness?.status ?? "未识别"}`,
       `下一依据=${readiness?.reason ?? "无记录"}`,
       `缺失证据=${readiness?.missingEvidenceKinds.join("、") || "无"}`,
-      `AI授知进度=${compact(aiProgress, 700)}`,
+      `知识讲授进度=${compact(aiProgress, 700)}`,
     ].join("；"),
     submissions: formatItems(learningEvidence, formatLearningEvidence, "（无统一学习证据）"),
     uploads: formatItems(

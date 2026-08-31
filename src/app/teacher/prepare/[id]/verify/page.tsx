@@ -1678,7 +1678,7 @@ export default function VerifyCoursePage() {
                     {section.durationMin} 分钟
                   </span>
                   <span className="inline-flex h-10 items-center rounded-[6px] border border-stone-200 bg-stone-50 px-3 text-xs font-semibold text-stone-600">
-                    {section.stageKey === "ai-learning" ? "学生 AI 授知" : "普通课堂活动"}
+                    {section.stageKey === "ai-learning" ? "学生知识讲授" : "普通课堂活动"}
                   </span>
                   {index >= PBL_MODULE_DEFINITIONS.length ? (
                     <button

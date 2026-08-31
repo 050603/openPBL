@@ -424,7 +424,7 @@ export async function buildReflectionEvidencePrompts(input: {
 学生姓名：${student?.name ?? "未识别学生"}
 个人项目：${group?.name ?? "（项目空间待同步）"}
 选题：${group?.topic ?? "（无）"}
-阶段进度：学习反思与迁移=${stageProgress}%；AI 授知=${formatAiLearningProgress(aiLearningProgress)}
+阶段进度：学习反思与迁移=${stageProgress}%；知识讲授=${formatAiLearningProgress(aiLearningProgress)}
 AI 支架记录：${supports.length} 条
   - 已采纳：${supports.filter((s) => s.status === "student-applied").length} 条
   - 未采纳：${supports.filter((s) => s.status !== "student-applied" && s.status !== "dismissed").length} 条

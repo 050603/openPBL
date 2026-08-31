@@ -50,7 +50,7 @@ describe("normalizeEvaluationPlanOutput", () => {
 
 const stages = [
   { key: "launch", label: "项目启动", description: "明确情境与驱动问题" },
-  { key: "ai-learning", label: "AI 授知", description: "建构核心知识" },
+  { key: "ai-learning", label: "知识讲授", description: "建构核心知识" },
   { key: "proposal", label: "方案构思", description: "形成个人方案" },
   { key: "make", label: "项目实践", description: "制作、测试与迭代" },
   { key: "showcase", label: "成果汇报", description: "展示成果并评价" },
@@ -346,7 +346,7 @@ describe("module timing recommendation", () => {
     expect(visibleText).toContain("标准难度");
     expect(visibleText).toContain("已有知识基础与学习支持需求均为空");
     expect(visibleText).toContain("基础层（训练数据）到核心层（分类规则）");
-    expect(visibleText).toContain("AI 授知阶段");
+    expect(visibleText).toContain("知识讲授阶段");
     expect(visibleText).not.toMatch(/priorKnowledge|learningNeeds|knowledgeGraph|foundation|core|application|standard|ai-learning|proposal|make|showcase|reflection|kp-\d+/i);
   });
 

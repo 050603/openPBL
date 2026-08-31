@@ -342,7 +342,7 @@ export default function PreviewCoursePage() {
               <h1 className="mt-1 truncate font-editorial text-[26px] font-semibold tracking-[-0.02em] text-stone-950 sm:text-[30px]">{course.name}</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">
                 {course.subject} · {course.grade} · {newSystem
-                  ? `核对 AI 授知内容、动态时长（${course.content.moduleTimingPlan?.totalMinutes ?? 0} 分钟）与发布条件`
+                  ? `核对知识讲授内容与时长（${course.content.moduleTimingPlan?.totalMinutes ?? 0} 分钟，须占整课 20%–40%）及发布条件`
                   : "核对课程内容、学习路径与发布条件"}
               </p>
             </div>

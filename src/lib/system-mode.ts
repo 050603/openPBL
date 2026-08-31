@@ -19,9 +19,9 @@ const NEW_SYSTEM_STAGES: readonly Stage[] = [
   },
   {
     key: "ai-learning",
-    label: "AI授知",
+    label: "知识讲授",
     view: "ai-learning",
-    description: "AI辅助知识学习与基础概念建构",
+    description: "分节学习核心知识，通过节末小测与 AI 助教讲解及时巩固",
   },
   {
     key: "make",

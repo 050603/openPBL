@@ -11,7 +11,8 @@ import {
   Check,
   BookOpenText,
   Loader2,
-  Sparkles,
+  MessageCircleQuestion,
+  ArrowRight,
 } from 'lucide-react';
 import { cn } from '@openmaic/lib/utils';
 import { useI18n } from '@openmaic/lib/hooks/use-i18n';
@@ -42,6 +43,9 @@ interface QuizViewProps {
   readonly questions: QuizQuestion[];
   readonly sceneId: string;
 }
+
+export const KNOWLEDGE_LECTURE_QUIZ_REVIEWED_EVENT = 'openpbl:knowledge-lecture-quiz-reviewed';
+export const KNOWLEDGE_LECTURE_EXPLAIN_EVENT = 'openpbl:knowledge-lecture-explain-question';
 
 const QuizMathText = memo(function QuizMathText({
   text,
@@ -169,6 +173,7 @@ function SingleChoiceQuestion({
   onChange,
   disabled,
   result,
+  onExplain,
 }: {
   question: QuizQuestion;
   index: number;
@@ -176,11 +181,12 @@ function SingleChoiceQuestion({
   onChange: (value: string) => void;
   disabled?: boolean;
   result?: QuestionResult;
+  onExplain?: () => void;
 }) {
   const isReview = !!result;
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard question={question} index={index} result={result} onExplain={onExplain}>
       <div className="grid gap-2">
         {question.options?.map((opt) => {
           const selected = value === opt.value;
@@ -262,6 +268,7 @@ function MultipleChoiceQuestion({
   onChange,
   disabled,
   result,
+  onExplain,
 }: {
   question: QuizQuestion;
   index: number;
@@ -269,6 +276,7 @@ function MultipleChoiceQuestion({
   onChange: (value: string[]) => void;
   disabled?: boolean;
   result?: QuestionResult;
+  onExplain?: () => void;
 }) {
   const isReview = !!result;
   const selected = value ?? [];
@@ -285,7 +293,7 @@ function MultipleChoiceQuestion({
   const { t } = useI18n();
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard question={question} index={index} result={result} onExplain={onExplain}>
       {!isReview && (
         <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
           {t('quiz.multipleChoiceHint')}
@@ -365,6 +373,7 @@ function ShortAnswerQuestion({
   onChange,
   disabled,
   result,
+  onExplain,
 }: {
   question: QuizQuestion;
   index: number;
@@ -372,6 +381,7 @@ function ShortAnswerQuestion({
   onChange: (value: string) => void;
   disabled?: boolean;
   result?: QuestionResult;
+  onExplain?: () => void;
 }) {
   const isReview = !!result;
   const { t } = useI18n();
@@ -382,7 +392,7 @@ function ShortAnswerQuestion({
   }, [value]);
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard question={question} index={index} result={result} onExplain={onExplain}>
       {!isReview ? (
         <div className="relative">
           {question.format === 'fill_blank' ? (
@@ -429,7 +439,6 @@ function ShortAnswerQuestion({
           </div>
           {result.aiComment && (
             <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800">
-              <Sparkles className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" />
               <div>
                 <p className="text-xs font-medium text-violet-600 dark:text-violet-400 mb-0.5">
                   {t('quiz.aiComment')}
@@ -455,11 +464,13 @@ function QuestionCard({
   index,
   result,
   children,
+  onExplain,
 }: {
   question: QuizQuestion;
   index: number;
   result?: QuestionResult;
   children: React.ReactNode;
+  onExplain?: () => void;
 }) {
   const { t } = useI18n();
   const isReview = !!result;
@@ -542,10 +553,22 @@ function QuestionCard({
       {children}
 
       {/* Analysis (review only) */}
-      {isReview && question.analysis && (
-        <div className="mt-3 p-3 rounded-lg bg-blue-50/70 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          <span className="font-medium">{t('quiz.analysis')}</span>
-          <QuizMathText text={question.analysis} allowDisplayMode />
+      {isReview && (question.analysis || onExplain) && (
+        <div className="mt-3 rounded-xl border border-cyan-100 bg-cyan-50/70 p-3 text-xs leading-relaxed text-cyan-950 dark:border-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-200">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              {question.analysis ? (
+                <><span className="font-bold">{t('quiz.analysis')}</span><QuizMathText text={question.analysis} allowDisplayMode /></>
+              ) : (
+                <span className="text-stone-500">需要进一步梳理这道题？</span>
+              )}
+            </div>
+            {onExplain ? (
+              <button className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-cyan-950 px-3 font-bold text-white transition hover:bg-cyan-900" onClick={onExplain} type="button">
+                <MessageCircleQuestion className="size-3.5" />助教讲解
+              </button>
+            ) : null}
+          </div>
         </div>
       )}
     </motion.div>
@@ -665,6 +688,7 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
   const [results, setResults] = useState<QuestionResult[]>(() =>
     initialSubmitted?.kind === 'reviewing' ? initialSubmitted.results : [],
   );
+  const [reviewReleased, setReviewReleased] = useState(false);
 
   // Draft cache for quiz answers, keyed by sceneId to isolate across classrooms
   const {
@@ -757,19 +781,37 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
     };
   }, [phase, questions, answers, locale, sceneId]);
 
-  // A submitted quiz is the runtime gate completion. This also runs for a
-  // persisted reviewing state after refresh, so playback can resume without
-  // requiring the student to replay the opening narration.
+  const hasIncorrectAnswer = useMemo(
+    () => results.some((result) => result.status === 'incorrect'),
+    [results],
+  );
+
+  // Publishing results must never release the quiz gate. Perfect submissions
+  // and restored reviews also remain here until explicit learner confirmation.
   useEffect(() => {
     if (phase !== 'reviewing') return;
-    dispatchPlaybackActivityComplete({ sceneId, purpose: 'quiz' });
+    window.dispatchEvent(new CustomEvent(KNOWLEDGE_LECTURE_QUIZ_REVIEWED_EVENT, {
+      detail: { sceneId },
+    }));
   }, [phase, sceneId]);
+
+  const handleExplain = useCallback((questionId: string) => {
+    window.dispatchEvent(new CustomEvent(KNOWLEDGE_LECTURE_EXPLAIN_EVENT, {
+      detail: { sceneId, questionId },
+    }));
+  }, [sceneId]);
+
+  const handleContinueAfterReview = useCallback(() => {
+    dispatchPlaybackActivityComplete({ sceneId, purpose: 'quiz' });
+    setReviewReleased(true);
+  }, [sceneId]);
 
   const handleRetry = useCallback(() => {
     dispatchPlaybackActivityReset({ sceneId, purpose: 'quiz' });
     setPhase('not_started');
     setAnswers({});
     setResults([]);
+    setReviewReleased(false);
     clearAnswersCache();
     clearSubmitted(sceneId);
   }, [clearAnswersCache, sceneId]);
@@ -898,7 +940,7 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
             </motion.div>
             <div className="text-center">
               <p className="text-base font-semibold text-gray-700 dark:text-gray-200">
-                {t('quiz.aiGrading')}
+                正在批阅
               </p>
               <p className="text-sm text-gray-400 mt-1">{t('quiz.aiGradingWait')}</p>
             </div>
@@ -959,6 +1001,7 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
                       onChange={() => {}}
                       disabled
                       result={r}
+                      onExplain={() => handleExplain(q.id)}
                     />
                   );
                 }
@@ -972,6 +1015,7 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
                       onChange={() => {}}
                       disabled
                       result={r}
+                      onExplain={() => handleExplain(q.id)}
                     />
                   );
                 }
@@ -984,9 +1028,36 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
                     onChange={() => {}}
                     disabled
                     result={r}
+                    onExplain={() => handleExplain(q.id)}
                   />
                 );
               })}
+
+              <div className="sticky bottom-4 z-10 ml-auto max-w-xl rounded-2xl border border-cyan-200 bg-white/95 p-4 shadow-[0_14px_36px_rgba(8,51,68,.16)] backdrop-blur dark:border-cyan-800 dark:bg-gray-900/95">
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-cyan-950 text-white">
+                      <MessageCircleQuestion className="size-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-stone-900 dark:text-stone-100">完成查看后，再继续课程</p>
+                      <p className="mt-1 text-xs leading-5 text-stone-500">
+                        {hasIncorrectAnswer
+                          ? '请先查看错题解析，需要时打开助教讲解。只有点击下方按钮后，课程才会继续。'
+                          : '请确认本次小测结果。只有点击下方按钮后，课程才会继续。'}
+                      </p>
+                      <button
+                        className="mt-3 inline-flex h-10 items-center gap-2 rounded-[10px] bg-cyan-950 px-4 text-sm font-bold text-white transition hover:bg-cyan-900 disabled:cursor-default disabled:bg-emerald-600"
+                        disabled={reviewReleased}
+                        onClick={handleContinueAfterReview}
+                        type="button"
+                      >
+                        {reviewReleased ? <CheckCircle2 className="size-4" /> : null}
+                        {reviewReleased ? '已确认理解' : '我已经理解，可以继续'}
+                        {!reviewReleased ? <ArrowRight className="size-4" /> : null}
+                      </button>
+                    </div>
+                  </div>
+                </div>
             </div>
           </motion.div>
         )}

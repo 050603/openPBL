@@ -31,6 +31,7 @@ import { formatLearningContentReference } from "@/lib/learning-analytics/content
 import { cn } from "@/lib/utils";
 import { deriveClassroomTimingSnapshot } from "@/lib/classroom/timing";
 import { isOpaqueInternalId, userFacingName } from "@/lib/user-facing-labels";
+import { KnowledgeLectureAnalytics } from "./knowledge-lecture-analytics";
 
 export function computeAiLearningProgress(entry?: StudentAiProgress): number {
   if (!entry || !isReliableAiProgress(entry)) return 0;
@@ -193,15 +194,17 @@ export function AiLearningTeacherView({
     <div className="space-y-5">
       {!hasClassroom ? (
         <Card className="border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70">
-          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-black text-[var(--pbl-warning)]">AI 课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
+          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-black text-[var(--pbl-warning)]">知识讲授课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
         </Card>
       ) : null}
 
-      <section aria-label="AI 授知班级指标" className="grid gap-3 sm:grid-cols-3">
+      <section aria-label="知识讲授班级指标" className="grid gap-3 sm:grid-cols-3">
         <MetricCard icon={<Bot size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
         <MetricCard icon={<Clock3 size={19} />} label="容忍时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对设计、实际语音与思考操作余量"} />
         <MetricCard icon={<CircleAlert size={19} />} label="未解决风险" value={evidenceStudents.length ? `${unresolvedSignals.length} 条` : "—"} helper={evidenceStudents.length ? "需要教师观察或介入" : "暂无足够证据"} tone={unresolvedSignals.length ? "danger" : "default"} />
       </section>
+
+      <KnowledgeLectureAnalytics course={course} />
 
       {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
 

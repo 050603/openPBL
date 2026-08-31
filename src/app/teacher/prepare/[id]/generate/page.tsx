@@ -196,7 +196,7 @@ function GenerationCoverage({
 }) {
   const labels: Record<string, string> = {
     launch: "项目启动",
-    "ai-learning": "AI 授知",
+    "ai-learning": "知识讲授",
     proposal: "方案构思",
     make: "项目实践",
     showcase: "成果汇报",
@@ -212,7 +212,7 @@ function GenerationCoverage({
         {Object.values(coverage.entries).map((entry) => <div className="flex items-center justify-between rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-3 py-2 text-xs" key={entry.stageKey}><span className="font-semibold">{labels[entry.stageKey] ?? "课程阶段"}</span><span className={entry.total ? "text-[var(--pbl-ai)]" : "text-[var(--pbl-danger)]"}>{entry.total ? `${entry.total} 场` : "缺少"}</span></div>)}
       </div>
       {coverage.missingStageKeys.length ? <p className="mt-3 text-xs leading-5 text-stone-500">未生成场景的阶段（不一定需要教师资源）：{coverage.missingStageKeys.map((key) => labels[key] ?? "课程阶段").join("、")}。</p> : null}
-      {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-[var(--pbl-warning)]">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? "课程阶段").join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? "课程阶段").join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " AI 授知需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
+      {!coverage.ok ? <p className="mt-3 text-xs leading-5 text-[var(--pbl-warning)]">{coverage.missingStageKeys.length ? `缺少阶段：${coverage.missingStageKeys.map((key) => labels[key] ?? "课程阶段").join("、")}。` : ""}{coverage.missingTeacherResourceStageKeys.length ? `普通课堂活动支撑：${coverage.missingTeacherResourceStageKeys.map((key) => labels[key] ?? "课程阶段").join("、")}。` : ""}{coverage.missingStudentLearningStageKeys.length ? " 知识讲授需要至少一个学生学习场景。" : ""}{coverage.routingViolations.length ? ` 分流冲突：${coverage.routingViolations.join("；")}。` : ""}</p> : null}
       {coverage.metadataWarnings.length ? <p className="mt-2 text-xs leading-5 text-stone-500">元数据提醒：{coverage.metadataWarnings.join("；")}。</p> : null}
     </section>
   );
@@ -915,7 +915,7 @@ export default function GenerateCoursePage() {
               ["课程大纲资源", `${buildConfirmedSceneOutlines().length || course.content.lessonOutline.length} 个`],
               ["互动活动", "按教学活动配置"], ["知识检查", "覆盖学习目标"],
               ["普通课堂活动", `${course.content.teachingOutline?.filter((item) => item.stageKey !== "ai-learning").length ?? 0} 组`],
-              ["学生内容", "AI 授知与项目支架"], ["评价内容", "四类评价与证据要求"],
+              ["学生内容", "知识讲授与项目支架"], ["评价内容", "四类评价与证据要求"],
             ].map(([label, value]) => <div className="border-t border-[var(--pbl-border)] pt-3" key={label}><dt className="text-xs text-[var(--pbl-text-muted)]">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
 
             <details className="group rounded-[12px] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)]/45 p-4" open>
@@ -930,7 +930,7 @@ export default function GenerateCoursePage() {
                 { key: "web", label: "Web 搜索", description: "联网补充资料与出处，需配置搜索服务。", Icon: Search, checked: enableWebSearch, setChecked: setEnableWebSearch },
                 { key: "image", label: "图像生成", description: "为适合视觉表达的课件场景生成配图。", Icon: ImageIcon, checked: enableImageGeneration, setChecked: setEnableImageGeneration },
                 { key: "video", label: "视频生成", description: "生成视频素材，耗时与资源消耗更高。", Icon: Video, checked: enableVideoGeneration, setChecked: setEnableVideoGeneration },
-                { key: "tts", label: "学生 AI 授知 TTS", description: "为学生 AI 授知场景生成同步语音。", Icon: Volume2, checked: enableTTS, setChecked: setEnableTTS },
+                { key: "tts", label: "学生知识讲授 TTS", description: "为学生知识讲授场景生成同步语音。", Icon: Volume2, checked: enableTTS, setChecked: setEnableTTS },
               ].map(({ key, label, description, Icon, checked, setChecked }) => (
                 <label className={cn("relative flex cursor-pointer items-start gap-3 rounded-[10px] border bg-white p-4 transition", checked ? "border-[var(--pbl-ai)] shadow-sm" : "border-stone-200 hover:border-stone-300")} key={key}>
                   <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-[8px]", checked ? "bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]" : "bg-stone-100 text-stone-400")}><Icon size={17} /></span>

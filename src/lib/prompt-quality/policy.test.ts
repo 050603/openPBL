@@ -19,7 +19,7 @@ describe("prompt quality policy", () => {
   });
 
   it("provides canonical Chinese labels for internal PBL stages", () => {
-    expect(promptStageLabel("ai-learning")).toBe("AI 授知");
+    expect(promptStageLabel("ai-learning")).toBe("知识讲授");
     expect(promptStageLabel("proposal")).toBe("方案构思与校准");
     expect(promptStageLabel("unknown", "自定义阶段")).toBe("自定义阶段");
   });

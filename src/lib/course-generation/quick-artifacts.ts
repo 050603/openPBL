@@ -46,7 +46,7 @@ export type QuickClassroomGenerationSnapshot = {
 
 const STAGE_LABELS: Record<string, string> = {
   launch: "项目启动",
-  "ai-learning": "AI 授知",
+  "ai-learning": "知识讲授",
   proposal: "方案构思",
   make: "项目实现",
   showcase: "成果汇报",
@@ -102,13 +102,13 @@ export function buildQuickClassroomArtifacts(
       id: "classroom-routing",
       kind: "outcome",
       eyebrow: "课堂内容生成 · 内容分流",
-      title: aiLearningOnly ? "正在关联 AI 授知课堂" : "学生课堂与教师资源",
+      title: aiLearningOnly ? "正在关联知识讲授课堂" : "学生课堂与教师资源",
       summary: aiLearningOnly ? "保存学生学习页面，并与本次课程关联" : "课堂主体、教师引导与活动支架",
       accent: "blue",
       items: [
         { label: "学生课堂", value: `${job.result?.studentSceneCount ?? job.scenesGenerated} 个课堂页面` },
         ...(!aiLearningOnly ? [{ label: "教师资源", value: job.result?.teacherSceneCount ? `${job.result.teacherSceneCount} 个授课资源` : "正在整理教师引导与活动支架" }] : []),
-        { label: "课堂关联", value: aiLearningOnly ? "AI 授知主课与个性化分支" : "主课、教师资源与个性化分支" },
+        { label: "课堂关联", value: aiLearningOnly ? "知识讲授主课与个性化分支" : "主课、教师资源与个性化分支" },
       ],
     });
   }
@@ -205,7 +205,7 @@ export function buildQuickClassroomArtifacts(
       kind: "audit",
       eyebrow: "课堂内容生成 · 自动保存",
       title: job.status === "completed" ? "课程内容已经生成并保存" : "正在保存并核对课程内容",
-      summary: aiLearningOnly ? "AI 授知课堂与个性化学习内容" : "学生课堂、教师资源与个性化内容",
+      summary: aiLearningOnly ? "知识讲授课堂与个性化学习内容" : "学生课堂、教师资源与个性化内容",
       accent: "green",
       items: [
         { label: "学生课堂", value: `${job.result?.studentSceneCount ?? job.scenesGenerated} 个学生页面已写入课程` },
@@ -300,18 +300,18 @@ function buildAiLearningGenerationPlan(
   }, {});
   const completedScenes = Math.max(0, Math.min(job.scenesGenerated, totalScenes));
   const phaseIndex = resolveAiLearningPhase(job);
-  const title = job.status === "failed" ? "AI 授知内容等待继续"
-    : job.status === "cancelled" ? "AI 授知内容制作已中断"
-    : job.status === "cancelling" ? "正在中断 AI 授知内容制作"
-    : job.status === "completed" ? "AI 授知课堂内容已生成"
-    : job.step === "recovering_scenes" ? "正在恢复 AI 授知内容制作"
-    : completedScenes > 0 ? "正在制作 AI 授知课堂内容"
-    : "开始制作可上课的 AI 授知内容";
+  const title = job.status === "failed" ? "知识讲授内容等待继续"
+    : job.status === "cancelled" ? "知识讲授内容制作已中断"
+    : job.status === "cancelling" ? "正在中断知识讲授内容制作"
+    : job.status === "completed" ? "知识讲授课堂内容已生成"
+    : job.step === "recovering_scenes" ? "正在恢复知识讲授内容制作"
+    : completedScenes > 0 ? "正在制作知识讲授课堂内容"
+    : "开始制作可上课的知识讲授内容";
 
   return {
     id: "ai-learning-generation-plan",
     kind: "timeline",
-    eyebrow: "AI 授知内容生成 · 制作蓝图",
+    eyebrow: "知识讲授内容生成 · 制作蓝图",
     title,
     summary: totalScenes > 0
       ? `${totalScenes} 个课堂页面 · 知识讲解、互动练习与节点检测按教学顺序编排`
