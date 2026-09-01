@@ -38,6 +38,7 @@ export async function GET(
   const classroomVariant = new URL(request.url).searchParams.get("variant") === "classroom";
   const selectedStoredName = classroomVariant ? file.previewStoredName : file.storedName;
   const selectedMimeType = classroomVariant ? file.previewMimeType : file.mimeType;
+  const download = new URL(request.url).searchParams.get("download") === "1";
   if (
     !selectedStoredName
     || !selectedMimeType
@@ -70,7 +71,7 @@ export async function GET(
       "Content-Length": String(end - start + 1),
       ...(range ? { "Content-Range": `bytes ${start}-${end}/${info.size}` } : {}),
       "Accept-Ranges": "bytes",
-      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(
+      "Content-Disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(
         classroomVariant ? classroomPreviewName(file.fileName) : file.fileName,
       )}`,
       "Cache-Control": "private, no-store",

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
 import { DEFAULT_STAGES } from "@/lib/session/types";
 
-vi.mock("@/lib/session/store", () => ({ useSession: () => ({ addOfflineIntervention: vi.fn() }) }));
+vi.mock("@/lib/session/store", () => ({ useSession: () => ({ addActivity: vi.fn(), setUiState: vi.fn() }) }));
 vi.mock("./ai-learning-preview", () => ({ AiLearningTeacherPreview: () => <button>预览学生 AI 课程</button> }));
 
 import { adaptiveResponseStatus, AiLearningTeacherView, computeAiLearningProgress } from "./ai-learning";
@@ -33,13 +33,20 @@ describe("AiLearningTeacherView", () => {
     })).toBe(25);
   });
 
-  it("shows evidence-based metrics and removes duplicate status cards", () => {
+  it("uses the requested page hierarchy and replaces unresolved risk with answer accuracy", () => {
     render(<AiLearningTeacherView course={course} />);
     expect(screen.getByText("容忍时长偏差")).toBeTruthy();
-    expect(screen.getByText("未解决风险")).toBeTruthy();
+    expect(screen.getByText("班级答题准确率")).toBeTruthy();
+    expect(screen.queryByText("未解决风险")).toBeNull();
     expect(screen.getByText("学生学习情况")).toBeTruthy();
     expect(screen.getByLabelText("学生状态总览")).toBeTruthy();
-    expect(screen.getByText(/无需前测 · 已学 0份/)).toBeTruthy();
+    const preview = screen.getByText("预览学生 AI 课程");
+    const analytics = screen.getByRole("heading", { name: "全班知识讲授学情" });
+    const intervention = screen.getByRole("heading", { name: "教师介入与 PPT 投屏" });
+    const students = screen.getByRole("heading", { name: "学生学习情况" });
+    expect(preview.compareDocumentPosition(analytics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(analytics.compareDocumentPosition(intervention) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(intervention.compareDocumentPosition(students) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("先决知识证据")).toBeNull();
     expect(screen.queryByText("响应状态")).toBeNull();
     expect(screen.queryByText("重复学习学生")).toBeNull();
@@ -47,6 +54,102 @@ describe("AiLearningTeacherView", () => {
     expect(screen.queryByText("本阶段不控制伴学 Agent；风险用于教师巡视、个别辅导和全班补充教学。")).toBeNull();
     expect(screen.queryByText("AI 课堂状态")).toBeNull();
     expect(screen.queryByText("有学习记录的学生")).toBeNull();
+    expect(screen.queryByText(/存在先决缺口/)).toBeNull();
+    expect(screen.queryByText(/已学额外资源/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看张三的学习轨迹" }));
+    expect(screen.getByRole("tab", { name: "学习轨迹" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("turns shared quiz weaknesses into page-linked whole-class teaching guidance", () => {
+    const attempt = (studentId: string) => ({
+      id: `attempt-${studentId}`,
+      sectionId: "knowledge-section-1",
+      quizOutlineId: "knowledge-section-1-check",
+      runtimeSceneId: "runtime-quiz",
+      submittedAt: "2026-09-01T10:00:00.000Z",
+      score: 4,
+      maxScore: 10,
+      knowledgePointIds: ["kp-model"],
+      questions: [{
+        questionId: "question-model",
+        prompt: "如何建立变量关系？",
+        answer: "直接代入",
+        points: 10,
+        earned: 4,
+        correct: false,
+        feedback: "没有先说明变量之间的关系",
+        knowledgePointIds: ["kp-model"],
+      }],
+    });
+    const students = [
+      { id: "student-1", name: "张三", joinedAt: "2026-07-11T09:00:00.000Z", stageProgress: {} },
+      { id: "student-2", name: "李四", joinedAt: "2026-07-11T09:00:00.000Z", stageProgress: {} },
+    ];
+    const progress = Object.fromEntries(students.map((student) => [student.id, {
+      classroomId: "classroom-1",
+      studentId: student.id,
+      currentSceneIndex: 2,
+      totalScenes: 3,
+      completedScenes: ["scene-1"],
+      lastActiveAt: "2026-09-01T10:00:00.000Z",
+      masteryLevel: "in-progress" as const,
+      knowledgeLectureAttempts: [attempt(student.id)],
+    }]));
+    render(<AiLearningTeacherView course={{
+      ...course,
+      students,
+      aiLearningProgress: progress,
+      learningEvents: [],
+      learningSignals: [],
+      content: {
+        ...course.content,
+        knowledgePoints: [{ id: "kp-model", name: "建立变量关系", description: "先明确自变量与因变量，再说明变化方向。" }],
+        knowledgeLectureSections: [{ id: "knowledge-section-1", title: "第一节 · 变量关系", order: 0, knowledgePointIds: ["kp-model"], sceneOutlineIds: ["outline-model"], quizOutlineId: "knowledge-section-1-check", estimatedMinutes: 6 }],
+        _openmaicSceneOutlines: [{
+          id: "outline-model",
+          type: "slide",
+          title: "变量关系与建模",
+          order: 0,
+          stageKey: "ai-learning",
+          audience: "student",
+          knowledgePointIds: ["kp-model"],
+        }],
+      },
+    }} />);
+
+    expect(screen.getByRole("heading", { name: "教师介入与 PPT 投屏" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "知识点未达标率排名" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "各小节测验情况" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "本节逐题详情" })).toBeNull();
+    expect(screen.queryByText("如何建立变量关系？")).toBeNull();
+
+    fireEvent.mouseMove(screen.getAllByText("建立变量关系")[0], { clientX: 100, clientY: 120 });
+    expect(screen.getByRole("tooltip").textContent).toBe("建立变量关系");
+    fireEvent.mouseLeave(screen.getAllByText("建立变量关系")[0]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    const sectionButton = screen.getByRole("button", { name: /第一节 · 变量关系/ });
+    fireEvent.click(sectionButton);
+    expect(screen.getByRole("heading", { name: "本节逐题详情" })).toBeTruthy();
+    expect(screen.getByText("如何建立变量关系？")).toBeTruthy();
+    expect(screen.getByText("2 人作答")).toBeTruthy();
+    expect(sectionButton.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(sectionButton);
+    expect(screen.queryByRole("heading", { name: "本节逐题详情" })).toBeNull();
+    expect(screen.queryByText("如何建立变量关系？")).toBeNull();
+    expect(screen.getAllByText("建立变量关系").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("100% 未达标率")).toBeTruthy();
+    expect(screen.getByText("先明确自变量与因变量，再说明变化方向。")).toBeTruthy();
+    expect(screen.getAllByText(/第 1 页 · 变量关系与建模/)).toHaveLength(2);
+    expect(screen.getByLabelText("自主选择知识讲授PPT页面")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "班级共性问题" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看张三的答题详情" }));
+    expect(screen.getByRole("tab", { name: "答题详情" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "学习轨迹" }));
+    expect(screen.getByRole("tab", { name: "学习轨迹" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("renders forty students in the compact status overview", () => {
@@ -59,8 +162,11 @@ describe("AiLearningTeacherView", () => {
 
     render(<AiLearningTeacherView course={{ ...course, students, learningEvents: [], learningSignals: [] }} />);
 
-    expect(screen.getAllByTitle("查看额外资源学习详情")).toHaveLength(40);
+    expect(screen.getByLabelText("学生状态总览").querySelectorAll("li")).toHaveLength(40);
     expect(screen.getByText("学生40")).toBeTruthy();
+    expect(screen.getByDisplayValue("按学习进度")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "当前倒序，点击改为正序" })).toBeTruthy();
+    expect(screen.queryByText("课程未启用")).toBeNull();
   });
 
   it("describes adaptive response states for teacher monitoring", () => {
@@ -83,213 +189,50 @@ describe("AiLearningTeacherView", () => {
     }, true).label).toBe("个体已关闭");
   });
 
-  it("opens a per-condition trigger audit from the response status", () => {
-    const adaptiveCourse: Course = {
-      ...course,
-      content: {
-        ...course.content,
-        adaptiveLearningPlan: {
-          enabled: true,
-          status: "teacher-confirmed",
-          updatedAt: "2026-07-24T00:00:00.000Z",
-          timeBudgetMin: 6,
-          thresholds: {
-            enrichmentMasteryMin: 80,
-          },
-          pretest: {
-            title: "前测",
-            introduction: "",
-            estimatedMinutes: 2,
-            questions: [],
-          },
-          branches: [{
-            id: "branch-extension-1",
-            kind: "extension",
-            title: "拓展挑战",
-            objective: "迁移应用",
-            keyPoints: [],
-            anchorKnowledgePointIds: ["kp-1"],
-            prerequisiteKnowledgePointIds: [],
-            noveltyStatement: "使用主课未出现的新项目案例进行迁移。",
-            mainCourseOverlapSceneIds: [],
-            sceneType: "slide",
-            targetDurationSec: 180,
-            trigger: {
-              placement: "after-module",
-              afterSceneId: "outline-ai-1",
-              evidenceRule: "module-mastery",
-              scoreThreshold: 90,
-              minimumRemainingSec: 180,
-            },
-            status: "teacher-confirmed",
-          }],
-        },
-      },
-      aiLearningProgress: {
-        "student-1": {
-          classroomId: "classroom-1",
-          studentId: "student-1",
-          currentSceneIndex: 1,
-          totalScenes: 4,
-          completedScenes: ["scene-runtime-1"],
-          completionModelVersion: 2,
-          masteryLevel: "in-progress",
-          lastActiveAt: "2026-07-24T00:00:00.000Z",
-          adaptiveLearning: {
-            enabled: true,
-            pretestScore: 100,
-            pretestCompletedAt: "2026-07-24T00:00:00.000Z",
-            evidence: [],
-            branchRuns: [],
-            microLessons: [],
-            triggerEvaluations: [{
-              id: "evaluation-1",
-              branchOutlineId: "branch-extension-1",
-              branchKind: "extension",
-              completedSceneId: "scene-runtime-1",
-              completedSceneTitle: "核心概念",
-              matchedBy: "knowledge-point",
-              evaluatedAt: "2026-07-24T00:01:00.000Z",
-              result: "conditions-not-met",
-              reason: "测评分数未满足",
-              score: 80,
-              scoreSource: "recorded-node-quiz",
-              remainingBudgetSec: 240,
-              conditions: [{
-                key: "score",
-                label: "测评分数",
-                expected: "分数 ≥ 90",
-                actual: "80 分（最近节点小测）",
-                passed: false,
-              }],
-            }],
-          },
-        },
-      },
-    };
+  it("sorts student cards by accuracy in both directions without adaptive-course status", () => {
+    const students = [
+      { id: "student-low", name: "低正确率", joinedAt: "2026-07-11T09:00:00.000Z", stageProgress: {} },
+      { id: "student-high", name: "高正确率", joinedAt: "2026-07-11T09:00:00.000Z", stageProgress: {} },
+    ];
+    const progress = Object.fromEntries(students.map((student, index) => [student.id, {
+      classroomId: "classroom-1",
+      studentId: student.id,
+      currentSceneIndex: index + 1,
+      totalScenes: 3,
+      completedScenes: ["scene-1"],
+      completionModelVersion: 2,
+      masteryLevel: "in-progress" as const,
+      lastActiveAt: "2026-09-01T10:00:00.000Z",
+      knowledgeLectureAttempts: [{
+        id: `attempt-${student.id}`,
+        sectionId: "section-1",
+        quizOutlineId: "quiz-1",
+        runtimeSceneId: "quiz-runtime",
+        submittedAt: "2026-09-01T10:00:00.000Z",
+        score: index ? 9 : 3,
+        maxScore: 10,
+        knowledgePointIds: [],
+        questions: [{
+          questionId: "q-1",
+          prompt: "测试题",
+          answer: "回答",
+          points: 10,
+          earned: index ? 9 : 3,
+          correct: Boolean(index),
+          feedback: "",
+          knowledgePointIds: [],
+        }],
+      }],
+    }]));
 
-    render(<AiLearningTeacherView course={adaptiveCourse} />);
-    fireEvent.click(screen.getByTitle("查看额外资源学习详情"));
+    render(<AiLearningTeacherView course={{ ...course, students, aiLearningProgress: progress, learningEvents: [], learningSignals: [] }} />);
+    fireEvent.change(screen.getByLabelText("学生排序指标"), { target: { value: "accuracy" } });
 
-    expect(screen.getByText("张三 · 额外资源学习详情")).toBeTruthy();
-    expect(screen.getByText("可用时间")).toBeTruthy();
-    expect(screen.queryByText("Adaptive trigger audit")).toBeNull();
-    expect(screen.queryByText("已评估触发点")).toBeNull();
-    expect(screen.getByText("触发条件")).toBeTruthy();
-    expect(screen.getByText("仍需满足")).toBeTruthy();
-    expect(screen.getByText("预计触发")).toBeTruthy();
-    expect(screen.getByText((content) => content.includes("模块掌握证据") && content.includes("当前 80 分"))).toBeTruthy();
-    expect(screen.queryByText("教师审核")).toBeNull();
-    expect(screen.queryByText("备课资源")).toBeNull();
-    expect(screen.queryByText("个性化编排")).toBeNull();
-    expect(screen.queryByText("学生路径容量")).toBeNull();
-    expect(screen.getByText("条件未满足")).toBeTruthy();
+    const list = screen.getByLabelText("学生状态总览");
+    expect(list.firstElementChild?.textContent).toContain("高正确率");
+    fireEvent.click(screen.getByRole("button", { name: "当前倒序，点击改为正序" }));
+    expect(list.firstElementChild?.textContent).toContain("低正确率");
+    expect(screen.queryByText(/额外资源|拓展课程|课程未启用/)).toBeNull();
   });
 
-  it("translates internal prerequisite and assessment ids into teacher-facing names", () => {
-    const adaptiveCourse: Course = {
-      ...course,
-      content: {
-        ...course.content,
-        knowledgePoints: [{ id: "kp-1", name: "建立数据模型", description: "理解数据模型" }],
-        adaptiveLearningPlan: {
-          enabled: true,
-          status: "teacher-confirmed",
-          updatedAt: "2026-08-23T00:00:00.000Z",
-          timeBudgetMin: 6,
-          thresholds: { enrichmentMasteryMin: 80 },
-          prerequisiteKnowledgePoints: [{
-            id: "prereq-1",
-            name: "识别数据类型",
-            description: "区分常见数据类型",
-            expectedPriorKnowledgeEvidence: "已学习基础数据概念",
-            necessityRationale: "会影响数据模型的建立",
-            diagnosticBoundary: "能够正确识别数据类型",
-          }],
-          pretest: {
-            title: "前测",
-            introduction: "",
-            estimatedMinutes: 2,
-            questions: [{
-              id: "question-1",
-              prompt: "以下哪项是数值数据？",
-              options: ["身高", "姓名"],
-              correctOptionIndex: 0,
-              knowledgePointIds: ["prereq-1"],
-            }],
-          },
-          branches: [{
-            id: "branch-prerequisite-1",
-            kind: "prerequisite",
-            title: "数据类型回顾",
-            objective: "补齐先决知识",
-            keyPoints: [],
-            anchorKnowledgePointIds: ["kp-1"],
-            prerequisiteKnowledgePointIds: ["prereq-1"],
-            noveltyStatement: "补充进入主课前必须掌握的内容。",
-            mainCourseOverlapSceneIds: [],
-            sceneType: "slide",
-            targetDurationSec: 120,
-            trigger: {
-              placement: "before-main-course",
-              evidenceRule: "pretest-gap",
-              minimumRemainingSec: 90,
-            },
-            status: "teacher-confirmed",
-          }],
-        },
-      },
-      aiLearningProgress: {
-        "student-1": {
-          classroomId: "classroom-1",
-          studentId: "student-1",
-          currentSceneIndex: 0,
-          totalScenes: 4,
-          completedScenes: [],
-          masteryLevel: "in-progress",
-          lastActiveAt: "2026-08-23T00:00:00.000Z",
-          adaptiveLearning: {
-            enabled: true,
-            pretestScore: 50,
-            pretestCompletedAt: "2026-08-23T00:00:00.000Z",
-            pretestWeakKnowledgePointIds: ["prereq-1"],
-            evidence: [],
-            branchRuns: [],
-            microLessons: [],
-            triggerEvaluations: [{
-              id: "evaluation-1",
-              branchOutlineId: "branch-prerequisite-1",
-              branchKind: "prerequisite",
-              completedSceneId: "re_iSXGxKNK_b-R_iSPtL",
-              matchedBy: "pretest-gap",
-              evaluatedAt: "2026-08-23T00:01:00.000Z",
-              result: "conditions-not-met",
-              reason: "先决知识缺口未满足",
-              remainingBudgetSec: 240,
-              conditions: [{
-                key: "evidence",
-                label: "先决知识缺口",
-                expected: "prereq-1",
-                actual: "检测到缺口：prereq-1",
-                passed: true,
-              }, {
-                key: "anchor",
-                label: "到达主课达标测",
-                expected: "re_iSXGxKNK_b-R_iSPtL",
-                actual: "尚未到达",
-                passed: false,
-              }],
-            }],
-          },
-        },
-      },
-    };
-
-    render(<AiLearningTeacherView course={adaptiveCourse} />);
-    fireEvent.click(screen.getByTitle("查看额外资源学习详情"));
-
-    expect(screen.getAllByText((content) => content.includes("识别数据类型")).length).toBeGreaterThan(0);
-    expect(screen.queryByText((content) => content.includes("prereq-1"))).toBeNull();
-    expect(screen.queryByText((content) => content.includes("re_iSXGxKNK_b-R_iSPtL"))).toBeNull();
-  });
 });

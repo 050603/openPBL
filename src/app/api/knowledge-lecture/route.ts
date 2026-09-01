@@ -36,6 +36,12 @@ type KnowledgeLectureRequest = {
   message?: string;
 };
 
+class QuizAlreadySubmittedError extends Error {
+  constructor(readonly attempt: KnowledgeLectureAttempt) {
+    super("QUIZ_ALREADY_SUBMITTED");
+  }
+}
+
 function text(value: unknown, max = 4_000): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
@@ -174,24 +180,35 @@ export async function POST(request: NextRequest) {
       knowledgePointIds: section.knowledgePointIds,
       questions,
     };
-    await updateCourse(courseId, (current) => {
-      const currentProgress = current.aiLearningProgress?.[studentId]
-        ?? emptyProgress(studentId, current.aiLearningClassroomId ?? "");
-      return {
-        ...current,
-        aiLearningProgress: {
-          ...(current.aiLearningProgress ?? {}),
-          [studentId]: {
-            ...currentProgress,
-            knowledgeLectureAttempts: [
-              ...(currentProgress.knowledgeLectureAttempts ?? []).filter((item) => item.id !== attempt.id),
-              attempt,
-            ].slice(-40),
-            lastActiveAt: now,
+    try {
+      await updateCourse(courseId, (current) => {
+        const currentProgress = current.aiLearningProgress?.[studentId]
+          ?? emptyProgress(studentId, current.aiLearningClassroomId ?? "");
+        const existingAttempt = (currentProgress.knowledgeLectureAttempts ?? [])
+          .filter((item) => item.quizOutlineId === quizOutlineId)
+          .sort((left, right) => Date.parse(left.submittedAt) - Date.parse(right.submittedAt))[0];
+        if (existingAttempt) throw new QuizAlreadySubmittedError(existingAttempt);
+        return {
+          ...current,
+          aiLearningProgress: {
+            ...(current.aiLearningProgress ?? {}),
+            [studentId]: {
+              ...currentProgress,
+              knowledgeLectureAttempts: [
+                ...(currentProgress.knowledgeLectureAttempts ?? []),
+                attempt,
+              ].slice(-40),
+              lastActiveAt: now,
+            },
           },
-        },
-      };
-    }, { targetStudentId: studentId });
+        };
+      }, { targetStudentId: studentId });
+    } catch (error) {
+      if (error instanceof QuizAlreadySubmittedError) {
+        return Response.json({ error: error.message, attempt: error.attempt }, { status: 409 });
+      }
+      throw error;
+    }
     return Response.json({ attempt });
   }
 

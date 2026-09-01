@@ -58,6 +58,19 @@ export type DocumentCollaborationResponse = {
   deliverable?: DelegatedWorkDeliverable;
 };
 
+export type AiWorkPolicyOutcome = "guide_only" | "local_suggestion" | "delegated_edit" | "clarify";
+
+export type AiWorkPolicyDecision = {
+  outcome: AiWorkPolicyOutcome;
+  scope: "document" | "selection" | "paragraph";
+  reason: string;
+  protectedCapability?: string;
+  allowedOperations: Array<"none" | "replace" | "insert" | "append">;
+  requiresConfirmation: boolean;
+  requiresExistingStudentWork: boolean;
+  policyVersion: string;
+};
+
 const PROTECTED_WORK_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   {
     pattern: /(?:替我|帮我|直接|请你|由你).{0,16}(?:定义|确定|定下|决定|选择).{0,12}(?:核心问题|驱动问题|研究问题|关键问题|最终选题)|(?:核心问题|驱动问题|研究问题|关键问题|最终选题).{0,12}(?:替我|帮我|直接|请你|由你).{0,12}(?:定义|确定|定下|决定|选择)/,
@@ -371,4 +384,122 @@ export function isDocumentCollaborationIntent(
 export function detectProtectedStudentWorkRequest(message: string): string | undefined {
   const normalized = cleanText(message, 1_200).replace(/\s+/g, "");
   return PROTECTED_WORK_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.label;
+}
+
+/**
+ * Returns only a real student-work boundary. A `guide_only` outcome also
+ * describes ordinary discussion mode, so its internal reason must never be
+ * reused as the student-facing assistant response.
+ */
+export function protectedBoundaryForPolicy(
+  decision: AiWorkPolicyDecision,
+  request: string,
+): string | undefined {
+  return decision.protectedCapability ?? detectProtectedStudentWorkRequest(request);
+}
+
+const CORE_CAPABILITY_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /(?:核心|驱动|研究|关键)问题.{0,20}(?:写|定|选|确定|回答|生成|完成)/, label: "核心问题定义" },
+  { pattern: /(?:关键|核心|最终|主要)(?:方案|设计|决策).{0,20}(?:写|定|选|确定|生成|完成|替我)/, label: "关键方案决策" },
+  { pattern: /(?:核心|最终|主要)(?:结论|判断|观点).{0,20}(?:写|定|选|确定|生成|完成|替我)/, label: "核心结论" },
+  { pattern: /(?:整篇|整份|完整|最终|可直接提交).{0,12}(?:文档|报告|方案|成果).{0,12}(?:写|改|生成|完成)/, label: "完整成果形成" },
+];
+
+/**
+ * Shared deterministic gate used before every document AI entry point. The
+ * contextual model can add evidence, but it can never widen this decision.
+ * Unknown or malformed input deliberately falls back to guidance only.
+ */
+export function evaluateAiWorkPolicy(input: {
+  intent: DocumentCollaborationIntent;
+  request: string;
+  scope: "document" | "selection" | "paragraph";
+  hasStudentArtifact: boolean;
+  proactive?: boolean;
+  selectedText?: string;
+}): AiWorkPolicyDecision {
+  const request = cleanText(input.request, 1_200).replace(/\s+/g, "");
+  const core = detectProtectedStudentWorkRequest(input.request)
+    ?? CORE_CAPABILITY_PATTERNS.find(({ pattern }) => pattern.test(request))?.label;
+  const hasSelection = Boolean(cleanText(input.selectedText, 12_000));
+  const policyVersion = "project-practice-boundary-v2";
+
+  if (!request) {
+    return {
+      outcome: "clarify",
+      scope: input.scope,
+      reason: "请先说明你希望 AI 组员协助的具体内容。",
+      allowedOperations: ["none"],
+      requiresConfirmation: false,
+      requiresExistingStudentWork: false,
+      policyVersion,
+    };
+  }
+  if (core) {
+    return {
+      outcome: "guide_only",
+      scope: input.scope,
+      reason: `这涉及${core}，AI 只能帮助你比较依据、发现缺口并提出启发问题。`,
+      protectedCapability: core,
+      allowedOperations: ["none"],
+      requiresConfirmation: false,
+      requiresExistingStudentWork: true,
+      policyVersion,
+    };
+  }
+  if (input.proactive) {
+    return {
+      outcome: input.hasStudentArtifact ? "local_suggestion" : "guide_only",
+      scope: "paragraph",
+      reason: input.hasStudentArtifact
+        ? "主动介入只能针对学生已经写出的这一段，并以评论和局部建议呈现。"
+        : "请先写下自己的段落，AI 组员再针对局部内容提供反馈。",
+      allowedOperations: input.hasStudentArtifact ? ["replace"] : ["none"],
+      requiresConfirmation: input.hasStudentArtifact,
+      requiresExistingStudentWork: true,
+      policyVersion,
+    };
+  }
+  if (input.intent === "edit" && !hasSelection) {
+    return {
+      outcome: "clarify",
+      scope: "selection",
+      reason: "局部修改需要先选中要处理的文字。",
+      allowedOperations: ["none"],
+      requiresConfirmation: false,
+      requiresExistingStudentWork: true,
+      policyVersion,
+    };
+  }
+  if ((input.intent === "edit" || input.scope === "selection") && input.hasStudentArtifact) {
+    return {
+      outcome: "local_suggestion",
+      scope: "selection",
+      reason: "只处理你选中的局部文字，建议会先显示在正文中供你确认。",
+      allowedOperations: ["replace"],
+      requiresConfirmation: true,
+      requiresExistingStudentWork: true,
+      policyVersion,
+    };
+  }
+  if (input.intent === "organize" || input.intent === "delegate") {
+    return {
+      outcome: "delegated_edit",
+      scope: "document",
+      reason: "这是可核验的辅助工作，AI 组员可以先完成交付，任何写入仍需你确认。",
+      allowedOperations: ["insert", "append"],
+      requiresConfirmation: true,
+      requiresExistingStudentWork: false,
+      policyVersion,
+    };
+  }
+  return {
+    outcome: "guide_only",
+    scope: input.scope,
+    reason: "本轮先围绕你的项目判断提供讨论支架，不直接改写正文。",
+    allowedOperations: ["none"],
+    requiresConfirmation: false,
+    requiresExistingStudentWork: false,
+    policyVersion,
+  };
 }

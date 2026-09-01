@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Bot,
+  ArrowDown,
+  ArrowUp,
+  BookOpenCheck,
   CircleAlert,
   CircleCheck,
   Clock3,
   Eye,
   PauseCircle,
-  Route,
   Settings2,
   Users,
   X,
@@ -17,21 +18,22 @@ import {
 import { Avatar } from "@/components/dashboard-shell";
 import { Card, Pill, ProgressBar } from "@/components/ui";
 import type { AdaptiveBranchOutline, AdaptiveTriggerEvaluation, Course, LearningEvent, Student, StudentAiProgress } from "@/lib/session/types";
-import { useSession } from "@/lib/session/store";
 import {
   calculateAdaptiveRemainingBudgetSec,
   eligibleAdaptiveBranches,
   evaluateAdaptiveBranchDecision,
 } from "@/lib/adaptive-learning";
 import { AiLearningTeacherPreview } from "./ai-learning-preview";
-import { StudentLearningDetail } from "./student-learning-detail";
+import { StudentLearningDetail, type StudentLearningDetailTab } from "./student-learning-detail";
 import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
 import { aggregateCommonIssues, calculateToleratedDurationSec, isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
 import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
 import { cn } from "@/lib/utils";
 import { deriveClassroomTimingSnapshot } from "@/lib/classroom/timing";
 import { isOpaqueInternalId, userFacingName } from "@/lib/user-facing-labels";
+import { ClassInterventionPanel } from "./class-intervention-panel";
 import { KnowledgeLectureAnalytics } from "./knowledge-lecture-analytics";
+import { firstKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
 
 export function computeAiLearningProgress(entry?: StudentAiProgress): number {
   if (!entry || !isReliableAiProgress(entry)) return 0;
@@ -73,6 +75,9 @@ function summarizeStudent(course: Course, student: Student) {
         ["completed", "mastered"].includes(course.aiLearningProgress?.[student.id]?.masteryLevel ?? ""),
       ),
   );
+  const quizAttempts = firstKnowledgeLectureAttempts(course.aiLearningProgress?.[student.id]);
+  const quizEarned = quizAttempts.reduce((sum, attempt) => sum + attempt.score, 0);
+  const quizMaxScore = quizAttempts.reduce((sum, attempt) => sum + attempt.maxScore, 0);
   return {
     student,
     events,
@@ -82,6 +87,8 @@ function summarizeStudent(course: Course, student: Student) {
     lastEvent,
     signals,
     hasEvidence: events.length > 0,
+    accuracy: quizMaxScore > 0 ? Math.round(quizEarned / quizMaxScore * 100) : undefined,
+    answeredQuestions: quizAttempts.reduce((sum, attempt) => sum + attempt.questions.length, 0),
   };
 }
 
@@ -131,9 +138,10 @@ export function AiLearningTeacherView({
   course: Course;
   onSelectStudent?: (id: string) => void;
 }) {
-  const session = useSession();
   const [selectedStudentId, setSelectedStudentId] = useState<string>();
-  const [triggerAuditStudentId, setTriggerAuditStudentId] = useState<string>();
+  const [studentDetailTab, setStudentDetailTab] = useState<StudentLearningDetailTab>("trajectory");
+  const [sortMetric, setSortMetric] = useState<"progress" | "accuracy">("progress");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const hasClassroom = Boolean(course.aiLearningClassroomId);
   const summaries = useMemo(
     () => course.students.map((student) => summarizeStudent(course, student)),
@@ -153,41 +161,24 @@ export function AiLearningTeacherView({
     : undefined;
   const unresolvedSignals = summaries.flatMap((summary) => summary.signals);
   const commonIssues = aggregateCommonIssues(unresolvedSignals, course.students.length);
+  const allQuizAttempts = Object.values(course.aiLearningProgress ?? {}).flatMap(firstKnowledgeLectureAttempts);
+  const quizEarned = allQuizAttempts.reduce((sum, attempt) => sum + attempt.score, 0);
+  const quizMaxScore = allQuizAttempts.reduce((sum, attempt) => sum + attempt.maxScore, 0);
+  const classAccuracy = quizMaxScore > 0 ? Math.round(quizEarned / quizMaxScore * 100) : undefined;
+  const sortedSummaries = useMemo(() => [...summaries].sort((left, right) => {
+    const leftValue = sortMetric === "progress" ? left.progress : left.accuracy;
+    const rightValue = sortMetric === "progress" ? right.progress : right.accuracy;
+    if (leftValue === undefined && rightValue === undefined) return left.student.name.localeCompare(right.student.name, "zh-CN");
+    if (leftValue === undefined) return 1;
+    if (rightValue === undefined) return -1;
+    const difference = leftValue - rightValue;
+    return (sortDirection === "asc" ? difference : -difference) || left.student.name.localeCompare(right.student.name, "zh-CN");
+  }), [sortDirection, sortMetric, summaries]);
 
-  function openStudent(studentId: string) {
+  function openStudent(studentId: string, tab: StudentLearningDetailTab) {
+    setStudentDetailTab(tab);
     setSelectedStudentId(studentId);
     onSelectStudent?.(studentId);
-  }
-
-  function patchStudentAdaptive(
-    studentId: string,
-    patch: {
-      enabled?: boolean;
-    },
-  ) {
-    const existingProgress = course.aiLearningProgress?.[studentId] ?? {
-      classroomId: course.aiLearningClassroomId ?? "",
-      studentId,
-      currentSceneIndex: 0,
-      totalScenes: 0,
-      completedScenes: [],
-      lastActiveAt: new Date().toISOString(),
-      masteryLevel: "not-started" as const,
-    };
-    const adaptive = existingProgress.adaptiveLearning ?? {
-      evidence: [],
-      branchRuns: [],
-      microLessons: [],
-    };
-    session.updateCourse(course.id, {
-      aiLearningProgress: {
-        ...(course.aiLearningProgress ?? {}),
-        [studentId]: {
-          ...existingProgress,
-          adaptiveLearning: { ...adaptive, ...patch },
-        },
-      },
-    });
   }
 
   return (
@@ -199,112 +190,68 @@ export function AiLearningTeacherView({
       ) : null}
 
       <section aria-label="知识讲授班级指标" className="grid gap-3 sm:grid-cols-3">
-        <MetricCard icon={<Bot size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
+        <MetricCard icon={<Users size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
         <MetricCard icon={<Clock3 size={19} />} label="容忍时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对设计、实际语音与思考操作余量"} />
-        <MetricCard icon={<CircleAlert size={19} />} label="未解决风险" value={evidenceStudents.length ? `${unresolvedSignals.length} 条` : "—"} helper={evidenceStudents.length ? "需要教师观察或介入" : "暂无足够证据"} tone={unresolvedSignals.length ? "danger" : "default"} />
+        <MetricCard icon={<BookOpenCheck size={19} />} label="班级答题准确率" value={classAccuracy === undefined ? "—" : `${classAccuracy}%`} helper={classAccuracy === undefined ? "等待学生完成小测" : `基于 ${allQuizAttempts.length} 次有效小测提交`} />
       </section>
-
-      <KnowledgeLectureAnalytics course={course} />
 
       {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
 
-      <Card>
-        <div className="flex items-center justify-between gap-3">
-          <div><h3 className="flex items-center gap-2 text-lg font-black"><Users className="text-[var(--pbl-teacher)]" size={20} /> 班级共性问题</h3><p className="mt-1 text-sm text-stone-500">同一具体内容影响至少 30% 且不少于 2 人时显示，适合转为全班补充教学。</p></div>
-          <Pill tone={commonIssues.length ? "red" : "green"}>{commonIssues.length ? `${commonIssues.length} 项` : "暂无"}</Pill>
-        </div>
-        {commonIssues.length ? (
-          <ul className="mt-4 divide-y divide-[var(--pbl-danger-border)] border-y border-[var(--pbl-danger-border)]">
-            {commonIssues.map((issue) => <li className="grid gap-2 py-3 md:grid-cols-[1fr_auto] md:items-center" key={issue.id}><div><p className="font-bold text-[var(--pbl-danger)]">{issue.title}</p><p className="mt-1 text-xs font-semibold text-stone-500">{formatLearningContentReference(issue.content)}</p><p className="mt-1 text-sm text-stone-600">{issue.summary}</p><p className="mt-1 text-xs text-stone-500">涉及学生：{issue.studentIds.map((id) => course.students.find((student) => student.id === id)?.name ?? "未识别学生").join("、")}</p></div><span className="text-sm font-bold text-[var(--pbl-danger)]">影响 {issue.studentIds.length} 人</span></li>)}
-          </ul>
-        ) : <div className="mt-4 flex items-center gap-2 border-y border-stone-100 py-5 text-sm text-stone-500"><CircleCheck className="text-[var(--pbl-success)]" size={18} /> 尚未发现达到班级阈值的共性问题。</div>}
-      </Card>
+      <KnowledgeLectureAnalytics course={course} title="全班知识讲授学情" />
+
+      <ClassInterventionPanel commonIssues={commonIssues} course={course} />
 
       <Card className="overflow-hidden p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-4 py-3">
           <div>
             <h3 className="text-base font-black">学生学习情况</h3>
-            <p className="mt-0.5 text-xs text-stone-500">按风险优先排列，点击状态查看额外资源触发详情</p>
+            <p className="mt-0.5 text-xs text-stone-500">点击头像或进度查看学习轨迹，点击答题数据查看逐题作答</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
-            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">存在先决缺口 {summaries.filter((summary) => (course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.pretestWeakKnowledgePointIds?.length ?? 0) > 0).length}</span>
-            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-900">已学额外资源 {summaries.filter((summary) => course.aiLearningProgress?.[summary.student.id]?.adaptiveLearning?.branchRuns.some((run) => run.status === "completed")).length}</span>
+          <div className="flex items-center gap-2">
+            <label className="sr-only" htmlFor={`student-sort-${course.id}`}>学生排序指标</label>
+            <select className="h-9 rounded-[8px] border border-stone-200 bg-white px-2.5 text-xs font-bold text-stone-700 outline-none focus:border-cyan-500" id={`student-sort-${course.id}`} onChange={(event) => setSortMetric(event.target.value as "progress" | "accuracy")} value={sortMetric}>
+              <option value="progress">按学习进度</option>
+              <option value="accuracy">按答题准确率</option>
+            </select>
+            <button aria-label={sortDirection === "asc" ? "当前正序，点击改为倒序" : "当前倒序，点击改为正序"} className="inline-flex h-9 items-center gap-1 rounded-[8px] border border-stone-200 bg-white px-2.5 text-xs font-bold text-stone-700 hover:border-cyan-300" onClick={() => setSortDirection((value) => value === "asc" ? "desc" : "asc")} type="button">
+              {sortDirection === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}{sortDirection === "asc" ? "正序" : "倒序"}
+            </button>
           </div>
         </div>
         {summaries.length ? (
-          <ul aria-label="学生状态总览" className="grid grid-cols-[repeat(auto-fill,minmax(172px,1fr))] gap-2.5 bg-stone-50/60 p-3">
-            {[...summaries].sort((a, b) => b.signals.length - a.signals.length || a.progress - b.progress).map((summary) => {
-              const progress = course.aiLearningProgress?.[summary.student.id];
-              const adaptive = progress?.adaptiveLearning;
-              const weakCount = adaptive?.pretestWeakKnowledgePointIds?.length ?? 0;
-              const learnedCount = adaptive?.branchRuns.filter((run) => run.status === "completed").length ?? 0;
-              const pretestRequired = Boolean(course.content.adaptiveLearningPlan?.pretest.questions.length);
-              const awaitingPretest = pretestRequired && !adaptive?.pretestCompletedAt;
-              const response = adaptiveResponseStatus(
-                progress,
-                Boolean(
-                  course.content.adaptiveLearningPlan?.enabled
-                  && course.content.adaptiveLearningPlan.status === "teacher-confirmed",
-                ),
-                pretestRequired,
-              );
-              const prerequisiteLabel = !pretestRequired
-                ? "无需前测"
-                : awaitingPretest
-                  ? "待前测"
-                  : weakCount
-                    ? `先决缺口 ${weakCount}`
-                    : "先决已具备";
-              return (
-                <li className={cn(
-                  "min-w-0 rounded-[10px] border bg-white p-2.5 shadow-sm transition hover:-translate-y-px hover:shadow-md",
-                  summary.signals.length ? "border-rose-200" : "border-stone-200",
-                )} key={summary.student.id}>
+          <ul aria-label="学生状态总览" className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 bg-stone-50/60 p-3">
+            {sortedSummaries.map((summary) => (
+                <li className="min-w-0 rounded-[10px] border border-stone-200 bg-white p-3 shadow-sm transition hover:-translate-y-px hover:shadow-md" key={summary.student.id}>
                   <div className="flex items-center justify-between gap-2">
-                    <button className="flex min-w-0 items-center gap-2 rounded-[7px] text-left focus:outline-none focus:ring-2 focus:ring-cyan-500" onClick={() => openStudent(summary.student.id)} type="button">
-                      <span className="relative shrink-0"><Avatar name={summary.student.name} size={30} />{summary.signals.length ? <CircleAlert aria-label="有干预信号" className="absolute -right-1.5 -top-1.5 fill-white text-[var(--pbl-danger)]" size={15} /> : null}</span>
-                      <span className="min-w-0"><span className="block truncate text-sm font-bold text-stone-900">{summary.student.name}</span><span className={cn("block truncate text-[10px]", summary.signals.length ? "font-bold text-rose-700" : "text-stone-400")}>{summary.signals.length ? `${summary.signals.length} 条待处理` : summary.hasEvidence ? `学习 ${minutes(summary.effectiveDurationMs)}` : "尚未开始"}</span></span>
+                    <button aria-label={`查看${summary.student.name}的学习轨迹`} className="flex min-w-0 items-center gap-2 rounded-[7px] text-left focus:outline-none focus:ring-2 focus:ring-cyan-500" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">
+                      <Avatar name={summary.student.name} size={32} />
+                      <span className="min-w-0"><span className="block truncate text-sm font-bold text-stone-900">{summary.student.name}</span><span className="block truncate text-[10px] text-stone-400">{currentScene(summary.events)}</span></span>
                     </button>
-                    <strong className="shrink-0 text-sm tabular-nums text-stone-700">{summary.progress}%</strong>
+                    <button aria-label={`查看${summary.student.name}的学习轨迹，当前进度${summary.progress}%`} className="shrink-0 rounded-md px-1.5 py-1 text-sm font-black tabular-nums text-cyan-800 hover:bg-cyan-50" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">{summary.progress}%</button>
                   </div>
 
-                  <div className="mt-2">
-                    <ProgressBar className="h-1.5" tone={summary.signals.length ? "red" : summary.progress >= 90 ? "green" : "teal"} value={summary.progress} />
-                    <p className="mt-1 truncate text-[10px] text-stone-400">{currentScene(summary.events)}</p>
-                  </div>
-
-                  <button
-                    className="mt-2 flex w-full items-center justify-between gap-2 rounded-[7px] bg-stone-50 px-2 py-1.5 text-left transition hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    onClick={() => setTriggerAuditStudentId(summary.student.id)}
-                    title="查看额外资源学习详情"
-                    type="button"
-                  >
-                    <span className="min-w-0">
-                      <span className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold", adaptiveToneClass(response.tone))}><Route size={10} />{response.label}</span>
-                      <span className="mt-1 block truncate text-[10px] text-stone-500">
-                        {prerequisiteLabel}{typeof adaptive?.pretestScore === "number" ? ` ${adaptive.pretestScore}分` : ""} · 已学 {learnedCount}份
-                      </span>
-                    </span>
-                    <Eye className="shrink-0 text-stone-400" size={13} />
+                  <button aria-label={`查看${summary.student.name}的学习轨迹与进度`} className="mt-3 block w-full rounded-[8px] p-2 text-left transition hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-500" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">
+                    <ProgressBar className="h-1.5" tone={summary.progress >= 90 ? "green" : "teal"} value={summary.progress} />
+                    <span className="mt-2 flex items-center justify-between text-[10px]"><span className="text-stone-400">学习进度 <strong className="ml-1 text-xs text-stone-800">{summary.progress}%</strong></span><span className="text-stone-400">学习时长 <strong className="ml-1 text-xs text-stone-800">{summary.hasEvidence ? minutes(summary.effectiveDurationMs) : "—"}</strong></span></span>
+                  </button>
+                  <button aria-label={`查看${summary.student.name}的答题详情`} className="mt-2 flex w-full items-center justify-between rounded-[8px] bg-stone-50 px-3 py-2 text-left transition hover:bg-violet-50 focus:outline-none focus:ring-2 focus:ring-violet-500" onClick={() => openStudent(summary.student.id, "answers")} type="button">
+                    <span><span className="block text-[9px] text-stone-400">答题准确率</span><strong className={cn("mt-0.5 block text-xs", summary.accuracy === undefined ? "text-stone-400" : summary.accuracy >= 80 ? "text-emerald-700" : summary.accuracy >= 60 ? "text-amber-700" : "text-rose-700")}>{summary.accuracy === undefined ? "—" : `${summary.accuracy}%`}</strong></span>
+                    <span className="text-right"><span className="block text-[9px] text-stone-400">答题数量</span><strong className="mt-0.5 block text-xs text-stone-700">{summary.answeredQuestions} 道</strong></span>
                   </button>
                 </li>
-              );
-            })}
+              ))}
           </ul>
         ) : <div className="py-12 text-center text-sm text-stone-500"><Eye className="mx-auto mb-2 text-stone-300" size={24} />暂无学生加入课堂</div>}
       </Card>
 
-      <AdaptiveTriggerAuditDialog
-        course={course}
-        onClose={() => setTriggerAuditStudentId(undefined)}
-        onToggleAdaptive={patchStudentAdaptive}
-        studentId={triggerAuditStudentId}
-      />
-      <StudentLearningDetail course={course} onOpenChange={(open) => { if (!open) setSelectedStudentId(undefined); }} open={Boolean(selectedStudentId)} studentId={selectedStudentId} />
+      <StudentLearningDetail course={course} initialTab={studentDetailTab} key={`${selectedStudentId ?? "none"}:${studentDetailTab}`} onOpenChange={(open) => { if (!open) setSelectedStudentId(undefined); }} open={Boolean(selectedStudentId)} studentId={selectedStudentId} />
     </div>
   );
 }
 
+// Retained temporarily for archived adaptive-course records; the current
+// teacher page no longer renders this legacy dialog.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AdaptiveTriggerAuditDialog({
   course,
   studentId,

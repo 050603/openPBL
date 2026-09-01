@@ -20,6 +20,7 @@ import {
   parseCodeArtifact,
   type CodeArtifactLanguage,
 } from "@/lib/ai-collaboration/code-artifact";
+import { appendAiInteractionEvents } from "@/lib/ai-collaboration/audit-store";
 import {
   activeConversationId,
   modelConversationHistory,
@@ -66,6 +67,16 @@ const COMMENT_RESOLVED_PREFIX = "OPENPBL_CODE_COMMENT_RESOLVED:";
 const CODE_COMMENT_REVIEW_VERSION = 2;
 const MAX_ARTIFACT_LENGTH = 120_000;
 const TRANSIENT_RETRIES = 2;
+
+async function recordInteractionEvents(
+  events: Parameters<typeof appendAiInteractionEvents>[0],
+): Promise<void> {
+  try {
+    await appendAiInteractionEvents(events);
+  } catch (error) {
+    console.error("[ai-code-collaboration] audit event write failed", error);
+  }
+}
 
 type CodeCollaborationRequest = {
   courseId?: unknown;
@@ -375,6 +386,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") ?? randomUUID();
   let body: CodeCollaborationRequest;
   try {
     body = await request.json() as CodeCollaborationRequest;
@@ -536,6 +548,45 @@ export async function POST(request: NextRequest) {
         stageKey: commentThreadKey(stageKey, language),
         messages: [studentMessage, agentMessage],
       });
+      await recordInteractionEvents([
+        {
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: commentThreadId,
+          source: "proactive-comment",
+          eventType: "request",
+          actorRole: "student",
+          actorId: scope.student.id,
+          content: message,
+          payload: { intent: replyIntent, language, targetText: existing.quotedCode },
+          requestId,
+        },
+        {
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: commentThreadId,
+          source: "proactive-comment",
+          eventType: "policy",
+          actorRole: "system",
+          content: protectedBoundary ? `命中代码协作边界：${protectedBoundary}` : "本轮未命中强制代码协作边界。",
+          payload: { ...(protectedBoundary ? { protectedCapability: protectedBoundary } : {}), outcome: result.kind },
+          requestId,
+        },
+        {
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: commentThreadId,
+          source: "proactive-comment",
+          eventType: "response",
+          actorRole: "ai",
+          content: result.message,
+          payload: { kind: result.kind, language },
+          requestId,
+        },
+      ]);
       return Response.json({
         commentThread: {
           ...existing,
@@ -651,6 +702,26 @@ export async function POST(request: NextRequest) {
           stageKey: commentThreadKey(stageKey, language),
           messages,
         });
+        await recordInteractionEvents(commentThreads.map((thread) => ({
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: thread.id,
+          source: "proactive-comment" as const,
+          eventType: "comment" as const,
+          actorRole: "ai" as const,
+          content: thread.comments[0]?.content ?? "AI 组员发起了代码批注。",
+          payload: {
+            commentThreadId: thread.id,
+            filePath: thread.filePath,
+            startLine: thread.startLine,
+            endLine: thread.endLine,
+            issueType: thread.title,
+            targetText: thread.quotedCode,
+            initialComment: true,
+          },
+          requestId,
+        })));
       }
       return Response.json({ result, commentThreads });
     }
@@ -676,6 +747,46 @@ export async function POST(request: NextRequest) {
       stageKey: key,
       messages: [userMessage, agentMessage],
     });
+    const source = selection ? "selection" as const : "sidebar" as const;
+    await recordInteractionEvents([
+      {
+        courseId,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: currentConversationId,
+        source,
+        eventType: "request",
+        actorRole: "student",
+        actorId: scope.student.id,
+        content: message,
+        payload: { intent, language, selection: selection ?? null },
+        requestId,
+      },
+      {
+        courseId,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: currentConversationId,
+        source,
+        eventType: "policy",
+        actorRole: "system",
+        content: protectedBoundary ? `命中代码协作边界：${protectedBoundary}` : "本轮未命中强制代码协作边界。",
+        payload: { ...(protectedBoundary ? { protectedCapability: protectedBoundary } : {}), outcome: result.kind },
+        requestId,
+      },
+      {
+        courseId,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: currentConversationId,
+        source,
+        eventType: "response",
+        actorRole: "ai",
+        content: assistantRecord(result),
+        payload: { kind: result.kind, language },
+        requestId,
+      },
+    ]);
     return Response.json({
       result,
       conversationId: currentConversationId,

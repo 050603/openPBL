@@ -6,7 +6,7 @@ import {
   PieChart,
   CheckCircle2,
   XCircle,
-  RotateCcw,
+  LockKeyhole,
   ChevronRight,
   Check,
   BookOpenText,
@@ -22,18 +22,15 @@ import { SpeechButton } from '@openmaic/components/audio/speech-button';
 import { gradeChoiceQuestions, isShortAnswer, type QuestionResult } from '@openmaic/lib/quiz/grading';
 import { renderQuizMathText } from '@openmaic/lib/quiz/math-text';
 import {
-  clearSubmitted,
   draftKey,
   readSubmittedState,
   writeSubmittedAnswers,
   writeSubmittedResults,
   type SubmittedState,
 } from '@openmaic/lib/quiz/persistence';
-import {
-  dispatchPlaybackActivityComplete,
-  dispatchPlaybackActivityReset,
-} from '@openmaic/lib/playback/activity-events';
+import { dispatchPlaybackActivityComplete } from '@openmaic/lib/playback/activity-events';
 import { gradeShortAnswerQuestion } from './quiz-grade-client';
+import { useLockedKnowledgeLectureAttempt } from '@/components/openmaic-bridge/knowledge-lecture-quiz-lock';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +39,7 @@ type Phase = 'not_started' | 'answering' | 'grading' | 'reviewing';
 interface QuizViewProps {
   readonly questions: QuizQuestion[];
   readonly sceneId: string;
+  readonly quizOutlineId?: string;
 }
 
 export const KNOWLEDGE_LECTURE_QUIZ_REVIEWED_EVENT = 'openpbl:knowledge-lecture-quiz-reviewed';
@@ -671,11 +669,34 @@ function ScoreBanner({
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export function QuizView({ questions, sceneId }: QuizViewProps) {
+export function QuizView({ questions, sceneId, quizOutlineId }: QuizViewProps) {
   const { t, locale } = useI18n();
+  const lockedAttempt = useLockedKnowledgeLectureAttempt(sceneId, quizOutlineId);
+  const lockedSubmitted = useMemo<SubmittedState>(() => {
+    if (!lockedAttempt) return null;
+    const reviews = new Map(lockedAttempt.questions.map((question) => [question.questionId, question]));
+    const restoredAnswers = Object.fromEntries(questions.map((question) => {
+      const answer = reviews.get(question.id)?.answer ?? '';
+      return [question.id, question.type === 'multiple' ? answer.split('、').filter(Boolean) : answer];
+    }));
+    return {
+      kind: 'reviewing',
+      answers: restoredAnswers,
+      results: lockedAttempt.questions.map((question) => {
+        const correct = question.correct ?? (question.points > 0 && question.earned / question.points >= 0.8);
+        return {
+          questionId: question.questionId,
+          correct,
+          status: correct ? 'correct' as const : 'incorrect' as const,
+          earned: question.earned,
+          aiComment: question.feedback,
+        };
+      }),
+    };
+  }, [lockedAttempt, questions]);
 
   // Rehydrate submitted state from localStorage on first mount. Runs once.
-  const [initialSubmitted] = useState<SubmittedState>(() => readSubmittedState(sceneId));
+  const [initialSubmitted] = useState<SubmittedState>(() => lockedSubmitted ?? readSubmittedState(sceneId));
 
   const [phase, setPhase] = useState<Phase>(() => {
     if (initialSubmitted?.kind === 'reviewing') return 'reviewing';
@@ -805,16 +826,6 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
     dispatchPlaybackActivityComplete({ sceneId, purpose: 'quiz' });
     setReviewReleased(true);
   }, [sceneId]);
-
-  const handleRetry = useCallback(() => {
-    dispatchPlaybackActivityReset({ sceneId, purpose: 'quiz' });
-    setPhase('not_started');
-    setAnswers({});
-    setResults([]);
-    setReviewReleased(false);
-    clearAnswersCache();
-    clearSubmitted(sceneId);
-  }, [clearAnswersCache, sceneId]);
 
   const earnedScore = useMemo(() => results.reduce((sum, r) => sum + r.earned, 0), [results]);
 
@@ -976,13 +987,10 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
                   {t('quiz.quizReport')}
                 </span>
               </div>
-              <button
-                onClick={handleRetry}
-                className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                {t('quiz.retry')}
-              </button>
+              <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+                <LockKeyhole className="w-3.5 h-3.5" />
+                本小节测验仅可作答一次
+              </span>
             </div>
 
             {/* Results */}

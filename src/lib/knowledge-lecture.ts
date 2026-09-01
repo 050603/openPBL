@@ -246,27 +246,72 @@ export type KnowledgePointMasteryRow = {
   incorrectStudents: number;
   earned: number;
   maxScore: number;
-  errorRate: number;
+  unmetRate: number;
+  scoreLossRate: number;
+  responseCoverage: number;
+  minimumSampleSize: number;
+  status: "collecting" | "observing" | "confirmed" | "clear";
+  misconceptionGroups: Array<{
+    code: "unanswered" | "concept" | "interpretation" | "method" | "calculation" | "evidence" | "other";
+    label: string;
+    studentCount: number;
+    examples: string[];
+  }>;
 };
 
-export function latestKnowledgeLectureAttempts(
+/**
+ * Section quizzes allow one submission only. Historical snapshots can still
+ * contain duplicates from the former retry flow, so readers keep the earliest
+ * valid submission for each quiz outline.
+ */
+export function firstKnowledgeLectureAttempts(
   progress?: StudentAiProgress,
 ): KnowledgeLectureAttempt[] {
-  const latest = new Map<string, KnowledgeLectureAttempt>();
+  const first = new Map<string, KnowledgeLectureAttempt>();
   for (const attempt of progress?.knowledgeLectureAttempts ?? []) {
-    const current = latest.get(attempt.quizOutlineId);
-    if (!current || Date.parse(attempt.submittedAt) >= Date.parse(current.submittedAt)) {
-      latest.set(attempt.quizOutlineId, attempt);
+    const current = first.get(attempt.quizOutlineId);
+    if (!current || Date.parse(attempt.submittedAt) < Date.parse(current.submittedAt)) {
+      first.set(attempt.quizOutlineId, attempt);
     }
   }
-  return [...latest.values()];
+  return [...first.values()];
+}
+
+export function knowledgeLectureQuizEstimate(
+  course: Pick<Course, "content" | "aiLearningProgress">,
+  section: KnowledgeLectureSection,
+): { questionCount: number; estimatedMinutes: number } {
+  const outline = course.content._openmaicSceneOutlines?.find(
+    (item) => item.id === section.quizOutlineId,
+  );
+  const quizConfig = outline?.quizConfig && typeof outline.quizConfig === "object"
+    ? outline.quizConfig as Record<string, unknown>
+    : undefined;
+  const configuredCount = Number(quizConfig?.questionCount);
+  const attemptCounts = Object.values(course.aiLearningProgress ?? {}).flatMap((entry) =>
+    firstKnowledgeLectureAttempts(entry)
+      .filter((attempt) => attempt.sectionId === section.id)
+      .map((attempt) => attempt.questions.length),
+  );
+  const questionCount = Number.isSafeInteger(configuredCount) && configuredCount > 0
+    ? configuredCount
+    : attemptCounts[0] ?? (section.knowledgePointIds.length >= 3 ? 3 : 2);
+  const durationSeconds = Number(outline?.targetDurationSec ?? outline?.estimatedDuration);
+  const estimatedMinutes = Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? Math.max(1, Math.round(durationSeconds / 60))
+    : Math.max(2, Math.min(5, questionCount + 1));
+  return { questionCount, estimatedMinutes };
 }
 
 export function aggregateKnowledgePointMastery(
-  course: Pick<Course, "content" | "aiLearningProgress">,
+  course: Pick<Course, "content" | "aiLearningProgress" | "students">,
   progressOverride?: Record<string, StudentAiProgress>,
 ): KnowledgePointMasteryRow[] {
   const progress = progressOverride ?? course.aiLearningProgress ?? {};
+  const totalStudents = course.students.length;
+  const minimumSampleSize = totalStudents > 0
+    ? Math.min(totalStudents, Math.max(3, Math.ceil(totalStudents * 0.4)))
+    : 0;
   const accumulators = new Map(course.content.knowledgePoints.map((point) => [point.id, {
     knowledgePointId: point.id,
     name: point.name,
@@ -275,10 +320,11 @@ export function aggregateKnowledgePointMastery(
     responseCount: 0,
     earned: 0,
     maxScore: 0,
+    misconceptionGroups: new Map<string, { code: KnowledgePointMasteryRow["misconceptionGroups"][number]["code"]; label: string; studentIds: Set<string>; examples: Set<string> }>(),
   }]));
 
   for (const [studentId, entry] of Object.entries(progress)) {
-    for (const attempt of latestKnowledgeLectureAttempts(entry)) {
+    for (const attempt of firstKnowledgeLectureAttempts(entry)) {
       for (const question of attempt.questions) {
         const ids = question.knowledgePointIds.length
           ? question.knowledgePointIds
@@ -292,6 +338,15 @@ export function aggregateKnowledgePointMastery(
           accumulator.maxScore += question.points;
           if (question.points <= 0 || question.earned / question.points < 0.8) {
             accumulator.incorrectStudentIds.add(studentId);
+            const misconception = classifyMisconception(question.answer, question.feedback);
+            const group = accumulator.misconceptionGroups.get(misconception.code) ?? {
+              ...misconception,
+              studentIds: new Set<string>(),
+              examples: new Set<string>(),
+            };
+            group.studentIds.add(studentId);
+            if (question.feedback.trim()) group.examples.add(question.feedback.trim());
+            accumulator.misconceptionGroups.set(misconception.code, group);
           }
         }
       }
@@ -299,17 +354,45 @@ export function aggregateKnowledgePointMastery(
   }
 
   return [...accumulators.values()]
-    .map((item) => ({
-      knowledgePointId: item.knowledgePointId,
-      name: item.name,
-      answeredStudents: item.studentIds.size,
-      responseCount: item.responseCount,
-      incorrectStudents: item.incorrectStudentIds.size,
-      earned: item.earned,
-      maxScore: item.maxScore,
-      errorRate: item.maxScore > 0
-        ? Math.round((1 - item.earned / item.maxScore) * 100)
-        : 0,
-    }))
-    .sort((a, b) => b.errorRate - a.errorRate || b.answeredStudents - a.answeredStudents);
+    .map((item) => {
+      const answeredStudents = item.studentIds.size;
+      const incorrectStudents = item.incorrectStudentIds.size;
+      const unmetRate = answeredStudents > 0 ? Math.round(incorrectStudents / answeredStudents * 100) : 0;
+      const enoughEvidence = answeredStudents >= minimumSampleSize;
+      const candidate = incorrectStudents >= 2 && unmetRate >= 30;
+      return {
+        knowledgePointId: item.knowledgePointId,
+        name: item.name,
+        answeredStudents,
+        responseCount: item.responseCount,
+        incorrectStudents,
+        earned: item.earned,
+        maxScore: item.maxScore,
+        unmetRate,
+        scoreLossRate: item.maxScore > 0
+          ? Math.round((1 - item.earned / item.maxScore) * 100)
+          : 0,
+        responseCoverage: totalStudents > 0 ? Math.round(answeredStudents / totalStudents * 100) : 0,
+        minimumSampleSize,
+        status: candidate ? (enoughEvidence ? "confirmed" as const : "observing" as const) : enoughEvidence ? "clear" as const : "collecting" as const,
+        misconceptionGroups: [...item.misconceptionGroups.values()]
+          .map((group) => ({ code: group.code, label: group.label, studentCount: group.studentIds.size, examples: [...group.examples].slice(0, 2) }))
+          .sort((left, right) => right.studentCount - left.studentCount),
+      };
+    })
+    .sort((a, b) => b.unmetRate - a.unmetRate || b.scoreLossRate - a.scoreLossRate || b.answeredStudents - a.answeredStudents);
+}
+
+function classifyMisconception(answer: string, feedback: string): {
+  code: KnowledgePointMasteryRow["misconceptionGroups"][number]["code"];
+  label: string;
+} {
+  if (!answer.trim()) return { code: "unanswered", label: "未作答" };
+  const evidence = feedback.toLowerCase();
+  if (/(概念|定义|混淆|含义|理解)/.test(evidence)) return { code: "concept", label: "概念理解错误" };
+  if (/(题意|审题|条件|关键词|答非所问)/.test(evidence)) return { code: "interpretation", label: "题意或条件识别错误" };
+  if (/(计算|运算|数值|单位)/.test(evidence)) return { code: "calculation", label: "计算或操作错误" };
+  if (/(证据|理由|依据|说明为什么)/.test(evidence)) return { code: "evidence", label: "证据或理由不足" };
+  if (/(步骤|方法|过程|推理|关系|方向)/.test(evidence)) return { code: "method", label: "方法或步骤缺失" };
+  return { code: "other", label: "其他理解偏差" };
 }

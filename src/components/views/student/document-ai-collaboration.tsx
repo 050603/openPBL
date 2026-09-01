@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   RefreshCcw,
   Save,
+  Send,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -76,6 +77,13 @@ type UndoableEdit = {
   confirmationId: string;
   contribution: AiContribution;
   decisionId: string;
+  conversationId: string;
+  source: "sidebar" | "selection" | "proactive-comment";
+};
+
+type EditNotice = {
+  kind: "applied" | "undone";
+  title: string;
 };
 
 const MODIFICATION_INTENTS = new Set<DocumentCollaborationIntent>(["edit"]);
@@ -89,6 +97,19 @@ function plainTextLength(html: string): number {
 
 function nowId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function inferMemberIntent(request: string, selectedText?: string): DocumentCollaborationIntent {
+  const value = request.replace(/\s+/g, "");
+  if (selectedText && /(?:改|润色|校对|重写|精简|扩写|调整表达|格式|纠正)/.test(value)) {
+    return "edit";
+  }
+  if (/(?:整理|归纳|查找|检索|补充资料|资料|来源|列出|做一份|生成清单|分组|排版)/.test(value)) {
+    return "delegate";
+  }
+  if (/(?:检查|审阅|找问题|哪里不|是否完整|逻辑)/.test(value)) return "check";
+  if (/(?:总结|梳理进展|概括)/.test(value)) return "summarize";
+  return "discuss";
 }
 
 export function DocumentAiCollaboration({
@@ -111,6 +132,7 @@ export function DocumentAiCollaboration({
     && (!newSystem || course?.status === "teaching");
   const editorRef = useRef<PlateDocumentEditorHandle>(null);
   const submissionIdRef = useRef<string | undefined>(undefined);
+  const submissionVersionRef = useRef(1);
   const loadedScopeRef = useRef("");
   const proactiveRequestRef = useRef<Set<string>>(new Set());
   const analyzedParagraphsRef = useRef<Set<string>>(new Set());
@@ -134,10 +156,17 @@ export function DocumentAiCollaboration({
   const [deliveryRevision, setDeliveryRevision] = useState<DeliveryRevision | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [undoableEdit, setUndoableEdit] = useState<UndoableEdit | null>(null);
+  const [editNotice, setEditNotice] = useState<EditNotice | null>(null);
   const [memberOpen, setMemberOpen] = useState(false);
   const [memberMode, setMemberMode] = useState<"discuss" | "task">("discuss");
   const [taskStarters, setTaskStarters] = useState<string[]>([]);
   const [taskStartersBusy, setTaskStartersBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submittedVersion, setSubmittedVersion] = useState<{
+    sequence: number;
+    submittedAt?: string;
+    downloadUrl: string;
+  } | null>(null);
 
   const group = course?.groups?.find((item) =>
     item.members.some((member) => member.studentId === studentId));
@@ -156,6 +185,16 @@ export function DocumentAiCollaboration({
     ? "项目方案协作文档"
     : "项目成果协作文档";
   const projectTitle = group?.topic || course?.drivingQuestion || course?.name || documentTitle;
+  const canSubmitFinal = stageKey === "make";
+
+  useEffect(() => {
+    if (!editNotice) return;
+    const timer = window.setTimeout(
+      () => setEditNotice(null),
+      editNotice.kind === "applied" ? 5_000 : 3_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [editNotice]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -171,6 +210,7 @@ export function DocumentAiCollaboration({
     loadedScopeRef.current = scopeKey;
     const initialContent = existingDocument?.content ?? "";
     submissionIdRef.current = existingDocument?.id;
+    submissionVersionRef.current = existingDocument?.version ?? 1;
     savedContentRef.current = initialContent;
     setDocumentHtml(initialContent);
     setDocumentReady(true);
@@ -186,7 +226,20 @@ export function DocumentAiCollaboration({
     paragraphSnapshotRef.current = new Map();
     setAiCommentThreads([]);
     setUndoableEdit(null);
-  }, [course, existingDocument?.content, existingDocument?.id, stageKey, studentId, supportedStage]);
+  }, [course, existingDocument?.content, existingDocument?.id, existingDocument?.version, stageKey, studentId, supportedStage]);
+
+  useEffect(() => {
+    const latest = (course?.projectDocumentVersions ?? [])
+      .filter((version) => version.submissionId === submissionIdRef.current && version.status === "submitted")
+      .sort((left, right) => right.sequence - left.sequence)[0];
+    if (latest?.docxUploadId) {
+      setSubmittedVersion({
+        sequence: latest.sequence,
+        submittedAt: latest.submittedAt,
+        downloadUrl: `/api/uploads/${latest.docxUploadId}?download=1`,
+      });
+    }
+  }, [course?.projectDocumentVersions, existingDocument?.id]);
 
   useEffect(() => {
     if (!resolvedCourseId || !studentId || !supportedStage) return;
@@ -235,7 +288,7 @@ export function DocumentAiCollaboration({
   }, [resolvedCourseId, stageKey, studentId, supportedStage]);
 
   useEffect(() => {
-    if (!memberOpen || memberMode !== "task" || !course || !studentId || !supportedStage) return;
+    if (!memberOpen || !course || !studentId || !supportedStage) return;
     const textLength = plainTextLength(documentHtml);
     const signature = `${course.id}:${stageKey}:${documentHtml.slice(0, 900)}:${documentHtml.slice(-900)}`;
     const previous = taskStarterContextRef.current;
@@ -272,15 +325,22 @@ export function DocumentAiCollaboration({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [course, documentHtml, memberMode, memberOpen, stageKey, studentId, supportedStage]);
+  }, [course, documentHtml, memberOpen, stageKey, studentId, supportedStage]);
 
-  const persistDocument = useCallback((content: string, source: "auto" | "manual" | "ai" | "undo") => {
-    if (!course || !studentId || !supportedStage || content === savedContentRef.current) {
+  const persistDocument = useCallback(async (
+    content: string,
+    source: "auto" | "manual" | "ai" | "undo",
+  ): Promise<boolean> => {
+    if (!course || !studentId || !supportedStage) {
+      setSaveStatus("error");
+      return false;
+    }
+    if (content === savedContentRef.current && session.saveState !== "error") {
       setSaveStatus("saved");
-      return;
+      return true;
     }
     setSaveStatus("saving");
-    const submission = session.upsertSubmission({
+    const submission = await session.persistSubmission({
       id: submissionIdRef.current,
       courseId: course.id,
       studentId,
@@ -293,25 +353,20 @@ export function DocumentAiCollaboration({
     });
     if (!submission) {
       setSaveStatus("error");
-      return;
+      return false;
     }
     submissionIdRef.current = submission.id;
+    submissionVersionRef.current = submission.version ?? 1;
     savedContentRef.current = content;
     setSaveStatus("saved");
-    if (source !== "auto") {
-      session.addActivity(
-        course.id,
-        source === "ai" ? "应用 AI 局部修改" : source === "undo" ? "撤销 AI 局部修改" : "保存 AI 协作文档",
-        documentTitle,
-        group?.name ?? session.studentName ?? "学生",
-      );
-    }
+    void source;
+    return true;
   }, [course, documentTitle, group, session, stageKey, studentId, supportedStage]);
 
   useEffect(() => {
     if (!documentReady || !course || !studentId || !supportedStage) return;
     if (documentHtml === savedContentRef.current) return;
-    const timer = window.setTimeout(() => persistDocument(documentHtml, "auto"), 900);
+    const timer = window.setTimeout(() => void persistDocument(documentHtml, "auto"), 900);
     return () => window.clearTimeout(timer);
   }, [course, documentHtml, documentReady, persistDocument, stageKey, studentId, supportedStage]);
 
@@ -422,6 +477,7 @@ export function DocumentAiCollaboration({
     }
     const sourceThread = aiCommentThreads.find((thread) => thread.id === threadId);
     if (!sourceThread) throw new Error("这条批注已经失效，请刷新页面后重试。");
+    const contributionId = nowId("document-comment-ai-contribution");
     const response = await fetch("/api/ai-collaboration/document", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
@@ -433,6 +489,7 @@ export function DocumentAiCollaboration({
         stageKey,
         documentHtml,
         message,
+        contributionId,
       }),
     });
     const payload = await response.json().catch(() => ({})) as {
@@ -467,7 +524,7 @@ export function DocumentAiCollaboration({
         })
       : undefined;
     const contribution: AiContribution = {
-      id: nowId("document-comment-ai-contribution"),
+      id: contributionId,
       courseId: course.id,
       studentId,
       stageKey,
@@ -562,6 +619,29 @@ export function DocumentAiCollaboration({
     if (undoableEdit && html !== undoableEdit.afterHtml) setUndoableEdit(null);
   }
 
+  function recordAiInteraction(input: {
+    conversationId?: string;
+    source: "sidebar" | "selection" | "proactive-comment" | "system";
+    eventType: "proposal" | "decision" | "undo" | "comment" | "error";
+    content?: string;
+    payload?: Record<string, unknown>;
+  }) {
+    if (!course || !studentId || !supportedStage) return;
+    const { conversationId: targetConversationId, ...event } = input;
+    void fetch("/api/ai-collaboration/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
+      body: JSON.stringify({
+        courseId: course.id,
+        studentId,
+        stageKey,
+        conversationId: targetConversationId ?? conversationId,
+        actorRole: "student",
+        ...event,
+      }),
+    }).catch(() => undefined);
+  }
+
   async function sendRequest(
     requestedIntent = intent,
     preset?: string,
@@ -577,9 +657,9 @@ export function DocumentAiCollaboration({
       setError("请先审阅、退回或暂不采用当前的组员交付，再安排下一项工作。");
       return null;
     }
-    const currentSelection = requestedIntent === "delegate"
-      ? null
-      : selectionOverride === undefined ? selection : selectionOverride;
+    // A selection always narrows the operation to that local paragraph. The
+    // server applies the same rule even if a stale client sends intent=delegate.
+    const currentSelection = selectionOverride === undefined ? selection : selectionOverride;
     const selectionSnapshot = currentSelection
       ? {
           ...currentSelection,
@@ -604,10 +684,16 @@ export function DocumentAiCollaboration({
     setBusy(true);
     setError(null);
     setSuggestionError(null);
+    const contributionId = nowId("document-ai-contribution");
+    const requestId = nowId("document-ai-request");
     try {
       const response = await fetch("/api/ai-collaboration/document", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-OpenPBL-Role": "student" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenPBL-Role": "student",
+          "X-Request-Id": requestId,
+        },
         body: JSON.stringify({
           courseId: course.id,
           studentId,
@@ -617,6 +703,7 @@ export function DocumentAiCollaboration({
           message: requestText,
           documentHtml,
           selectedText: selectionSnapshot?.text,
+          contributionId,
           revisionOf: requestedIntent === "delegate" ? deliveryRevision : undefined,
         }),
       });
@@ -650,7 +737,7 @@ export function DocumentAiCollaboration({
         assistantMessage,
       ]);
       const contribution: AiContribution = {
-        id: nowId("document-ai-contribution"),
+        id: contributionId,
         courseId: course.id,
         studentId,
         stageKey,
@@ -782,6 +869,12 @@ export function DocumentAiCollaboration({
       }
       return assistantMessage;
     } catch (requestError) {
+      recordAiInteraction({
+        source: selectionSnapshot ? "selection" : "sidebar",
+        eventType: "error",
+        content: requestError instanceof Error ? requestError.message : "AI 组员请求失败",
+        payload: { intent: requestedIntent },
+      });
       setError(requestError instanceof Error ? requestError.message : "AI 组员暂时无法回应，请稍后再试。");
       return null;
     } finally {
@@ -790,8 +883,8 @@ export function DocumentAiCollaboration({
   }
 
   function submitMemberRequest() {
-    const nextIntent: DocumentCollaborationIntent = memberMode === "task" ? "delegate" : "discuss";
-    void sendRequest(nextIntent, undefined, null);
+    const nextIntent = inferMemberIntent(draft, selection?.text);
+    void sendRequest(nextIntent, undefined, selection);
   }
 
   async function startNewConversation() {
@@ -891,6 +984,13 @@ export function DocumentAiCollaboration({
         source: "student",
         companionId: pendingSuggestion.contribution.companionId,
       });
+      recordAiInteraction({
+        conversationId: pendingSuggestion.sourceThreadId ?? conversationId,
+        source: pendingSuggestion.sourceThreadId ? "proactive-comment" : "selection",
+        eventType: "decision",
+        content: "学生拒绝 AI 修改建议，保留原文。",
+        payload: { decision: "rejected", contributionId: pendingSuggestion.contribution.id },
+      });
       setPendingSuggestion(null);
       setSuggestionError(null);
       return;
@@ -930,6 +1030,13 @@ export function DocumentAiCollaboration({
       source: "student",
       companionId: pendingSuggestion.contribution.companionId,
     });
+    recordAiInteraction({
+      conversationId: pendingSuggestion.sourceThreadId ?? conversationId,
+      source: pendingSuggestion.sourceThreadId ? "proactive-comment" : "selection",
+      eventType: "decision",
+      content: `学生确认应用 AI 修改：${pendingSuggestion.suggestion.title}`,
+      payload: { decision: "adopted", contributionId: pendingSuggestion.contribution.id, confirmationId: pendingSuggestion.confirmationId },
+    });
     setUndoableEdit({
       title: pendingSuggestion.suggestion.title,
       beforeHtml: result.beforeHtml,
@@ -937,11 +1044,14 @@ export function DocumentAiCollaboration({
       confirmationId: pendingSuggestion.confirmationId,
       contribution: pendingSuggestion.contribution,
       decisionId,
+      conversationId: pendingSuggestion.sourceThreadId ?? conversationId,
+      source: pendingSuggestion.sourceThreadId ? "proactive-comment" : "selection",
     });
+    setEditNotice({ kind: "applied", title: pendingSuggestion.suggestion.title });
     setPendingSuggestion(null);
     setSuggestionError(null);
     setSelection(null);
-    persistDocument(result.afterHtml, "ai");
+    void persistDocument(result.afterHtml, "ai");
   }
 
   function resolveDelivery(decision: "adopted" | "rejected" | "revision") {
@@ -977,6 +1087,12 @@ export function DocumentAiCollaboration({
           : "文档没有发生变化。",
         source: "student",
         companionId: contribution.companionId,
+      });
+      recordAiInteraction({
+        source: "sidebar",
+        eventType: "decision",
+        content: decision === "revision" ? "学生退回 AI 组员交付要求修改。" : "学生暂不采用 AI 组员交付。",
+        payload: { decision: "rejected", reason: decision, contributionId: contribution.id },
       });
       if (decision === "revision") {
         setDeliveryRevision({ title: deliverable.title, content: deliverable.content });
@@ -1027,6 +1143,12 @@ export function DocumentAiCollaboration({
       source: "student",
       companionId: contribution.companionId,
     });
+    recordAiInteraction({
+      source: "sidebar",
+      eventType: "decision",
+      content: `学生确认审阅 AI 组员交付：${deliverable.title}`,
+      payload: { decision: "adopted", contributionId: contribution.id, confirmationId: pendingDelivery.confirmationId, appliedToDocument: documentActions.length > 0 },
+    });
     if (result?.beforeHtml && result.afterHtml) {
       setUndoableEdit({
         title: deliverable.title,
@@ -1035,11 +1157,14 @@ export function DocumentAiCollaboration({
         confirmationId: pendingDelivery.confirmationId,
         contribution,
         decisionId,
+        conversationId,
+        source: "sidebar",
       });
+      setEditNotice({ kind: "applied", title: deliverable.title });
     }
     setPendingDelivery(null);
     setSelection(null);
-    if (result?.afterHtml) persistDocument(result.afterHtml, "ai");
+    if (result?.afterHtml) void persistDocument(result.afterHtml, "ai");
   }
 
   function undoAiEdit() {
@@ -1072,17 +1197,81 @@ export function DocumentAiCollaboration({
       source: "student",
       companionId: undoableEdit.contribution.companionId,
     });
-    persistDocument(undoableEdit.beforeHtml, "undo");
+    recordAiInteraction({
+      conversationId: undoableEdit.conversationId,
+      source: undoableEdit.source,
+      eventType: "undo",
+      content: `学生撤销 AI 修改：${undoableEdit.title}`,
+      payload: { contributionId: undoableEdit.contribution.id, decisionId: undoableEdit.decisionId },
+    });
+    void persistDocument(undoableEdit.beforeHtml, "undo");
+    setEditNotice({ kind: "undone", title: undoableEdit.title });
     setUndoableEdit(null);
   }
 
+  async function submitFinalDocument() {
+    if (!course || !studentId || !supportedStage || !canSubmitFinal || submitting) return;
+    if (pendingSuggestion || pendingDelivery) {
+      setError("请先接受或拒绝当前待确认的 AI 修改或组员交付，再提交最终版。");
+      return;
+    }
+    if (plainTextLength(documentHtml) < 2) {
+      setError("文档还没有可提交的内容，请先完成自己的方案编写。");
+      return;
+    }
+    if (documentHtml !== savedContentRef.current) await persistDocument(documentHtml, "manual");
+    setSubmitting(true);
+    setError(null);
+    try {
+      const flushed = await session.flushSaves();
+      if (!flushed || !submissionIdRef.current) {
+        throw new Error("文档尚未保存成功，请稍后重试。");
+      }
+      const requestId = nowId("project-submit");
+      const response = await fetch("/api/project-practice/submissions/finalize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-OpenPBL-Role": "student",
+          "X-Request-Id": requestId,
+        },
+        body: JSON.stringify({
+          courseId: course.id,
+          submissionId: submissionIdRef.current,
+          studentId,
+          stageKey,
+          expectedVersion: submissionVersionRef.current,
+          requestId,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as {
+        sequence?: number;
+        submittedAt?: string;
+        downloadUrl?: string;
+        message?: string;
+      };
+      if (!response.ok || !payload.sequence || !payload.downloadUrl) {
+        throw new Error(payload.message ?? "最终 Word 文档生成失败，请稍后重试。");
+      }
+      setSubmittedVersion({
+        sequence: payload.sequence,
+        submittedAt: payload.submittedAt,
+        downloadUrl: payload.downloadUrl,
+      });
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "最终 Word 文档生成失败，请稍后重试。");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function leaveCollaboration() {
-    if (documentHtml !== savedContentRef.current) persistDocument(documentHtml, "manual");
+    if (documentHtml !== savedContentRef.current) void persistDocument(documentHtml, "manual");
     router.push(collaborationBackHref(courseId));
   }
 
   function changeArtifactType(value: CollaborationArtifactType) {
-    if (documentHtml !== savedContentRef.current) persistDocument(documentHtml, "auto");
+    if (documentHtml !== savedContentRef.current) void persistDocument(documentHtml, "auto");
     onArtifactTypeChange(value);
   }
 
@@ -1134,13 +1323,24 @@ export function DocumentAiCollaboration({
             <span className="hidden sm:inline-flex"><SaveState status={session.saveState === "error" ? "error" : saveStatus} /></span>
             <PrimaryButton
               disabled={saveStatus === "saving"}
-              onClick={() => persistDocument(documentHtml, "manual")}
+              onClick={() => void persistDocument(documentHtml, "manual")}
               size="sm"
               tone="slate"
               variant="outline"
             >
               <Save size={14} />保存
             </PrimaryButton>
+            {canSubmitFinal ? (
+              <PrimaryButton
+                disabled={submitting || saveStatus === "saving" || session.saveState === "saving" || Boolean(pendingSuggestion) || Boolean(pendingDelivery)}
+                onClick={() => { void submitFinalDocument(); }}
+                size="sm"
+                tone="blue"
+              >
+                {submitting ? <LoaderCircle className="animate-spin" size={14} /> : <Send size={14} />}
+                {submitting ? "生成 Word…" : submittedVersion ? `提交第 ${submittedVersion.sequence + (saveStatus === "unsaved" || saveStatus === "error" ? 1 : 0)} 版` : "提交最终版"}
+              </PrimaryButton>
+            ) : null}
           </div>
         </div>
       </header>
@@ -1152,10 +1352,6 @@ export function DocumentAiCollaboration({
           <div className="px-1 sm:px-2">
             {documentReady ? (
               <PlateDocumentEditor
-                appliedAiEdit={undoableEdit ? {
-                  title: undoableEdit.title,
-                  onUndo: undoAiEdit,
-                } : undefined}
                 aiCommentThreads={aiCommentThreads}
                 aiContext={{
                   courseId,
@@ -1191,6 +1387,7 @@ export function DocumentAiCollaboration({
           </div>
           <footer className="border-t border-stone-100 px-5 py-3 text-xs text-stone-500">
             <span>{plainTextLength(documentHtml)} 字 · 当前草稿自动保存</span>
+            {canSubmitFinal && submittedVersion ? <a className="ml-3 font-semibold text-emerald-700 hover:underline" download href={submittedVersion.downloadUrl}>下载第 {submittedVersion.sequence} 版 Word</a> : null}
           </footer>
         </section>
 
@@ -1247,6 +1444,33 @@ export function DocumentAiCollaboration({
             <span className="grid size-7 place-items-center rounded-lg bg-stone-950 text-white"><FilePenLine size={14} /></span>
             {pendingDelivery ? "查看待审阅的组员交付" : "查看待确认的 AI 修改"}
           </button>
+        ) : null}
+        {editNotice ? (
+          <div
+            aria-live="polite"
+            className="fixed bottom-6 left-1/2 z-[90] flex w-[min(92vw,28rem)] -translate-x-1/2 items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-[0_20px_60px_-18px_rgba(28,25,23,0.45)]"
+            role="status"
+          >
+            <span className={cn(
+              "grid size-9 shrink-0 place-items-center rounded-full",
+              editNotice.kind === "applied" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700",
+            )}>
+              {editNotice.kind === "applied" ? <Check size={18} /> : <RefreshCcw size={17} />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-stone-900">{editNotice.kind === "applied" ? "AI 修改已应用" : "AI 修改已撤销"}</p>
+              <p className="truncate text-xs text-stone-500">{editNotice.title}</p>
+            </div>
+            {editNotice.kind === "applied" && undoableEdit ? (
+              <button
+                className="shrink-0 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:border-blue-300 hover:text-blue-700"
+                onClick={undoAiEdit}
+                type="button"
+              >
+                撤销
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </main>

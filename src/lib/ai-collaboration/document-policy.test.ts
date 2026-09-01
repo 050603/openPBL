@@ -4,7 +4,9 @@ import {
   buildDocumentCollaborationPrompts,
   detectProtectedStudentWorkRequest,
   documentHtmlToPlainText,
+  evaluateAiWorkPolicy,
   normalizeDocumentCollaborationResponse,
+  protectedBoundaryForPolicy,
 } from "./document-policy";
 
 const course = {
@@ -165,5 +167,92 @@ describe("document AI collaboration policy", () => {
     }, "学生原文", "关键方案决策");
     expect(result.kind).toBe("boundary");
     expect(result.suggestion).toBeUndefined();
+  });
+
+  it("keeps core project decisions in guide-only mode", () => {
+    const decision = evaluateAiWorkPolicy({
+      intent: "discuss",
+      request: "请直接写出我们的核心结论",
+      scope: "document",
+      hasStudentArtifact: true,
+    });
+    expect(decision.outcome).toBe("guide_only");
+    expect(decision.allowedOperations).toEqual(["none"]);
+    expect(decision.requiresConfirmation).toBe(false);
+    expect(decision.protectedCapability).toBe("核心结论");
+  });
+
+  it("keeps ordinary discussion guidance internal instead of presenting it as a boundary", () => {
+    const decision = evaluateAiWorkPolicy({
+      intent: "discuss",
+      request: "我们记录了三个课间，下一步应该重点比较什么？",
+      scope: "document",
+      hasStudentArtifact: true,
+    });
+    expect(decision.outcome).toBe("guide_only");
+    expect(protectedBoundaryForPolicy(decision, "我们记录了三个课间，下一步应该重点比较什么？"))
+      .toBeUndefined();
+
+    const protectedDecision = evaluateAiWorkPolicy({
+      intent: "discuss",
+      request: "请直接写出我们的核心结论",
+      scope: "document",
+      hasStudentArtifact: true,
+    });
+    expect(protectedBoundaryForPolicy(protectedDecision, "请直接写出我们的核心结论"))
+      .toBe("核心结论");
+  });
+
+  it("allows only confirmed local work for an existing selection", () => {
+    const decision = evaluateAiWorkPolicy({
+      intent: "edit",
+      request: "把这句话润色得更清楚",
+      scope: "selection",
+      selectedText: "我们观察了几个时间段。",
+      hasStudentArtifact: true,
+    });
+    expect(decision.outcome).toBe("local_suggestion");
+    expect(decision.scope).toBe("selection");
+    expect(decision.allowedOperations).toEqual(["replace"]);
+    expect(decision.requiresConfirmation).toBe(true);
+  });
+
+  it("does not let proactive review run before student work exists", () => {
+    const decision = evaluateAiWorkPolicy({
+      intent: "check",
+      request: "看看这一段有没有问题",
+      scope: "paragraph",
+      proactive: true,
+      hasStudentArtifact: false,
+      selectedText: "",
+    });
+    expect(decision.outcome).toBe("guide_only");
+    expect(decision.requiresExistingStudentWork).toBe(true);
+    expect(decision.allowedOperations).toEqual(["none"]);
+  });
+
+  it("permits bounded auxiliary work while retaining confirmation", () => {
+    const decision = evaluateAiWorkPolicy({
+      intent: "delegate",
+      request: "整理已有观察，列出需要核对的资料来源",
+      scope: "document",
+      hasStudentArtifact: true,
+    });
+    expect(decision.outcome).toBe("delegated_edit");
+    expect(decision.allowedOperations).toEqual(["insert", "append"]);
+    expect(decision.requiresConfirmation).toBe(true);
+  });
+
+  it("keeps a selected delegate request local", () => {
+    const decision = evaluateAiWorkPolicy({
+      intent: "delegate",
+      request: "整理这段表达",
+      scope: "selection",
+      selectedText: "我们观察了几个时间段。",
+      hasStudentArtifact: true,
+    });
+    expect(decision.outcome).toBe("local_suggestion");
+    expect(decision.scope).toBe("selection");
+    expect(decision.allowedOperations).toEqual(["replace"]);
   });
 });

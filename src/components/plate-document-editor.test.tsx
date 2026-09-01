@@ -283,8 +283,8 @@ describe("PlateDocumentEditor collaboration edits", () => {
     expect(view.queryByPlaceholderText("回复…")).toBeNull();
     const suggestionCard = document.querySelector("[data-ai-comment-suggestion]");
     expect(suggestionCard).not.toBeNull();
-    fireEvent.mouseEnter(suggestionCard!);
     const accept = await view.findByRole("button", { name: "接受修改" });
+    expect(view.getByRole("button", { name: "拒绝修改" })).toBeTruthy();
     fireEvent.click(accept);
     expect(onDecision).toHaveBeenCalledWith("accepted");
   });

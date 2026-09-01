@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Course } from "@/lib/session/types";
-import { AiCollaborationTeacherMonitor } from "./ai-collaboration-monitor";
+import { AiCollaborationTeacherMonitor, deriveAiCollaborationMetrics } from "./ai-collaboration-monitor";
 
 const course = {
   students: [{ id: "student-1", name: "小明" }],
@@ -18,5 +18,66 @@ describe("AI collaboration teacher monitor", () => {
     expect(screen.getByRole("heading", { name: "学习进度" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "学生列表" })).toBeTruthy();
     expect(screen.queryByText(/真实产物/)).toBeNull();
+    expect(screen.queryByText(/名学生/)).toBeNull();
+    expect(screen.queryByText(/\d+\/\d+ 已保存/)).toBeNull();
+  });
+
+  it("shows student and AI messages as a located conversation without read receipts", () => {
+    render(<AiCollaborationTeacherMonitor course={{
+      ...course,
+      aiInteractionEvents: [
+        { id: "1", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-12345678", source: "sidebar", eventType: "request", actorRole: "student", requestId: "request-1", content: "我们的观察还缺什么？", createdAt: "2026-09-01T01:00:00.000Z" },
+        { id: "2", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-12345678", source: "sidebar", eventType: "response", actorRole: "ai", requestId: "request-1", content: "还需要说明观察时段为什么具有代表性。", createdAt: "2026-09-01T01:00:01.000Z" },
+        { id: "2b", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-12345678", source: "sidebar", eventType: "request", actorRole: "student", requestId: "request-2", content: "那应该怎样说明？", createdAt: "2026-09-01T01:00:01.500Z" },
+        { id: "2c", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-12345678", source: "sidebar", eventType: "response", actorRole: "ai", requestId: "request-2", content: "说明固定时段可以减少变量干扰。", createdAt: "2026-09-01T01:00:01.800Z" },
+        { id: "3", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "comment-1", source: "proactive-comment", eventType: "comment", actorRole: "student", content: "学生阅读了段落批注。", payload: { action: "read" }, createdAt: "2026-09-01T01:00:02.000Z" },
+      ],
+    } as Course} />);
+
+    expect(screen.getByText("侧边栏对话")).toBeTruthy();
+    expect(screen.getByText("我们的观察还缺什么？")).toBeTruthy();
+    expect(screen.getByText("还需要说明观察时段为什么具有代表性。")).toBeTruthy();
+    expect(screen.getByText("那应该怎样说明？")).toBeTruthy();
+    expect(screen.getByText("说明固定时段可以减少变量干扰。")).toBeTruthy();
+    expect(screen.getByText("第 1 轮对话 · 4 条消息")).toBeTruthy();
+    expect(screen.queryByText("学生阅读了段落批注。")).toBeNull();
+    expect(screen.getByRole("link", { name: /导出该生 JSON/ }).getAttribute("href"))
+      .toContain("studentId=student-1");
+  });
+
+  it("derives proactive suggestions, actual request rounds, and boundary hits from audit events", () => {
+    const events = [
+      { id: "comment", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "comment-1", source: "proactive-comment", eventType: "comment", actorRole: "ai", content: "这里需要补充证据。", createdAt: "2026-09-01T01:00:00.000Z" },
+      { id: "request-1", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-1", source: "sidebar", eventType: "request", actorRole: "student", requestId: "request-1", content: "帮我写完整方案", createdAt: "2026-09-01T01:01:00.000Z" },
+      { id: "policy-1", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-1", source: "sidebar", eventType: "policy", actorRole: "system", requestId: "request-1", payload: { outcome: "guide_only", protectedCapability: "核心方案决策" }, createdAt: "2026-09-01T01:01:00.100Z" },
+      { id: "response-1", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-1", source: "sidebar", eventType: "response", actorRole: "ai", requestId: "request-1", payload: { kind: "boundary" }, content: "我不能代替你完成核心方案。", createdAt: "2026-09-01T01:01:01.000Z" },
+      { id: "request-2", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-1", source: "sidebar", eventType: "request", actorRole: "student", requestId: "request-2", content: "帮我比较两个方案", createdAt: "2026-09-01T01:02:00.000Z" },
+    ] as NonNullable<Course["aiInteractionEvents"]>;
+
+    expect(deriveAiCollaborationMetrics(events)).toMatchObject({
+      proactiveSuggestions: 1,
+      dialogueRounds: 2,
+      boundaryTriggers: 1,
+    });
+
+    render(<AiCollaborationTeacherMonitor course={{ ...course, aiInteractionEvents: events } as Course} />);
+    expect(screen.getByText("AI 主动建议 1")).toBeTruthy();
+    expect(screen.getByText("学生对话 2 轮")).toBeTruthy();
+    expect(screen.getByText("边界触发 1 次")).toBeTruthy();
+    expect(screen.queryByText(/待学生决定/)).toBeNull();
+  });
+
+  it("shows the most recently active conversation first", () => {
+    render(<AiCollaborationTeacherMonitor course={{
+      ...course,
+      aiInteractionEvents: [
+        { id: "old", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-old", source: "sidebar", eventType: "request", actorRole: "student", content: "较早的对话", createdAt: "2026-09-01T01:00:00.000Z" },
+        { id: "new", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-new", source: "sidebar", eventType: "request", actorRole: "student", content: "最近的对话", createdAt: "2026-09-01T02:00:00.000Z" },
+      ],
+    } as Course} />);
+
+    const latest = screen.getByText("最近的对话");
+    const earlier = screen.getByText("较早的对话");
+    expect(latest.compareDocumentPosition(earlier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

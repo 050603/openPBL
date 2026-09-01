@@ -382,6 +382,10 @@ export function StudentStageHost({
   const lastReportedSceneRef = useRef<string | null>(null);
   // 已上报"全部完成"标记
   const completionReportedRef = useRef<boolean>(false);
+  // Scene changes can happen faster than a network round-trip. Keep progress
+  // writes ordered so an older request cannot finish last and move the saved
+  // cursor backwards.
+  const progressReportQueueRef = useRef<Promise<void>>(Promise.resolve());
   const classroomLoadControllerRef = useRef<AbortController | null>(null);
   // store 订阅卸载函数
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -767,6 +771,12 @@ export function StudentStageHost({
       // 已上报过完成且状态未变化则跳过
       if (isAllComplete && completionReportedRef.current) return;
 
+      const previousReport = progressReportQueueRef.current;
+      let releaseReport: () => void = () => undefined;
+      progressReportQueueRef.current = new Promise<void>((resolve) => {
+        releaseReport = resolve;
+      });
+      await previousReport;
       try {
         const requestBody = JSON.stringify({
           courseId,
@@ -781,7 +791,7 @@ export function StudentStageHost({
         });
         let response: Response | undefined;
         let lastNetworkError: unknown;
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
+        for (let attempt = 1; attempt <= 5; attempt += 1) {
           try {
             response = await fetch('/api/openmaic/progress', {
               method: 'POST',
@@ -793,11 +803,16 @@ export function StudentStageHost({
             });
           } catch (error) {
             lastNetworkError = error;
-            if (attempt === 3) throw error;
+            if (attempt === 5) throw error;
             await new Promise((resolve) => window.setTimeout(resolve, attempt * 300));
             continue;
           }
-          if (response.ok || response.status < 500 || attempt === 3) break;
+          const retryableStatus = response.status === 408
+            || response.status === 409
+            || response.status === 425
+            || response.status === 429
+            || response.status >= 500;
+          if (response.ok || !retryableStatus || attempt === 5) break;
           await new Promise((resolve) => window.setTimeout(resolve, attempt * 300));
         }
         if (!response && lastNetworkError) throw lastNetworkError;
@@ -819,6 +834,8 @@ export function StudentStageHost({
           id: `ai-progress-sync-${courseId}-${studentId}`,
           description: error instanceof Error ? error.message : '请检查服务器连接后重试。',
         });
+      } finally {
+        releaseReport();
       }
     },
     [courseId, studentId, studentName, classroomId, mode, standalone],

@@ -12,6 +12,12 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     css: false,
+    server: {
+      // @platejs/docx-io publishes ESM that relies on extensionless
+      // virtual-dom imports. Let Vite resolve and transform that package so
+      // archive tests exercise the same bundled path used by Next.js.
+      deps: { inline: ["@platejs/docx-io"] },
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],

@@ -7,6 +7,7 @@
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 import type { UploadFile } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 
 const dataDir = process.env.UPLOAD_DIR?.trim()
@@ -15,6 +16,40 @@ const dataDir = process.env.UPLOAD_DIR?.trim()
 function normalizeRefs(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((r): r is string => typeof r === "string");
+}
+
+export function extractUploadIdsFromHtml(html: string): string[] {
+  const ids = new Set<string>();
+  const pattern = /\/api\/uploads\/([0-9a-f-]{36})(?:[?"'\s>]|$)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html))) ids.add(match[1]);
+  return [...ids];
+}
+
+/**
+ * Reconcile document image references inside the same transaction as a draft
+ * submission. We intentionally do not unlink files here: cleanup can safely
+ * remove refCount=0 orphans after the transaction commits.
+ */
+export async function reconcileUploadReferences(
+  tx: Prisma.TransactionClient,
+  input: { courseId: string; refBy: string; previousHtml: string; nextHtml: string },
+): Promise<void> {
+  const previous = new Set(extractUploadIdsFromHtml(input.previousHtml));
+  const next = new Set(extractUploadIdsFromHtml(input.nextHtml));
+  const affected = new Set([...previous, ...next]);
+  for (const fileId of affected) {
+    const record = await tx.uploadFile.findFirst({
+      where: { id: fileId, courseId: input.courseId, deletedAt: null },
+    });
+    if (!record) continue;
+    const refs = normalizeRefs(record.referencedBy).filter((ref) => ref !== input.refBy);
+    if (next.has(fileId)) refs.push(input.refBy);
+    await tx.uploadFile.update({
+      where: { id: fileId },
+      data: { referencedBy: refs, refCount: refs.length },
+    });
+  }
 }
 
 /**

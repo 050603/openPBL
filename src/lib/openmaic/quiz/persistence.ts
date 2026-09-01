@@ -7,8 +7,8 @@ import type { QuestionResult } from '@openmaic/lib/quiz/grading';
  *
  *   quizDraft:<sceneId>    — in-progress answers (debounced via useDraftCache),
  *                            cleared at submit time.
- *   quizAnswers:<sceneId>  — answers written once at submit, cleared on retry.
- *   quizResults:<sceneId>  — graded results written once at reviewing, cleared on retry.
+ *   quizAnswers:<sceneId>  — answers written once at submit and retained for review.
+ *   quizResults:<sceneId>  — graded results written once and retained for review.
  *
  * Both quiz-view (to rehydrate its own state) and the classroom-complete page
  * (to compute aggregate scores) read through this module so the storage
@@ -110,12 +110,6 @@ export function writeSubmittedAnswers(sceneId: string, answers: QuizAnswers): vo
 /** Called by quiz-view when grading transitions to reviewing. */
 export function writeSubmittedResults(sceneId: string, results: QuestionResult[]): void {
   safeSet(RESULTS_KEY_PREFIX + sceneId, JSON.stringify(results));
-}
-
-/** Called by quiz-view on retry: wipes submitted answers + results but keeps draft lifecycle. */
-export function clearSubmitted(sceneId: string): void {
-  safeRemove(ANSWERS_KEY_PREFIX + sceneId);
-  safeRemove(RESULTS_KEY_PREFIX + sceneId);
 }
 
 /** Called by the stage-delete flow: wipes all three keys for a single scene. */

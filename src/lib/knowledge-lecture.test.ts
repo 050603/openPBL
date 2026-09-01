@@ -9,6 +9,7 @@ import type {
 import {
   aggregateKnowledgePointMastery,
   deriveKnowledgeLectureSectionsFromOutlines,
+  knowledgeLectureQuizEstimate,
   organizeKnowledgeLectureOutlines,
 } from "./knowledge-lecture";
 
@@ -89,7 +90,37 @@ describe("knowledge lecture sections", () => {
     expect(deriveKnowledgeLectureSectionsFromOutlines(result.outlines)).toEqual(result.sections);
   });
 
-  it("ranks knowledge points by weighted AI-scored error rate using the latest attempt", () => {
+  it("reports the exact generated quiz question count and duration", () => {
+    const section = {
+      id: "knowledge-section-1",
+      title: "第一节",
+      order: 0,
+      knowledgePointIds: ["kp-1", "kp-2", "kp-3"],
+      sceneOutlineIds: ["scene-1"],
+      quizOutlineId: "quiz-1",
+      estimatedMinutes: 10,
+    };
+    const course = {
+      content: {
+        knowledgePoints: [],
+        _openmaicSceneOutlines: [{
+          id: "quiz-1",
+          type: "quiz",
+          title: "节末小测",
+          targetDurationSec: 240,
+          quizConfig: { questionCount: 3 },
+        }],
+      },
+      aiLearningProgress: {},
+    } as unknown as Course;
+
+    expect(knowledgeLectureQuizEstimate(course, section)).toEqual({
+      questionCount: 3,
+      estimatedMinutes: 4,
+    });
+  });
+
+  it("uses the first submission and reports unmet rate, score loss, coverage, and evidence state", () => {
     const attempt = (
       submittedAt: string,
       earned: number,
@@ -138,11 +169,47 @@ describe("knowledge lecture sections", () => {
         ]),
         student2: progress("student2", [attempt("2026-01-02T00:00:00.000Z", 9, "kp-2")]),
       },
+      students: [
+        { id: "student1", name: "学生1" },
+        { id: "student2", name: "学生2" },
+      ],
     } as unknown as Course;
 
     expect(aggregateKnowledgePointMastery(course)).toEqual([
-      expect.objectContaining({ knowledgePointId: "kp-1", errorRate: 60, answeredStudents: 1 }),
-      expect.objectContaining({ knowledgePointId: "kp-2", errorRate: 10, answeredStudents: 1 }),
+      expect.objectContaining({ knowledgePointId: "kp-1", unmetRate: 100, scoreLossRate: 80, responseCoverage: 50, answeredStudents: 1, status: "collecting" }),
+      expect.objectContaining({ knowledgePointId: "kp-2", unmetRate: 0, scoreLossRate: 10, responseCoverage: 50, answeredStudents: 1, status: "collecting" }),
     ]);
+  });
+
+  it("separates early observation from a confirmed class-wide misconception", () => {
+    const makeProgress = (studentId: string, earned: number): StudentAiProgress => ({
+      classroomId: "classroom",
+      studentId,
+      currentSceneIndex: 1,
+      totalScenes: 3,
+      completedScenes: [],
+      lastActiveAt: "2026-01-01T00:00:00.000Z",
+      masteryLevel: "in-progress",
+      knowledgeLectureAttempts: [{
+        id: `attempt-${studentId}`,
+        sectionId: "section-1",
+        quizOutlineId: "quiz-1",
+        runtimeSceneId: "runtime-1",
+        submittedAt: "2026-01-01T00:00:00.000Z",
+        score: earned,
+        maxScore: 10,
+        knowledgePointIds: ["kp-1"],
+        questions: [{ questionId: "q-1", prompt: "解释概念", answer: "错误理解", points: 10, earned, correct: earned >= 8, feedback: "概念定义混淆", knowledgePointIds: ["kp-1"] }],
+      }],
+    });
+    const students = Array.from({ length: 5 }, (_, index) => ({ id: `s-${index}`, name: `学生${index}` }));
+    const base = { content: { knowledgePoints: [{ id: "kp-1", name: "概念", description: "" }] }, students };
+
+    const observing = aggregateKnowledgePointMastery({ ...base, aiLearningProgress: { "s-0": makeProgress("s-0", 2), "s-1": makeProgress("s-1", 3) } } as unknown as Course)[0];
+    expect(observing).toMatchObject({ status: "observing", answeredStudents: 2, minimumSampleSize: 3, unmetRate: 100 });
+
+    const confirmed = aggregateKnowledgePointMastery({ ...base, aiLearningProgress: { "s-0": makeProgress("s-0", 2), "s-1": makeProgress("s-1", 3), "s-2": makeProgress("s-2", 9) } } as unknown as Course)[0];
+    expect(confirmed).toMatchObject({ status: "confirmed", answeredStudents: 3, incorrectStudents: 2, unmetRate: 67, responseCoverage: 60 });
+    expect(confirmed.misconceptionGroups[0]).toMatchObject({ code: "concept", studentCount: 2 });
   });
 });

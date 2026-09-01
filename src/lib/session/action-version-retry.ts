@@ -12,7 +12,7 @@ export class SessionActionRequestError extends Error {
 export async function retryVersionConflict<T>(
   send: (expectedVersion: number | undefined) => Promise<T>,
   initialVersion: number | undefined,
-  maxAttempts = 3,
+  maxAttempts = 5,
 ): Promise<T> {
   let expectedVersion = initialVersion;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -33,13 +33,29 @@ export async function retryVersionConflict<T>(
         error instanceof SessionActionRequestError &&
         error.status === 400 &&
         error.code === "SESSION_ACTION_FAILED_400";
-      if ((!canRetryVersion && !canRetryUnstructured400) || attempt >= maxAttempts) {
+      const canRetryTransientResponse =
+        error instanceof SessionActionRequestError &&
+        (
+          error.status === 408
+          || (error.status === 409 && error.code === "REQUEST_IN_PROGRESS")
+          || error.status === 425
+          || error.status === 429
+          || error.status >= 500
+        );
+      const canRetryTransport = error instanceof TypeError;
+      if (
+        (!canRetryVersion
+          && !canRetryUnstructured400
+          && !canRetryTransientResponse
+          && !canRetryTransport)
+        || attempt >= maxAttempts
+      ) {
         throw error;
       }
       if (canRetryVersion) expectedVersion = error.currentVersion;
-      if (canRetryUnstructured400) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 80));
-      }
+      // All course actions carry the same requestId across attempts, so
+      // retrying transport/server contention is idempotent.
+      await new Promise((resolve) => setTimeout(resolve, attempt * 80));
     }
   }
   throw new Error("SESSION_ACTION_RETRY_EXHAUSTED");

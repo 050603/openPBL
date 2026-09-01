@@ -29,6 +29,12 @@ export function scopeCourseForClaims(course: Course, claims: AuthClaims): Course
     submissions: (course.submissions ?? []).filter((item) =>
       inScope(item.studentId, item.groupId),
     ),
+    projectDocumentVersions: (course.projectDocumentVersions ?? []).filter((item) =>
+      item.studentId === studentId,
+    ),
+    aiInteractionEvents: (course.aiInteractionEvents ?? []).filter((item) =>
+      item.studentId === studentId,
+    ),
     feedback: (course.feedback ?? []).filter((item) =>
       item.targetType === "course" ||
       item.targetId === studentId ||

@@ -164,4 +164,36 @@ describe("learning analytics", () => {
     expect(aggregateCommonIssues(Array.from({ length: 29 }, (_, n) => makeSignal(`s-${n}`)), 100)).toHaveLength(0);
     expect(aggregateCommonIssues(Array.from({ length: 30 }, (_, n) => makeSignal(`s-${n}`)), 100)).toHaveLength(1);
   });
+
+  it("merges comprehension friction by stable knowledge point and counts each student once", () => {
+    const signal = (studentId: string, kind: "dwell-overrun" | "repeated-playback", sceneId: string): LearningSignal => ({
+      id: `${studentId}-${kind}`,
+      courseId: "course-1",
+      studentId,
+      stageKey: "ai-learning",
+      sceneId,
+      kind,
+      severity: "warning",
+      status: "open",
+      title: "理解困难",
+      summary: kind,
+      content: { knowledgePointIds: ["kp-1"] },
+      normalizedIssueKey: `${kind}:${sceneId}`,
+      evidenceEventIds: [],
+      aiInterventionAttempts: 0,
+      firstDetectedAt: new Date(BASE_TIME).toISOString(),
+      lastDetectedAt: new Date(BASE_TIME).toISOString(),
+    });
+
+    const issues = aggregateCommonIssues([
+      signal("s-1", "dwell-overrun", "runtime-a"),
+      signal("s-1", "repeated-playback", "runtime-b"),
+      signal("s-2", "repeated-playback", "runtime-c"),
+    ], 5);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].studentIds).toHaveLength(2);
+    expect(issues[0].signalIds).toHaveLength(3);
+    expect(issues[0].normalizedIssueKey).toContain("comprehension-friction:ai-learning:kp:kp-1");
+  });
 });

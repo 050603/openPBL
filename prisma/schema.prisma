@@ -72,6 +72,8 @@ model Course {
   // Relations — one-to-many. Cascading deletes keep data consistent when a course is removed.
   students                     Student[]
   submissions                  ClassroomSubmission[]
+  projectDocumentVersions      ProjectDocumentVersion[]
+  aiInteractionEvents          AiInteractionEvent[]
   feedback                     TeacherFeedback[]
   rubricScores                 RubricScore[]
   reflections                  ReflectionRecord[]
@@ -253,9 +255,40 @@ model ClassroomSubmission {
   updatedAt   DateTime @updatedAt
   version     Int      @default(1)
 
+  documentVersions ProjectDocumentVersion[]
+
   @@unique([courseId, id])
   @@index([courseId, studentId])
   @@index([courseId, stageKey])
+}
+
+// Immutable snapshots created when a student explicitly submits the project
+// practice document. The mutable ClassroomSubmission remains the live draft.
+model ProjectDocumentVersion {
+  id             String   @id @default(uuid())
+  courseId       String
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  submissionId   String
+  submission     ClassroomSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  studentId      String
+  stageKey       String
+  sequence       Int
+  sourceVersion  Int
+  title          String
+  sourceHtml     String   @db.Text
+  docxUploadId   String?
+  docxSha256     String?
+  docxSize       Int?
+  status         String   @default("processing") // processing | submitted | failed
+  error          String?  @db.Text
+  requestId      String?
+  submittedAt    DateTime?
+  createdAt      DateTime @default(now())
+
+  @@unique([submissionId, sequence])
+  @@unique([submissionId, requestId])
+  @@index([courseId, studentId, stageKey, createdAt])
+  @@index([submissionId, status])
 }
 
 model TeacherFeedback {
@@ -902,6 +935,30 @@ model CompanionProcessRecord {
 
   @@unique([courseId, id])
   @@index([courseId, studentId, createdAt])
+}
+
+// Append-only audit trail for every student ↔ AI collaboration event. The
+// existing CompanionThread JSON remains the model/UI context; this table is
+// the canonical source for teacher monitoring and analysis exports.
+model AiInteractionEvent {
+  id             String   @id @default(uuid())
+  courseId       String
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  studentId      String
+  stageKey       String
+  conversationId String?
+  source         String   // sidebar | selection | proactive-comment | submission | system
+  eventType      String   // request | response | policy | proposal | decision | undo | comment | submit | error
+  actorRole      String   // student | ai | system | teacher
+  actorId        String?
+  content        String?  @db.Text
+  payload        Json     @default("{}")
+  requestId      String?
+  createdAt      DateTime @default(now())
+
+  @@index([courseId, studentId, stageKey, createdAt])
+  @@index([courseId, requestId])
+  @@index([courseId, source, createdAt])
 }
 
 // ============================================================================

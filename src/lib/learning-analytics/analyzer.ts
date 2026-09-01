@@ -77,6 +77,31 @@ function slug(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+function issueFamily(kind: LearningSignalKind): string {
+  if (kind === "dwell-overrun" || kind === "repeated-playback") return "comprehension-friction";
+  if (kind === "idle") return "learning-interruption";
+  if (kind === "conversation-no-progress" || kind === "goal-stalled") return "progress-blocked";
+  return "help-request";
+}
+
+function stableIssueScope(signal: Pick<LearningSignal, "kind" | "stageKey" | "sceneId" | "content">): string {
+  const knowledgePointIds = [...(signal.content?.knowledgePointIds ?? [])].sort();
+  const contentScope = knowledgePointIds.length
+    ? `kp:${knowledgePointIds.join("+")}`
+    : signal.content?.activityId
+      ? `activity:${signal.content.activityId}`
+      : `scene:${signal.sceneId ?? "stage"}`;
+  return [issueFamily(signal.kind), signal.stageKey, contentScope].join(":");
+}
+
+function commonIssueTitle(group: LearningSignal[]): string {
+  const family = issueFamily(group[0].kind);
+  if (family === "comprehension-friction") return "多名学生在同一知识内容上出现理解阻滞";
+  if (family === "learning-interruption") return "多名学生的学习活动出现中断";
+  if (family === "progress-blocked") return "多名学生未能继续推进学习任务";
+  return "多名学生主动请求教师帮助";
+}
+
 function makeSignal(input: {
   kind: LearningSignalKind;
   title: string;
@@ -87,16 +112,12 @@ function makeSignal(input: {
   nowIso: string;
   baseSeverity: "notice" | "warning";
 }): LearningSignal {
-  const contentKey = [
-    input.event.content?.activityId,
-    ...(input.event.content?.knowledgePointIds ?? []),
-  ].filter(Boolean).join("+");
-  const normalizedIssueKey = [
-    input.kind,
-    input.event.stageKey,
-    input.event.sceneId ?? "stage",
-    contentKey || "content",
-  ].join(":");
+  const normalizedIssueKey = stableIssueScope({
+    kind: input.kind,
+    stageKey: input.event.stageKey,
+    sceneId: input.event.sceneId,
+    content: input.event.content,
+  });
   return {
     id: `learning-signal-${slug(input.event.studentId)}-${slug(normalizedIssueKey)}`,
     courseId: input.event.courseId,
@@ -267,12 +288,16 @@ export function aggregateCommonIssues(
   const groups = new Map<string, LearningSignal[]>();
   for (const signal of signals) {
     if (signal.status !== "open") continue;
-    groups.set(signal.normalizedIssueKey, [...(groups.get(signal.normalizedIssueKey) ?? []), signal]);
+    const groupKey = stableIssueScope(signal);
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), signal]);
   }
 
   return [...groups.entries()].flatMap(([normalizedIssueKey, group]) => {
-    const byStudent = new Map(group.map((signal) => [signal.studentId, signal]));
-    const affected = [...byStudent.values()];
+    const byStudent = new Map<string, LearningSignal[]>();
+    group.forEach((signal) => byStudent.set(signal.studentId, [...(byStudent.get(signal.studentId) ?? []), signal]));
+    const affected = [...byStudent.values()].map((studentSignals) =>
+      [...studentSignals].sort((left, right) => Number(right.severity === "high") - Number(left.severity === "high"))[0],
+    );
     const requiredStudents = Math.min(
       totalStudents,
       Math.max(2, Math.ceil(totalStudents * LEARNING_ANALYTICS_DEFAULTS.commonRatio)),
@@ -287,16 +312,16 @@ export function aggregateCommonIssues(
       courseId: first.courseId,
       stageKey: first.stageKey,
       normalizedIssueKey,
-      title: first.title,
-      summary: `${affected.length} 名学生出现同类问题：${first.summary}`,
+      title: commonIssueTitle(group),
+      summary: `${affected.length} 名学生出现同类问题；系统已合并同一知识内容上的重复行为信号。`,
       content: first.content,
       severity: affected.some((signal) => signal.severity === "high") ? "high" as const : "warning" as const,
       studentIds: affected.map((signal) => signal.studentId),
-      signalIds: affected.map((signal) => signal.id),
+      signalIds: group.map((signal) => signal.id),
       affectedStudents: affected.map((signal) => ({
         studentId: signal.studentId,
         signalId: signal.id,
-        reason: signal.summary,
+        reason: (byStudent.get(signal.studentId) ?? []).map((item) => item.summary).join("；"),
       })),
       status: "open" as const,
       firstDetectedAt,

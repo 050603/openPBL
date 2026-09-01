@@ -3,14 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
-  BriefcaseBusiness,
   CheckCircle2,
   ClipboardCheck,
   ExternalLink,
   FileInput,
   FilePenLine,
   LoaderCircle,
-  MessageCircleQuestion,
   MessageSquarePlus,
   Send,
   Sparkles,
@@ -99,7 +97,6 @@ export function AiMemberWorkspace({
   error,
   historyLoaded,
   messages,
-  mode,
   pendingChange,
   pendingDelivery,
   projectTitle,
@@ -111,7 +108,6 @@ export function AiMemberWorkspace({
   onClose,
   onDismissError,
   onDeleteMessage,
-  onModeChange,
   onNewConversation,
   onRejectDelivery,
   onRejectChange,
@@ -120,7 +116,7 @@ export function AiMemberWorkspace({
 }: AiMemberWorkspaceProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [confirmNewConversation, setConfirmNewConversation] = useState(false);
-  const starters = mode === "task" ? taskStarters : DISCUSSION_STARTERS;
+  const starters = taskStarters.length ? taskStarters : DISCUSSION_STARTERS;
   const deliveryChangesDocument = pendingDelivery?.documentActions
     .some((action) => action.operation !== "none") ?? false;
 
@@ -181,35 +177,6 @@ export function AiMemberWorkspace({
           </div>
         ) : null}
 
-        <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-stone-100 p-1">
-          <button
-            className={cn(
-              "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition",
-              mode === "discuss"
-                ? "bg-white text-stone-950 shadow-sm ring-1 ring-stone-200/70"
-                : "text-stone-500 hover:bg-white/60 hover:text-stone-800",
-            )}
-            onClick={() => onModeChange("discuss")}
-            type="button"
-          >
-            <MessageCircleQuestion className="size-3.5 shrink-0" />
-            <span className="truncate">一起讨论</span>
-          </button>
-          <button
-            className={cn(
-              "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition",
-              mode === "task"
-                ? "bg-white text-stone-950 shadow-sm ring-1 ring-stone-200/70"
-                : "text-stone-500 hover:bg-white/60 hover:text-stone-800",
-            )}
-            onClick={() => onModeChange("task")}
-            type="button"
-          >
-            <BriefcaseBusiness className="size-3.5 shrink-0" />
-            <span className="truncate">安排工作</span>
-          </button>
-        </div>
-
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-stone-50/60 px-3 py-3" ref={scrollRef} aria-live="polite">
@@ -224,12 +191,10 @@ export function AiMemberWorkspace({
             <div>
             <span className="mx-auto grid size-8 place-items-center rounded-full bg-stone-100 text-stone-500"><Sparkles size={15} /></span>
             <h3 className="mt-2 text-sm font-semibold">
-              {mode === "task" ? "像组长一样安排一项辅助工作" : "从正在形成的想法开始讨论"}
+              从正在形成的想法开始协作
             </h3>
             <p className="mt-1 text-xs leading-5 text-stone-500">
-              {mode === "task"
-                ? "安排一项辅助工作，完成后由你审阅。"
-                : "围绕项目和当前文稿说说你的想法。"}
+              “围绕项目和当前文稿提问，也可以直接说明一项非核心辅助工作。”
             </p>
             </div>
           </div>
@@ -403,7 +368,7 @@ export function AiMemberWorkspace({
             ))}
           </div>
         ) : null}
-        {mode === "task" && taskStartersBusy && !draft && !pendingDelivery ? (
+        {taskStartersBusy && !draft && !pendingDelivery ? (
           <p className="mb-2 inline-flex items-center gap-1.5 px-1 text-[10px] text-stone-500"><LoaderCircle className="animate-spin" size={11} />正在根据当前文稿更新工作建议…</p>
         ) : null}
 
@@ -413,9 +378,7 @@ export function AiMemberWorkspace({
             disabled={busy || Boolean(pendingChange) || Boolean(pendingDelivery)}
             maxLength={1200}
             onChange={(event) => onChangeDraft(event.target.value)}
-            placeholder={mode === "task"
-              ? "说明要完成什么、交付范围和希望的格式…"
-              : "把你的判断、疑问或正在犹豫的地方告诉 AI 组员…"}
+            placeholder="把你的判断、疑问或希望 AI 组员协助的非核心工作告诉它…"
             value={draft}
           />
           <button

@@ -111,11 +111,18 @@ type IdentityState = Pick<
   joinedGroupRole?: string;
 };
 
+type SubmissionInput = Omit<
+  ClassroomSubmission,
+  "id" | "courseId" | "createdAt" | "updatedAt"
+> & { id?: string; courseId?: string };
+
 type SessionApi = SessionState & {
   saveState: "idle" | "unsaved" | "saving" | "saved" | "error";
   lastSavedAt?: string;
   saveError?: string;
   retrySave: () => Promise<void>;
+  /** Wait for queued autosaves before a server-side final submission. */
+  flushSaves: () => Promise<boolean>;
   setUser: (u: SessionState["user"]) => void;
   createCourse: (input: Partial<Course>) => Course;
   updateCourse: (id: string, patch: Partial<Course>) => void;
@@ -133,7 +140,8 @@ type SessionApi = SessionState & {
   leaveClass: () => Promise<boolean>;
   getLeftClassHistory: () => LeftClassRecord[];
   updateStudentProgress: (stageKey: string, value: number) => void;
-  upsertSubmission: (submission: Omit<ClassroomSubmission, "id" | "courseId" | "createdAt" | "updatedAt"> & { id?: string; courseId?: string }) => ClassroomSubmission | undefined;
+  upsertSubmission: (submission: SubmissionInput) => ClassroomSubmission | undefined;
+  persistSubmission: (submission: SubmissionInput) => Promise<ClassroomSubmission | undefined>;
   addFeedback: (feedback: Omit<TeacherFeedback, "id" | "courseId" | "createdAt"> & { id?: string; courseId?: string }) => TeacherFeedback | undefined;
   upsertRubricScore: (score: Omit<RubricScore, "id" | "courseId" | "createdAt" | "updatedAt"> & { id?: string; courseId?: string }) => RubricScore | undefined;
   upsertReflection: (reflection: Omit<ReflectionRecord, "id" | "courseId" | "studentId" | "studentName" | "createdAt" | "updatedAt"> & { id?: string; courseId?: string; studentId?: string; studentName?: string }) => ReflectionRecord | undefined;
@@ -575,6 +583,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setSaveError("重试失败，请确认服务器可用。");
       toast.error("重新保存失败");
     }
+  }
+
+  async function flushSaves(): Promise<boolean> {
+    await commitQueueRef.current;
+    return pendingCommitsRef.current === 0 && !lastFailedActionRef.current;
   }
 
   // ---- Stage 4: WebSocket realtime sync ----
@@ -1033,12 +1046,45 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [state.user, state.joinedCourseId, state.studentId, state.studentName, state.courses]);
 
   const api: SessionApi = useMemo(() => {
+    const prepareSubmission = (input: SubmissionInput): {
+      courseId: string;
+      submission: ClassroomSubmission;
+    } | undefined => {
+      const courseId = input.courseId ?? state.joinedCourseId;
+      if (!courseId) return undefined;
+      const now = new Date().toISOString();
+      const existingSubmission = input.id
+        ? state.courses
+          .find((course) => course.id === courseId)
+          ?.submissions?.find((submission) => submission.id === input.id)
+        : undefined;
+      return {
+        courseId,
+        submission: {
+          id: input.id ?? makeRecordId("sub"),
+          courseId,
+          studentId: input.studentId ?? state.studentId,
+          studentName: input.studentName ?? state.studentName ?? state.user.name,
+          groupId: input.groupId,
+          stageKey: input.stageKey,
+          type: input.type,
+          title: input.title,
+          content: input.content,
+          files: input.files,
+          status: "draft",
+          version: existingSubmission ? (existingSubmission.version ?? 1) + 1 : 1,
+          createdAt: existingSubmission?.createdAt ?? now,
+          updatedAt: now,
+        },
+      };
+    };
     return {
       ...state,
       saveState,
       lastSavedAt,
       saveError,
       retrySave,
+      flushSaves,
       setUser(u) {
         commit({ type: "SET_USER", payload: u }, { localOnly: true });
       },
@@ -1340,25 +1386,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
       },
       upsertSubmission(input) {
-        const courseId = input.courseId ?? state.joinedCourseId;
-        if (!courseId) return undefined;
-        const now = new Date().toISOString();
-        const submission: ClassroomSubmission = {
-          id: input.id ?? makeRecordId("sub"),
-          courseId,
-          studentId: input.studentId ?? state.studentId,
-          studentName: input.studentName ?? state.studentName ?? state.user.name,
-          groupId: input.groupId,
-          stageKey: input.stageKey,
-          type: input.type,
-          title: input.title,
-          content: input.content,
-          files: input.files,
-          createdAt: now,
-          updatedAt: now,
-        };
-        commit({ type: "UPSERT_SUBMISSION", payload: { courseId, submission } });
-        return submission;
+        const prepared = prepareSubmission(input);
+        if (!prepared) return undefined;
+        commit({ type: "UPSERT_SUBMISSION", payload: prepared });
+        return prepared.submission;
+      },
+      async persistSubmission(input) {
+        const prepared = prepareSubmission(input);
+        if (!prepared) return undefined;
+        const persisted = await commit({ type: "UPSERT_SUBMISSION", payload: prepared });
+        return persisted ? prepared.submission : undefined;
       },
       addFeedback(input) {
         const courseId = input.courseId;

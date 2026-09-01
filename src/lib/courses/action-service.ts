@@ -6,6 +6,8 @@ import type { SessionAction } from "@/lib/session/actions";
 import { dispatchAction as dispatchLegacyAction } from "@/lib/db/session-repository";
 import { publishCourseEvent } from "@/lib/realtime/event-bus";
 import { runMutationTransaction } from "@/lib/db/transaction-retry";
+import { lockCourseMutation } from "@/lib/db/course-mutation-lock";
+import { reconcileUploadReferences } from "@/lib/uploads/reference-tracker";
 import type { ActionAck, ActionEnvelope } from "./contracts";
 
 const DIRECT_ACTIONS = new Set<SessionAction["type"]>([
@@ -211,6 +213,10 @@ async function applyDirectMutation(
   }
   if (action.type === "UPSERT_SUBMISSION") {
     const submission = action.payload.submission;
+    const previous = await tx.classroomSubmission.findUnique({
+      where: { courseId_id: { courseId, id: submission.id } },
+      select: { payload: true },
+    });
     await tx.classroomSubmission.upsert({
       where: { courseId_id: { courseId, id: submission.id } },
       create: {
@@ -238,9 +244,21 @@ async function applyDirectMutation(
           content: submission.content,
           files: submission.files,
         }),
+        status: "draft",
         version: { increment: 1 },
       },
     });
+    if (submission.type === "document") {
+      const previousContent = typeof (previous?.payload as { content?: unknown } | null)?.content === "string"
+        ? String((previous?.payload as { content: string }).content)
+        : "";
+      await reconcileUploadReferences(tx, {
+        courseId,
+        refBy: `submission:${submission.id}`,
+        previousHtml: previousContent,
+        nextHtml: submission.content,
+      });
+    }
     return;
   }
   if (action.type === "UPDATE_STUDENT_PROGRESS") {
@@ -612,15 +630,6 @@ async function executeLegacyWithReservation(
     }).catch(() => undefined);
     throw error;
   }
-}
-
-async function lockCourseMutation(
-  tx: Prisma.TransactionClient,
-  courseId: string,
-): Promise<void> {
-  await tx.$executeRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${courseId}, 0))
-  `;
 }
 
 async function resolveDuplicateOrThrow(

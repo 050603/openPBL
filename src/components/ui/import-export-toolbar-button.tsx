@@ -30,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EditorStatic } from '@/components/ui/editor-static';
+import { inlineHtmlImagesForDocx } from '@/lib/project-practice/docx-image-embedding';
 
 import { ToolbarButton } from './toolbar';
 
@@ -44,6 +45,57 @@ function downloadBlob(blob: Blob, filename: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function readBlobAsDataUri(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('图片读取失败，请重新上传后再导出。'));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function convertImageBlobToPng(blob: Blob): Promise<Blob> {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    image.decoding = 'async';
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('图片格式无法识别，请重新上传后再导出。'));
+      image.src = objectUrl;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context || !canvas.width || !canvas.height) {
+      throw new Error('图片格式无法识别，请重新上传后再导出。');
+    }
+    context.drawImage(image, 0, 0);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (value) => value ? resolve(value) : reject(new Error('图片转换失败，请稍后重试。')),
+        'image/png',
+      );
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function loadDocxImage(source: string): Promise<string> {
+  const response = await fetch(source, { credentials: 'same-origin' });
+  if (!response.ok) throw new Error('文档中的图片已失效，请重新上传后再导出。');
+  let blob = await response.blob();
+  if (!blob.size || !blob.type.toLowerCase().startsWith('image/')) {
+    throw new Error('文档中的图片不是有效图片，请重新上传后再导出。');
+  }
+  if (!/^image\/(?:png|jpe?g|gif)$/i.test(blob.type)) {
+    blob = await convertImageBlobToPng(blob);
+  }
+  return readBlobAsDataUri(blob);
 }
 
 export function ImportExportToolbarButton(props: DropdownMenuProps) {
@@ -121,20 +173,24 @@ export function ImportExportToolbarButton(props: DropdownMenuProps) {
     try {
       await task();
       toast.success(success);
-    } catch {
-      toast.error('导出失败，请稍后重试。');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '导出失败，请稍后重试。');
     }
   };
 
-  const exportHtml = () => runExport(async () => {
+  const serializeEditorHtml = async () => {
     const staticEditor = createSlateEditor({
       plugins: BaseEditorKit as SlatePlugin[],
       value: editor.children,
     });
-    const content = await serializeHtml(staticEditor, {
+    return serializeHtml(staticEditor, {
       editorComponent: EditorStatic,
       props: { style: { margin: '0 auto', maxWidth: '760px', padding: '48px' } },
     });
+  };
+
+  const exportHtml = () => runExport(async () => {
+    const content = await serializeEditorHtml();
     const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>项目成果</title><style>body{margin:0;color:#171717;background:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;line-height:1.7}img{max-width:100%;height:auto}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d4d4d4;padding:8px}</style></head><body>${content}</body></html>`;
     downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), '项目成果.html');
   }, 'HTML 已导出');
@@ -145,9 +201,11 @@ export function ImportExportToolbarButton(props: DropdownMenuProps) {
   }, 'Markdown 已导出');
 
   const exportWord = () => runExport(async () => {
-    const { exportToDocx } = await import('@platejs/docx-io');
-    const blob = await exportToDocx(editor.children, {
-      editorPlugins: BaseEditorKit as SlatePlugin[],
+    const { htmlToDocxBlob } = await import('@platejs/docx-io');
+    const content = await inlineHtmlImagesForDocx(await serializeEditorHtml(), loadDocxImage);
+    const blob = await htmlToDocxBlob(content, {
+      allowRemoteImages: false,
+      orientation: 'portrait',
     });
     downloadBlob(blob, '项目成果.docx');
   }, 'Word 文档已导出');

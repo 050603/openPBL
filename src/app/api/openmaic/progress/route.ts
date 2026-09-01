@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
       ...(score !== undefined ? { quizScore: score } : {}),
     };
     void studentName;
-    await persistStudentAiProgress(
+    const savedProgress = await persistStudentAiProgress(
       courseId,
       studentId,
       updatedEntry,
@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
       ),
     );
 
-    return apiSuccess({ data: { progress: updatedEntry } });
+    return apiSuccess({ data: { progress: savedProgress } });
   } catch (error) {
     log.error('Progress update failed:', error);
     return apiError(

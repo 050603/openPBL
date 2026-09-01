@@ -1,20 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CircleAlert, ClipboardCheck, MapPin, Route, Users } from "lucide-react";
+import { BookOpenCheck, CheckCircle2, CircleX, Route } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
-import { DialogDescription, DialogTitle, Drawer, DrawerContent, PrimaryButton } from "@/components/ui";
-import { useSession } from "@/lib/session/store";
-import type { Course, LearningEventType, OfflineInterventionKind } from "@/lib/session/types";
-import { cn } from "@/lib/utils";
+import { DialogDescription, DialogTitle, Drawer, DrawerContent } from "@/components/ui";
+import { firstKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
 import { formatLearningContentReference } from "@/lib/learning-analytics/content-reference";
-import { isLearningSignalRelevant } from "@/lib/learning-analytics/analyzer";
+import type { Course, LearningEventType } from "@/lib/session/types";
+import { cn } from "@/lib/utils";
 
-type DetailTab = "support" | "trajectory";
+export type StudentLearningDetailTab = "trajectory" | "answers";
 
-const TABS: Array<{ id: DetailTab; label: string; icon: React.ReactNode }> = [
-  { id: "support", label: "风险与教师指导", icon: <CircleAlert size={14} /> },
+const TABS: Array<{ id: StudentLearningDetailTab; label: string; icon: React.ReactNode }> = [
   { id: "trajectory", label: "学习轨迹", icon: <Route size={14} /> },
+  { id: "answers", label: "答题详情", icon: <BookOpenCheck size={14} /> },
 ];
 
 const EVENT_TYPE_LABELS: Record<LearningEventType, string> = {
@@ -38,72 +37,48 @@ export function StudentLearningDetail({
   studentId,
   open,
   onOpenChange,
+  initialTab = "trajectory",
 }: {
   course: Course;
   studentId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTab?: StudentLearningDetailTab;
 }) {
-  const session = useSession();
-  const [tab, setTab] = useState<DetailTab>("support");
+  const [tab, setTab] = useState<StudentLearningDetailTab>(initialTab);
   const student = course.students.find((item) => item.id === studentId);
-  const signals = (course.learningSignals ?? [])
-    .filter((signal) => signal.studentId === studentId
-      && signal.stageKey === "ai-learning"
-      && isLearningSignalRelevant(
-        signal,
-        course.learningEvents ?? [],
-        ["completed", "mastered"].includes(course.aiLearningProgress?.[studentId ?? ""]?.masteryLevel ?? ""),
-      ))
-    .sort((a, b) => Number(a.status !== "open") - Number(b.status !== "open") || Date.parse(b.lastDetectedAt) - Date.parse(a.lastDetectedAt));
-  const openSignals = signals.filter((signal) => signal.status === "open");
   const events = (course.learningEvents ?? [])
     .filter((event) => event.studentId === studentId && event.stageKey === "ai-learning")
     .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
   const meaningfulEvents = events.filter((event) => event.type !== "heartbeat");
   const trajectoryEvents = (meaningfulEvents.length ? meaningfulEvents : events).slice(0, 100);
-  const interventions = (course.offlineInterventions ?? []).filter((record) => record.targetStudentIds.includes(studentId ?? ""));
-  const stageKey = course.stages[course.currentStageIndex]?.key ?? "ai-learning";
-
-  function resolveSignals(signalIds: string[]) {
-    if (signalIds.length) session.resolveInterventionSignals(course.id, signalIds);
-  }
-
-  function recordIntervention(kind: OfflineInterventionKind) {
-    if (!studentId) return;
-    const signalIds = kind === "whole-class-teaching"
-      ? [...new Set([
-          ...openSignals.map((signal) => signal.id),
-          ...(course.classCommonIssues ?? []).filter((issue) => issue.status === "open").flatMap((issue) => issue.signalIds),
-        ])]
-      : openSignals.map((signal) => signal.id);
-    session.addOfflineIntervention({
-      courseId: course.id,
-      stageKey,
-      kind,
-      targetStudentIds: kind === "whole-class-teaching" ? course.students.map((item) => item.id) : [studentId],
-      signalIds,
-    });
-    resolveSignals(signalIds);
-  }
+  const attempts = firstKnowledgeLectureAttempts(course.aiLearningProgress?.[studentId ?? ""])
+    .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt));
+  const answeredQuestions = attempts.reduce((sum, attempt) => sum + attempt.questions.length, 0);
+  const earned = attempts.reduce((sum, attempt) => sum + attempt.score, 0);
+  const maxScore = attempts.reduce((sum, attempt) => sum + attempt.maxScore, 0);
+  const accuracy = maxScore > 0 ? Math.round(earned / maxScore * 100) : undefined;
 
   return (
     <Drawer onOpenChange={onOpenChange} open={open}>
-      <DrawerContent className="w-[min(800px,100vw)]">
+      <DrawerContent className="w-[min(920px,100vw)]">
         <DialogTitle className="flex items-center gap-3">
           {student ? <Avatar name={student.name} size={38} /> : null}
           <span>{student?.name ?? "学生详情"}</span>
         </DialogTitle>
-        <DialogDescription>处理学习风险，记录教师指导，或查看学生的学习轨迹。</DialogDescription>
-        <nav className="mt-5 flex gap-1 border-b border-stone-200">
+        <DialogDescription>查看该学生的知识讲授学习轨迹与每道题的真实作答记录。</DialogDescription>
+
+        <nav aria-label="学生详情内容" className="mt-5 flex gap-1 border-b border-stone-200">
           {TABS.map((item) => (
             <button
+              aria-selected={tab === item.id}
               className={cn(
                 "inline-flex h-10 items-center gap-1.5 border-b-2 px-3 text-sm font-semibold",
-                tab === item.id ? "border-blue-700 text-blue-700" : "border-transparent text-stone-500",
+                tab === item.id ? "border-blue-700 text-blue-700" : "border-transparent text-stone-500 hover:text-stone-800",
               )}
               key={item.id}
               onClick={() => setTab(item.id)}
+              role="tab"
               type="button"
             >
               {item.icon}{item.label}
@@ -111,64 +86,8 @@ export function StudentLearningDetail({
           ))}
         </nav>
 
-        {tab === "support" ? (
-          <div className="mt-4 space-y-5">
-            <section>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="font-bold text-stone-900">风险信号</h3>
-                <span className={cn("rounded-full px-2.5 py-1 text-xs font-bold", openSignals.length ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700")}>
-                  {openSignals.length ? `${openSignals.length} 条待处理` : "当前无待处理风险"}
-                </span>
-              </div>
-              {signals.length ? (
-                <ul className="space-y-3">
-                  {signals.map((signal) => (
-                    <li className={cn("rounded-lg border p-3", signal.status === "open" ? "border-rose-200 bg-rose-50/60" : "border-emerald-200 bg-emerald-50/40")} key={signal.id}>
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <strong className={signal.status === "open" ? "text-rose-800" : "text-emerald-800"}>{signal.title}</strong>
-                          <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-stone-500"><MapPin size={12} />{formatLearningContentReference(signal.content, "当前学习内容")}</p>
-                        </div>
-                        {signal.status === "open" ? (
-                          <button className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700 transition hover:bg-rose-100" onClick={() => resolveSignals([signal.id])} type="button">
-                            <CheckCircle2 size={14} />标记已处理
-                          </button>
-                        ) : <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle2 size={14} />已处理</span>}
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-stone-600">{signal.summary}</p>
-                      <p className="mt-2 text-xs text-stone-400">证据 {signal.evidenceEventIds.length} 条 · 最近发现于 {new Date(signal.lastDetectedAt).toLocaleString("zh-CN")}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : <Empty text="暂无风险信号" />}
-            </section>
-
-            <section className="rounded-xl border border-blue-100 bg-blue-50/45 p-4">
-              <h3 className="font-bold text-stone-900">教师处理</h3>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <PrimaryButton onClick={() => recordIntervention("patrol")} type="button" variant="outline"><ClipboardCheck size={15} />已巡视</PrimaryButton>
-                <PrimaryButton onClick={() => recordIntervention("individual-guidance")} type="button" variant="outline"><ClipboardCheck size={15} />已个别辅导</PrimaryButton>
-                <PrimaryButton onClick={() => recordIntervention("whole-class-teaching")} type="button" variant="outline"><Users size={15} />已全班讲解</PrimaryButton>
-              </div>
-              {openSignals.length ? <p className="mt-2 text-xs text-stone-500">记录处理后，将同步解除对应风险。</p> : null}
-            </section>
-
-            <section>
-              <h3 className="mb-2 font-bold text-stone-900">处理记录</h3>
-              {interventions.length ? (
-                <ul className="divide-y divide-stone-100 border-y border-stone-100">
-                  {interventions.map((record) => (
-                    <li className="py-3 text-sm" key={record.id}>
-                      <div className="flex justify-between gap-3"><strong>{record.kind === "patrol" ? "课堂巡视" : record.kind === "individual-guidance" ? "个别辅导" : "全班讲解"}</strong><time className="text-xs text-stone-400">{new Date(record.createdAt).toLocaleString("zh-CN")}</time></div>
-                      <p className="mt-1 text-stone-500">记录人：{record.teacherName}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : <Empty text="暂无教师处理记录" />}
-            </section>
-          </div>
-        ) : (
-          <div className="mt-4">
+        {tab === "trajectory" ? (
+          <section aria-label="学习轨迹" className="mt-4">
             {trajectoryEvents.length ? (
               <ol className="overflow-hidden rounded-lg border border-stone-200">
                 <li className="grid grid-cols-[150px_130px_minmax(0,1fr)] gap-3 bg-stone-50 px-3 py-2 text-xs font-bold text-stone-500"><span>时间</span><span>学习动作</span><span>学习位置</span></li>
@@ -181,11 +100,59 @@ export function StudentLearningDetail({
                 ))}
               </ol>
             ) : <Empty text="暂无学习轨迹" />}
-          </div>
+          </section>
+        ) : (
+          <section aria-label="答题详情" className="mt-4 space-y-4">
+            <div className="grid grid-cols-3 gap-2 rounded-xl border border-blue-100 bg-blue-50/55 p-3 text-center">
+              <SummaryMetric label="累计作答" value={`${answeredQuestions} 题`} />
+              <SummaryMetric label="答题准确率" value={accuracy === undefined ? "—" : `${accuracy}%`} />
+              <SummaryMetric label="累计得分" value={maxScore > 0 ? `${earned}/${maxScore}` : "—"} />
+            </div>
+
+            {attempts.length ? attempts.map((attempt) => {
+              const section = course.content.knowledgeLectureSections?.find((item) => item.id === attempt.sectionId);
+              return (
+                <article className="overflow-hidden rounded-xl border border-stone-200" key={attempt.id}>
+                  <header className="flex flex-wrap items-center justify-between gap-2 bg-stone-50 px-4 py-3">
+                    <div><h3 className="text-sm font-black text-stone-900">{section?.title ?? "知识讲授小测"}</h3><p className="mt-0.5 text-[10px] text-stone-400">提交于 {new Date(attempt.submittedAt).toLocaleString("zh-CN")}</p></div>
+                    <strong className="text-sm tabular-nums text-blue-800">{attempt.score}/{attempt.maxScore} 分</strong>
+                  </header>
+                  <ol className="divide-y divide-stone-100">
+                    {attempt.questions.map((question, index) => {
+                      const passed = question.correct === true || (question.points > 0 && question.earned / question.points >= 0.8);
+                      const knowledgePointNames = question.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id);
+                      return (
+                        <li className="p-4" key={question.questionId}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0"><p className="text-[10px] font-bold text-stone-400">第 {index + 1} 题</p><p className="mt-1 text-sm font-bold leading-6 text-stone-900">{question.prompt}</p></div>
+                            <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black", passed ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>{passed ? <CheckCircle2 size={12} /> : <CircleX size={12} />}{question.earned}/{question.points} 分</span>
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            <AnswerBlock label="学生答案" text={question.answer || "未作答"} tone={passed ? "neutral" : "danger"} />
+                            <AnswerBlock label="参考答案" text={question.referenceAnswer || "暂无参考答案"} tone="success" />
+                          </div>
+                          {question.feedback ? <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"><strong>评阅反馈：</strong>{question.feedback}</p> : null}
+                          <p className="mt-2 text-[10px] text-stone-400">对应知识点：{knowledgePointNames.join(" · ") || "未关联"}</p>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </article>
+              );
+            }) : <Empty text="该学生暂未提交知识讲授小测" />}
+          </section>
         )}
       </DrawerContent>
     </Drawer>
   );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-[10px] font-semibold text-stone-500">{label}</p><p className="mt-1 text-base font-black text-stone-900">{value}</p></div>;
+}
+
+function AnswerBlock({ label, text, tone }: { label: string; text: string; tone: "neutral" | "danger" | "success" }) {
+  return <div className={cn("rounded-lg border px-3 py-2", tone === "danger" ? "border-rose-100 bg-rose-50/60" : tone === "success" ? "border-emerald-100 bg-emerald-50/60" : "border-stone-200 bg-stone-50")}><p className="text-[10px] font-bold text-stone-400">{label}</p><p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-stone-700">{text}</p></div>;
 }
 
 function Empty({ text }: { text: string }) {

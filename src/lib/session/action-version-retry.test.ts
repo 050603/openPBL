@@ -56,6 +56,25 @@ describe("session action version conflict recovery", () => {
     await expect(retryVersionConflict(send, 3)).rejects.toMatchObject({
       code: "VERSION_CONFLICT",
     });
-    expect(send.mock.calls).toEqual([[3], [4], [5]]);
+    expect(send.mock.calls).toEqual([[3], [4], [5], [6], [7]]);
+  });
+
+  it("retries transient server contention with the same version", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(new SessionActionRequestError("ACTION_FAILED", 500))
+      .mockRejectedValueOnce(new SessionActionRequestError("REQUEST_IN_PROGRESS", 409))
+      .mockResolvedValueOnce({ courseVersion: 8 });
+
+    await expect(retryVersionConflict(send, 7)).resolves.toEqual({ courseVersion: 8 });
+    expect(send.mock.calls).toEqual([[7], [7], [7]]);
+  });
+
+  it("retries a fetch transport error because the request id is idempotent", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({ courseVersion: 8 });
+
+    await expect(retryVersionConflict(send, 7)).resolves.toEqual({ courseVersion: 8 });
+    expect(send.mock.calls).toEqual([[7], [7]]);
   });
 });

@@ -1,15 +1,23 @@
 import type { NextRequest } from 'next/server';
 
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import { createSlateEditor, nanoid } from 'platejs';
+import { createSlateEditor, nanoid, NodeApi } from 'platejs';
 
 import type { ChatMessage, ToolName } from '@/components/editor/use-chat';
 import { BaseEditorKit } from '@/components/editor/editor-base-kit';
+import {
+  appendAiInteractionEvents,
+} from '@/lib/ai-collaboration/audit-store';
+import {
+  evaluateAiWorkPolicy,
+  type DocumentCollaborationIntent,
+} from '@/lib/ai-collaboration/document-policy';
 import { readAuthFromRequest } from '@/lib/auth/session';
 import { callLLMStream } from '@/lib/llm/client';
 import { getCourse } from '@/lib/session/server-store';
 
 import { getEditPrompt, getGeneratePrompt } from './prompt';
+import { getLastUserInstruction } from './utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,12 +79,71 @@ export async function POST(request: NextRequest) {
   const messages = Array.isArray(body.messages) ? body.messages.slice(-8) : [];
   const isSelecting = editor.api.isExpanded();
   const toolName: ToolName = ctx.toolName ?? (isSelecting ? 'edit' : 'generate');
+  const requestId = request.headers.get('x-request-id') ?? nanoid();
+  const userInstruction = bounded(getLastUserInstruction(messages), 1_200);
+  const artifactText = (editor.children as never[])
+    .map((node) => NodeApi.string(node))
+    .join('\n')
+    .trim();
+  const policyIntent: DocumentCollaborationIntent = toolName === 'edit' ? 'edit' : 'organize';
+  const policy = evaluateAiWorkPolicy({
+    intent: policyIntent,
+    request: userInstruction || `${toolName === 'edit' ? '局部修改' : '局部辅助'}请求`,
+    scope: isSelecting ? 'selection' : 'document',
+    hasStudentArtifact: Boolean(artifactText),
+    selectedText: isSelecting ? editor.api.string(editor.selection!) : '',
+  });
+
+  async function recordAudit(
+    eventType: 'request' | 'response' | 'policy' | 'error',
+    actorRole: 'student' | 'ai' | 'system',
+    content: string,
+    payload: Record<string, unknown> = {},
+  ) {
+    try {
+      await appendAiInteractionEvents([{
+        courseId,
+        studentId,
+        stageKey,
+        source: 'selection',
+        eventType,
+        actorRole,
+        actorId: actorRole === 'student' ? studentId : undefined,
+        content: content.slice(0, 120_000),
+        payload: { toolName, ...payload },
+        requestId,
+      }]);
+    } catch (error) {
+      console.error('[ai/command] audit event write failed', error);
+    }
+  }
+
+  await recordAudit('request', 'student', userInstruction || `${toolName} 请求`, {
+    selected: isSelecting,
+    documentLength: artifactText.length,
+  });
+  await recordAudit('policy', 'system', policy.reason, policy as unknown as Record<string, unknown>);
+
+  if (!isSelecting || policy.outcome !== 'local_suggestion') {
+    const message = !isSelecting
+      ? '划字后的 AI 调用只处理局部段落，请先选中文档中的文字；需要整理整篇辅助内容时请在侧边 AI 组员对话框中布置。'
+      : policy.reason;
+    await recordAudit('error', 'system', message, { code: 'AI_SELECTION_REQUIRED' });
+    return Response.json({
+      error: 'AI_SELECTION_REQUIRED',
+      message,
+      policy,
+    }, { status: 422 });
+  }
 
   if (toolName === 'comment') {
+    await recordAudit('error', 'system', '当前编辑器不支持 AI 直接添加批注。', {
+      code: 'AI_COMMENT_NOT_ENABLED',
+    });
     return Response.json({ error: 'AI_COMMENT_NOT_ENABLED' }, { status: 422 });
   }
 
-  const instruction = toolName === 'edit'
+  const promptInstruction = toolName === 'edit'
     ? getEditPrompt(editor, { isSelecting, messages })[0]
     : getGeneratePrompt(editor, { isSelecting, messages });
   const system = [
@@ -94,15 +161,26 @@ export async function POST(request: NextRequest) {
       writer.write({ data: toolName, type: 'data-toolName' });
       writer.write({ id: textId, type: 'text-start' });
       try {
+        let generated = '';
         for await (const delta of callLLMStream(
           [
             { role: 'system', content: system },
-            { role: 'user', content: instruction },
+            { role: 'user', content: promptInstruction },
           ],
           { abortSignal: request.signal },
         )) {
+          generated += delta;
           writer.write({ delta, id: textId, type: 'text-delta' });
         }
+        await recordAudit('response', 'ai', generated, {
+          resultLength: generated.length,
+          mode: toolName === 'edit' ? 'local-replace' : 'local-context',
+        });
+      } catch (error) {
+        await recordAudit('error', 'system', error instanceof Error ? error.message : 'AI 生成失败', {
+          code: 'AI_GENERATION_FAILED',
+        });
+        throw error;
       } finally {
         writer.write({ id: textId, type: 'text-end' });
       }

@@ -29,7 +29,6 @@ export function PendingAiCommentSuggestionCard({
   suggestion: AiPendingCommentSuggestion;
 }) {
   const userInfo = usePluginOption(discussionPlugin, 'user', 'ai-member');
-  const [hovering, setHovering] = React.useState(false);
   const change = React.useMemo(() => {
     if (!suggestion.replacement) {
       return { kind: 'delete' as const, content: suggestion.targetText };
@@ -59,8 +58,6 @@ export function PendingAiCommentSuggestionCard({
     <div
       className="relative flex flex-col p-4"
       data-ai-comment-suggestion="true"
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
     >
       <div className="relative flex items-center">
         <Avatar className="size-5">
@@ -112,28 +109,28 @@ export function PendingAiCommentSuggestionCard({
         </p>
       </div>
 
-      {(hovering || suggestion.error) && (
-        <div className="absolute top-4 right-4 flex gap-1">
-          {!suggestion.error && (
-            <Button
-              aria-label="接受修改"
-              className="size-6 p-1 text-muted-foreground"
-              onClick={() => onDecision?.('accepted')}
-              variant="ghost"
-            >
-              <CheckIcon className="size-4" />
-            </Button>
-          )}
+      <div className="absolute top-4 right-4 flex gap-1 rounded-md bg-background/95 shadow-sm ring-1 ring-border">
+        {!suggestion.error && (
           <Button
-            aria-label="拒绝修改"
-            className="size-6 p-1 text-muted-foreground"
-            onClick={() => onDecision?.('rejected')}
+            aria-label="接受修改"
+            className="size-7 p-1 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+            onClick={() => onDecision?.('accepted')}
+            title="接受 AI 修改"
             variant="ghost"
           >
-            <XIcon className="size-4" />
+            <CheckIcon className="size-4" />
           </Button>
-        </div>
-      )}
+        )}
+        <Button
+          aria-label="拒绝修改"
+          className="size-7 p-1 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+          onClick={() => onDecision?.('rejected')}
+          title="拒绝 AI 修改"
+          variant="ghost"
+        >
+          <XIcon className="size-4" />
+        </Button>
+      </div>
     </div>
   );
 }

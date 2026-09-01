@@ -1,10 +1,94 @@
 "use client";
 
-import { BarChart3, BookOpenCheck, CircleAlert, Users } from "lucide-react";
+import { useState } from "react";
+import { BarChart3, BookOpenCheck, ChevronRight, CircleAlert, ListChecks, X, Users } from "lucide-react";
 import { Card, Pill } from "@/components/ui";
-import { aggregateKnowledgePointMastery, latestKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
+import { aggregateKnowledgePointMastery, firstKnowledgeLectureAttempts, knowledgeLectureQuizEstimate } from "@/lib/knowledge-lecture";
 import type { Course, StudentAiProgress } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
+
+type QuestionAnalyticsRow = {
+  id: string;
+  sectionId: string;
+  sectionTitle: string;
+  questionNumber: number;
+  prompt: string;
+  knowledgePointNames: string[];
+  answeredStudents: number;
+  correctStudents: number;
+  accuracy: number;
+  commonFeedback?: string;
+};
+
+export function aggregateQuestionAnalytics(
+  course: Course,
+  progress: Record<string, StudentAiProgress>,
+): QuestionAnalyticsRow[] {
+  const sections = new Map((course.content.knowledgeLectureSections ?? []).map((section) => [section.id, section]));
+  const pointNames = new Map(course.content.knowledgePoints.map((point) => [point.id, point.name]));
+  const accumulators = new Map<string, {
+    sectionId: string;
+    quizOutlineId: string;
+    questionId: string;
+    questionNumber: number;
+    prompt: string;
+    knowledgePointIds: Set<string>;
+    answeredStudents: Set<string>;
+    correctStudents: Set<string>;
+    earned: number;
+    maxScore: number;
+    feedback: string[];
+  }>();
+
+  Object.entries(progress).forEach(([studentId, entry]) => {
+    firstKnowledgeLectureAttempts(entry).forEach((attempt) => {
+      attempt.questions.forEach((question, questionIndex) => {
+        const id = `${attempt.quizOutlineId}:${question.questionId}`;
+        const current = accumulators.get(id) ?? {
+          sectionId: attempt.sectionId,
+          quizOutlineId: attempt.quizOutlineId,
+          questionId: question.questionId,
+          questionNumber: questionIndex + 1,
+          prompt: question.prompt,
+          knowledgePointIds: new Set<string>(),
+          answeredStudents: new Set<string>(),
+          correctStudents: new Set<string>(),
+          earned: 0,
+          maxScore: 0,
+          feedback: [],
+        };
+        (question.knowledgePointIds.length ? question.knowledgePointIds : attempt.knowledgePointIds)
+          .forEach((knowledgePointId) => current.knowledgePointIds.add(knowledgePointId));
+        current.answeredStudents.add(studentId);
+        current.earned += question.earned;
+        current.maxScore += question.points;
+        if (question.correct === true || (question.points > 0 && question.earned / question.points >= 0.8)) {
+          current.correctStudents.add(studentId);
+        } else if (question.feedback.trim()) {
+          current.feedback.push(question.feedback.trim());
+        }
+        accumulators.set(id, current);
+      });
+    });
+  });
+
+  return [...accumulators.entries()].map(([id, item]) => ({
+    id,
+    sectionId: item.sectionId,
+    sectionTitle: sections.get(item.sectionId)?.title ?? "知识讲授小测",
+    questionNumber: item.questionNumber,
+    prompt: item.prompt,
+    knowledgePointNames: [...item.knowledgePointIds].map((knowledgePointId) => pointNames.get(knowledgePointId) ?? knowledgePointId),
+    answeredStudents: item.answeredStudents.size,
+    correctStudents: item.correctStudents.size,
+    accuracy: item.maxScore > 0 ? Math.round(item.earned / item.maxScore * 100) : 0,
+    commonFeedback: item.feedback[0],
+  })).sort((left, right) => {
+    const leftOrder = sections.get(left.sectionId)?.order ?? 0;
+    const rightOrder = sections.get(right.sectionId)?.order ?? 0;
+    return leftOrder - rightOrder || left.questionNumber - right.questionNumber;
+  });
+}
 
 export function KnowledgeLectureAnalytics({
   course,
@@ -22,9 +106,14 @@ export function KnowledgeLectureAnalytics({
   const sections = course.content.knowledgeLectureSections ?? [];
   const rows = aggregateKnowledgePointMastery(course, progress);
   const answeredStudentIds = Object.entries(progress).flatMap(([studentId, entry]) =>
-    latestKnowledgeLectureAttempts(entry).length ? [studentId] : [],
+    firstKnowledgeLectureAttempts(entry).length ? [studentId] : [],
   );
-  const attempts = Object.values(progress).flatMap(latestKnowledgeLectureAttempts);
+  const attempts = Object.values(progress).flatMap(firstKnowledgeLectureAttempts);
+  const questionRows = aggregateQuestionAnalytics(course, progress);
+  const [selectedSectionId, setSelectedSectionId] = useState<string>();
+  const [knowledgePointTooltip, setKnowledgePointTooltip] = useState<{ name: string; x: number; y: number }>();
+  const selectedSection = sections.find((section) => section.id === selectedSectionId);
+  const selectedQuestionRows = questionRows.filter((question) => question.sectionId === selectedSectionId);
   const averageScore = attempts.length
     ? Math.round(attempts.reduce((sum, attempt) =>
         sum + (attempt.maxScore > 0 ? attempt.score / attempt.maxScore : 0), 0,
@@ -46,45 +135,81 @@ export function KnowledgeLectureAnalytics({
         </div>
       </header>
 
-      <div className="grid gap-0 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,.85fr)]">
-        <section className="border-b border-stone-100 p-4 lg:border-b-0 lg:border-r">
-          <div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-sm font-black text-stone-900">知识点错误率排名</h4><Pill tone={rows.some((row) => row.answeredStudents) ? "orange" : "gray"}>{rows.filter((row) => row.answeredStudents).length} 个有作答</Pill></div>
+      <div className={cn(
+        "grid gap-0 transition-[grid-template-columns] duration-300",
+        selectedSectionId
+          ? "xl:grid-cols-[minmax(0,.95fr)_minmax(280px,.8fr)_minmax(340px,1.1fr)]"
+          : "xl:grid-cols-[minmax(0,1fr)_minmax(380px,1fr)]",
+      )}>
+        <section className="border-b border-stone-100 p-4 xl:border-b-0 xl:border-r">
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 className="text-sm font-black text-stone-900">知识点未达标率排名</h4><p className="mt-0.5 text-[10px] text-stone-500">未达 80% 人数 ÷ 有效作答人数</p></div><Pill tone={rows.some((row) => row.answeredStudents) ? "orange" : "gray"}>{rows.filter((row) => row.answeredStudents).length} 个有作答</Pill></div>
           <div className="space-y-3">
             {rows.filter((row) => row.answeredStudents).map((row, index) => (
               <article className="grid grid-cols-[28px_minmax(0,1fr)_52px] items-center gap-2" key={row.knowledgePointId}>
-                <span className={cn("grid size-7 place-items-center rounded-full text-xs font-black", index < 3 && row.errorRate > 0 ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-500")}>{index + 1}</span>
+                <span className={cn("grid size-7 place-items-center rounded-full text-xs font-black", index < 3 && row.unmetRate > 0 ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-500")}>{index + 1}</span>
                 <div className="min-w-0">
-                  <div className="flex items-center justify-between gap-2"><strong className="truncate text-xs text-stone-800">{row.name}</strong><span className="shrink-0 text-[10px] text-stone-400">{row.incorrectStudents}/{row.answeredStudents} 人未达 80%</span></div>
-                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100"><div className={cn("h-full rounded-full", row.errorRate >= 50 ? "bg-rose-500" : row.errorRate >= 25 ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${row.errorRate}%` }} /></div>
+                  <div className="flex items-start justify-between gap-2"><strong
+                    className="line-clamp-2 cursor-help text-xs leading-5 text-stone-800"
+                    onMouseEnter={(event) => setKnowledgePointTooltip({ name: row.name, x: event.clientX, y: event.clientY })}
+                    onMouseLeave={() => setKnowledgePointTooltip(undefined)}
+                    onMouseMove={(event) => setKnowledgePointTooltip({
+                      name: row.name,
+                      x: Math.max(8, Math.min(event.clientX + 12, window.innerWidth - 332)),
+                      y: Math.max(8, Math.min(event.clientY + 12, window.innerHeight - 90)),
+                    })}
+                  >{row.name}</strong><span className="shrink-0 pt-0.5 text-[10px] text-stone-400">{row.incorrectStudents}/{row.answeredStudents} 人未达 80%</span></div>
+                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100"><div className={cn("h-full rounded-full", row.unmetRate >= 50 ? "bg-rose-500" : row.unmetRate >= 30 ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${row.unmetRate}%` }} /></div>
+                  <p className="mt-1 text-[9px] text-stone-400">平均失分率 {row.scoreLossRate}% · 覆盖全班 {row.responseCoverage}% · {row.status === "confirmed" ? "已确认共性" : row.status === "observing" ? `观察中，需 ${row.minimumSampleSize} 人作答` : row.status === "collecting" ? `收集中，需 ${row.minimumSampleSize} 人作答` : "未达到共性阈值"}</p>
                 </div>
-                <strong className={cn("text-right text-sm tabular-nums", row.errorRate >= 50 ? "text-rose-700" : row.errorRate >= 25 ? "text-amber-700" : "text-emerald-700")}>{row.errorRate}%</strong>
+                <strong className={cn("text-right text-sm tabular-nums", row.unmetRate >= 50 ? "text-rose-700" : row.unmetRate >= 30 ? "text-amber-700" : "text-emerald-700")}>{row.unmetRate}%</strong>
               </article>
             ))}
             {!rows.some((row) => row.answeredStudents) ? <div className="grid min-h-36 place-items-center rounded-xl border border-dashed border-stone-200 bg-stone-50 text-center text-sm text-stone-500"><span><CircleAlert className="mx-auto mb-2 text-stone-300" size={23} />等待学生完成第一节小测</span></div> : null}
           </div>
         </section>
 
-        <section className="p-4">
-          <h4 className="mb-3 text-sm font-black text-stone-900">各小节作答进度</h4>
+        <section className={cn("p-4", selectedSectionId && "border-b border-stone-100 xl:border-b-0 xl:border-r")}>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 className="text-sm font-black text-stone-900">各小节测验情况</h4><p className="mt-0.5 text-[10px] text-stone-500">点击小节查看逐题详情</p></div><Pill tone={sections.length ? "blue" : "gray"}>{sections.length} 节</Pill></div>
           <div className="space-y-2.5">
             {sections.map((section) => {
+              const quizEstimate = knowledgeLectureQuizEstimate(course, section);
               const sectionAttempts = Object.values(progress).flatMap((entry) =>
-                latestKnowledgeLectureAttempts(entry).filter((attempt) => attempt.sectionId === section.id),
+                firstKnowledgeLectureAttempts(entry).filter((attempt) => attempt.sectionId === section.id),
               );
               const average = sectionAttempts.length
                 ? Math.round(sectionAttempts.reduce((sum, attempt) => sum + (attempt.maxScore > 0 ? attempt.score / attempt.maxScore : 0), 0) / sectionAttempts.length * 100)
                 : undefined;
+              const selected = section.id === selectedSectionId;
               return (
-                <article className="rounded-xl border border-stone-200 bg-stone-50/60 p-3" key={section.id}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-xs font-black text-stone-800">{section.title}</p><p className="mt-1 truncate text-[10px] text-stone-500">{section.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id).join(" · ")}</p></div><span className="shrink-0 text-xs font-black text-cyan-800">{average === undefined ? "待作答" : `${average}分`}</span></div>
-                  <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-stone-500"><span>{sectionAttempts.length}/{studentCount} 人完成</span><span>2–3 题 · 约 2–5 分钟</span></div>
-                </article>
+                <button aria-expanded={selected} className={cn("w-full rounded-xl border p-3 text-left transition", selected ? "border-violet-300 bg-violet-50 shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-violet-200 hover:bg-white")} key={section.id} onClick={() => setSelectedSectionId((current) => current === section.id ? undefined : section.id)} type="button">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="line-clamp-2 text-xs font-black leading-5 text-stone-800">{section.title}</p><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-stone-500">{section.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id).join(" · ")}</p></div><span className="flex shrink-0 items-center gap-1 text-xs font-black text-cyan-800">{average === undefined ? "待作答" : `${average}分`}<ChevronRight className={cn("text-stone-400 transition-transform", selected && "rotate-180 text-violet-600")} size={14} /></span></div>
+                  <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-stone-500"><span>{sectionAttempts.length}/{studentCount} 人完成</span><span>{quizEstimate.questionCount} 题 · 预计 {quizEstimate.estimatedMinutes} 分钟</span></div>
+                  <p className={cn("mt-2 border-t pt-2 text-right text-[10px] font-bold", selected ? "border-violet-200 text-violet-700" : "border-stone-200 text-stone-400")}>{selected ? "再次点击收起题目" : "查看本节每道题"}</p>
+                </button>
               );
             })}
             {!sections.length ? <p className="rounded-xl border border-dashed border-stone-200 p-6 text-center text-xs text-stone-500">该课程仍使用旧版单次测验结构，重新生成知识讲授内容后可按小节查看。</p> : null}
           </div>
         </section>
+
+        {selectedSectionId ? (
+          <section className="min-w-0 bg-violet-50/25 p-4" aria-label="所选小节逐题详情">
+            <div className="mb-3 flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="flex items-center gap-1.5 text-sm font-black text-stone-900"><ListChecks size={15} className="text-violet-600" />本节逐题详情</h4><p className="mt-1 truncate text-[10px] font-semibold text-violet-700">{selectedSection?.title}</p></div><button aria-label="收起逐题详情" className="grid size-7 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 hover:border-violet-300 hover:text-violet-700" onClick={() => setSelectedSectionId(undefined)} type="button"><X size={13} /></button></div>
+            <div className="max-h-[430px] space-y-2.5 overflow-y-auto pr-1">
+              {selectedQuestionRows.map((question) => (
+                <article className="rounded-xl border border-stone-200 bg-white p-3" key={question.id}>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-bold text-violet-700">第 {question.questionNumber} 题</p><p className="mt-1 text-xs font-black leading-5 text-stone-800">{question.prompt}</p></div><strong className={cn("shrink-0 text-sm tabular-nums", question.accuracy >= 80 ? "text-emerald-700" : question.accuracy >= 60 ? "text-amber-700" : "text-rose-700")}>{question.accuracy}%</strong></div>
+                  <p className="mt-1.5 text-[10px] leading-4 text-stone-500">对应知识点：{question.knowledgePointNames.join(" · ") || "未关联"}</p>
+                  <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-stone-500"><span>{question.answeredStudents} 人作答</span><span>{question.correctStudents}/{question.answeredStudents} 人达到 80%</span></div>
+                  {question.commonFeedback ? <p className="mt-2 rounded-md bg-rose-50 px-2 py-1.5 text-[10px] leading-4 text-rose-700">典型问题：{question.commonFeedback}</p> : null}
+                </article>
+              ))}
+              {!selectedQuestionRows.length ? <div className="grid min-h-36 place-items-center rounded-xl border border-dashed border-stone-200 bg-white text-center text-sm text-stone-500"><span><CircleAlert className="mx-auto mb-2 text-stone-300" size={23} />本节尚无逐题作答数据</span></div> : null}
+            </div>
+          </section>
+        ) : null}
       </div>
+      {knowledgePointTooltip ? <div className="pointer-events-none fixed z-[120] max-w-[320px] rounded-[8px] border border-stone-200 bg-stone-950 px-3 py-2 text-xs font-semibold leading-5 text-white shadow-xl" role="tooltip" style={{ left: knowledgePointTooltip.x, top: knowledgePointTooltip.y }}>{knowledgePointTooltip.name}</div> : null}
     </Card>
   );
 }

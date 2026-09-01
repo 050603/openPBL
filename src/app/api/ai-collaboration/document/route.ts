@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import {
   buildDocumentCollaborationPrompts,
-  detectProtectedStudentWorkRequest,
   documentHtmlToPlainText,
+  evaluateAiWorkPolicy,
   isDocumentCollaborationIntent,
   normalizeDocumentCollaborationResponse,
+  protectedBoundaryForPolicy,
   type DocumentCollaborationIntent,
   type DocumentCollaborationResponse,
+  type AiWorkPolicyDecision,
 } from "@/lib/ai-collaboration/document-policy";
+import { appendAiInteractionEvents } from "@/lib/ai-collaboration/audit-store";
 import {
   buildBatchProactiveDocumentCommentPrompts,
   buildDocumentCommentReplyPrompts,
@@ -87,6 +90,18 @@ const COMMENT_SUGGESTION_PREFIX = "OPENPBL_DOCUMENT_COMMENT_SUGGESTION:";
 const COMMENT_REVIEW_PREFIX = "OPENPBL_DOCUMENT_COMMENT_REVIEW:";
 const COLLABORATION_TRANSIENT_RETRIES = 2;
 
+async function recordInteractionEvents(
+  events: Parameters<typeof appendAiInteractionEvents>[0],
+): Promise<void> {
+  try {
+    await appendAiInteractionEvents(events);
+  } catch (error) {
+    // Collaboration remains usable if an audit replica is temporarily down;
+    // the error is visible in server logs and can be retried by reconciliation.
+    console.error("[ai-collaboration] audit event write failed", error);
+  }
+}
+
 type DocumentCollaborationRequest = {
   courseId?: unknown;
   studentId?: unknown;
@@ -105,6 +120,7 @@ type DocumentCollaborationRequest = {
   blockIndex?: unknown;
   blockId?: unknown;
   paragraphs?: unknown;
+  contributionId?: unknown;
 };
 
 type ProactiveParagraph = {
@@ -664,6 +680,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") ?? randomUUID();
   let body: DocumentCollaborationRequest;
   try {
     body = await request.json() as DocumentCollaborationRequest;
@@ -684,6 +701,7 @@ export async function POST(request: NextRequest) {
   const blockIndex = Number(body.blockIndex);
   const blockId = boundedString(body.blockId, 160) || undefined;
   const proactiveParagraphs = parseProactiveParagraphs(body.paragraphs);
+  const contributionId = boundedString(body.contributionId, 160) || undefined;
   if (!courseId || !stageKey) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
   }
@@ -732,6 +750,18 @@ export async function POST(request: NextRequest) {
         authorName: "系统",
       })],
     });
+    await recordInteractionEvents([{
+      courseId,
+      studentId: scope.student.id,
+      stageKey,
+      conversationId,
+      source: "system",
+      eventType: "comment",
+      actorRole: "system",
+      content: "学生开始了新的 AI 协作对话，旧记录保留。",
+      payload: { action: "reset-conversation" },
+      requestId,
+    }]);
     return Response.json({ ok: true, conversationId });
   }
   if (action === "read-document-comment") {
@@ -939,6 +969,31 @@ export async function POST(request: NextRequest) {
           stageKey: documentCommentThreadKey(stageKey),
           messages,
         });
+        // Every paragraph comment is an independent contextual conversation.
+        // Persist its opening AI message under the comment thread id so later
+        // student replies continue the same audit turn instead of starting at
+        // the student's first reply or merging unrelated comments together.
+        await recordInteractionEvents(commentThreads.map((thread) => ({
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: thread.id,
+          source: "proactive-comment" as const,
+          eventType: "comment" as const,
+          actorRole: "ai" as const,
+          content: thread.comments.find((comment) => comment.role === "assistant")?.content
+            ?? "AI 组员发起了段落批注。",
+          payload: {
+            commentThreadId: thread.id,
+            blockId: thread.blockId,
+            blockIndex: thread.blockIndex,
+            issueType: thread.issueType,
+            targetText: thread.targetText,
+            initialComment: true,
+            candidateCount: candidates.length,
+          },
+          requestId,
+        })));
       }
       return Response.json({
         commentThreads,
@@ -1011,6 +1066,18 @@ export async function POST(request: NextRequest) {
         stageKey: documentCommentThreadKey(stageKey),
         messages,
       });
+      await recordInteractionEvents([{
+        courseId,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: id,
+        source: "proactive-comment",
+        eventType: "comment",
+        actorRole: "ai",
+        content: result.comment,
+        payload: { commentThreadId: id, blockIndex, blockId, targetText, initialComment: true },
+        requestId,
+      }]);
       return Response.json({
         commentThread: {
           ...meta,
@@ -1043,6 +1110,15 @@ export async function POST(request: NextRequest) {
     if (!existing) {
       return Response.json({ error: "COMMENT_THREAD_NOT_FOUND" }, { status: 404 });
     }
+    const commentPolicy = evaluateAiWorkPolicy({
+      intent: "check",
+      request: message,
+      scope: "paragraph",
+      hasStudentArtifact: Boolean(targetText || existing.blockText || existing.targetText),
+      proactive: true,
+      selectedText: existing.targetText,
+    });
+    const commentBoundary = protectedBoundaryForPolicy(commentPolicy, message);
     const prompts = buildDocumentCommentReplyPrompts({
       course: scope.course,
       studentId: scope.student.id,
@@ -1051,7 +1127,7 @@ export async function POST(request: NextRequest) {
       targetText: existing.targetText,
       history: existing.comments,
       studentReply: message,
-      protectedBoundary: detectProtectedStudentWorkRequest(message),
+      protectedBoundary: commentBoundary,
     });
     try {
       const raw = await callCollaborationModel([
@@ -1061,7 +1137,7 @@ export async function POST(request: NextRequest) {
       const reply = normalizeDocumentCommentReply(
         parseLLMJson(raw),
         existing.targetText,
-        detectProtectedStudentWorkRequest(message),
+        commentBoundary,
       );
       if (!reply) throw new Error("EMPTY_DOCUMENT_COMMENT_REPLY");
       const studentMessage = companionMessage({
@@ -1098,6 +1174,33 @@ export async function POST(request: NextRequest) {
         stageKey: documentCommentThreadKey(stageKey),
         messages,
       });
+      await recordInteractionEvents([
+        {
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: commentThreadId,
+          source: "proactive-comment",
+          eventType: "request",
+          actorRole: "student",
+          actorId: scope.student.id,
+          content: message,
+          payload: { commentThreadId, targetText: existing.targetText },
+          requestId,
+        },
+        {
+          courseId,
+          studentId: scope.student.id,
+          stageKey,
+          conversationId: commentThreadId,
+          source: "proactive-comment",
+          eventType: reply.suggestion ? "proposal" : "response",
+          actorRole: "ai",
+          content: reply.message,
+          payload: { commentThreadId, contributionId, kind: reply.kind, suggestion: reply.suggestion ?? null },
+          requestId,
+        },
+      ]);
       return Response.json({
         commentThread: {
           ...existing,
@@ -1152,6 +1255,17 @@ export async function POST(request: NextRequest) {
         { role: "user", content: reviewPrompts.user },
       ], request.signal);
       const reviewed = normalizeDelegatedWorkStarters(parseLLMJson(reviewedRaw));
+      await recordInteractionEvents([{
+        courseId: scope.course.id,
+        studentId: scope.student.id,
+        stageKey,
+        source: "sidebar",
+        eventType: "response",
+        actorRole: "ai",
+        content: reviewed.join("\n"),
+        payload: { action: "suggest-delegated-work", starters: reviewed },
+        requestId,
+      }]);
       return Response.json({ starters: reviewed });
     } catch (error) {
       if (request.signal.aborted) {
@@ -1167,6 +1281,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
   }
   const intent = body.intent;
+  // A selection-triggered request is always local. Older clients may still
+  // label an organise/collect request as `delegate`; reinterpret that label
+  // here so a stale browser can never escalate a selected paragraph into a
+  // document-wide delegated operation.
+  const effectiveIntent: DocumentCollaborationIntent = selectedText && intent === "delegate"
+    ? "organize"
+    : intent;
   const requestedConversationId = boundedString(body.conversationId, 160);
   if (requestedConversationId && requestedConversationId !== currentConversationId) {
     return Response.json(
@@ -1184,10 +1305,18 @@ export async function POST(request: NextRequest) {
   const history = modelConversationHistory(thread?.messages ?? [], currentConversationId);
   const documentText = documentHtmlToPlainText(documentHtml);
   const revisionOf = parseDelegatedWorkRevision(body.revisionOf);
+  const policyDecision: AiWorkPolicyDecision = evaluateAiWorkPolicy({
+    intent: effectiveIntent,
+    request: message,
+    scope: selectedText ? "selection" : "document",
+    hasStudentArtifact: Boolean(documentText),
+    selectedText,
+  });
+  const protectedBoundary = protectedBoundaryForPolicy(policyDecision, message);
 
   try {
     let result: DocumentCollaborationResponse;
-    if (intent === "delegate") {
+    if (effectiveIntent === "delegate" && !protectedBoundary) {
       result = await executeDelegatedWork({
         course: scope.course,
         student: scope.student,
@@ -1204,12 +1333,12 @@ export async function POST(request: NextRequest) {
         studentId: scope.student.id,
         studentName: scope.student.name,
         stageKey,
-        intent,
+        intent: effectiveIntent,
         request: message,
         documentText,
         selectedText,
         history,
-        protectedBoundary: detectProtectedStudentWorkRequest(message),
+        protectedBoundary,
         proactive,
       });
       let llmMessages = [
@@ -1229,12 +1358,12 @@ export async function POST(request: NextRequest) {
           studentId: scope.student.id,
           studentName: scope.student.name,
           stageKey,
-          intent,
+          intent: effectiveIntent,
           request: message,
           documentText,
           selectedText,
           history,
-          protectedBoundary: detectProtectedStudentWorkRequest(message),
+          protectedBoundary,
           proactive,
           compact: true,
         });
@@ -1248,15 +1377,14 @@ export async function POST(request: NextRequest) {
           maxTransientRetries: COLLABORATION_TRANSIENT_RETRIES,
         });
       }
-      const protectedBoundary = detectProtectedStudentWorkRequest(message);
       result = normalizeDocumentCollaborationResponse(
         parseLLMJson(raw) as Record<string, unknown>,
         selectedText,
         protectedBoundary,
-        intent,
+        effectiveIntent,
       );
     }
-    const companionId = companionForIntent(intent);
+    const companionId = companionForIntent(effectiveIntent);
     const assistantRecord = assistantRecordForResult(result);
     const persistedMessages = [
       ...(!proactive ? [companionMessage({
@@ -1282,6 +1410,52 @@ export async function POST(request: NextRequest) {
       stageKey: collaborationThreadKey(stageKey),
       messages: persistedMessages,
     });
+    const source = selectedText || intent === "edit" ? "selection" : "sidebar";
+    await recordInteractionEvents([
+      {
+        courseId: scope.course.id,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: currentConversationId,
+        source,
+        eventType: "request",
+        actorRole: "student",
+        actorId: scope.student.id,
+        content: message,
+        payload: { intent, effectiveIntent, selectedText, documentLength: documentText.length },
+        requestId,
+      },
+      {
+        courseId: scope.course.id,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: currentConversationId,
+        source,
+        eventType: "policy",
+        actorRole: "system",
+        content: policyDecision.reason,
+        payload: policyDecision as unknown as Record<string, unknown>,
+        requestId,
+      },
+      {
+        courseId: scope.course.id,
+        studentId: scope.student.id,
+        stageKey,
+        conversationId: currentConversationId,
+        source,
+        eventType: "response",
+        actorRole: "ai",
+        content: assistantRecord,
+        payload: {
+          kind: result.kind,
+          companionId,
+          contributionId,
+          suggestion: result.suggestion ?? null,
+          deliverable: result.deliverable ?? null,
+        },
+        requestId,
+      },
+    ]);
     return Response.json({
       result,
       companionId,
@@ -1300,6 +1474,18 @@ export async function POST(request: NextRequest) {
         category: upstreamFailureCategory(error),
       },
     );
-    return collaborationFailureResponse(error, intent);
+    void recordInteractionEvents([{
+      courseId: scope.course.id,
+      studentId: scope.student.id,
+      stageKey,
+      conversationId: currentConversationId,
+      source: selectedText || intent === "edit" ? "selection" : "sidebar",
+      eventType: "error",
+      actorRole: "system",
+      content: error instanceof Error ? error.message : "AI 组员请求失败",
+      payload: { intent, effectiveIntent },
+      requestId,
+    }]);
+    return collaborationFailureResponse(error, effectiveIntent);
   }
 }

@@ -563,6 +563,42 @@ export type CompanionThread = {
   updatedAt: string;
 };
 
+export type ProjectDocumentVersion = {
+  id: string;
+  courseId: string;
+  submissionId: string;
+  studentId: string;
+  stageKey: string;
+  sequence: number;
+  sourceVersion: number;
+  title: string;
+  sourceHtml: string;
+  docxUploadId?: string;
+  docxSha256?: string;
+  docxSize?: number;
+  status: "processing" | "submitted" | "failed";
+  error?: string;
+  requestId?: string;
+  submittedAt?: string;
+  createdAt: string;
+};
+
+export type AiInteractionEvent = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  stageKey: string;
+  conversationId?: string;
+  source: "sidebar" | "selection" | "proactive-comment" | "submission" | "system";
+  eventType: "request" | "response" | "policy" | "proposal" | "decision" | "undo" | "comment" | "submit" | "error";
+  actorRole: "student" | "ai" | "system" | "teacher";
+  actorId?: string;
+  content?: string;
+  payload?: Record<string, unknown>;
+  requestId?: string;
+  createdAt: string;
+};
+
 export type LearningSignalKind =
   | "dwell-overrun"
   | "repeated-playback"
@@ -1113,6 +1149,8 @@ export type Course = {
   coverImageUrl?: string;
   students: Student[];
   submissions?: ClassroomSubmission[];
+  projectDocumentVersions?: ProjectDocumentVersion[];
+  aiInteractionEvents?: AiInteractionEvent[];
   feedback?: TeacherFeedback[];
   rubricScores?: RubricScore[];
   reflections?: ReflectionRecord[];
@@ -1557,6 +1595,9 @@ export type ClassroomSubmission = {
   title: string;
   content: string;
   files?: { name: string; type: string; size?: string; url?: string }[];
+  status?: "draft" | "submitted" | "failed";
+  submittedAt?: string;
+  version?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -1627,6 +1668,8 @@ export type SessionSnapshot = {
 export type ArchivedCourseData = {
   students?: Student[];
   submissions?: ClassroomSubmission[];
+  projectDocumentVersions?: ProjectDocumentVersion[];
+  aiInteractionEvents?: AiInteractionEvent[];
   feedback?: TeacherFeedback[];
   rubricScores?: RubricScore[];
   reflections?: ReflectionRecord[];

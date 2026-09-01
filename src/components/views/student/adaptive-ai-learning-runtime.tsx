@@ -27,6 +27,8 @@ import { readSubmittedState } from "@openmaic/lib/quiz/persistence";
 import { deriveClassroomTimingSnapshot } from "@/lib/classroom/timing";
 import { KnowledgeLectureBoard } from "@/components/views/student/knowledge-lecture-board";
 import { toast } from "@/components/ui";
+import { KnowledgeLectureQuizLockProvider } from "@/components/openmaic-bridge/knowledge-lecture-quiz-lock";
+import { firstKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
 
 const QUIZ_REVIEWED_EVENT = "openpbl:knowledge-lecture-quiz-reviewed";
 const EXPLAIN_QUESTION_EVENT = "openpbl:knowledge-lecture-explain-question";
@@ -101,6 +103,14 @@ export function AdaptiveAiLearningRuntime({
   const remoteAdaptiveState = course.aiLearningProgress?.[studentId]?.adaptiveLearning;
   const lectureProgress = course.aiLearningProgress?.[studentId];
   const lectureSections = course.content.knowledgeLectureSections ?? [];
+  const lockedLectureAttempts = useMemo(() => {
+    const attempts = new Map<string, KnowledgeLectureAttempt>();
+    firstKnowledgeLectureAttempts(lectureProgress).forEach((attempt) => {
+      attempts.set(attempt.quizOutlineId, attempt);
+      attempts.set(attempt.runtimeSceneId, attempt);
+    });
+    return attempts;
+  }, [lectureProgress]);
   const knowledgePointNames = useMemo(
     () => new Map((course.content.knowledgePoints ?? []).map((point) => [point.id, point.name])),
     [course.content.knowledgePoints],
@@ -324,8 +334,9 @@ export function AdaptiveAiLearningRuntime({
   }, []);
 
   function recordLectureAttempt(scene: Scene): Promise<KnowledgeLectureAttempt | undefined> {
-    const existing = (lectureProgress?.knowledgeLectureAttempts ?? []).find(
-      (attempt) => attempt.runtimeSceneId === scene.id,
+    const quizOutlineId = scene.outlineId?.trim() || scene.id;
+    const existing = firstKnowledgeLectureAttempts(lectureProgress).find(
+      (attempt) => attempt.quizOutlineId === quizOutlineId,
     );
     if (existing) return Promise.resolve(existing);
     const pending = lectureAttemptRequestsRef.current.get(scene.id);
@@ -333,7 +344,6 @@ export function AdaptiveAiLearningRuntime({
 
     const request = (async () => {
       if (scene.content?.type !== "quiz") return undefined;
-      const quizOutlineId = scene.outlineId?.trim() || scene.id;
       const section = lectureSections.find((item) => item.quizOutlineId === quizOutlineId);
       const submitted = readSubmittedState(scene.id);
       if (section && submitted?.kind === "reviewing") {
@@ -365,8 +375,8 @@ export function AdaptiveAiLearningRuntime({
             }),
           }),
         }).catch(() => undefined);
-        if (response?.ok) {
-          const payload = await response.json() as { attempt?: KnowledgeLectureAttempt };
+        if (response?.ok || response?.status === 409) {
+          const payload = await response.json() as { attempt?: KnowledgeLectureAttempt; error?: string };
           return payload.attempt;
         } else {
           toast.error("小测结果同步失败", { description: "批阅结果仍显示在当前页面，请稍后重新进入讲解。" });
@@ -591,6 +601,7 @@ export function AdaptiveAiLearningRuntime({
         Adaptive resources play in the main course player.
       </span>
       <div className="min-h-0 flex-1">
+        <KnowledgeLectureQuizLockProvider attemptsBySceneId={lockedLectureAttempts}>
         <StudentStageHost
           adaptiveInsertions={adaptiveInsertions}
           backHref={backHref}
@@ -615,6 +626,7 @@ export function AdaptiveAiLearningRuntime({
           studentName={studentName}
           variant={variant}
         />
+        </KnowledgeLectureQuizLockProvider>
       </div>
       {reviewAttempt ? (
         <KnowledgeLectureBoard

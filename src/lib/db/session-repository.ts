@@ -4,9 +4,10 @@
 // - `loadSessionState()` returns the full SessionState (all courses + nested data)
 //   for backward compatibility with existing API routes that read the whole state.
 // - `saveCourse(course)` upserts a Course and ALL its nested children in a single
-//   transaction. The strategy is "delete children → re-insert" because:
+//   transaction. The strategy is "replace mutable children → re-insert" because:
 //     1. It avoids complex diffing logic for ~30 child collections.
-//     2. The Course aggregate is treated as a consistency boundary.
+//     2. The Course aggregate is treated as a consistency boundary. Immutable
+//        project-document versions and AI audit events are intentionally kept.
 //     3. Prisma transactions make this atomic.
 //   This is acceptable because course updates are not high-frequency.
 // - `dispatchAction(action)` loads the current state, applies the pure
@@ -51,6 +52,8 @@ import type {
   CompanionTask,
   CompanionConfirmation,
   CompanionProcessRecord,
+  AiInteractionEvent,
+  ProjectDocumentVersion,
   LearningSignal,
   ClassCommonIssue,
   TeacherAgentDirective,
@@ -62,6 +65,7 @@ import type {
   SessionState,
 } from "@/lib/session/actions";
 import { applySessionAction, initialSessionState } from "@/lib/session/actions";
+import { lockCourseMutation } from "./course-mutation-lock";
 
 // ============================================================================
 // Errors
@@ -240,6 +244,8 @@ type CourseWithRelations = Prisma.CourseGetPayload<{
   include: {
     students: true;
     submissions: true;
+    projectDocumentVersions: true;
+    aiInteractionEvents: true;
     feedback: true;
     rubricScores: true;
     reflections: true;
@@ -305,6 +311,12 @@ function rowToCourse(row: CourseWithRelations): Course {
     coverImageUrl: row.coverImageUrl ?? undefined,
     students: row.students.map(rowToStudent),
     submissions: row.submissions.map(rowToSubmission),
+    projectDocumentVersions: row.projectDocumentVersions
+      .map(rowToProjectDocumentVersion)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.sequence - right.sequence),
+    aiInteractionEvents: row.aiInteractionEvents
+      .map(rowToAiInteractionEvent)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)),
     feedback: row.feedback.map(rowToFeedback),
     rubricScores: row.rubricScores.map(rowToRubricScore),
     reflections: row.reflections.map(rowToReflection),
@@ -389,9 +401,56 @@ function rowToSubmission(
     title: asString((row.payload as { title?: unknown } | null)?.title),
     content: asString((row.payload as { content?: unknown } | null)?.content),
     files: (row.payload as { files?: ClassroomSubmission["files"] } | null)?.files,
+    status: row.status as ClassroomSubmission["status"],
+    submittedAt: row.submittedAt ?? undefined,
+    version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   } as ClassroomSubmission;
+}
+
+function rowToProjectDocumentVersion(
+  row: Prisma.ProjectDocumentVersionGetPayload<Record<string, never>>,
+): ProjectDocumentVersion {
+  return {
+    id: row.id,
+    courseId: row.courseId,
+    submissionId: row.submissionId,
+    studentId: row.studentId,
+    stageKey: row.stageKey,
+    sequence: row.sequence,
+    sourceVersion: row.sourceVersion,
+    title: row.title,
+    sourceHtml: row.sourceHtml,
+    docxUploadId: row.docxUploadId ?? undefined,
+    docxSha256: row.docxSha256 ?? undefined,
+    docxSize: row.docxSize ?? undefined,
+    status: row.status as ProjectDocumentVersion["status"],
+    error: row.error ?? undefined,
+    requestId: row.requestId ?? undefined,
+    submittedAt: row.submittedAt?.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function rowToAiInteractionEvent(
+  row: Prisma.AiInteractionEventGetPayload<Record<string, never>>,
+): AiInteractionEvent {
+  return {
+    id: row.id,
+    courseId: row.courseId,
+    studentId: row.studentId,
+    stageKey: row.stageKey,
+    conversationId: row.conversationId ?? undefined,
+    source: row.source as AiInteractionEvent["source"],
+    eventType: row.eventType as AiInteractionEvent["eventType"],
+    actorRole: row.actorRole as AiInteractionEvent["actorRole"],
+    actorId: row.actorId ?? undefined,
+    content: row.content ?? undefined,
+    payload: (row.payload as Record<string, unknown>) ?? undefined,
+    requestId: row.requestId ?? undefined,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 function rowToFeedback(
@@ -1052,6 +1111,8 @@ function extractStudentProgress(student: Student): Record<string, number> {
 const FULL_INCLUDE = {
   students: true,
   submissions: true,
+  projectDocumentVersions: true,
+  aiInteractionEvents: true,
   feedback: true,
   rubricScores: true,
   reflections: true,
@@ -1154,6 +1215,10 @@ export async function loadCourseByInviteCode(
  */
 export async function saveCourse(course: Course): Promise<Course> {
   return prisma.$transaction(async (tx) => {
+    // Full aggregate saves replace many child collections. Keep them ordered
+    // with direct progress/actions for the same course so a heartbeat cannot
+    // repeatedly invalidate a stage transition or overwrite a newer snapshot.
+    await lockCourseMutation(tx, course.id);
     const existing = await tx.course.findUnique({
       where: { id: course.id },
       select: { version: true },
@@ -1176,7 +1241,10 @@ export async function saveCourse(course: Course): Promise<Course> {
 
     // Delete existing child rows (cascade-style manual delete for safety)
     await tx.student.deleteMany({ where: { courseId: course.id } });
-    await tx.classroomSubmission.deleteMany({ where: { courseId: course.id } });
+    // Keep ClassroomSubmission rows in place: ProjectDocumentVersion is an
+    // immutable child of a submission and its FK cascades on deletion. The
+    // aggregate save path must never erase submitted Word snapshots or audit
+    // history, so submissions are upserted below instead of bulk-deleted.
     await tx.teacherFeedback.deleteMany({ where: { courseId: course.id } });
     await tx.rubricScore.deleteMany({ where: { courseId: course.id } });
     await tx.reflectionRecord.deleteMany({ where: { courseId: course.id } });
@@ -1228,24 +1296,46 @@ export async function saveCourse(course: Course): Promise<Course> {
     }
 
     if (course.submissions?.length) {
-      await tx.classroomSubmission.createMany({
-        data: course.submissions.map((s) => ({
-          id: s.id,
-          courseId: course.id,
-          studentId: s.studentId ?? "",
-          studentName: s.studentName ?? "",
-          stageKey: s.stageKey,
-          groupId: s.groupId ?? null,
-          payload: asJson({
-            type: s.type,
-            title: s.title,
-            content: s.content,
-            files: s.files,
-          }),
-          createdAt: new Date(s.createdAt ?? Date.now()),
-          updatedAt: new Date(s.updatedAt ?? Date.now()),
-        })),
-      });
+      for (const s of course.submissions) {
+        await tx.classroomSubmission.upsert({
+          where: { courseId_id: { courseId: course.id, id: s.id } },
+          create: {
+            id: s.id,
+            courseId: course.id,
+            studentId: s.studentId ?? "",
+            studentName: s.studentName ?? "",
+            stageKey: s.stageKey,
+            groupId: s.groupId ?? null,
+            payload: asJson({
+              type: s.type,
+              title: s.title,
+              content: s.content,
+              files: s.files,
+            }),
+            status: s.status ?? "draft",
+            submittedAt: s.submittedAt ?? null,
+            version: s.version ?? 1,
+            createdAt: new Date(s.createdAt ?? Date.now()),
+            updatedAt: new Date(s.updatedAt ?? Date.now()),
+          },
+          update: {
+            studentName: s.studentName ?? "",
+            stageKey: s.stageKey,
+            groupId: s.groupId ?? null,
+            payload: asJson({
+              type: s.type,
+              title: s.title,
+              content: s.content,
+              files: s.files,
+            }),
+            status: s.status ?? "draft",
+            submittedAt: s.submittedAt ?? null,
+            version: s.version ?? 1,
+            createdAt: new Date(s.createdAt ?? Date.now()),
+            updatedAt: new Date(s.updatedAt ?? Date.now()),
+          },
+        });
+      }
     }
 
     if (course.feedback?.length) {
@@ -1857,6 +1947,9 @@ export async function saveCourse(course: Course): Promise<Course> {
       throw new CourseNotFoundError(course.id);
     }
     return rowToCourse(refreshed);
+  }, {
+    maxWait: 5_000,
+    timeout: 15_000,
   });
 }
 
@@ -2170,6 +2263,8 @@ export async function archiveAndClearCourseSession(
   const archivedData = {
     students: course.students,
     submissions: course.submissions ?? [],
+    projectDocumentVersions: course.projectDocumentVersions ?? [],
+    aiInteractionEvents: course.aiInteractionEvents ?? [],
     feedback: course.feedback ?? [],
     rubricScores: course.rubricScores ?? [],
     reflections: course.reflections ?? [],
@@ -2249,6 +2344,7 @@ export async function archiveAndClearCourseSession(
     await tx.stageTransitionRecord.deleteMany({ where: { courseId } });
     await tx.evaluationRecord.deleteMany({ where: { courseId } });
     await tx.learningEvent.deleteMany({ where: { courseId } });
+    await tx.aiInteractionEvent.deleteMany({ where: { courseId } });
     await tx.companionThread.deleteMany({ where: { courseId } });
     await tx.companionTask.deleteMany({ where: { courseId } });
     await tx.companionConfirmation.deleteMany({ where: { courseId } });

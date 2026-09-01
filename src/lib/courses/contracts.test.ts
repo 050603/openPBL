@@ -36,6 +36,8 @@ describe("ActionEnvelopeSchema", () => {
             type: "code",
             title: "Python 项目代码",
             content: JSON.stringify({ version: 1, language: "python", activeFileId: "main", files: [] }),
+            status: "draft",
+            version: 1,
             createdAt: now,
             updatedAt: now,
           },
