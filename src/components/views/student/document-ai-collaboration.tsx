@@ -19,6 +19,7 @@ import {
 } from "@/components/plate-document-editor";
 import { PrimaryButton } from "@/components/ui";
 import { ArtifactTypeSelector } from "@/components/views/student/artifact-type-selector";
+import { FinalPdfSubmission } from "@/components/views/student/project-making";
 import {
   AiMemberWorkspace,
   type AiMemberWorkspaceMessage,
@@ -41,7 +42,7 @@ import {
 import type { AiContribution } from "@/lib/learning-evidence/types";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
-import { collaborationBackHref, isNewOpenPblSystem } from "@/lib/system-mode";
+import { collaborationBackHref, inferStageCollectionMode, isNewOpenPblSystem } from "@/lib/system-mode";
 
 type CollaborationMessage = AiMemberWorkspaceMessage;
 
@@ -1390,6 +1391,12 @@ export function DocumentAiCollaboration({
             {canSubmitFinal && submittedVersion ? <a className="ml-3 font-semibold text-emerald-700 hover:underline" download href={submittedVersion.downloadUrl}>下载第 {submittedVersion.sequence} 版 Word</a> : null}
           </footer>
         </section>
+
+        {stageKey === "make" && inferStageCollectionMode(course.stages) === "new" ? (
+          <div className="mt-4">
+            <FinalPdfSubmission course={course} />
+          </div>
+        ) : null}
 
         {memberOpen ? (
           <AiMemberWorkspace

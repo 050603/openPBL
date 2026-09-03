@@ -52,7 +52,9 @@ export type StageViewKey =
   | "workspace"
   | "proposal-review"
   | "project-making"
+  | "showcase-reporting"
   | "showcase"
+  | "reflection-survey"
   | "reflection";
 
 export type Stage = {
@@ -581,6 +583,77 @@ export type ProjectDocumentVersion = {
   requestId?: string;
   submittedAt?: string;
   createdAt: string;
+};
+
+/** Immutable PDF outcome submitted from the project-practice stage. */
+export type ProjectPdfVersion = {
+  id: string;
+  courseId: string;
+  studentId: string;
+  groupId?: string;
+  stageKey: string;
+  sequence: number;
+  title: string;
+  uploadId: string;
+  sha256?: string;
+  size?: number;
+  status: "submitted" | "failed";
+  requestId?: string;
+  submittedAt: string;
+  createdAt: string;
+};
+
+export type FinalArtifactKind = "document" | "pdf";
+export type ShowcaseDisplayMode = "continuous" | "slides";
+
+/** Public metadata for a student's latest submitted outcome. */
+export type FinalArtifactSummary = {
+  kind: FinalArtifactKind;
+  versionId: string;
+  title: string;
+  sequence: number;
+  submittedAt: string;
+  displayModes: ShowcaseDisplayMode[];
+};
+
+export type ShowcasePresentationStatus =
+  | "pending"
+  | "active"
+  | "rejected"
+  | "ended"
+  | "cancelled";
+
+export type ShowcaseViewState = {
+  /** PDF page number when display mode is slides. */
+  page?: number;
+  /** Normalised scroll position for rich documents and continuous PDFs. */
+  scrollRatio?: number;
+  updatedAt: string;
+  revision: number;
+};
+
+/** Role-scoped snapshot used by the fourth-stage presentation controller. */
+export type ShowcasePresentationSnapshot = {
+  id: string;
+  courseId: string;
+  groupId: string;
+  studentId: string;
+  studentName?: string;
+  artifactKind: FinalArtifactKind;
+  artifactVersionId: string;
+  artifactTitle: string;
+  displayMode: ShowcaseDisplayMode;
+  status: ShowcasePresentationStatus;
+  /** Monotonic lifecycle and viewport revision assigned by the server. */
+  revision: number;
+  viewState?: ShowcaseViewState;
+  rejectionReason?: string;
+  requestedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt: string;
 };
 
 export type AiInteractionEvent = {
@@ -1150,12 +1223,16 @@ export type Course = {
   students: Student[];
   submissions?: ClassroomSubmission[];
   projectDocumentVersions?: ProjectDocumentVersion[];
+  projectPdfVersions?: ProjectPdfVersion[];
+  showcasePresentations?: ShowcasePresentationSnapshot[];
   aiInteractionEvents?: AiInteractionEvent[];
   feedback?: TeacherFeedback[];
   rubricScores?: RubricScore[];
   reflections?: ReflectionRecord[];
   activityLog?: ActivityRecord[];
   presentingGroupId?: string;
+  /** The single student currently authorised to request a showcase. */
+  presentingStudentId?: string;
   announcements?: CourseAnnouncement[];
   todos?: CourseTodo[];
   resources?: CourseResource[];
@@ -1644,8 +1721,21 @@ export type ReflectionRecord = {
   studentName: string;
   content: string;
   improvementPlan?: string;
+  /** Structured response used by the new five-stage reflection survey. */
+  survey?: ReflectionSurveyResponseV1;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ReflectionSurveyScore = 1 | 2 | 3 | 4 | 5;
+
+export type ReflectionSurveyResponseV1 = {
+  schemaVersion: 1;
+  learningReflection: string;
+  systemReflection: string;
+  aiHelpfulness: ReflectionSurveyScore;
+  systemUsability: ReflectionSurveyScore;
+  reuseIntention: ReflectionSurveyScore;
 };
 
 export type ActivityRecord = {
@@ -1669,6 +1759,7 @@ export type ArchivedCourseData = {
   students?: Student[];
   submissions?: ClassroomSubmission[];
   projectDocumentVersions?: ProjectDocumentVersion[];
+  projectPdfVersions?: ProjectPdfVersion[];
   aiInteractionEvents?: AiInteractionEvent[];
   feedback?: TeacherFeedback[];
   rubricScores?: RubricScore[];
@@ -1696,6 +1787,8 @@ export type ArchivedCourseData = {
   aiContributions?: AiContribution[];
   studentAiDecisions?: StudentAiDecision[];
   aiAssessmentSuggestions?: AiAssessmentSuggestion[];
+  presentingGroupId?: string | null;
+  presentingStudentId?: string | null;
 };
 
 export type CourseSession = {

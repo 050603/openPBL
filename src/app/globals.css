@@ -257,9 +257,9 @@ html {
   max-width: clamp(87.5rem, 92vw, 164rem);
 }
 
-/* Mobile and tablet visitors receive one intentional, non-interactive screen.
-   Coarse-pointer CSS covers the pre-hydration moment; the client detector then
-   makes the durable decision from device signals rather than viewport width. */
+/* Mobile and tablet visitors receive an intentional access notice after the
+   client has enough capability signals. The checking state never hides the
+   application, which avoids false blockers before hydration on touch PCs. */
 .desktop-access-gate,
 .desktop-access-content {
   min-height: 100%;
@@ -346,21 +346,25 @@ html {
   line-height: 1.75;
 }
 
-@media (hover: none) and (pointer: coarse) {
-  .desktop-access-gate[data-access="checking"] > .desktop-access-content {
-    display: none;
-  }
+.desktop-access-blocker__continue {
+  min-height: 2.75rem;
+  margin-top: 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--pbl-student) 26%, transparent);
+  border-radius: 0.65rem;
+  padding: 0.65rem 1rem;
+  color: white;
+  background: var(--pbl-student);
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: filter 150ms ease, transform 150ms ease;
+}
 
-  .desktop-access-gate[data-access="checking"] > .desktop-access-blocker {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: grid;
-    min-height: 100dvh;
-    place-items: center;
-    padding: 1.5rem;
-    background: var(--pbl-bg);
-  }
+.desktop-access-blocker__continue:hover {
+  filter: brightness(0.94);
+}
+
+.desktop-access-blocker__continue:active {
+  transform: translateY(1px);
 }
 
 button,

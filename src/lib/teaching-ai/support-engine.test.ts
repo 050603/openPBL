@@ -12,6 +12,7 @@ vi.mock("@/lib/llm/client", () => ({
 
 import {
   buildShowcaseCoach,
+  buildReflectionEvidencePrompts,
   buildTeacherInterventionSignals,
   diagnoseGroupIdea,
   diagnoseProjectArtifact,
@@ -355,5 +356,30 @@ describe("teaching AI support engine", () => {
     expect(draft.kind).toBe("showcase-coach");
     expect(draft.source).toBe("llm");
     expect(draft.suggestions.join(" ")).toContain("验证");
+  });
+
+  it("limits the new reflection guidance to two short prompts", async () => {
+    llmMock.callLLM.mockResolvedValueOnce(JSON.stringify({
+      diagnosis: "结合课程证据与系统体验回顾。",
+      suggestions: [
+        "回想一次关键方案调整，并说明它带来的变化。",
+        "回想一次 AI 组员帮助你的经历，并指出还可改进之处。",
+        "这条多余提示不应显示。",
+      ],
+      evidence: ["过程记录"],
+    }));
+
+    const draft = await buildReflectionEvidencePrompts({
+      course,
+      group,
+      studentId: "s1",
+      format: "compact",
+    });
+
+    expect(draft.suggestions).toHaveLength(2);
+    expect(draft.suggestions.every((suggestion) => suggestion.length <= 60)).toBe(true);
+    const prompt = llmMock.callLLM.mock.calls[0]?.[0] as Array<{ content: string }>;
+    expect(prompt[1]?.content).toContain("严格返回 2 条");
+    expect(prompt[1]?.content).toContain("系统或 AI 组员的使用体验");
   });
 });

@@ -46,6 +46,36 @@ describe("ActionEnvelopeSchema", () => {
     }).success).toBe(true);
   });
 
+  it("accepts the structured five-stage reflection response", () => {
+    const now = new Date().toISOString();
+    expect(ActionEnvelopeSchema.safeParse({
+      requestId,
+      action: {
+        type: "UPSERT_REFLECTION",
+        payload: {
+          courseId: "course-1",
+          reflection: {
+            id: "reflection-1",
+            courseId: "course-1",
+            studentId: "student-1",
+            studentName: "学生",
+            content: "【课程收获】\n完成了一次迭代",
+            survey: {
+              schemaVersion: 1,
+              learningReflection: "完成了一次迭代",
+              systemReflection: "AI 提问有帮助",
+              aiHelpfulness: 4,
+              systemUsability: 5,
+              reuseIntention: 4,
+            },
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      },
+    }).success).toBe(true);
+  });
+
   it("rejects invalid progress, unknown actions, and non-UUID request IDs", () => {
     expect(ActionEnvelopeSchema.safeParse({
       requestId,
@@ -66,6 +96,36 @@ describe("ActionEnvelopeSchema", () => {
     expect(ActionEnvelopeSchema.safeParse({
       requestId: "not-a-uuid",
       action: { type: "SET_UI_STATE", payload: {} },
+    }).success).toBe(false);
+  });
+
+  it("rejects incomplete survey scores or answers", () => {
+    const now = new Date().toISOString();
+    expect(ActionEnvelopeSchema.safeParse({
+      requestId,
+      action: {
+        type: "UPSERT_REFLECTION",
+        payload: {
+          courseId: "course-1",
+          reflection: {
+            id: "reflection-1",
+            courseId: "course-1",
+            studentId: "student-1",
+            studentName: "学生",
+            content: "内容",
+            survey: {
+              schemaVersion: 1,
+              learningReflection: "",
+              systemReflection: "体验",
+              aiHelpfulness: 4,
+              systemUsability: 5,
+              reuseIntention: 4,
+            },
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      },
     }).success).toBe(false);
   });
 });

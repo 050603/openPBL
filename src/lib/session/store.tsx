@@ -81,6 +81,8 @@ import {
   latestEventCursor,
   type RealtimeTransportMode,
 } from "@/lib/realtime/sync-policy";
+import { emitShowcasePresentation } from "@/lib/showcase/realtime-client";
+import type { ShowcaseEventPayload } from "@/lib/showcase/types";
 
 const IDENTITY_KEY = "openpbl.identity.v1";
 // Separate identity keys per role to prevent teacher/student identity cross-contamination
@@ -880,10 +882,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             courseId?: string;
             event?: {
               type?: string;
-              payload?: { eventCursor?: string; actionType?: string };
+              payload?: { eventCursor?: string; actionType?: string; [key: string]: unknown };
             };
           };
           if (parsed.type === "course-event" && parsed.courseId === courseId) {
+            if (parsed.event?.type === "showcase-presentation") {
+              emitShowcasePresentation(
+                courseId,
+                (parsed.event.payload ?? {}) as ShowcaseEventPayload,
+              );
+              return;
+            }
             scheduleCourseRefresh(
               courseId,
               parsed.event?.payload?.eventCursor,
@@ -1448,14 +1457,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const studentId = input.studentId ?? state.studentId;
         if (!courseId || !studentId) return undefined;
         const now = new Date().toISOString();
+        const course = state.courses.find((candidate) => candidate.id === courseId);
+        const existing = course?.reflections?.find((reflection) => reflection.id === input.id)
+          ?? (input.survey
+            ? [...(course?.reflections ?? [])]
+              .filter((reflection) => reflection.studentId === studentId)
+              .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
+            : undefined);
+        const reflectionId = existing?.id ?? input.id ?? makeRecordId("ref");
         const reflection: ReflectionRecord = {
-          id: input.id ?? makeRecordId("ref"),
+          id: reflectionId,
           courseId,
           studentId,
           studentName: input.studentName ?? state.studentName ?? state.user.name,
           content: input.content,
           improvementPlan: input.improvementPlan,
-          createdAt: now,
+          survey: input.survey,
+          // A legacy reflection may share the same record id, but its
+          // creation time predates the survey. Start the survey's first
+          // submission clock at this save; subsequent structured updates
+          // retain that original timestamp.
+          createdAt: input.survey && !existing?.survey
+            ? now
+            : existing?.createdAt ?? now,
           updatedAt: now,
         };
         commit({ type: "UPSERT_REFLECTION", payload: { courseId, reflection } });

@@ -138,6 +138,33 @@ const SubmissionActionSchema = z.object({
   }).strict(),
 }).strict();
 
+const ReflectionSurveyResponseSchema = z.object({
+  schemaVersion: z.literal(1),
+  learningReflection: z.string().trim().min(1).max(300),
+  systemReflection: z.string().trim().min(1).max(300),
+  aiHelpfulness: z.number().int().min(1).max(5),
+  systemUsability: z.number().int().min(1).max(5),
+  reuseIntention: z.number().int().min(1).max(5),
+}).strict();
+
+const ReflectionActionSchema = z.object({
+  type: z.literal("UPSERT_REFLECTION"),
+  payload: z.object({
+    courseId: z.string().min(1).max(128),
+    reflection: z.object({
+      id: z.string().min(1).max(128),
+      courseId: z.string().min(1).max(128),
+      studentId: z.string().min(1).max(128),
+      studentName: z.string().trim().min(1).max(64),
+      content: z.string().max(1_000_000),
+      improvementPlan: z.string().max(1_000_000).optional(),
+      survey: ReflectionSurveyResponseSchema.optional(),
+      createdAt: z.iso.datetime(),
+      updatedAt: z.iso.datetime(),
+    }).strict(),
+  }).strict(),
+}).strict();
+
 export const ActionEnvelopeSchema = z.object({
   requestId: z.string().uuid(),
   expectedVersion: z.number().int().positive().optional(),
@@ -148,6 +175,8 @@ export const ActionEnvelopeSchema = z.object({
       ? ProgressActionSchema
       : envelope.action.type === "UPSERT_SUBMISSION"
         ? SubmissionActionSchema
+        : envelope.action.type === "UPSERT_REFLECTION"
+          ? ReflectionActionSchema
         : null;
   if (!specialized) return;
   const result = specialized.safeParse(envelope.action);

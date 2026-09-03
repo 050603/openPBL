@@ -32,6 +32,12 @@ export function scopeCourseForClaims(course: Course, claims: AuthClaims): Course
     projectDocumentVersions: (course.projectDocumentVersions ?? []).filter((item) =>
       item.studentId === studentId,
     ),
+    projectPdfVersions: (course.projectPdfVersions ?? []).filter((item) =>
+      item.studentId === studentId,
+    ),
+    showcasePresentations: (course.showcasePresentations ?? []).filter((item) =>
+      item.status === "active" || item.studentId === studentId,
+    ),
     aiInteractionEvents: (course.aiInteractionEvents ?? []).filter((item) =>
       item.studentId === studentId,
     ),

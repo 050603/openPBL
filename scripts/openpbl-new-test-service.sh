@@ -64,6 +64,14 @@ load_shared_environment() {
   export NEXT_TELEMETRY_DISABLED="1"
 }
 
+apply_database_migrations() {
+  echo "检查 PostgreSQL 数据库迁移……"
+  (
+    cd "$PROJECT_ROOT"
+    /usr/bin/node scripts/run-prisma.mjs migrate deploy
+  )
+}
+
 run_app() {
   if [ ! -f "$PROJECT_ROOT/.next-new/standalone/server.js" ]; then
     echo "未找到新版平台生产构建，请先运行：pnpm build:new" >&2
@@ -73,6 +81,10 @@ run_app() {
   load_shared_environment
   wait_for_tcp "PostgreSQL" "127.0.0.1" "15432"
   wait_for_tcp "Redis" "127.0.0.1" "16379"
+  # Keep the production schema in lockstep with the Prisma Client embedded in
+  # the build. `migrate deploy` is idempotent and only applies pending,
+  # committed migrations; it never creates development migrations here.
+  apply_database_migrations
 
   # DashScope returns generated images from an OSS acceleration hostname that
   # is not directly reachable on this server even though its API endpoint is.

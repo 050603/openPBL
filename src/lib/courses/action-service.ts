@@ -8,6 +8,7 @@ import { publishCourseEvent } from "@/lib/realtime/event-bus";
 import { runMutationTransaction } from "@/lib/db/transaction-retry";
 import { lockCourseMutation } from "@/lib/db/course-mutation-lock";
 import { reconcileUploadReferences } from "@/lib/uploads/reference-tracker";
+import { inferStageCollectionMode } from "@/lib/system-mode";
 import type { ActionAck, ActionEnvelope } from "./contracts";
 
 const DIRECT_ACTIONS = new Set<SessionAction["type"]>([
@@ -71,7 +72,6 @@ async function executeCourseActionOnce(
   ) {
     throw new CourseActionError("FORBIDDEN", "Action is outside the signed-in course or student.", 403);
   }
-
   const existing = await prisma.courseMutationReceipt.findUnique({
     where: { requestId: envelope.requestId },
   });
@@ -552,6 +552,45 @@ async function executeLegacyWithReservation(
   try {
     await runMutationTransaction(async (tx) => {
       await lockCourseMutation(tx, courseId);
+      if (claims.role === "student" && envelope.action.type === "UPSERT_REFLECTION") {
+        // Check the status after taking the course lock so a teacher ending
+        // the course cannot race a final student edit between a preliminary
+        // read and the legacy aggregate save.
+        const course = await tx.course.findUnique({
+          where: { id: courseId },
+          select: { status: true, stages: true, pblConfig: true },
+        });
+        if (!course) {
+          throw new CourseActionError("COURSE_NOT_FOUND", "Course not found.", 404);
+        }
+        const stages = Array.isArray(course.stages)
+          ? course.stages.filter((stage): stage is { key: string } => Boolean(
+              stage
+              && typeof stage === "object"
+              && !Array.isArray(stage)
+              && typeof (stage as { key?: unknown }).key === "string",
+            ))
+          : [];
+        const pblConfig = course.pblConfig;
+        const configuredNewSystem = Boolean(
+          pblConfig
+          && typeof pblConfig === "object"
+          && !Array.isArray(pblConfig)
+          && (pblConfig as { generationTemplate?: unknown }).generationTemplate === "new-ai-learning-only",
+        );
+        // The legacy six-stage reflection page retains its existing behavior;
+        // only the new five-stage survey is locked once the course ends.
+        if (
+          course.status === "finished"
+          && (
+            Boolean(envelope.action.payload.reflection.survey)
+            || inferStageCollectionMode(stages) === "new"
+            || (!stages.length && configuredNewSystem)
+          )
+        ) {
+          throw new CourseActionError("REFLECTION_LOCKED", "课程已结束，反思不能再修改。", 409);
+        }
+      }
       await tx.courseMutationReceipt.create({
         data: {
           requestId: envelope.requestId,

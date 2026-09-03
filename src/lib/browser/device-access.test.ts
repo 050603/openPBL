@@ -18,8 +18,9 @@ describe("isUnsupportedMobileOrTablet", () => {
     ["touch-enabled Windows laptop", { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", platform: "Win32", maxTouchPoints: 10 }],
     ["macOS desktop", { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6)", platform: "MacIntel", maxTouchPoints: 0 }],
     ["Linux desktop", { userAgent: "Mozilla/5.0 (X11; Linux x86_64)", platform: "Linux x86_64" }],
+    ["desktop client hint overrides a compatibility UA", { userAgent: "Mozilla/5.0 Android Mobile", mobile: false }],
+    ["fine-pointer remote Mac desktop with touch points", { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6)", platform: "MacIntel", maxTouchPoints: 5, hasFinePointer: true, viewportWidth: 1440 }],
   ])("allows %s", (_label, signals) => {
     expect(isUnsupportedMobileOrTablet(signals)).toBe(false);
   });
 });
-

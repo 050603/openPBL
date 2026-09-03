@@ -13,6 +13,7 @@ import path from "node:path";
 import { applySessionAction, initialSessionState } from "./actions";
 import type { SessionAction, SessionState } from "./actions";
 import type { Course } from "./types";
+import { normalizeReflectionContent } from "@/lib/reflection-survey";
 import { isDatabaseConfigured } from "@/lib/db/client";
 import {
   loadSessionState as dbLoadSessionState,
@@ -229,7 +230,22 @@ export async function getCourse(courseId: string): Promise<Course | undefined> {
   }
   warnIfDemoMode();
   const state = await readJsonState();
-  return state.courses.find((c) => c.id === courseId);
+  const course = state.courses.find((c) => c.id === courseId);
+  if (!course) return undefined;
+  return {
+    ...course,
+    reflections: (course.reflections ?? []).map((reflection) => {
+      const normalized = normalizeReflectionContent(
+        (reflection as unknown as { content?: unknown }).content,
+      );
+      return {
+        ...reflection,
+        content: normalized.content,
+        improvementPlan: normalized.improvementPlan ?? reflection.improvementPlan,
+        survey: normalized.survey ?? reflection.survey,
+      };
+    }),
+  };
 }
 
 export async function updateCourse(

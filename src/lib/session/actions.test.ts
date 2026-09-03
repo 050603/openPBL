@@ -5,7 +5,13 @@ import {
   normalizeCourse,
   type SessionState,
 } from "./actions";
-import type { Course, CourseUpload, GroupBoard, Student } from "./types";
+import type {
+  Course,
+  CourseUpload,
+  GroupBoard,
+  ReflectionSurveyResponseV1,
+  Student,
+} from "./types";
 import { DEFAULT_STAGES } from "./types";
 import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 
@@ -72,6 +78,53 @@ describe("normalizeCourse — selectable system modes", () => {
       if (previousMode === undefined) delete process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE;
       else process.env.NEXT_PUBLIC_OPENPBL_SYSTEM_MODE = previousMode;
     }
+  });
+});
+
+describe("applySessionAction — reflection survey", () => {
+  it("reuses the student's current structured record instead of creating duplicates", () => {
+    const survey: ReflectionSurveyResponseV1 = {
+      schemaVersion: 1,
+      learningReflection: "新的收获",
+      systemReflection: "新的体验",
+      aiHelpfulness: 4,
+      systemUsability: 5,
+      reuseIntention: 4,
+    };
+    const existing = {
+      id: "reflection-existing",
+      courseId: "course-1",
+      studentId: "student-1",
+      studentName: "小林",
+      content: "旧的结构化反思",
+      survey,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:10:00.000Z",
+    };
+    const next = applySessionAction(stateWithCourses(makeCourse({
+      students: [makeStudent("student-1", "小林")],
+      reflections: [existing],
+    })), {
+      type: "UPSERT_REFLECTION",
+      payload: {
+        courseId: "course-1",
+        reflection: {
+          ...existing,
+          id: "reflection-new-request",
+          survey: { ...survey, learningReflection: "更新后的收获" },
+          content: "更新后的结构化反思",
+          createdAt: "2026-08-02T00:00:00.000Z",
+          updatedAt: "2026-08-02T00:00:00.000Z",
+        },
+      },
+    });
+    const valid = (next.courses[0]?.reflections ?? []).filter((item) => item.studentId === "student-1" && item.survey);
+    expect(valid).toHaveLength(1);
+    expect(valid[0]).toMatchObject({
+      id: "reflection-existing",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      content: "更新后的结构化反思",
+    });
   });
 });
 

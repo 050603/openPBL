@@ -152,6 +152,7 @@ export async function buildReflectionEvidencePrompts(input: {
   course: Course;
   group?: ProjectGroup;
   studentId: string;
+  format?: "full" | "compact";
 }): Promise<AiSupportDraft> {
   return callSupport("buildReflectionEvidencePrompts", input);
 }

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, cp, mkdir } from "node:fs/promises";
+import { access, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -46,24 +46,38 @@ if (command === "start") {
   }
 
   const standaloneDir = path.resolve(distDir, "standalone");
-  const serverFile = path.join(standaloneDir, "server.js");
+  const sourceServerFile = path.join(standaloneDir, "server.js");
   try {
-    await access(serverFile);
+    await access(sourceServerFile);
   } catch {
     console.error(`[OpenPBL] 未找到 ${modeLabel} 的生产构建，请先运行 pnpm build:${mode}`);
     process.exit(1);
   }
 
-  const standaloneDistDir = path.join(standaloneDir, distDir);
-  await mkdir(standaloneDistDir, { recursive: true });
-  await cp(path.resolve("public"), path.join(standaloneDir, "public"), {
-    recursive: true,
-    force: true,
-  });
-  await cp(path.resolve(distDir, "static"), path.join(standaloneDistDir, "static"), {
-    recursive: true,
-    force: true,
-  });
+  // Never run directly from the build output. A subsequent `next build`
+  // replaces the entire dist directory; a server whose cwd lives there keeps
+  // serving HTML while its CSS/JS files disappear underneath it. Copy each
+  // build to an immutable release directory before starting so builds and the
+  // active runtime have independent lifecycles.
+  const buildId = (await readFile(path.resolve(distDir, "BUILD_ID"), "utf8")).trim();
+  const releaseDir = path.resolve(".openpbl-runtime", mode, buildId);
+  const releaseServerFile = path.join(releaseDir, "server.js");
+  const releaseReadyFile = path.join(releaseDir, ".release-ready");
+  try {
+    await access(releaseReadyFile);
+  } catch {
+    await mkdir(releaseDir, { recursive: true });
+    await cp(standaloneDir, releaseDir, { recursive: true, force: true });
+    await cp(path.resolve("public"), path.join(releaseDir, "public"), {
+      recursive: true,
+      force: true,
+    });
+    await cp(path.resolve(distDir, "static"), path.join(releaseDir, distDir, "static"), {
+      recursive: true,
+      force: true,
+    });
+    await writeFile(releaseReadyFile, `${buildId}\n`, "utf8");
+  }
 
   childEnv.PORT = optionValue(forwardedArgs, "--port", "-p")
     || process.env.PORT
@@ -71,7 +85,7 @@ if (command === "start") {
   childEnv.HOSTNAME = optionValue(forwardedArgs, "--hostname", "-H")
     || process.env.HOSTNAME
     || "0.0.0.0";
-  executableArgs = [serverFile];
+  executableArgs = [releaseServerFile];
 }
 
 const child = spawn(process.execPath, executableArgs, {

@@ -363,20 +363,21 @@ AI 支架记录：${aiSupports.length} 条（已采纳 ${aiSupports.filter((s) =
 }
 
 // ============================================================
-// 第五部分：反思证据提示（阶段六）
+// 第五部分：反思证据提示（旧版阶段六 / 新版阶段五）
 // ============================================================
 
 /**
  * 构建反思证据提示（异步版，真实 LLM 生成）。
- * 用于阶段六“学习反思”。
+ * 用于旧版阶段六“学习反思”和新版阶段五轻量反思表单。
  */
 export async function buildReflectionEvidencePrompts(input: {
   course: Course;
   group?: ProjectGroup;
   studentId: string;
+  format?: "full" | "compact";
 }, opts: SupportCallOptions = {}): Promise<AiSupportDraft> {
   throwIfAborted(opts.abortSignal);
-  const { course, group, studentId } = input;
+  const { course, group, studentId, format = "full" } = input;
 
   const student = course.students.find((item) => item.id === studentId);
   const stageProgress = student?.stageProgress?.reflection ?? 0;
@@ -412,15 +413,7 @@ export async function buildReflectionEvidencePrompts(input: {
     .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
     .slice(0, 12);
 
-  const llmResult = await callLLMForJson<{
-    diagnosis: string;
-    suggestions: string[];
-    evidence: string[];
-  }>(
-    stageSystemPrompt("reflection"),
-    `请为以下学生生成反思证据提示，引导学生基于过程证据进行反思，而不是泛泛描述感受。
-
-课程名称：${course.name}
+  const context = `课程名称：${course.name}
 学生姓名：${student?.name ?? "未识别学生"}
 个人项目：${group?.name ?? "（项目空间待同步）"}
 选题：${group?.topic ?? "（无）"}
@@ -450,18 +443,50 @@ ${reflections.map((r) => `- 正文：${plainText(r.content).slice(0, 1200)}；�
 ${learningEvents.map((event) => `- [${learningStageLabel(event.stageKey, course.stages)}] ${event.content?.sceneTitle || event.content?.activityTitle || event.progressMarker || "产生一条学习活动记录"}${event.durationMs ? `；持续约 ${Math.max(1, Math.round(event.durationMs / 60000))} 分钟` : ""}（${event.occurredAt}）`).join("\n") || "（无）"}
 
 最近的 AI 支架记录：
-${supports.slice(0, 6).map((s) => `- ${s.trigger}：${s.diagnosis}；建议=${s.suggestions.join("；")}；依据=${s.evidence.join("；")}；采纳情况=${supportAdoptionLabel(s.adoption?.decision)}`).join("\n") || "（无）"}
+${supports.slice(0, 6).map((s) => `- ${s.trigger}：${s.diagnosis}；建议=${s.suggestions.join("；")}；依据=${s.evidence.join("；")}；采纳情况=${supportAdoptionLabel(s.adoption?.decision)}`).join("\n") || "（无）"}`;
+
+  const userPrompt = format === "compact"
+    ? `请为新版五阶段“学习反思”表单生成两条简短引导。引导只能帮助学生回忆真实经历，不能替学生写答案，也不能给出评分或结论。
+
+${context}
+
+要求：
+1. diagnosis：一句话说明本次反思关注点。
+2. suggestions：严格返回 2 条，第一条聚焦课程内容、项目决策或收获，第二条聚焦系统或 AI 组员的使用体验；每条不超过 60 个汉字，使用“回想/说明/举例”等开放式措辞。
+3. evidence：列出最多 2 条可引用的真实过程证据。
+
+仅返回 JSON：{ "diagnosis": "string", "suggestions": ["string", "string"], "evidence": ["string"] }`
+    : `请为以下学生生成反思证据提示，引导学生基于过程证据进行反思，而不是泛泛描述感受。
+
+${context}
 
 要求：
 1. diagnosis：1-2 句话指出该学生反思应聚焦的证据类型
-2. suggestions：3-5 条反思提示，每条引导学生引用具体的过程证据（如"选择一条你们采纳过的 AI 建议，写清它解决了什么问题以及你们如何验证它"）
+2. suggestions：3-5 条反思提示，每条引导学生引用具体的过程证据（如“选择一条你们采纳过的 AI 建议，写清它解决了什么问题以及你们如何验证它”）
 3. evidence：列出可引用的过程证据
 
-仅返回 JSON：{ "diagnosis": "string", "suggestions": ["string"], "evidence": ["string"] }`,
+仅返回 JSON：{ "diagnosis": "string", "suggestions": ["string"], "evidence": ["string"] }`;
+
+  const llmResult = await callLLMForJson<{
+    diagnosis: string;
+    suggestions: string[];
+    evidence: string[];
+  }>(
+    stageSystemPrompt("reflection"),
+    userPrompt,
     { abortSignal: opts.abortSignal },
   );
 
   if (llmResult && llmResult.diagnosis) {
+    const suggestions = (llmResult.suggestions ?? [])
+      .filter((suggestion): suggestion is string => typeof suggestion === "string")
+      .map((suggestion) => suggestion.trim())
+      .filter(Boolean)
+      .slice(0, format === "compact" ? 2 : 5)
+      .map((suggestion) => format === "compact" ? suggestion.slice(0, 60) : suggestion);
+    if (format === "compact" && suggestions.length < 2) {
+      return invalidAiResult("紧凑反思提示");
+    }
     return {
       stageKey: "reflection",
       targetType: "student",
@@ -473,7 +498,7 @@ ${supports.slice(0, 6).map((s) => `- ${s.trigger}：${s.diagnosis}；建议=${s.
       trigger: "AI 反思证据提示",
       inputSummary: `课程：${course.name}；学生：${student?.name ?? "未识别学生"}；个人项目：${group?.name ?? "待同步"}；支架记录：${supports.length}`,
       diagnosis: llmResult.diagnosis,
-      suggestions: llmResult.suggestions?.slice(0, 5) ?? invalidAiResult("反思证据提示"),
+      suggestions,
       evidence: llmResult.evidence?.slice(0, 5) ?? invalidAiResult("反思证据提示"),
       status: "draft",
       source: "llm",

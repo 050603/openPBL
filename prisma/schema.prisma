@@ -40,6 +40,7 @@ model Course {
   inviteCode                    String? @unique
   coverImageUrl                 String?
   presentingGroupId             String?
+  presentingStudentId           String?
   classConfig                   Json?
   pblConfig                     Json?
   stageWorkspacePolicies        Json?
@@ -73,6 +74,8 @@ model Course {
   students                     Student[]
   submissions                  ClassroomSubmission[]
   projectDocumentVersions      ProjectDocumentVersion[]
+  projectPdfVersions           ProjectPdfVersion[]
+  showcasePresentations        ShowcasePresentation[]
   aiInteractionEvents          AiInteractionEvent[]
   feedback                     TeacherFeedback[]
   rubricScores                 RubricScore[]
@@ -289,6 +292,63 @@ model ProjectDocumentVersion {
   @@unique([submissionId, requestId])
   @@index([courseId, studentId, stageKey, createdAt])
   @@index([submissionId, status])
+}
+
+// Immutable snapshots created when a student explicitly submits a PDF
+// project outcome. The upload itself lives in UploadFile; this row records
+// which upload is the final, versioned project artifact.
+model ProjectPdfVersion {
+  id          String   @id @default(uuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  studentId   String
+  groupId     String?
+  stageKey    String
+  sequence    Int
+  title       String
+  uploadId    String
+  sha256      String?
+  size        Int?
+  status      String   @default("submitted") // submitted | failed
+  requestId   String?
+  submittedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([courseId, studentId, sequence])
+  @@unique([courseId, requestId])
+  @@index([courseId, studentId, stageKey, createdAt])
+  @@index([uploadId])
+}
+
+// One row is created for each student presentation request. Keeping this
+// separate from Course.uiState prevents high-frequency scroll updates from
+// rewriting the whole course aggregate and preserves an auditable lifecycle.
+model ShowcasePresentation {
+  id                String   @id @default(uuid())
+  courseId          String
+  course            Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  groupId           String
+  studentId         String
+  artifactKind      String   // document | pdf
+  artifactVersionId String
+  artifactTitle     String
+  displayMode       String   @default("continuous") // continuous | slides
+  status            String   @default("pending") // pending | active | rejected | ended | cancelled
+  viewState         Json?
+  revision          Int      @default(0)
+  requestId         String?
+  rejectionReason   String?  @db.Text
+  requestedAt       DateTime @default(now())
+  reviewedAt        DateTime?
+  reviewedBy        String?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([courseId, requestId])
+  @@index([courseId, status, updatedAt])
+  @@index([courseId, studentId, status])
 }
 
 model TeacherFeedback {

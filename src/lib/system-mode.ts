@@ -32,14 +32,14 @@ const NEW_SYSTEM_STAGES: readonly Stage[] = [
   {
     key: "showcase",
     label: "成果汇报与评价",
-    view: "simple-resource",
-    description: "查看汇报要求与教师共享的课堂资源",
+    view: "showcase-reporting",
+    description: "查看最终成果、申请汇报并跟随课堂同步展示",
   },
   {
     key: "reflection",
     label: "学习反思",
-    view: "simple-resource",
-    description: "查看反思提示与教师共享的总结资源",
+    view: "reflection-survey",
+    description: "用约 3–5 分钟回顾课程收获与系统使用体验",
   },
 ];
 

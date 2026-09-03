@@ -54,6 +54,7 @@ import type {
   CompanionProcessRecord,
   AiInteractionEvent,
   ProjectDocumentVersion,
+  ProjectPdfVersion,
   LearningSignal,
   ClassCommonIssue,
   TeacherAgentDirective,
@@ -66,6 +67,9 @@ import type {
 } from "@/lib/session/actions";
 import { applySessionAction, initialSessionState } from "@/lib/session/actions";
 import { lockCourseMutation } from "./course-mutation-lock";
+import { publishCourseEvent } from "@/lib/realtime/event-bus";
+import { inferStageCollectionMode } from "@/lib/system-mode";
+import { normalizeReflectionContent } from "@/lib/reflection-survey";
 
 // ============================================================================
 // Errors
@@ -213,6 +217,7 @@ function courseToCreateInput(course: Course): CourseRowCreate {
     inviteCode: course.inviteCode ?? null,
     coverImageUrl: course.coverImageUrl ?? null,
     presentingGroupId: course.presentingGroupId ?? null,
+    presentingStudentId: course.presentingStudentId ?? null,
     classConfig: asNullableJson(course.classConfig ?? null),
     pblConfig: asNullableJson(course.pblConfig ?? null),
     stageWorkspacePolicies: asNullableJson(course.stageWorkspacePolicies ?? null),
@@ -245,6 +250,7 @@ type CourseWithRelations = Prisma.CourseGetPayload<{
     students: true;
     submissions: true;
     projectDocumentVersions: true;
+    projectPdfVersions: true;
     aiInteractionEvents: true;
     feedback: true;
     rubricScores: true;
@@ -314,6 +320,9 @@ function rowToCourse(row: CourseWithRelations): Course {
     projectDocumentVersions: row.projectDocumentVersions
       .map(rowToProjectDocumentVersion)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.sequence - right.sequence),
+    projectPdfVersions: row.projectPdfVersions
+      .map(rowToProjectPdfVersion)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.sequence - right.sequence),
     aiInteractionEvents: row.aiInteractionEvents
       .map(rowToAiInteractionEvent)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)),
@@ -322,6 +331,7 @@ function rowToCourse(row: CourseWithRelations): Course {
     reflections: row.reflections.map(rowToReflection),
     activityLog: row.activityLog.map(rowToActivity),
     presentingGroupId: row.presentingGroupId ?? undefined,
+    presentingStudentId: row.presentingStudentId ?? undefined,
     announcements: row.announcements.map(rowToAnnouncement),
     todos: row.todos.map(rowToTodo),
     resources: row.resources.map(rowToResource),
@@ -433,6 +443,27 @@ function rowToProjectDocumentVersion(
   };
 }
 
+function rowToProjectPdfVersion(
+  row: Prisma.ProjectPdfVersionGetPayload<Record<string, never>>,
+): ProjectPdfVersion {
+  return {
+    id: row.id,
+    courseId: row.courseId,
+    studentId: row.studentId,
+    groupId: row.groupId ?? undefined,
+    stageKey: row.stageKey,
+    sequence: row.sequence,
+    title: row.title,
+    uploadId: row.uploadId,
+    sha256: row.sha256 ?? undefined,
+    size: row.size ?? undefined,
+    status: row.status as ProjectPdfVersion["status"],
+    requestId: row.requestId ?? undefined,
+    submittedAt: row.submittedAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 function rowToAiInteractionEvent(
   row: Prisma.AiInteractionEventGetPayload<Record<string, never>>,
 ): AiInteractionEvent {
@@ -532,15 +563,19 @@ function rowToRubricScore(
 function rowToReflection(
   row: Prisma.ReflectionRecordGetPayload<Record<string, never>>,
 ): ReflectionRecord {
-  // Domain type fields: id, courseId, studentId, studentName, content,
-  // improvementPlan?, createdAt, updatedAt.
+  // Historical rows stored either a raw string or an object containing the
+  // legacy content/improvementPlan pair. New survey answers live alongside
+  // those fields in the same JSON column, so normalize all three formats at
+  // the repository boundary.
+  const normalized = normalizeReflectionContent(row.content);
   return {
     id: row.id,
     courseId: row.courseId,
     studentId: row.studentId,
     studentName: row.studentName,
-    content: row.content as string,
-    improvementPlan: (row.content as { improvementPlan?: string } | null)?.improvementPlan,
+    content: normalized.content,
+    improvementPlan: normalized.improvementPlan,
+    survey: normalized.survey,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   } as ReflectionRecord;
@@ -1112,6 +1147,7 @@ const FULL_INCLUDE = {
   students: true,
   submissions: true,
   projectDocumentVersions: true,
+  projectPdfVersions: true,
   aiInteractionEvents: true,
   feedback: true,
   rubricScores: true,
@@ -1237,6 +1273,32 @@ export async function saveCourse(course: Course): Promise<Course> {
       }
     } else {
       await tx.course.create({ data: courseToCreateInput(course) });
+    }
+
+    // A student showcase is scoped to the fourth stage. Any regular course
+    // save that moves away from that stage (including ending/restarting a
+    // class) closes the durable presentation session before clients refresh.
+    const activeStageKey = course.stages?.[course.currentStageIndex]?.key;
+    const resourceProjectionActive = Boolean(
+      course.uiState?.resourceProjection || course.uiState?.teacherResourceProjection,
+    );
+    const showcaseLifecycleEnabled = inferStageCollectionMode(course.stages) === "new";
+    if (showcaseLifecycleEnabled && (course.status !== "teaching" || activeStageKey !== "showcase" || resourceProjectionActive)) {
+      const showcaseEndedAt = new Date();
+      await tx.showcasePresentation.updateMany({
+        where: { courseId: course.id, status: "pending" },
+        data: { status: "cancelled", endedAt: showcaseEndedAt, revision: { increment: 1 } },
+      });
+      await tx.showcasePresentation.updateMany({
+        where: { courseId: course.id, status: "active" },
+        data: { status: "ended", endedAt: showcaseEndedAt, revision: { increment: 1 } },
+      });
+      if (course.status !== "teaching" || activeStageKey !== "showcase") {
+        await tx.course.update({
+          where: { id: course.id },
+          data: { presentingGroupId: null, presentingStudentId: null },
+        });
+      }
     }
 
     // Delete existing child rows (cascade-style manual delete for safety)
@@ -1394,8 +1456,14 @@ export async function saveCourse(course: Course): Promise<Course> {
           courseId: course.id,
           studentId: r.studentId,
           studentName: r.studentName,
-          stageKey: "",
-          content: asJson({ content: r.content, improvementPlan: r.improvementPlan }),
+          stageKey: "reflection",
+          content: asJson({
+            content: r.content,
+            ...(r.improvementPlan !== undefined
+              ? { improvementPlan: r.improvementPlan }
+              : {}),
+            ...(r.survey ? { survey: r.survey } : {}),
+          }),
           createdAt: new Date(r.createdAt ?? Date.now()),
           updatedAt: new Date(r.updatedAt ?? Date.now()),
         })),
@@ -1969,6 +2037,7 @@ function courseToUpdateInput(course: Course): CourseRowUpdate {
     inviteCode: course.inviteCode ?? null,
     coverImageUrl: course.coverImageUrl ?? null,
     presentingGroupId: course.presentingGroupId ?? null,
+    presentingStudentId: course.presentingStudentId ?? null,
     classConfig: asNullableJson(course.classConfig ?? null),
     pblConfig: asNullableJson(course.pblConfig ?? null),
     stageWorkspacePolicies: asNullableJson(course.stageWorkspacePolicies ?? null),
@@ -2065,6 +2134,7 @@ async function dispatchRestartTeaching(
         currentStageIndex: 0,
         inviteCode: newInviteCode,
         presentingGroupId: null,
+        presentingStudentId: null,
         version: { increment: 1 },
       },
     });
@@ -2154,6 +2224,37 @@ async function dispatchActionUnlocked(
   }
 
   const current = await loadSessionState();
+
+  // The existing teacher-resource projection and the student showcase share
+  // one classroom viewport. Starting a resource projection must therefore
+  // close any active student presentation before the course aggregate is
+  // saved. The showcase hook will reconcile this durable state by polling (or
+  // the next course event refresh).
+  if (action.type === "SET_UI_STATE" && (action.payload.patch.resourceProjection || action.payload.patch.teacherResourceProjection)) {
+    const course = current.courses.find((item) => item.id === action.payload.courseId);
+    if (course?.status === "teaching"
+      && course.stages[course.currentStageIndex]?.key === "showcase"
+      && inferStageCollectionMode(course.stages) === "new") {
+      await prisma.$transaction(async (tx) => {
+        await lockCourseMutation(tx, action.payload.courseId);
+        const showcaseEndedAt = new Date();
+        await tx.showcasePresentation.updateMany({
+          where: { courseId: action.payload.courseId, status: "pending" },
+          data: { status: "cancelled", endedAt: showcaseEndedAt, revision: { increment: 1 } },
+        });
+        await tx.showcasePresentation.updateMany({
+          where: { courseId: action.payload.courseId, status: "active" },
+          data: { status: "ended", endedAt: showcaseEndedAt, revision: { increment: 1 } },
+        });
+      });
+      await publishCourseEvent(action.payload.courseId, {
+        type: "showcase-presentation",
+        courseId: action.payload.courseId,
+        at: new Date().toISOString(),
+        payload: { scope: "course" },
+      }).catch(() => undefined);
+    }
+  }
   const next = applySessionAction(current, action);
 
   // Determine which courses changed and persist them.
@@ -2180,6 +2281,19 @@ async function dispatchActionUnlocked(
     const prev = current.courses.find((c) => c.id === nextCourse.id);
     if (!prev || prev.updatedAt !== nextCourse.updatedAt) {
       await saveCourse(nextCourse);
+      const wasShowcase = inferStageCollectionMode(prev?.stages) === "new"
+        && prev?.status === "teaching"
+        && prev.stages[prev.currentStageIndex]?.key === "showcase";
+      const leftShowcase = nextCourse.status !== "teaching"
+        || nextCourse.stages[nextCourse.currentStageIndex]?.key !== "showcase";
+      if (wasShowcase && leftShowcase) {
+        await publishCourseEvent(nextCourse.id, {
+          type: "showcase-presentation",
+          courseId: nextCourse.id,
+          at: new Date().toISOString(),
+          payload: { scope: "course" },
+        }).catch(() => undefined);
+      }
     }
   }
 
@@ -2264,6 +2378,7 @@ export async function archiveAndClearCourseSession(
     students: course.students,
     submissions: course.submissions ?? [],
     projectDocumentVersions: course.projectDocumentVersions ?? [],
+    projectPdfVersions: course.projectPdfVersions ?? [],
     aiInteractionEvents: course.aiInteractionEvents ?? [],
     feedback: course.feedback ?? [],
     rubricScores: course.rubricScores ?? [],
@@ -2283,6 +2398,7 @@ export async function archiveAndClearCourseSession(
     evaluations: course.evaluations ?? [],
     uiState: course.uiState ?? null,
     presentingGroupId: course.presentingGroupId ?? null,
+    presentingStudentId: course.presentingStudentId ?? null,
     currentStageIndex: course.currentStageIndex,
     aiLearningProgress: course.aiLearningProgress ?? {},
     knowledgeLecture: {
@@ -2325,6 +2441,8 @@ export async function archiveAndClearCourseSession(
     // Delete all child rows
     await tx.student.deleteMany({ where: { courseId } });
     await tx.classroomSubmission.deleteMany({ where: { courseId } });
+    await tx.showcasePresentation.deleteMany({ where: { courseId } });
+    await tx.projectPdfVersion.deleteMany({ where: { courseId } });
     await tx.teacherFeedback.deleteMany({ where: { courseId } });
     await tx.rubricScore.deleteMany({ where: { courseId } });
     await tx.reflectionRecord.deleteMany({ where: { courseId } });
@@ -2363,6 +2481,7 @@ export async function archiveAndClearCourseSession(
         currentStageIndex: 0,
         inviteCode: newInviteCode,
         presentingGroupId: null,
+        presentingStudentId: null,
         uiState: { teacherResourceProjection: null } as Prisma.InputJsonValue,
         aiLearningProgress: Prisma.JsonNull,
         learningEvidence: Prisma.JsonNull,

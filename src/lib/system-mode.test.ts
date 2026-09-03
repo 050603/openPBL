@@ -34,7 +34,7 @@ describe("system mode", () => {
     ]);
     expect(stages[0]).toMatchObject({ view: "simple-resource" });
     expect(stages[2]).toMatchObject({ label: "项目实践", view: "ai-collaboration" });
-    expect(stages[4]).toMatchObject({ view: "simple-resource" });
+    expect(stages[4]).toMatchObject({ view: "reflection-survey" });
     expect(inferStageCollectionMode(stages)).toBe("new");
   });
 

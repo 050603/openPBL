@@ -35,6 +35,31 @@ export async function GET(
   if (!file || !canAccess(auth.claims, file.courseId, file.uploadedById)) {
     return new Response(null, { status: 404 });
   }
+  if (auth.claims.role === "student" && isFinalArtifactUpload(file.referencedBy)) {
+    const courseId = file.courseId;
+    const references = finalArtifactReferences(file.referencedBy);
+    const [ownDocument, ownPdf, activePresentation] = await Promise.all([
+      courseId
+        ? prisma.projectDocumentVersion.findFirst({
+            where: { courseId, studentId: auth.claims.studentId, docxUploadId: file.id, status: "submitted" },
+            select: { id: true },
+          })
+        : null,
+      courseId
+        ? prisma.projectPdfVersion.findFirst({
+            where: { courseId, studentId: auth.claims.studentId, uploadId: file.id, status: "submitted" },
+            select: { id: true },
+          })
+        : null,
+      courseId
+        ? prisma.showcasePresentation.findFirst({
+            where: { courseId, status: "active", artifactVersionId: { in: references } },
+            select: { id: true },
+          })
+        : null,
+    ]);
+    if (!ownDocument && !ownPdf && !activePresentation) return new Response(null, { status: 404 });
+  }
   const classroomVariant = new URL(request.url).searchParams.get("variant") === "classroom";
   const selectedStoredName = classroomVariant ? file.previewStoredName : file.storedName;
   const selectedMimeType = classroomVariant ? file.previewMimeType : file.mimeType;
@@ -178,6 +203,9 @@ export async function DELETE(
   if (!file || (auth.claims.role !== "teacher" && file.uploadedById !== auth.claims.sub)) {
     return new Response(null, { status: 404 });
   }
+  if (isFinalArtifactUpload(file.referencedBy)) {
+    return Response.json({ code: "IMMUTABLE_ARTIFACT", message: "最终成果版本不可删除。" }, { status: 409 });
+  }
   if (path.basename(file.storedName) !== file.storedName) {
     return new Response(null, { status: 404 });
   }
@@ -255,6 +283,17 @@ export async function DELETE(
 function classroomPreviewName(fileName: string): string {
   const parsed = path.parse(fileName);
   return `${parsed.name}-课堂版.pdf`;
+}
+
+function finalArtifactReferences(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string =>
+    typeof item === "string" && /^(?:project-pdf-version|project-version):/.test(item),
+  ).map((item) => item.slice(item.indexOf(":") + 1)).filter(Boolean);
+}
+
+function isFinalArtifactUpload(value: unknown): boolean {
+  return finalArtifactReferences(value).length > 0;
 }
 
 function canAccess(

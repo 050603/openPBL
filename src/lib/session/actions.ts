@@ -43,6 +43,7 @@ import {
   reconcileCourseGenerationMode,
 } from "@/lib/system-mode";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import { normalizeReflectionContent } from "@/lib/reflection-survey";
 import { OPERATIONAL_SIGNAL_RETENTION_DAYS } from "@/lib/learning-evidence/types";
 import {
   completeClassroomTiming,
@@ -250,6 +251,7 @@ export function applySessionAction(
         classConfig,
         inviteCode,
         currentStageIndex: 0,
+        presentingStudentId: undefined,
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
@@ -272,6 +274,7 @@ export function applySessionAction(
         : undefined;
       return updateCourse(state, action.payload.id, {
         status: "finished",
+        presentingStudentId: undefined,
         uiState: {
           ...(course?.uiState ?? {}),
           teacherResourceProjection: null,
@@ -301,6 +304,7 @@ export function applySessionAction(
         inviteCode: newInviteCode,
         currentStageIndex: 0,
         presentingGroupId: undefined,
+        presentingStudentId: undefined,
         // Clear classroom data. In DB mode, archiveAndClearCourseSession has
         // already cleared child tables; this reducer keeps the in-memory state
         // consistent and handles JSON-file (demo) mode where no archiving runs.
@@ -358,11 +362,17 @@ export function applySessionAction(
                   c.uiState.classroomTiming,
                   c.stages[next]!.key,
                   touchedAt,
-                )
+              )
               : c.uiState?.classroomTiming;
+          const presenterPatch = inferStageCollectionMode(c.stages) === "new"
+            ? (c.stages[next]?.key === "showcase"
+              ? {}
+              : { presentingGroupId: undefined, presentingStudentId: undefined })
+            : { presentingStudentId: undefined };
           return normalizeCourse({
             ...c,
             currentStageIndex: next,
+            ...presenterPatch,
             uiState:
               next === c.currentStageIndex
                 ? c.uiState
@@ -391,11 +401,17 @@ export function applySessionAction(
                   c.uiState.classroomTiming,
                   c.stages[next]!.key,
                   touchedAt,
-                )
+              )
               : c.uiState?.classroomTiming;
+          const presenterPatch = inferStageCollectionMode(c.stages) === "new"
+            ? (c.stages[next]?.key === "showcase"
+              ? {}
+              : { presentingGroupId: undefined, presentingStudentId: undefined })
+            : { presentingStudentId: undefined };
           return normalizeCourse({
             ...c,
             currentStageIndex: next,
+            ...presenterPatch,
             uiState:
               next === c.currentStageIndex
                 ? c.uiState
@@ -561,10 +577,32 @@ export function applySessionAction(
     }
     case "UPSERT_REFLECTION": {
       const { courseId, reflection } = action.payload;
-      return updateCourseRecord(state, courseId, touchedAt, (c) => ({
-        reflections: upsertById(c.reflections ?? [], reflection),
-        activityLog: addActivity(c.activityLog, activity(reflection.studentName, "保存反思", reflection.content.slice(0, 60), touchedAt)),
-      }));
+      return updateCourseRecord(state, courseId, touchedAt, (c) => {
+        const currentReflections = c.reflections ?? [];
+        const existingStructured = reflection.survey
+          ? [...currentReflections]
+            .filter((item) => item.studentId === reflection.studentId && item.survey)
+            .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
+          : undefined;
+        const persistedReflection = existingStructured && existingStructured.id !== reflection.id
+          ? {
+              ...reflection,
+              id: existingStructured.id,
+              createdAt: existingStructured.createdAt,
+            }
+          : reflection;
+        const dedupedReflections = reflection.survey
+          ? currentReflections.filter((item) => !(
+              item.studentId === reflection.studentId
+              && item.survey
+              && item.id !== persistedReflection.id
+            ))
+          : currentReflections;
+        return {
+          reflections: upsertById(dedupedReflections, persistedReflection),
+          activityLog: addActivity(c.activityLog, activity(reflection.studentName, "保存反思", reflection.content.slice(0, 60), touchedAt)),
+        };
+      });
     }
     case "ADD_ACTIVITY": {
       const { courseId, activity: nextActivity } = action.payload;
@@ -577,6 +615,7 @@ export function applySessionAction(
         const project = course.groups?.find((group) => group.id === action.payload.groupId);
         return {
           presentingGroupId: action.payload.groupId,
+          presentingStudentId: undefined,
           activityLog: addActivity(
             course.activityLog,
             activity("教师", "切换当前个人汇报", project?.name ?? action.payload.groupId, touchedAt),
@@ -1014,7 +1053,21 @@ export function normalizeCourse(course: Course): Course {
       ...item,
     })),
     rubricScores: course.rubricScores ?? [],
-    reflections: course.reflections ?? [],
+    // Demo-mode session JSON can contain the same historical reflection
+    // payloads as the database (raw string, legacy object, or survey wrapper).
+    // Normalize at the aggregate boundary so both stores expose one domain
+    // shape to the student and teacher views.
+    reflections: (course.reflections ?? []).map((reflection) => {
+      const normalized = normalizeReflectionContent(
+        (reflection as unknown as { content?: unknown }).content,
+      );
+      return {
+        ...reflection,
+        content: normalized.content,
+        improvementPlan: normalized.improvementPlan ?? reflection.improvementPlan,
+        survey: normalized.survey ?? reflection.survey,
+      };
+    }),
     activityLog: course.activityLog ?? [],
     announcements: course.announcements ?? [],
     todos: course.todos ?? [],
