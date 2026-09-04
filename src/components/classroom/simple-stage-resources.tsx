@@ -30,6 +30,7 @@ import type {
 import { useSession } from "@/lib/session/store";
 import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 import { cn } from "@/lib/utils";
+import { StageEmptyState, StagePageHeader, StageSplitLayout } from "@/components/classroom/classroom-ui";
 
 const UPLOAD_ACCEPT = [
   ".pdf", ".mp4", ".mov", ".webm", ".docx", ".xlsx",
@@ -62,15 +63,6 @@ type PdfJsModule = {
 
 function projectionIsActive(course: Course, resource: CourseResource): boolean {
   return course.uiState?.resourceProjection?.resourceId === resource.id;
-}
-
-function stageName(stageKey: string): string {
-  const labels: Record<string, string> = {
-    launch: "项目启动",
-    showcase: "成果汇报与评价",
-    reflection: "学习反思",
-  };
-  return labels[stageKey] ?? "当前阶段";
 }
 
 function resourceKind(resource: CourseResource): ResourceKind {
@@ -288,44 +280,30 @@ export function SimplifiedTeacherStageView({
     });
   }
 
-  return (
-    <div className="space-y-4">
-      <Card className="border-[var(--pbl-teacher-border)]" compact>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]">
-              <BookOpen size={21} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-[var(--pbl-teacher)]">{stageName(stageKey)}</p>
-              <h2 className="mt-0.5 text-xl font-bold text-[var(--pbl-text-strong)]">课堂资源</h2>
-              <p className="mt-1 text-sm text-[var(--pbl-text-muted)]">演示文稿请先从 PowerPoint 导出为 PDF；同时支持 MP4、图片与常用资料。</p>
-            </div>
-          </div>
-          <label className="inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-teacher)] px-5 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] has-[:disabled]:cursor-wait has-[:disabled]:opacity-60">
-            {uploading ? <LoaderCircle className="animate-spin" size={17} /> : <Upload size={17} />}
-            {uploading ? "上传中…" : "上传资源"}
-            <input
-              accept={UPLOAD_ACCEPT}
-              className="sr-only"
-              disabled={uploading}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file?.name.toLowerCase().endsWith(".pdf")) {
-                  setPendingPdf(file);
-                } else if (file) {
-                  void uploadResource(file);
-                }
-                event.target.value = "";
-              }}
-              type="file"
-            />
-          </label>
-        </div>
-      </Card>
+  const uploadControl = (
+    <label className="inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-teacher)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--pbl-teacher-hover)] has-[:disabled]:cursor-wait has-[:disabled]:opacity-60">
+      {uploading ? <LoaderCircle className="animate-spin" size={16} /> : <Upload size={16} />}
+      {uploading ? "上传中…" : "上传资源"}
+      <input
+        accept={UPLOAD_ACCEPT}
+        className="sr-only"
+        disabled={uploading}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file?.name.toLowerCase().endsWith(".pdf")) {
+            setPendingPdf(file);
+          } else if (file) {
+            void uploadResource(file);
+          }
+          event.target.value = "";
+        }}
+        type="file"
+      />
+    </label>
+  );
 
-      <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)]">
-        <Card compact>
+  const resourceList = (
+    <Card className="classroom-panel" compact>
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-bold text-[var(--pbl-text-strong)]">资源列表</h3>
             <Pill tone="blue">{resources.length} 份</Pill>
@@ -367,9 +345,11 @@ export function SimplifiedTeacherStageView({
           ) : (
             <div className="mt-3 rounded-[var(--radius-sm)] border border-dashed border-[var(--pbl-border-strong)] py-12 text-center text-sm text-[var(--pbl-text-muted)]">尚未上传资源</div>
           )}
-        </Card>
+    </Card>
+  );
 
-        <Card className="overflow-hidden" compact>
+  const resourcePreview = (
+    <Card className="overflow-hidden classroom-panel" compact>
           {selected ? (
             <>
               <div className="border-b border-[var(--pbl-border)] pb-4">
@@ -434,8 +414,28 @@ export function SimplifiedTeacherStageView({
           ) : (
             <div className="grid min-h-[32rem] place-items-center text-center text-sm text-[var(--pbl-text-muted)]"><div><FileText className="mx-auto text-stone-300" size={36} /><p className="mt-3">上传资源后可在这里预览和投屏</p></div></div>
           )}
-        </Card>
-      </div>
+    </Card>
+  );
+
+  return (
+    <div className="classroom-stage space-y-4">
+      <StagePageHeader
+        action={uploadControl}
+        description="整理可讲授、可投屏的课堂资料；PPT 请先导出为 PDF。"
+        title="课堂资源"
+      />
+
+      {resources.length ? (
+        <StageSplitLayout aside={resourceList} main={resourcePreview} />
+      ) : (
+        <StageEmptyState
+          description="上传 PDF、视频、图片或常用资料后，学生会在本阶段看到并阅读这些内容。"
+          eyebrow="尚未发布资料"
+          icon={BookOpen}
+          title="先添加本阶段的课堂资源"
+          tone="teacher"
+        />
+      )}
 
       {dialogResource ? <ResourceDialog onClose={() => setDialogResource(undefined)} resource={dialogResource} title="资源预览" /> : null}
       {pendingPdf ? (
@@ -462,40 +462,80 @@ export function SimplifiedStudentStageView({
 }) {
   const session = useSession();
   const resources = resourcesForStage(course.resources, stageKey);
-  const [preview, setPreview] = useState<CourseResource>();
+  const [selectedId, setSelectedId] = useState<string>();
+  const selected = resources.find((resource) => resource.id === selectedId) ?? resources[0];
 
   function openResource(resource: CourseResource) {
     session.markResourceDownloaded(course.id, resource.id);
-    setPreview(resource);
+    setSelectedId(resource.id);
   }
 
   return (
-    <div className="space-y-4">
-      <Card className="border-[var(--pbl-student-border)]" compact>
-        <div className="flex items-center gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]"><BookOpen size={21} /></span>
-          <div><p className="text-xs font-semibold text-[var(--pbl-student)]">{stageName(stageKey)}</p><h1 className="mt-0.5 text-xl font-bold text-[var(--pbl-text-strong)]">学习资源</h1><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">选择资料开始查看。</p></div>
-        </div>
-      </Card>
+    <div className="classroom-stage space-y-4">
+      <StagePageHeader
+        description="按自己的节奏阅读教师发布的项目说明和课堂资料。"
+        title="学习资源"
+        variant={stageKey === "launch" ? "student-card" : "plain"}
+      />
       {resources.length ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {resources.map((resource) => {
-            const viewed = Boolean(session.studentId && resource.downloadedBy.includes(session.studentId));
-            return (
-              <button className="rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-white p-4 text-left shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:border-[var(--pbl-student-border)] hover:shadow-[var(--shadow-raised)]" key={resource.id} onClick={() => openResource(resource)} type="button">
-                <div className="flex items-start gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--pbl-student-soft)] px-1 text-center text-[10px] font-bold text-[var(--pbl-student)]">{courseResourceTypeLabel(resource.type)}</span>
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-[var(--pbl-text-strong)]">{resource.title}</strong><span className="mt-1 block text-xs text-[var(--pbl-text-muted)]">{resource.size} · {viewed ? "已查看" : "未查看"}</span></span>
-                  <Eye className="shrink-0 text-[var(--pbl-text-subtle)]" size={17} />
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        <StageSplitLayout
+          aside={(
+            <Card className="classroom-panel" compact>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-bold text-[var(--pbl-text-strong)]">资料目录</h2>
+                <Pill tone="teal">{resources.length} 份</Pill>
+              </div>
+              <div className="mt-3 space-y-2">
+                {resources.map((resource) => {
+                  const viewed = Boolean(session.studentId && resource.downloadedBy.includes(session.studentId));
+                  const active = selected?.id === resource.id;
+                  return (
+                    <button
+                      aria-pressed={active}
+                      className={cn(
+                        "flex w-full items-start gap-3 rounded-[var(--radius-sm)] border p-3 text-left transition",
+                        active
+                          ? "border-[var(--pbl-student-border)] bg-[var(--pbl-student-soft)]/70"
+                          : "border-[var(--pbl-border)] bg-white hover:border-[var(--pbl-student-border)]",
+                      )}
+                      key={resource.id}
+                      onClick={() => openResource(resource)}
+                      type="button"
+                    >
+                      <span className="grid h-8 min-w-9 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-[var(--pbl-student-soft)] px-1 text-center text-[10px] font-bold text-[var(--pbl-student)]">{courseResourceTypeLabel(resource.type)}</span>
+                      <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-[var(--pbl-text-strong)]">{resource.title}</strong><span className="mt-1 block text-xs text-[var(--pbl-text-muted)]">{resource.size} · {viewed ? "已查看" : "未查看"}</span></span>
+                      <Eye className={cn("shrink-0", active ? "text-[var(--pbl-student)]" : "text-[var(--pbl-text-subtle)]")} size={16} />
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+          main={(
+            <Card className="classroom-panel overflow-hidden" compact>
+              {selected ? (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--pbl-border)] pb-3">
+                    <div className="min-w-0"><p className="classroom-eyebrow text-[var(--pbl-student)]">正在阅读</p><h2 className="mt-1 truncate text-lg font-semibold text-[var(--pbl-text-strong)]">{selected.title}</h2><p className="mt-1 text-xs text-[var(--pbl-text-muted)]">{courseResourceTypeLabel(selected.type)} · {selected.size}</p></div>
+                    <Pill tone="teal">已打开</Pill>
+                  </div>
+                  <div className="mt-3 h-[36rem] min-h-0 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)]">
+                    <ResourceViewer mode="self" resource={selected} />
+                  </div>
+                </>
+              ) : <StageEmptyState description="从右侧资料目录选择一份资料开始阅读。" icon={FileText} title="选择一份课堂资料" tone="student" />}
+            </Card>
+          )}
+        />
       ) : (
-        <Card className="py-16 text-center"><FileText className="mx-auto text-stone-300" size={32} /><p className="mt-3 text-sm text-[var(--pbl-text-muted)]">本阶段暂无学习资源</p></Card>
+        <StageEmptyState
+          description="教师发布资料后会自动出现在这里。当前阶段没有需要你额外操作的内容。"
+          eyebrow="等待教师发布"
+          icon={FileText}
+          title="本阶段暂未发布学习资源"
+          tone="student"
+        />
       )}
-      {preview ? <ResourceDialog onClose={() => setPreview(undefined)} resource={preview} title="学习资源" /> : null}
     </div>
   );
 }
@@ -586,13 +626,13 @@ function PdfDisplayModeDialog({
           <button aria-label="取消上传 PDF" className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]" onClick={onCancel} type="button"><X size={18} /></button>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <button className="rounded-[var(--radius-md)] border-2 border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] p-4 text-left transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-raised)]" onClick={() => onSelect("slides")} type="button">
+          <button className="rounded-[var(--radius-md)] border-2 border-[var(--pbl-teacher)] bg-[var(--pbl-teacher-soft)] p-4 text-left transition hover:shadow-[var(--shadow-raised)]" onClick={() => onSelect("slides")} type="button">
             <span className="grid size-10 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-teacher)] text-white"><MonitorUp size={18} /></span>
             <strong className="mt-3 block text-[var(--pbl-text-strong)]">幻灯片演示</strong>
             <span className="mt-1 block text-sm leading-6 text-[var(--pbl-text-muted)]">逐页播放；教师翻页后，学生同步到同一页且不能自行前后翻页。</span>
             <Pill className="mt-3" size="sm" tone="blue">PPT 导出 PDF 选此项</Pill>
           </button>
-          <button className="rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[var(--pbl-teacher-border)] hover:shadow-[var(--shadow-raised)]" onClick={() => onSelect("document")} type="button">
+          <button className="rounded-[var(--radius-md)] border border-[var(--pbl-border)] bg-white p-4 text-left transition hover:border-[var(--pbl-teacher-border)] hover:shadow-[var(--shadow-raised)]" onClick={() => onSelect("document")} type="button">
             <span className="grid size-10 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-surface-soft)] text-[var(--pbl-text-muted)]"><FileText size={18} /></span>
             <strong className="mt-3 block text-[var(--pbl-text-strong)]">连续阅读</strong>
             <span className="mt-1 block text-sm leading-6 text-[var(--pbl-text-muted)]">按普通 PDF 上下滚动；投屏时同步教师当前阅读位置。</span>

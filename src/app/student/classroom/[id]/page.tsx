@@ -11,8 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { StudentLeaveButton } from "@/components/student-leave-button";
-import { Card, Pill, PrimaryButton } from "@/components/ui";
+import { Pill, PrimaryButton } from "@/components/ui";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { StudentProjectedTeacherResource } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { StudentStageView } from "@/components/views/student/stage-dispatcher";
@@ -25,6 +24,8 @@ import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 import type { TeacherResourceProjection } from "@/lib/session/types";
 import { useCoursePresence } from "@/hooks/use-course-presence";
 import { StudentResourceProjection } from "@/components/classroom/simple-stage-resources";
+import { StageEmptyState } from "@/components/classroom/classroom-ui";
+import { StudentClassroomHeaderStatus } from "@/components/classroom/student-classroom-header-status";
 import { isNewOpenPblSystem } from "@/lib/system-mode";
 
 export default function StudentClassroomPage() {
@@ -154,17 +155,13 @@ export default function StudentClassroomPage() {
       leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "showcase" ? "教师" : "学生"}
       headerSlot={
         isTeaching && currentStage ? (
-          <div className="hidden items-center gap-2 md:flex">
-            <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[var(--pbl-student-soft)] px-2.5 text-[12px] font-bold text-[var(--pbl-student)] ring-1 ring-[var(--pbl-student-border)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--pbl-student)]" />
-              阶段 {course.currentStageIndex + 1}/{total} · {currentStage.label}
-            </span>
-            <span className="inline-flex h-7 items-center rounded-full bg-white px-2.5 text-[12px] font-bold text-stone-700 ring-1 ring-stone-200">
-              {readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"}
-            </span>
-            <span className="text-[12px] font-semibold text-stone-400">在线 {onlineCount}</span>
-            <StudentLeaveButton className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-xs)] border border-orange-200 bg-white/80 px-2.5 text-[12px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]" />
-          </div>
+          <StudentClassroomHeaderStatus
+            currentIndex={course.currentStageIndex}
+            onlineCount={onlineCount}
+            readinessLabel={readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"}
+            stageLabel={currentStage.label}
+            total={total}
+          />
         ) : (
           <Pill tone={isTeaching ? "green" : "orange"} className="hidden md:inline-flex">
             {isTeaching ? "课堂同步中" : "等待教师开始"}
@@ -248,14 +245,14 @@ export default function StudentClassroomPage() {
 
 function AiCollaborationExperimentEntry({ onOpen }: { onOpen: () => void }) {
   return (
-    <section className="flex flex-col gap-4 rounded-[var(--radius-lg)] border border-violet-200 bg-gradient-to-r from-violet-50 via-white to-indigo-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+    <section className="classroom-stage flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[var(--pbl-student-border)] bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
       <div className="flex min-w-0 items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--pbl-ai)] text-white shadow-sm">
           <FilePenLine size={21} />
         </span>
         <div>
-          <p className="text-[11px] font-black uppercase tracking-[.14em] text-[var(--pbl-ai)]">AI 小组协作实验</p>
-          <h2 className="mt-1 text-base font-black text-stone-950">边写项目文档，边和 AI 小组成员协作</h2>
+          <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[var(--pbl-student)]">AI 小组协作实验</p>
+          <h2 className="mt-1 text-base font-bold text-stone-950">边写项目文档，边和 AI 小组成员协作</h2>
           <p className="mt-1 text-sm leading-6 text-stone-600">讨论、检查和整理都围绕正在编辑的文档进行；实际修改仍由你确认。</p>
         </div>
       </div>
@@ -311,10 +308,10 @@ function ProjectedResourceOverlay({
               <MonitorUp size={19} />
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-[.16em] text-[var(--pbl-teacher)]">
+              <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[var(--pbl-teacher)]">
                 {onClose ? "可选课堂演示" : "教师同步演示"}
               </p>
-              <h2 className="truncate text-base font-black text-stone-950 sm:text-lg" id="student-projection-title">
+              <h2 className="truncate text-base font-bold text-stone-950 sm:text-lg" id="student-projection-title">
                 {projection.title}
               </h2>
             </div>
@@ -344,25 +341,9 @@ function ProjectedResourceOverlay({
 
 function WaitingState({ status }: { status: string }) {
   const message = status === "ready" ? "教师尚未开始授课，请稍候。" : "课堂尚未开放，请稍候。";
-  return (
-    <Card className="text-center">
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--pbl-warning-soft)] text-[var(--pbl-warning)]">
-        <Hourglass size={32} />
-      </div>
-      <h2 className="mt-4 text-2xl font-bold">课堂暂未开始</h2>
-      <p className="mt-2 text-sm text-stone-500">{message}</p>
-    </Card>
-  );
+  return <StageEmptyState description={message} icon={Hourglass} title="课堂暂未开始" tone="warning" />;
 }
 
 function FinishedState({ course }: { course: { name: string } }) {
-  return (
-    <Card className="text-center">
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-stone-100 text-stone-500">
-        <Clock3 size={32} />
-      </div>
-      <h2 className="mt-4 text-2xl font-bold">课堂已结束</h2>
-      <p className="mt-2 text-sm text-stone-500">《{course.name}》已结束授课。你可以留在这里回看作品、评价证据和反思记录。</p>
-    </Card>
-  );
+  return <StageEmptyState description={`《${course.name}》已结束授课。你可以留在这里回看作品、评价证据和反思记录。`} icon={Clock3} title="课堂已结束" tone="neutral" />;
 }

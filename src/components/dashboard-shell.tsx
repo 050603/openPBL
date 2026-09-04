@@ -48,18 +48,29 @@ export type DashboardShellProps = {
   leadRole?: "AI" | "教师" | "学生";
 };
 
+export type DashboardTopBarProps = Pick<
+  DashboardShellProps,
+  | "role"
+  | "phase"
+  | "title"
+  | "course"
+  | "headerSlot"
+  | "classroomBar"
+  | "hideCourseSwitcher"
+  | "currentCourse"
+  | "currentStage"
+  | "userName"
+  | "currentTask"
+  | "leadRole"
+>;
+
 type OpenPanel = "courses" | "notifications" | "profile" | null;
 
-export function DashboardShell({
+export function DashboardTopBar({
   role,
   phase = "",
   title = "与 AI 一起实践的项目课堂",
-  subtitle,
   course,
-  children,
-  wide = false,
-  immersive = false,
-  viewportLocked = false,
   headerSlot,
   classroomBar,
   hideCourseSwitcher = false,
@@ -68,7 +79,7 @@ export function DashboardShell({
   userName,
   currentTask,
   leadRole,
-}: DashboardShellProps) {
+}: DashboardTopBarProps) {
   const session = useSession();
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const [readThroughByCourse, setReadThroughByCourse] = useState<Record<string, string>>({});
@@ -78,7 +89,6 @@ export function DashboardShell({
     if (!isTeacher && name === "教师") return "";
     return name;
   });
-
   const displayName = isTeacher
     ? (userName ?? session.user.name ?? "教师")
     : (session.studentName || (userName && userName !== "教师" ? userName : ""));
@@ -87,12 +97,10 @@ export function DashboardShell({
   const stageLabel = currentStage
     ? `阶段 ${currentStage.index + 1}/${currentStage.total} · ${currentStage.label}`
     : phase;
-
   const current = useMemo(() => {
     if (currentCourse) return session.courses.find((item) => item.id === currentCourse.id);
     return session.courses[0];
   }, [currentCourse, session.courses]);
-
   const notifications = (current?.activityLog ?? []).slice(0, 8);
   const readThroughId = current ? readThroughByCourse[current.id] : undefined;
   const readThroughIndex = readThroughId
@@ -125,6 +133,85 @@ export function DashboardShell({
   }
 
   return (
+    <header className="fixed inset-x-0 top-0 z-[70] border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+      <div className="pbl-wide-container flex min-h-16 items-center px-3 py-2 md:px-5">
+        <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
+          <LogoMark role={role} />
+          <div className="hidden min-w-0 sm:block">
+            <div className="flex items-baseline gap-1"><span className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">PrAIxis</span></div>
+            <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
+          </div>
+        </Link>
+        <div className="ml-3 flex min-w-0 flex-1 items-center gap-3 md:ml-6">
+          {(courseName || stageLabel) && !hideCourseSwitcher ? (
+            <div className="relative hidden min-w-0 md:block">
+              <button className="inline-flex min-h-11 max-w-[620px] min-w-0 items-center gap-3 border-l border-[var(--pbl-border)] px-4 text-left text-sm font-semibold text-[var(--pbl-text)] transition-colors hover:bg-[var(--pbl-surface-soft)]" onClick={() => toggle("courses")} type="button">
+                <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]")}><GraduationCap size={16} /></span>
+                <span className="min-w-0"><span className="block truncate">{stageLabel || courseName}</span><span className="block truncate text-xs font-normal text-[var(--pbl-text-muted)]">{[leadRole ? `${leadRole}主导` : null, currentTask ?? courseName].filter(Boolean).join(" · ")}</span></span>
+                {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
+                <ChevronDown size={14} className={cn("shrink-0 text-[var(--pbl-text-subtle)] transition", openPanel === "courses" && "rotate-180")} />
+              </button>
+              {openPanel === "courses" ? <TopPopover align="left" onClose={() => setOpenPanel(null)}><CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} /></TopPopover> : null}
+            </div>
+          ) : null}
+          {headerSlot}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+          <div className="hidden lg:block"><SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} /></div>
+          {isTeacher ? <Link className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white/80 px-3 text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)] md:inline-flex" href="/teacher/settings"><Settings size={14} /> AI 设置</Link> : null}
+          <div className="relative">
+            <button aria-label="通知中心" className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-border)] hover:bg-[var(--pbl-surface)]" onClick={() => toggle("notifications")} type="button">
+              <Bell size={18} strokeWidth={1.8} />
+              {unreadCount ? <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">{unreadCount}</span> : null}
+            </button>
+            {openPanel === "notifications" ? <TopPopover align="right" onClose={() => setOpenPanel(null)}><NotificationMenu items={notifications} /></TopPopover> : null}
+          </div>
+          <div className="relative">
+            <button className="flex min-h-11 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white" onClick={() => toggle("profile")} type="button">
+              <Avatar name={displayName || (isTeacher ? "教师" : "学生")} />
+              <span className="hidden max-w-[100px] truncate text-[13px] font-semibold md:inline">{displayName || "未加入课堂"}</span>
+              <ChevronDown size={14} className={cn("text-[var(--pbl-text-subtle)] transition", openPanel === "profile" && "rotate-180")} />
+            </button>
+            {openPanel === "profile" ? (
+              <TopPopover align="right" onClose={() => setOpenPanel(null)}>
+                <div className="space-y-3.5">
+                  <div><div className="text-base font-bold text-[var(--pbl-text-strong)]">个人信息</div><p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">当前身份：{isTeacher ? "教师端" : "学生端"}</p></div>
+                  <label className="block text-[13px] font-semibold text-[var(--pbl-text)]">显示姓名<TextInput className="mt-1.5 h-10" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} /></label>
+                  <div className="grid grid-cols-2 gap-2"><PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton><Link className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:bg-[var(--pbl-surface-soft)]" href={isTeacher ? "/teacher/settings" : "/student"} onClick={() => setOpenPanel(null)}><UserRound size={15} /> 个人中心</Link></div>
+                  {isTeacher ? <Link className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[13px] font-semibold text-[var(--pbl-teacher)] transition hover:bg-white" href="/teacher/register" onClick={() => setOpenPanel(null)}><UserPlusIcon /> 创建其他教师</Link> : null}
+                  <button className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[13px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]" onClick={() => void logout()} type="button"><LogOut size={15} /> 退出登录</button>
+                </div>
+              </TopPopover>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      {classroomBar ? <div className="mt-2 px-2 sm:px-3 lg:px-4">{classroomBar}</div> : null}
+    </header>
+  );
+}
+
+export function DashboardShell({
+  role,
+  phase = "",
+  title = "与 AI 一起实践的项目课堂",
+  subtitle,
+  course,
+  children,
+  wide = false,
+  immersive = false,
+  viewportLocked = false,
+  headerSlot,
+  classroomBar,
+  hideCourseSwitcher = false,
+  currentCourse,
+  currentStage,
+  userName,
+  currentTask,
+  leadRole,
+}: DashboardShellProps) {
+  const isTeacher = role === "teacher";
+  return (
     <div
       className={cn(
         immersive || viewportLocked
@@ -135,127 +222,7 @@ export function DashboardShell({
         isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student",
       )}
     >
-      {!immersive ? <header className="fixed inset-x-0 top-0 z-30 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
-        <div className="pbl-wide-container flex min-h-16 items-center px-3 py-2 md:px-5">
-          <Link className="flex min-h-11 min-w-0 items-center gap-2.5" href={homeHref}>
-            <LogoMark role={role} />
-            <div className="hidden min-w-0 sm:block">
-              <div className="flex items-baseline gap-1">
-                <span className="truncate text-sm font-bold tracking-tight text-[var(--pbl-text-strong)]">PrAIxis</span>
-              </div>
-              <div className="mt-0.5 max-w-44 truncate text-xs font-medium text-[var(--pbl-text-muted)]">{courseName ?? (isTeacher ? "教师课程空间" : title)}</div>
-            </div>
-          </Link>
-
-          <div className="ml-3 flex min-w-0 flex-1 items-center gap-3 md:ml-6">
-            {(courseName || stageLabel) && !hideCourseSwitcher ? (
-              <div className="relative hidden min-w-0 md:block">
-                <button
-                  className="inline-flex min-h-11 max-w-[620px] min-w-0 items-center gap-3 border-l border-[var(--pbl-border)] px-4 text-left text-sm font-semibold text-[var(--pbl-text)] transition-colors hover:bg-[var(--pbl-surface-soft)]"
-                  onClick={() => toggle("courses")}
-                  type="button"
-                >
-                  <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-xs)]", isTeacher ? "bg-[var(--pbl-teacher-soft)] text-[var(--pbl-teacher)]" : "bg-[var(--pbl-student-soft)] text-[var(--pbl-student)]")}>
-                    <GraduationCap size={16} />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate">{stageLabel || courseName}</span>
-                    <span className="block truncate text-xs font-normal text-[var(--pbl-text-muted)]">{[leadRole ? `${leadRole}主导` : null, currentTask ?? courseName].filter(Boolean).join(" · ")}</span>
-                  </span>
-                  {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
-                  <ChevronDown size={14} className={cn("shrink-0 text-[var(--pbl-text-subtle)] transition", openPanel === "courses" && "rotate-180")} />
-                </button>
-                {openPanel === "courses" ? (
-                  <TopPopover align="left" onClose={() => setOpenPanel(null)}>
-                    <CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} />
-                  </TopPopover>
-                ) : null}
-              </div>
-            ) : null}
-            {headerSlot}
-          </div>
-
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
-            <div className="hidden lg:block">
-              <SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />
-            </div>
-            {isTeacher ? (
-              <Link
-                className="hidden h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white/80 px-3 text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)] md:inline-flex"
-                href="/teacher/settings"
-              >
-                <Settings size={14} /> AI 设置
-              </Link>
-            ) : null}
-            <div className="relative">
-              <button
-                className="relative grid h-11 w-11 place-items-center rounded-[var(--radius-sm)] border border-transparent text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-border)] hover:bg-[var(--pbl-surface)]"
-                onClick={() => toggle("notifications")}
-                type="button"
-                aria-label="通知中心"
-              >
-                <Bell size={18} strokeWidth={1.8} />
-                {unreadCount ? (
-                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--pbl-danger)] px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
-                    {unreadCount}
-                  </span>
-                ) : null}
-              </button>
-              {openPanel === "notifications" ? (
-                <TopPopover align="right" onClose={() => setOpenPanel(null)}>
-                  <NotificationMenu items={notifications} />
-                </TopPopover>
-              ) : null}
-            </div>
-            <div className="relative">
-              <button
-                className="flex min-h-11 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 transition hover:bg-white"
-                onClick={() => toggle("profile")}
-                type="button"
-              >
-                <Avatar name={displayName || (isTeacher ? "教师" : "学生")} />
-                <span className="hidden max-w-[100px] truncate text-[13px] font-semibold md:inline">
-                  {displayName || "未加入课堂"}
-                </span>
-                <ChevronDown size={14} className={cn("text-[var(--pbl-text-subtle)] transition", openPanel === "profile" && "rotate-180")} />
-              </button>
-              {openPanel === "profile" ? (
-                <TopPopover align="right" onClose={() => setOpenPanel(null)}>
-                  <div className="space-y-3.5">
-                    <div>
-                      <div className="text-base font-bold text-[var(--pbl-text-strong)]">个人信息</div>
-                      <p className="mt-0.5 text-[13px] text-[var(--pbl-text-muted)]">当前身份：{isTeacher ? "教师端" : "学生端"}</p>
-                    </div>
-                    <label className="block text-[13px] font-semibold text-[var(--pbl-text)]">
-                      显示姓名
-                      <TextInput className="mt-1.5 h-10" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} />
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <PrimaryButton className="h-10 text-sm" onClick={saveProfile}>保存</PrimaryButton>
-                      <Link className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)] text-[13px] font-semibold text-[var(--pbl-text-muted)] transition hover:bg-[var(--pbl-surface-soft)]" href={isTeacher ? "/teacher/settings" : "/student"} onClick={() => setOpenPanel(null)}>
-                        <UserRound size={15} /> 个人中心
-                      </Link>
-                    </div>
-                    {isTeacher ? (
-                      <Link className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] text-[13px] font-semibold text-[var(--pbl-teacher)] transition hover:bg-white" href="/teacher/register" onClick={() => setOpenPanel(null)}>
-                        <UserPlusIcon /> 创建其他教师
-                      </Link>
-                    ) : null}
-                    <button className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)] text-[13px] font-semibold text-[var(--pbl-danger)] transition hover:bg-[var(--pbl-danger-soft)]" onClick={() => void logout()} type="button">
-                      <LogOut size={15} /> 退出登录
-                    </button>
-                  </div>
-                </TopPopover>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        {classroomBar ? (
-          <div className="pbl-wide-container mt-2 px-3 md:px-5">
-            {classroomBar}
-          </div>
-        ) : null}
-      </header> : null}
+      {!immersive ? <DashboardTopBar classroomBar={classroomBar} course={course} currentCourse={currentCourse} currentStage={currentStage} currentTask={currentTask} headerSlot={headerSlot} hideCourseSwitcher={hideCourseSwitcher} leadRole={leadRole} phase={phase} role={role} title={title} userName={userName} /> : null}
 
       <main className={immersive
         ? "h-full min-h-0 overflow-hidden p-0"

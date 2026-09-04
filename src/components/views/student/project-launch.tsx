@@ -25,6 +25,7 @@ import {
   haveAllResourcesBeenViewed,
 } from "@/lib/project-launch-readiness";
 import { resourcesForStage } from "@/lib/classroom/stage-resources";
+import { StagePageHeader } from "@/components/classroom/classroom-ui";
 
 const STAGE_WORK: Record<string, string> = {
   launch: "理解问题，查看材料，确定研究方向",
@@ -119,10 +120,12 @@ export function ProjectLaunchView({ course }: { course: Course }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
       <div className="min-w-0 space-y-5">
-        <div className="flex flex-wrap items-center gap-4">
-          <h1 className="text-3xl font-bold tracking-[0] leading-tight text-stone-900 md:text-4xl">{title}</h1>
-          <Pill tone="green">进行中</Pill>
-        </div>
+        <StagePageHeader
+          description="理解真实问题与成果要求，浏览课堂材料并确认项目核心方向。"
+          status={<Pill tone="green">进行中</Pill>}
+          title={title}
+          variant="student-card"
+        />
         <ProjectCoverImage course={course} className="aspect-video w-full" />
 
         <Card>

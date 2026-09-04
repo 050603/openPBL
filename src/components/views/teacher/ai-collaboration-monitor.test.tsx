@@ -14,8 +14,8 @@ describe("AI collaboration teacher monitor", () => {
   it("uses classroom-facing headings instead of implementation language", () => {
     render(<AiCollaborationTeacherMonitor course={course} />);
 
-    expect(screen.getByText("项目实践")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "学习进度" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "项目实践进度" })).toBeTruthy();
+    expect(screen.getByText("已保存成果")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "学生列表" })).toBeTruthy();
     expect(screen.queryByText(/真实产物/)).toBeNull();
     expect(screen.queryByText(/名学生/)).toBeNull();

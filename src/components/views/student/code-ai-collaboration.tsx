@@ -8,7 +8,6 @@ import Editor, {
   type OnMount,
 } from "@monaco-editor/react";
 import {
-  ArrowLeft,
   Bot,
   Check,
   CheckCircle2,
@@ -58,6 +57,11 @@ import type { CodeRunnerResult } from "@/lib/code-runner/client";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 import { collaborationBackHref, isNewOpenPblSystem } from "@/lib/system-mode";
+import { DashboardTopBar } from "@/components/dashboard-shell";
+import { StudentClassroomHeaderStatus } from "@/components/classroom/student-classroom-header-status";
+import { useCoursePresence } from "@/hooks/use-course-presence";
+import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
+import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 
 loader.config({
   paths: { vs: "/api/openmaic/interactive-runtime/monaco" },
@@ -180,10 +184,22 @@ export function CodeAiCollaboration({
   const session = useSession();
   const studentId = session.studentId ?? "";
   const stage = course?.stages[course.currentStageIndex];
+  const presence = useCoursePresence({
+    courseId: course?.id,
+    role: "student",
+    enabled: course?.status === "teaching",
+    heartbeat: true,
+  });
   const stageKey = stage?.key ?? "";
   const newSystem = isNewOpenPblSystem();
   const supportedStage = (stageKey === "proposal" || stageKey === "make")
     && (!newSystem || course?.status === "teaching");
+  const readiness = course && stage && studentId
+    ? deriveStageReadiness(course, studentId, stage.key)
+    : null;
+  const onlineCount = course
+    ? course.students.filter((student) => presence.onlineStudentIds.has(student.id)).length
+    : 0;
   const loadedScopeRef = useRef("");
   const historyScopeRef = useRef("");
   const submissionIdRef = useRef<string | undefined>(undefined);
@@ -735,11 +751,6 @@ export function CodeAiCollaboration({
     onArtifactTypeChange(value);
   }
 
-  function leaveCollaboration() {
-    persistArtifact(serializedArtifact);
-    router.push(collaborationBackHref(courseId));
-  }
-
   async function runCode() {
     if (running || pendingChangeSet) return;
     persistArtifact(serializedArtifact);
@@ -1010,12 +1021,22 @@ export function CodeAiCollaboration({
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
-      <header className="sticky top-0 z-[70] h-16 border-b border-[var(--pbl-border)] bg-white/95 px-3 backdrop-blur lg:px-6">
-        <div className="flex h-full w-full items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <button aria-label="返回课堂" className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600 transition hover:bg-stone-50" onClick={leaveCollaboration} type="button"><ArrowLeft size={18} /></button>
-            <div className="min-w-0"><p className="text-[10px] font-medium leading-none text-stone-500">选题方向</p><h1 className="mt-1 truncate text-base font-bold leading-tight text-stone-950 sm:text-lg">{projectTitle}</h1></div>
+    <main className="flex min-h-dvh flex-col bg-[var(--pbl-bg)] pt-16 text-[var(--pbl-text)]">
+      <DashboardTopBar
+        currentCourse={{ id: course.id, name: course.name, status: course.status }}
+        currentStage={{ index: course.currentStageIndex, total: course.stages.length, label: stage?.label ?? "项目实践" }}
+        currentTask={stage?.description}
+        headerSlot={stage ? <StudentClassroomHeaderStatus currentIndex={course.currentStageIndex} onlineCount={onlineCount} readinessLabel={readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"} stageLabel={stage.label} total={course.stages.length} /> : undefined}
+        hideCourseSwitcher
+        leadRole="学生"
+        role="student"
+        userName={session.studentName ?? session.user.name}
+      />
+      <header className="sticky top-16 z-[60] h-16 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+        <div className="flex h-full w-full items-center justify-between gap-3 px-2 sm:px-3 lg:px-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium leading-none text-stone-500">选题方向</p>
+            <h1 className="mt-1 truncate text-base font-bold leading-tight text-stone-950 sm:text-lg">{projectTitle}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <ArtifactTypeSelector onValueChange={changeArtifactType} value={language} />
@@ -1025,8 +1046,8 @@ export function CodeAiCollaboration({
         </div>
       </header>
 
-      <div className="flex min-h-[calc(100vh-4rem)] flex-1 flex-col px-2 py-3 sm:px-3 lg:px-4">
-        <section className="flex min-h-[calc(100vh-5.5rem)] flex-1 overflow-hidden border border-stone-200 bg-white shadow-sm">
+      <div className="flex min-h-[calc(100vh-8rem)] flex-1 flex-col px-2 py-3 sm:px-3 lg:px-4">
+        <section className="flex min-h-[calc(100vh-9.5rem)] flex-1 overflow-hidden border border-stone-200 bg-white shadow-sm">
           <aside className={cn("hidden shrink-0 flex-col border-r border-stone-200 bg-stone-50/70 transition-[width] duration-200 md:flex", filesPanelOpen ? "w-56" : "w-11")}>
             {filesPanelOpen ? (
               <div className="flex h-11 items-center justify-between border-b border-stone-200 px-2.5">

@@ -585,7 +585,7 @@ export type ProjectDocumentVersion = {
   createdAt: string;
 };
 
-/** Immutable PDF outcome submitted from the project-practice stage. */
+/** Immutable additional outcome submitted from the project-practice stage. */
 export type ProjectPdfVersion = {
   id: string;
   courseId: string;
@@ -595,6 +595,8 @@ export type ProjectPdfVersion = {
   sequence: number;
   title: string;
   uploadId: string;
+  kind?: "pdf" | "file";
+  mimeType?: string;
   sha256?: string;
   size?: number;
   status: "submitted" | "failed";
@@ -603,7 +605,7 @@ export type ProjectPdfVersion = {
   createdAt: string;
 };
 
-export type FinalArtifactKind = "document" | "pdf";
+export type FinalArtifactKind = "document" | "pdf" | "file";
 export type ShowcaseDisplayMode = "continuous" | "slides";
 
 /** Public metadata for a student's latest submitted outcome. */
@@ -614,6 +616,9 @@ export type FinalArtifactSummary = {
   sequence: number;
   submittedAt: string;
   displayModes: ShowcaseDisplayMode[];
+  mimeType?: string;
+  size?: number;
+  downloadUrl?: string;
 };
 
 export type ShowcasePresentationStatus =

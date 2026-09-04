@@ -43,6 +43,11 @@ import type { AiContribution } from "@/lib/learning-evidence/types";
 import { useCourse, useHydrated, useSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 import { collaborationBackHref, inferStageCollectionMode, isNewOpenPblSystem } from "@/lib/system-mode";
+import { DashboardTopBar } from "@/components/dashboard-shell";
+import { StudentClassroomHeaderStatus } from "@/components/classroom/student-classroom-header-status";
+import { useCoursePresence } from "@/hooks/use-course-presence";
+import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
+import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 
 type CollaborationMessage = AiMemberWorkspaceMessage;
 
@@ -127,6 +132,12 @@ export function DocumentAiCollaboration({
   const session = useSession();
   const studentId = session.studentId ?? "";
   const stage = course?.stages[course.currentStageIndex];
+  const presence = useCoursePresence({
+    courseId: course?.id,
+    role: "student",
+    enabled: course?.status === "teaching",
+    heartbeat: true,
+  });
   const stageKey = stage?.key ?? "";
   const newSystem = isNewOpenPblSystem();
   const supportedStage = (stageKey === "proposal" || stageKey === "make")
@@ -187,6 +198,12 @@ export function DocumentAiCollaboration({
     : "项目成果协作文档";
   const projectTitle = group?.topic || course?.drivingQuestion || course?.name || documentTitle;
   const canSubmitFinal = stageKey === "make";
+  const readiness = course && stage && studentId
+    ? deriveStageReadiness(course, studentId, stage.key)
+    : null;
+  const onlineCount = course
+    ? course.students.filter((student) => presence.onlineStudentIds.has(student.id)).length
+    : 0;
 
   useEffect(() => {
     if (!editNotice) return;
@@ -1266,11 +1283,6 @@ export function DocumentAiCollaboration({
     }
   }
 
-  function leaveCollaboration() {
-    if (documentHtml !== savedContentRef.current) void persistDocument(documentHtml, "manual");
-    router.push(collaborationBackHref(courseId));
-  }
-
   function changeArtifactType(value: CollaborationArtifactType) {
     if (documentHtml !== savedContentRef.current) void persistDocument(documentHtml, "auto");
     onArtifactTypeChange(value);
@@ -1302,22 +1314,22 @@ export function DocumentAiCollaboration({
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[var(--pbl-bg)] text-[var(--pbl-text)]">
-      <header className="sticky top-0 z-[70] h-16 border-b border-[var(--pbl-border)] bg-white/95 px-3 backdrop-blur lg:px-6">
-        <div className="flex h-full w-full items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              aria-label="返回课堂"
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-stone-200 bg-white text-stone-600 transition hover:bg-stone-50"
-              onClick={leaveCollaboration}
-              type="button"
-            >
-              <ArrowLeft size={18} />
-            </button>
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium leading-none text-stone-500">选题方向</p>
-              <h1 className="mt-1 truncate text-base font-bold leading-tight text-stone-950 sm:text-lg">{projectTitle}</h1>
-            </div>
+    <main className="flex min-h-dvh flex-col bg-[var(--pbl-bg)] pt-16 text-[var(--pbl-text)]">
+      <DashboardTopBar
+        currentCourse={{ id: course.id, name: course.name, status: course.status }}
+        currentStage={{ index: course.currentStageIndex, total: course.stages.length, label: stage?.label ?? "项目实践" }}
+        currentTask={stage?.description}
+        headerSlot={stage ? <StudentClassroomHeaderStatus currentIndex={course.currentStageIndex} onlineCount={onlineCount} readinessLabel={readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"} stageLabel={stage.label} total={course.stages.length} /> : undefined}
+        hideCourseSwitcher
+        leadRole="学生"
+        role="student"
+        userName={session.studentName ?? session.user.name}
+      />
+      <header className="sticky top-16 z-[60] h-16 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
+        <div className="flex h-full w-full items-center justify-between gap-3 px-2 sm:px-3 lg:px-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium leading-none text-stone-500">选题方向</p>
+            <h1 className="mt-1 truncate text-base font-bold leading-tight text-stone-950 sm:text-lg">{projectTitle}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <ArtifactTypeSelector onValueChange={changeArtifactType} value="document" />
@@ -1346,9 +1358,12 @@ export function DocumentAiCollaboration({
         </div>
       </header>
 
-      <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-16 z-[59] h-3 bg-[var(--pbl-bg)]" />
+      <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-32 z-[59] h-3 bg-[var(--pbl-bg)]" />
 
-      <div className="relative w-full flex-1 px-2 py-3 sm:px-3 lg:px-4">
+      <div className={cn(
+        "relative w-full flex-1 px-2 py-3 transition-[padding] duration-300 sm:px-3 lg:px-4",
+        memberOpen && "xl:pr-[32rem]",
+      )}>
         <section className="min-w-0 overflow-visible border-y border-[var(--pbl-border)] bg-white lg:border-x-0">
           <div className="px-1 sm:px-2">
             {documentReady ? (
@@ -1362,7 +1377,7 @@ export function DocumentAiCollaboration({
                   currentTask: stage?.label,
                 }}
                 minHeight={700}
-                stickyToolbarTop={76}
+                stickyToolbarTop={140}
                 onChange={handleDocumentChange}
                 onAiCommentRead={markDocumentCommentRead}
                 onAiCommentReply={replyToDocumentComment}

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
-import { SimplifiedTeacherStageView } from "./simple-stage-resources";
+import { SimplifiedStudentStageView, SimplifiedTeacherStageView } from "./simple-stage-resources";
 
 const session = vi.hoisted(() => ({
   refresh: vi.fn(),
@@ -27,6 +27,14 @@ describe("simplified stage resources", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.unstubAllGlobals());
 
+  it("uses the student title card in the first stage", () => {
+    const emptyCourse = { ...course, resources: [] } as Course;
+    render(<SimplifiedStudentStageView course={emptyCourse} stageKey="launch" />);
+
+    expect(screen.getByRole("heading", { name: "学习资源" }).closest("header")?.className)
+      .toContain("classroom-stage-header--student-card");
+  });
+
   it("shows only the active stage files and starts a classroom projection", () => {
     render(<SimplifiedTeacherStageView course={course} stageKey="reflection" />);
 
@@ -35,7 +43,7 @@ describe("simplified stage resources", () => {
     expect(screen.getByRole("heading", { name: "课堂资源" })).toBeTruthy();
     expect(screen.queryByText("轻量授课阶段")).toBeNull();
     expect(screen.queryByText(/会自动生成稳定/)).toBeNull();
-    expect(screen.getByText(/请先从 PowerPoint 导出为 PDF/)).toBeTruthy();
+    expect(screen.getByText(/PPT 请先导出为 PDF/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "删除资源 反思提示.pdf" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "投屏" }));
     expect(session.setUiState).toHaveBeenCalledWith("course-1", {

@@ -34,6 +34,7 @@ import { isOpaqueInternalId, userFacingName } from "@/lib/user-facing-labels";
 import { ClassInterventionPanel } from "./class-intervention-panel";
 import { KnowledgeLectureAnalytics } from "./knowledge-lecture-analytics";
 import { firstKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
+import { StagePageHeader } from "@/components/classroom/classroom-ui";
 
 export function computeAiLearningProgress(entry?: StudentAiProgress): number {
   if (!entry || !isReliableAiProgress(entry)) return 0;
@@ -106,7 +107,7 @@ const CLASSROOM_TRIGGER_CONDITION_KEYS = new Set(["anchor", "evidence", "score",
 
 function adaptiveToneClass(tone: AdaptiveStatusTone): string {
   if (tone === "danger") return "bg-rose-100 text-rose-800";
-  if (tone === "active") return "bg-violet-100 text-violet-800";
+  if (tone === "active") return "bg-blue-100 text-blue-800";
   if (tone === "ready") return "bg-emerald-100 text-emerald-800";
   return "bg-stone-100 text-stone-600";
 }
@@ -182,10 +183,15 @@ export function AiLearningTeacherView({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="classroom-stage space-y-5">
+      <StagePageHeader
+        description="查看全班进度、小测结果与需要介入的知识点。"
+        status={<Pill tone={hasClassroom ? "green" : "amber"}>{hasClassroom ? "课堂运行中" : "待生成课堂"}</Pill>}
+        title="知识讲授学情"
+      />
       {!hasClassroom ? (
         <Card className="border-[var(--pbl-warning-soft)] bg-[var(--pbl-warning-soft)]/70">
-          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-black text-[var(--pbl-warning)]">知识讲授课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
+          <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-bold text-[var(--pbl-warning)]">知识讲授课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
         </Card>
       ) : null}
 
@@ -204,16 +210,16 @@ export function AiLearningTeacherView({
       <Card className="overflow-hidden p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-4 py-3">
           <div>
-            <h3 className="text-base font-black">学生学习情况</h3>
+            <h3 className="text-base font-bold">学生学习情况</h3>
             <p className="mt-0.5 text-xs text-stone-500">点击头像或进度查看学习轨迹，点击答题数据查看逐题作答</p>
           </div>
           <div className="flex items-center gap-2">
             <label className="sr-only" htmlFor={`student-sort-${course.id}`}>学生排序指标</label>
-            <select className="h-9 rounded-[8px] border border-stone-200 bg-white px-2.5 text-xs font-bold text-stone-700 outline-none focus:border-cyan-500" id={`student-sort-${course.id}`} onChange={(event) => setSortMetric(event.target.value as "progress" | "accuracy")} value={sortMetric}>
+            <select className="h-9 rounded-[8px] border border-stone-200 bg-white px-2.5 text-xs font-bold text-stone-700 outline-none focus:border-[var(--pbl-teacher)]" id={`student-sort-${course.id}`} onChange={(event) => setSortMetric(event.target.value as "progress" | "accuracy")} value={sortMetric}>
               <option value="progress">按学习进度</option>
               <option value="accuracy">按答题准确率</option>
             </select>
-            <button aria-label={sortDirection === "asc" ? "当前正序，点击改为倒序" : "当前倒序，点击改为正序"} className="inline-flex h-9 items-center gap-1 rounded-[8px] border border-stone-200 bg-white px-2.5 text-xs font-bold text-stone-700 hover:border-cyan-300" onClick={() => setSortDirection((value) => value === "asc" ? "desc" : "asc")} type="button">
+            <button aria-label={sortDirection === "asc" ? "当前正序，点击改为倒序" : "当前倒序，点击改为正序"} className="inline-flex h-9 items-center gap-1 rounded-[8px] border border-stone-200 bg-white px-2.5 text-xs font-bold text-stone-700 hover:border-[var(--pbl-teacher-border)]" onClick={() => setSortDirection((value) => value === "asc" ? "desc" : "asc")} type="button">
               {sortDirection === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}{sortDirection === "asc" ? "正序" : "倒序"}
             </button>
           </div>
@@ -221,20 +227,20 @@ export function AiLearningTeacherView({
         {summaries.length ? (
           <ul aria-label="学生状态总览" className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 bg-stone-50/60 p-3">
             {sortedSummaries.map((summary) => (
-                <li className="min-w-0 rounded-[10px] border border-stone-200 bg-white p-3 shadow-sm transition hover:-translate-y-px hover:shadow-md" key={summary.student.id}>
+                <li className="min-w-0 rounded-[10px] border border-stone-200 bg-white p-3 shadow-sm transition hover:border-[var(--pbl-teacher-border)]" key={summary.student.id}>
                   <div className="flex items-center justify-between gap-2">
-                    <button aria-label={`查看${summary.student.name}的学习轨迹`} className="flex min-w-0 items-center gap-2 rounded-[7px] text-left focus:outline-none focus:ring-2 focus:ring-cyan-500" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">
+                    <button aria-label={`查看${summary.student.name}的学习轨迹`} className="flex min-w-0 items-center gap-2 rounded-[7px] text-left focus:outline-none focus:ring-2 focus:ring-[var(--pbl-teacher)]" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">
                       <Avatar name={summary.student.name} size={32} />
                       <span className="min-w-0"><span className="block truncate text-sm font-bold text-stone-900">{summary.student.name}</span><span className="block truncate text-[10px] text-stone-400">{currentScene(summary.events)}</span></span>
                     </button>
-                    <button aria-label={`查看${summary.student.name}的学习轨迹，当前进度${summary.progress}%`} className="shrink-0 rounded-md px-1.5 py-1 text-sm font-black tabular-nums text-cyan-800 hover:bg-cyan-50" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">{summary.progress}%</button>
+                    <button aria-label={`查看${summary.student.name}的学习轨迹，当前进度${summary.progress}%`} className="shrink-0 rounded-md px-1.5 py-1 text-sm font-bold tabular-nums text-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-soft)]" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">{summary.progress}%</button>
                   </div>
 
-                  <button aria-label={`查看${summary.student.name}的学习轨迹与进度`} className="mt-3 block w-full rounded-[8px] p-2 text-left transition hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-500" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">
+                  <button aria-label={`查看${summary.student.name}的学习轨迹与进度`} className="mt-3 block w-full rounded-[8px] p-2 text-left transition hover:bg-[var(--pbl-teacher-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--pbl-teacher)]" onClick={() => openStudent(summary.student.id, "trajectory")} type="button">
                     <ProgressBar className="h-1.5" tone={summary.progress >= 90 ? "green" : "teal"} value={summary.progress} />
                     <span className="mt-2 flex items-center justify-between text-[10px]"><span className="text-stone-400">学习进度 <strong className="ml-1 text-xs text-stone-800">{summary.progress}%</strong></span><span className="text-stone-400">学习时长 <strong className="ml-1 text-xs text-stone-800">{summary.hasEvidence ? minutes(summary.effectiveDurationMs) : "—"}</strong></span></span>
                   </button>
-                  <button aria-label={`查看${summary.student.name}的答题详情`} className="mt-2 flex w-full items-center justify-between rounded-[8px] bg-stone-50 px-3 py-2 text-left transition hover:bg-violet-50 focus:outline-none focus:ring-2 focus:ring-violet-500" onClick={() => openStudent(summary.student.id, "answers")} type="button">
+                  <button aria-label={`查看${summary.student.name}的答题详情`} className="mt-2 flex w-full items-center justify-between rounded-[8px] bg-stone-50 px-3 py-2 text-left transition hover:bg-[var(--pbl-surface-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--pbl-teacher)]" onClick={() => openStudent(summary.student.id, "answers")} type="button">
                     <span><span className="block text-[9px] text-stone-400">答题准确率</span><strong className={cn("mt-0.5 block text-xs", summary.accuracy === undefined ? "text-stone-400" : summary.accuracy >= 80 ? "text-emerald-700" : summary.accuracy >= 60 ? "text-amber-700" : "text-rose-700")}>{summary.accuracy === undefined ? "—" : `${summary.accuracy}%`}</strong></span>
                     <span className="text-right"><span className="block text-[9px] text-stone-400">答题数量</span><strong className="mt-0.5 block text-xs text-stone-700">{summary.answeredQuestions} 道</strong></span>
                   </button>
@@ -384,7 +390,7 @@ function AdaptiveTriggerAuditDialog({
         <header className="flex items-start justify-between gap-4 border-b border-stone-200 bg-white px-5 py-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-xl font-black text-stone-950">{student.name} · 额外资源学习详情</h3>
+              <h3 className="text-xl font-bold text-stone-950">{student.name} · 额外资源学习详情</h3>
               <span className={cn(
                 "rounded-full px-2.5 py-1 text-xs font-bold",
                 adaptiveToneClass(response.tone),
@@ -426,7 +432,7 @@ function AdaptiveTriggerAuditDialog({
 
           <div className="mt-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h4 className="font-black text-stone-900">额外资源</h4>
+              <h4 className="font-bold text-stone-900">额外资源</h4>
               <span className="text-xs text-stone-500">共 {eligibleBranches.length} 项可匹配资源</span>
             </div>
             <div className="space-y-3">
@@ -578,9 +584,9 @@ function TriggerAuditCard({
             <Pill tone={branch.kind === "prerequisite" ? "orange" : "blue"}>{kindLabel[branch.kind]}</Pill>
             <span className="text-xs font-semibold text-stone-400">插入位置：{branch.trigger?.placement === "before-main-course" ? "正式主课开始前" : sceneTitle}</span>
           </div>
-          <h4 className="mt-1.5 font-black text-stone-900">{userFacingName(branch.title, "未命名额外资源")}</h4>
+          <h4 className="mt-1.5 font-bold text-stone-900">{userFacingName(branch.title, "未命名额外资源")}</h4>
         </div>
-        <span className={cn("rounded-full px-2.5 py-1 text-xs font-black", triggered ? "bg-emerald-100 text-emerald-800" : evaluation ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-600")}>
+        <span className={cn("rounded-full px-2.5 py-1 text-xs font-bold", triggered ? "bg-emerald-100 text-emerald-800" : evaluation ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-600")}>
           {displayStatus}
         </span>
       </div>
@@ -616,5 +622,5 @@ function TriggerAuditCard({
 }
 
 function MetricCard({ icon, label, value, helper, tone = "default" }: { icon: React.ReactNode; label: string; value: string; helper: string; tone?: "default" | "danger" }) {
-  return <Card className={tone === "danger" ? "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/40" : undefined}><div className="flex items-center justify-between text-sm text-stone-500"><span>{label}</span><span className={tone === "danger" ? "text-[var(--pbl-danger)]" : "text-[var(--pbl-teacher)]"}>{icon}</span></div><div className={`mt-2 text-2xl font-black ${tone === "danger" ? "text-[var(--pbl-danger)]" : "text-stone-950"}`}>{value}</div><p className="mt-1 text-xs text-stone-400">{helper}</p></Card>;
+  return <Card className={tone === "danger" ? "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/40" : undefined}><div className="flex items-center justify-between text-sm text-stone-500"><span>{label}</span><span className={tone === "danger" ? "text-[var(--pbl-danger)]" : "text-[var(--pbl-teacher)]"}>{icon}</span></div><div className={`mt-2 text-2xl font-bold ${tone === "danger" ? "text-[var(--pbl-danger)]" : "text-stone-950"}`}>{value}</div><p className="mt-1 text-xs text-stone-400">{helper}</p></Card>;
 }

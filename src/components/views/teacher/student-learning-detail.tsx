@@ -114,7 +114,7 @@ export function StudentLearningDetail({
               return (
                 <article className="overflow-hidden rounded-xl border border-stone-200" key={attempt.id}>
                   <header className="flex flex-wrap items-center justify-between gap-2 bg-stone-50 px-4 py-3">
-                    <div><h3 className="text-sm font-black text-stone-900">{section?.title ?? "知识讲授小测"}</h3><p className="mt-0.5 text-[10px] text-stone-400">提交于 {new Date(attempt.submittedAt).toLocaleString("zh-CN")}</p></div>
+                    <div><h3 className="text-sm font-bold text-stone-900">{section?.title ?? "知识讲授小测"}</h3><p className="mt-0.5 text-[10px] text-stone-400">提交于 {new Date(attempt.submittedAt).toLocaleString("zh-CN")}</p></div>
                     <strong className="text-sm tabular-nums text-blue-800">{attempt.score}/{attempt.maxScore} 分</strong>
                   </header>
                   <ol className="divide-y divide-stone-100">
@@ -125,7 +125,7 @@ export function StudentLearningDetail({
                         <li className="p-4" key={question.questionId}>
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0"><p className="text-[10px] font-bold text-stone-400">第 {index + 1} 题</p><p className="mt-1 text-sm font-bold leading-6 text-stone-900">{question.prompt}</p></div>
-                            <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black", passed ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>{passed ? <CheckCircle2 size={12} /> : <CircleX size={12} />}{question.earned}/{question.points} 分</span>
+                            <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold", passed ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>{passed ? <CheckCircle2 size={12} /> : <CircleX size={12} />}{question.earned}/{question.points} 分</span>
                           </div>
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
                             <AnswerBlock label="学生答案" text={question.answer || "未作答"} tone={passed ? "neutral" : "danger"} />
@@ -148,7 +148,7 @@ export function StudentLearningDetail({
 }
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-[10px] font-semibold text-stone-500">{label}</p><p className="mt-1 text-base font-black text-stone-900">{value}</p></div>;
+  return <div><p className="text-[10px] font-semibold text-stone-500">{label}</p><p className="mt-1 text-base font-bold text-stone-900">{value}</p></div>;
 }
 
 function AnswerBlock({ label, text, tone }: { label: string; text: string; tone: "neutral" | "danger" | "success" }) {

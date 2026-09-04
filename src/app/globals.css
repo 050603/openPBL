@@ -508,6 +508,182 @@ body.plate-default-theme [data-slot="popover-content"] {
   box-shadow: var(--shadow-raised);
 }
 
+.classroom-panel {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+}
+
+/* ============================================================
+   课堂页面骨架
+   只作用于教师/学生课堂，不改变备课、首页和编辑器外部页面。
+   ============================================================ */
+
+.classroom-stage-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  border-bottom: 1px solid var(--pbl-border);
+  padding-bottom: 1rem;
+}
+
+.classroom-stage-header--student-card {
+  align-items: center;
+  background:
+    linear-gradient(112deg, color-mix(in srgb, var(--pbl-student-soft) 58%, white) 0%, white 48%, color-mix(in srgb, var(--pbl-surface-soft) 72%, white) 100%);
+  border: 1px solid color-mix(in srgb, var(--pbl-student-border) 72%, var(--pbl-border));
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.065), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  overflow: hidden;
+  padding: 1.125rem 1.25rem 1.125rem 1.5rem;
+  position: relative;
+}
+
+.classroom-stage-header--student-card::before {
+  background: linear-gradient(180deg, var(--pbl-student), color-mix(in srgb, var(--pbl-student) 50%, var(--pbl-ai)));
+  border-radius: 999px;
+  bottom: 0.875rem;
+  content: "";
+  left: 0.5rem;
+  position: absolute;
+  top: 0.875rem;
+  width: 0.25rem;
+}
+
+.classroom-stage-header--student-card::after {
+  background: color-mix(in srgb, var(--pbl-student-soft) 72%, transparent);
+  border-radius: 999px;
+  content: "";
+  height: 7rem;
+  position: absolute;
+  right: -2.5rem;
+  top: -3.5rem;
+  width: 7rem;
+}
+
+.classroom-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.classroom-stage-title {
+  color: var(--pbl-text-strong);
+  font-size: clamp(1.4rem, 1.8vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.classroom-stage-description {
+  color: var(--pbl-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin-top: 0.5rem;
+  max-width: 48rem;
+}
+
+.classroom-split-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem);
+  align-items: start;
+}
+
+.classroom-split-aside {
+  min-width: 0;
+  position: sticky;
+  top: 5rem;
+}
+
+.classroom-empty-state {
+  align-items: center;
+  background: var(--pbl-surface);
+  border: 1px dashed var(--pbl-border-strong);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 18rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.classroom-empty-icon {
+  align-items: center;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  height: 3rem;
+  justify-content: center;
+  width: 3rem;
+}
+
+.classroom-metric {
+  background: var(--pbl-surface);
+  border: 1px solid var(--pbl-border);
+  border-radius: var(--radius-md);
+  min-height: 6.75rem;
+  padding: 1rem 1.125rem;
+}
+
+.classroom-context-header {
+  background: color-mix(in srgb, var(--pbl-surface) 97%, transparent);
+  border-bottom: 1px solid var(--pbl-border);
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  backdrop-filter: blur(10px);
+}
+
+.classroom-context-inner {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  min-height: 4rem;
+  padding: 0.5rem 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .classroom-context-inner {
+    padding-inline: 1.25rem;
+  }
+}
+
+.classroom-icon-button {
+  align-items: center;
+  border: 1px solid var(--pbl-border);
+  border-radius: var(--radius-sm);
+  color: var(--pbl-text-muted);
+  display: inline-flex;
+  height: 2.25rem;
+  justify-content: center;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+  width: 2.25rem;
+}
+
+.classroom-icon-button:hover {
+  background: var(--pbl-surface-soft);
+  border-color: var(--pbl-border-strong);
+  color: var(--pbl-text-strong);
+}
+
+.classroom-stage .rounded-xl {
+  border-radius: var(--radius-md);
+}
+
+.classroom-stage .rounded-2xl {
+  border-radius: var(--radius-lg);
+}
+
+@media (max-width: 1100px) {
+  .classroom-split-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 19rem);
+  }
+}
+
 .font-editorial {
   font-family: var(--font-serif);
 }

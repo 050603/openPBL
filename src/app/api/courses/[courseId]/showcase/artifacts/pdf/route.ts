@@ -14,8 +14,32 @@ import { ShowcasePresentationError } from "@/lib/showcase/presentation-service";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const dataDir = process.env.UPLOAD_DIR?.trim() || path.resolve(".openpbl-data", "uploads");
+type AllowedArtifact = { detected?: string[]; mimeType: string; plainText?: boolean; kind: "pdf" | "file" };
+const ALLOWED_ARTIFACTS: Record<string, AllowedArtifact> = {
+  ".pdf": { detected: ["pdf"], mimeType: "application/pdf", kind: "pdf" },
+  ".doc": { detected: ["doc"], mimeType: "application/msword", kind: "file" },
+  ".docx": { detected: ["docx", "zip"], mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", kind: "file" },
+  ".zip": { detected: ["zip"], mimeType: "application/zip", kind: "file" },
+  ".rar": { detected: ["rar"], mimeType: "application/vnd.rar", kind: "file" },
+  ".7z": { detected: ["7z"], mimeType: "application/x-7z-compressed", kind: "file" },
+  ".txt": { mimeType: "text/plain", plainText: true, kind: "file" },
+  ".md": { mimeType: "text/markdown", plainText: true, kind: "file" },
+  ".csv": { mimeType: "text/csv", plainText: true, kind: "file" },
+  ".json": { mimeType: "application/json", plainText: true, kind: "file" },
+  ".py": { mimeType: "text/x-python", plainText: true, kind: "file" },
+  ".js": { mimeType: "text/javascript", plainText: true, kind: "file" },
+  ".jsx": { mimeType: "text/jsx", plainText: true, kind: "file" },
+  ".ts": { mimeType: "text/typescript", plainText: true, kind: "file" },
+  ".tsx": { mimeType: "text/tsx", plainText: true, kind: "file" },
+  ".html": { mimeType: "text/html", plainText: true, kind: "file" },
+  ".css": { mimeType: "text/css", plainText: true, kind: "file" },
+  ".java": { mimeType: "text/x-java-source", plainText: true, kind: "file" },
+  ".c": { mimeType: "text/x-c", plainText: true, kind: "file" },
+  ".cpp": { mimeType: "text/x-c++src", plainText: true, kind: "file" },
+  ".h": { mimeType: "text/x-c", plainText: true, kind: "file" },
+};
 const MetadataSchema = z.object({
   title: z.string().trim().max(200).optional(),
   requestId: z.string().uuid().optional(),
@@ -29,13 +53,13 @@ export async function POST(
   if (csrfError) return csrfError;
   const auth = await authenticateRequest(request, "student");
   if ("response" in auth) return auth.response;
-  if (auth.claims.role !== "student") return errorResponse("FORBIDDEN", "只有学生可以提交最终 PDF。", 403);
+  if (auth.claims.role !== "student") return errorResponse("FORBIDDEN", "只有学生可以提交额外成果。", 403);
   const studentId = auth.claims.studentId;
-  if (!isDatabaseConfigured()) return errorResponse("DATABASE_REQUIRED", "PDF 最终提交需要连接数据库。", 503);
+  if (!isDatabaseConfigured()) return errorResponse("DATABASE_REQUIRED", "额外成果提交需要连接数据库。", 503);
   const { courseId } = await context.params;
   if (auth.claims.courseId !== courseId) return errorResponse("FORBIDDEN", "学生身份与课程不匹配。", 403);
   const limit = await checkDistributedRateLimit({
-    namespace: "showcase-pdf-submit",
+    namespace: "showcase-artifact-submit",
     key: `${auth.claims.sub}:${courseId}`,
     limit: 10,
     windowSeconds: 60 * 60,
@@ -55,7 +79,7 @@ export async function POST(
       return Boolean(candidate && typeof candidate === "object" && (candidate as { key?: unknown }).key === key);
     });
   if (course.status !== "teaching" || !newFiveStageCourse || !stage || typeof stage !== "object" || (stage as { key?: unknown }).key !== "make") {
-    return errorResponse("MAKE_INACTIVE", "只能在第三阶段项目实践中提交最终 PDF。", 409);
+    return errorResponse("MAKE_INACTIVE", "只能在第三阶段项目实践中提交额外成果。", 409);
   }
   const member = await prisma.groupMember.findFirst({
     where: { courseId, studentId },
@@ -67,21 +91,27 @@ export async function POST(
   try {
     const form = await request.formData();
     const files = form.getAll("file");
-    if (files.length !== 1 || !(files[0] instanceof File)) return errorResponse("FILE_REQUIRED", "请选择一个 PDF 文件。", 400);
+    if (files.length !== 1 || !(files[0] instanceof File)) return errorResponse("FILE_REQUIRED", "请选择一个成果文件。", 400);
     const file = files[0];
     const originalName = path.basename(file.name).normalize("NFC");
-    if (path.extname(originalName).toLowerCase() !== ".pdf") return errorResponse("PDF_REQUIRED", "最终成果仅支持 PDF 文件。", 415);
-    if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return errorResponse("FILE_TOO_LARGE", "PDF 不能超过 50 MiB。", 413);
+    const extension = path.extname(originalName).toLowerCase();
+    const allowed = ALLOWED_ARTIFACTS[extension];
+    if (!allowed) return errorResponse("FILE_TYPE_UNSUPPORTED", "支持 PDF、Word、ZIP 和常见代码或文本文件。", 415);
+    if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return errorResponse("FILE_TOO_LARGE", "成果文件不能为空且不能超过 100 MiB。", 413);
     const metadata = MetadataSchema.safeParse({
       title: form.get("title") ?? undefined,
       requestId: form.get("requestId") ?? undefined,
     });
-    if (!metadata.success) return errorResponse("INVALID_METADATA", "PDF 提交信息无效。", 400);
+    if (!metadata.success) return errorResponse("INVALID_METADATA", "成果提交信息无效。", 400);
     const title = metadata.data.title || originalName;
-    if (title.length > 200) return errorResponse("INVALID_METADATA", "PDF 标题不能超过 200 个字符。", 400);
+    if (title.length > 200) return errorResponse("INVALID_METADATA", "成果标题不能超过 200 个字符。", 400);
     const bytes = Buffer.from(await file.arrayBuffer());
     const detected = await fileTypeFromBuffer(bytes).catch(() => null);
-    if (!detected || detected.ext !== "pdf") return errorResponse("FILE_SIGNATURE_MISMATCH", "文件内容不是有效 PDF。", 415);
+    if (allowed.plainText) {
+      if (bytes.includes(0)) return errorResponse("FILE_SIGNATURE_MISMATCH", "代码或文本成果不能包含二进制内容。", 415);
+    } else if (!detected || !allowed.detected?.includes(detected.ext)) {
+      return errorResponse("FILE_SIGNATURE_MISMATCH", "文件内容与扩展名不一致。", 415);
+    }
 
     const headerRequestId = request.headers.get("x-request-id");
     const requestId = metadata.data.requestId
@@ -96,13 +126,15 @@ export async function POST(
         sequence: existing.sequence,
         submittedAt: existing.submittedAt.toISOString(),
         uploadId: existing.uploadId,
+        kind: existing.kind,
+        mimeType: existing.mimeType,
         requestId,
       });
     }
 
     const uploadId = randomUUID();
     const versionId = randomUUID();
-    const storedName = `${uploadId}.pdf`;
+    const storedName = `${uploadId}${extension}`;
     targetPath = path.join(dataDir, storedName);
     await mkdir(dataDir, { recursive: true });
     await writeFile(targetPath, bytes, { flag: "wx", mode: 0o600 });
@@ -133,7 +165,7 @@ export async function POST(
         || !lockedStage
         || typeof lockedStage !== "object"
         || (lockedStage as { key?: unknown }).key !== "make") {
-        throw new ShowcasePresentationError("MAKE_INACTIVE", "只能在第三阶段项目实践中提交最终 PDF。", 409);
+        throw new ShowcasePresentationError("MAKE_INACTIVE", "只能在第三阶段项目实践中提交额外成果。", 409);
       }
       const lockedMember = await tx.groupMember.findFirst({
         where: { courseId, studentId },
@@ -154,7 +186,7 @@ export async function POST(
           uploadedById: studentId,
           uploadedByRole: "student",
           size: info.size,
-          mimeType: "application/pdf",
+          mimeType: allowed.mimeType,
           referencedBy: [`project-pdf-version:${versionId}`],
           refCount: 1,
         },
@@ -169,6 +201,8 @@ export async function POST(
           sequence: (latest?.sequence ?? 0) + 1,
           title,
           uploadId,
+          kind: allowed.kind,
+          mimeType: allowed.mimeType,
           sha256,
           size: info.size,
           requestId,
@@ -187,7 +221,7 @@ export async function POST(
           actorId: studentId,
           actorRole: "student",
           courseVersion: updatedCourse.version,
-          payload: { source: "showcase-pdf-submission", scope: "student", studentId },
+          payload: { source: "showcase-artifact-submission", scope: "student", studentId },
         },
         select: { cursor: true },
       });
@@ -215,13 +249,15 @@ export async function POST(
       sequence: durable.version.sequence,
       submittedAt: durable.version.submittedAt.toISOString(),
       uploadId,
+      kind: durable.version.kind,
+      mimeType: durable.version.mimeType,
       requestId,
     }, { status: 201 });
   } catch (error) {
     if (targetPath) await unlink(targetPath).catch(() => undefined);
     if (error instanceof ShowcasePresentationError) return errorResponse(error.code, error.message, error.status);
-    console.error("[showcase/pdf] upload failed", error);
-    return errorResponse("PDF_SUBMIT_FAILED", "PDF 最终提交失败，请稍后重试。", 500);
+    console.error("[showcase/artifact] upload failed", error);
+    return errorResponse("ARTIFACT_SUBMIT_FAILED", "额外成果提交失败，请稍后重试。", 500);
   }
 }
 

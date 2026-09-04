@@ -294,9 +294,9 @@ model ProjectDocumentVersion {
   @@index([submissionId, status])
 }
 
-// Immutable snapshots created when a student explicitly submits a PDF
-// project outcome. The upload itself lives in UploadFile; this row records
-// which upload is the final, versioned project artifact.
+// Immutable snapshots created when a student explicitly submits an additional
+// project outcome. Historical rows are PDFs; `kind` and `mimeType` allow the
+// same durable collection to hold code, archives, and other supporting files.
 model ProjectPdfVersion {
   id          String   @id @default(uuid())
   courseId    String
@@ -307,6 +307,8 @@ model ProjectPdfVersion {
   sequence    Int
   title       String
   uploadId    String
+  kind        String   @default("pdf") // pdf | file
+  mimeType    String   @default("application/pdf")
   sha256      String?
   size        Int?
   status      String   @default("submitted") // submitted | failed
@@ -329,7 +331,7 @@ model ShowcasePresentation {
   course            Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   groupId           String
   studentId         String
-  artifactKind      String   // document | pdf
+  artifactKind      String   // document | pdf (generic files are download-only)
   artifactVersionId String
   artifactTitle     String
   displayMode       String   @default("continuous") // continuous | slides

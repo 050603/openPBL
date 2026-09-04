@@ -110,7 +110,7 @@ describe("NewReflectionStudentView", () => {
   it("shows the compact questions, AI prompts, and validates all five answers", async () => {
     render(<NewReflectionStudentView course={makeCourse()} />);
 
-    expect(screen.getByRole("heading", { name: "第五阶段 · 学习反思" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "学习反思" })).toBeTruthy();
     expect(screen.queryByText("回顾这次学习，也回顾系统体验")).toBeNull();
     expect(screen.queryByText("预计 3–5 分钟完成。没有标准答案，请用自己的真实经历回答。")).toBeNull();
     expect(screen.queryByText("姓名、学生编号和回答将对任课教师可见，并用于教学改进与本课程实验分析。")).toBeNull();

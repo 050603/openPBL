@@ -156,8 +156,7 @@ export default function TeachClassroomPage() {
 
   const currentStage = course.stages[course.currentStageIndex];
   const newSystem = isNewOpenPblSystem();
-  const showDataSidebar = (!newSystem || currentStage?.key === "ai-learning")
-    && shouldShowClassroomDataSidebar(currentStage?.key, focusMode);
+  const showDataSidebar = shouldShowClassroomDataSidebar(currentStage?.key, focusMode);
   const companionStageActive = !newSystem
     && (currentStage?.key === "proposal" || currentStage?.key === "make");
   const canPrev = course.currentStageIndex > 0;
@@ -529,7 +528,7 @@ export default function TeachClassroomPage() {
 
           {currentStage ? (
             <section
-              className="pbl-card overflow-hidden rounded-[var(--radius-lg)] p-3 md:p-4"
+              className="classroom-stage pbl-card overflow-hidden rounded-[var(--radius-lg)] p-3 md:p-4"
               key={currentStage.key}
             >
               <TeacherStageView

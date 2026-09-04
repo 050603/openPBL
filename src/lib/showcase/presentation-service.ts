@@ -159,17 +159,24 @@ function documentSummary(version: ProjectDocumentVersion): FinalArtifactSummary 
     sequence: version.sequence,
     submittedAt: version.submittedAt ?? version.createdAt,
     displayModes: ["continuous"],
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size: version.docxSize,
+    downloadUrl: version.docxUploadId ? `/api/uploads/${version.docxUploadId}?download=1` : undefined,
   };
 }
 
 function pdfSummary(version: ProjectPdfVersion): FinalArtifactSummary {
+  const kind = version.kind === "file" ? "file" : "pdf";
   return {
-    kind: "pdf",
+    kind,
     versionId: version.id,
     title: version.title,
     sequence: version.sequence,
     submittedAt: version.submittedAt,
-    displayModes: ["continuous", "slides"],
+    displayModes: kind === "pdf" ? ["continuous", "slides"] : [],
+    mimeType: version.mimeType,
+    size: version.size,
+    downloadUrl: `/api/courses/${encodeURIComponent(version.courseId)}/showcase/artifacts/${encodeURIComponent(version.id)}?download=1`,
   };
 }
 
@@ -179,25 +186,15 @@ function latestByStudent(
 ): Map<string, FinalArtifactSummary[]> {
   const byStudent = new Map<string, FinalArtifactSummary[]>();
   const latestDocument = new Map<string, ProjectDocumentVersion>();
-  const latestPdf = new Map<string, ProjectPdfVersion>();
   for (const version of documents) {
     if (version.status !== "submitted") continue;
     const previous = latestDocument.get(version.studentId);
     if (!previous || isNewerVersion(version.submittedAt ?? version.createdAt, previous.submittedAt ?? previous.createdAt, version.sequence, previous.sequence)) latestDocument.set(version.studentId, version);
   }
+  for (const [studentId, version] of latestDocument) byStudent.set(studentId, [documentSummary(version)]);
   for (const version of pdfs) {
     if (version.status !== "submitted") continue;
-    const previous = latestPdf.get(version.studentId);
-    // PDF versions allocate a monotonically increasing per-student sequence
-    // under the course lock; use it as the authoritative latest marker.
-    if (!previous || version.sequence > previous.sequence
-      || (version.sequence === previous.sequence && version.submittedAt > previous.submittedAt)) {
-      latestPdf.set(version.studentId, version);
-    }
-  }
-  for (const [studentId, version] of latestDocument) byStudent.set(studentId, [documentSummary(version)]);
-  for (const [studentId, version] of latestPdf) {
-    byStudent.set(studentId, [...(byStudent.get(studentId) ?? []), pdfSummary(version)]);
+    byStudent.set(version.studentId, [...(byStudent.get(version.studentId) ?? []), pdfSummary(version)]);
   }
   for (const artifacts of byStudent.values()) artifacts.sort((left, right) => right.submittedAt.localeCompare(left.submittedAt));
   return byStudent;
@@ -267,6 +264,8 @@ async function loadFinalVersions(courseId: string, studentId?: string) {
       sequence: version.sequence,
       title: version.title,
       uploadId: version.uploadId,
+      kind: version.kind === "file" ? "file" : "pdf",
+      mimeType: version.mimeType,
       sha256: version.sha256 ?? undefined,
       size: version.size ?? undefined,
       status: version.status as ProjectPdfVersion["status"],
@@ -330,6 +329,7 @@ async function findLatestArtifact(
   artifactKind: FinalArtifactKind,
   artifactVersionId: string,
 ) {
+  if (artifactKind === "file") return null;
   if (artifactKind === "document") {
     const version = await prisma.projectDocumentVersion.findFirst({
       where: { id: artifactVersionId, courseId, studentId, stageKey: "make", status: "submitted" },
@@ -344,15 +344,9 @@ async function findLatestArtifact(
     return latest?.id === version.id ? { kind: "document" as const, version, title: version.title } : null;
   }
   const version = await prisma.projectPdfVersion.findFirst({
-    where: { id: artifactVersionId, courseId, studentId, stageKey: "make", status: "submitted" },
+    where: { id: artifactVersionId, courseId, studentId, stageKey: "make", status: "submitted", kind: "pdf" },
   });
-  if (!version) return null;
-  const latest = await prisma.projectPdfVersion.findFirst({
-    where: { courseId, studentId, stageKey: "make", status: "submitted" },
-    orderBy: { sequence: "desc" },
-    select: { id: true },
-  });
-  return latest?.id === version.id ? { kind: "pdf" as const, version, title: version.title } : null;
+  return version ? { kind: "pdf" as const, version, title: version.title } : null;
 }
 
 export async function getShowcaseData(
@@ -542,11 +536,11 @@ async function requestPresentation(courseId: string, action: Extract<ShowcaseAct
     });
     if (!lockedMember) throw new ShowcasePresentationError("PRESENTER_NOT_ASSIGNED", "当前学生不是教师指定的汇报学生。", 403);
     const latestLocked = action.artifactKind === "pdf"
-      ? await tx.projectPdfVersion.findFirst({ where: { id: action.artifactVersionId, courseId, studentId: claims.studentId, stageKey: "make", status: "submitted" }, select: { id: true } })
+      ? await tx.projectPdfVersion.findFirst({ where: { id: action.artifactVersionId, courseId, studentId: claims.studentId, stageKey: "make", status: "submitted", kind: "pdf" }, select: { id: true } })
       : await tx.projectDocumentVersion.findFirst({ where: { id: action.artifactVersionId, courseId, studentId: claims.studentId, stageKey: "make", status: "submitted" }, select: { id: true } });
     if (!latestLocked) throw new ShowcasePresentationError("ARTIFACT_NOT_LATEST", "只能展示最新的已提交成果。", 409);
     const latestForStudent = action.artifactKind === "pdf"
-      ? await tx.projectPdfVersion.findFirst({ where: { courseId, studentId: claims.studentId, stageKey: "make", status: "submitted" }, orderBy: { sequence: "desc" }, select: { id: true } })
+      ? latestLocked
       : await tx.projectDocumentVersion.findFirst({ where: { courseId, studentId: claims.studentId, stageKey: "make", status: "submitted" }, orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }, { sequence: "desc" }], select: { id: true } });
     if (latestForStudent?.id !== action.artifactVersionId) throw new ShowcasePresentationError("ARTIFACT_NOT_LATEST", "只能展示最新的已提交成果。", 409);
     const active = await tx.showcasePresentation.findFirst({ where: { courseId, status: "active" }, select: { id: true } });
@@ -611,7 +605,7 @@ async function reviewPresentation(courseId: string, action: Extract<ShowcaseActi
     if (!student) throw new ShowcasePresentationError("STUDENT_NOT_FOUND", "汇报学生不存在。", 404);
     if (action.decision === "approve") {
       const latest = row.artifactKind === "pdf"
-        ? await tx.projectPdfVersion.findFirst({ where: { courseId, studentId: row.studentId, stageKey: "make", status: "submitted" }, orderBy: { sequence: "desc" }, select: { id: true } })
+        ? await tx.projectPdfVersion.findFirst({ where: { id: row.artifactVersionId, courseId, studentId: row.studentId, stageKey: "make", status: "submitted", kind: "pdf" }, select: { id: true } })
         : await tx.projectDocumentVersion.findFirst({ where: { courseId, studentId: row.studentId, stageKey: "make", status: "submitted" }, orderBy: { sequence: "desc" }, select: { id: true } });
       if (!latest || latest.id !== row.artifactVersionId) throw new ShowcasePresentationError("ARTIFACT_NOT_LATEST", "该成果已不是学生最新的提交版本，请让学生重新申请。", 409);
       const active = await tx.showcasePresentation.findFirst({ where: { courseId, status: "active" }, select: { id: true } });

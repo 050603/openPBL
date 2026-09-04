@@ -122,16 +122,16 @@ export function KnowledgeLectureAnalytics({
 
   return (
     <Card className="overflow-hidden p-0">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 bg-[linear-gradient(120deg,#effcff,#fff_48%,#f5f3ff)] px-4 py-4">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 bg-white px-4 py-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="grid size-9 place-items-center rounded-[10px] bg-cyan-950 text-white"><BarChart3 size={17} /></span>
-            <div><h3 className="text-base font-black text-stone-950">{title}</h3><p className="mt-0.5 text-xs text-stone-500">按 AI 逐题得分归集到对应知识点，学生提交后实时更新</p></div>
+            <span className="grid size-9 place-items-center rounded-[10px] bg-[var(--pbl-teacher)] text-white"><BarChart3 size={17} /></span>
+            <div><h3 className="text-base font-bold text-stone-950">{title}</h3><p className="mt-0.5 text-xs text-stone-500">按 AI 逐题得分归集到对应知识点，学生提交后实时更新</p></div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-bold">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-stone-700 ring-1 ring-stone-200"><Users size={13} />已作答 {new Set(answeredStudentIds).size}/{studentCount}</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-cyan-800 ring-1 ring-cyan-100"><BookOpenCheck size={13} />班级均分 {attempts.length ? `${averageScore}分` : "—"}</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]"><BookOpenCheck size={13} />班级均分 {attempts.length ? `${averageScore}分` : "—"}</span>
         </div>
       </header>
 
@@ -142,11 +142,11 @@ export function KnowledgeLectureAnalytics({
           : "xl:grid-cols-[minmax(0,1fr)_minmax(380px,1fr)]",
       )}>
         <section className="border-b border-stone-100 p-4 xl:border-b-0 xl:border-r">
-          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 className="text-sm font-black text-stone-900">知识点未达标率排名</h4><p className="mt-0.5 text-[10px] text-stone-500">未达 80% 人数 ÷ 有效作答人数</p></div><Pill tone={rows.some((row) => row.answeredStudents) ? "orange" : "gray"}>{rows.filter((row) => row.answeredStudents).length} 个有作答</Pill></div>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 className="text-sm font-bold text-stone-900">知识点未达标率排名</h4><p className="mt-0.5 text-[10px] text-stone-500">未达 80% 人数 ÷ 有效作答人数</p></div><Pill tone={rows.some((row) => row.answeredStudents) ? "orange" : "gray"}>{rows.filter((row) => row.answeredStudents).length} 个有作答</Pill></div>
           <div className="space-y-3">
             {rows.filter((row) => row.answeredStudents).map((row, index) => (
               <article className="grid grid-cols-[28px_minmax(0,1fr)_52px] items-center gap-2" key={row.knowledgePointId}>
-                <span className={cn("grid size-7 place-items-center rounded-full text-xs font-black", index < 3 && row.unmetRate > 0 ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-500")}>{index + 1}</span>
+                <span className={cn("grid size-7 place-items-center rounded-full text-xs font-bold", index < 3 && row.unmetRate > 0 ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-500")}>{index + 1}</span>
                 <div className="min-w-0">
                   <div className="flex items-start justify-between gap-2"><strong
                     className="line-clamp-2 cursor-help text-xs leading-5 text-stone-800"
@@ -169,7 +169,7 @@ export function KnowledgeLectureAnalytics({
         </section>
 
         <section className={cn("p-4", selectedSectionId && "border-b border-stone-100 xl:border-b-0 xl:border-r")}>
-          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 className="text-sm font-black text-stone-900">各小节测验情况</h4><p className="mt-0.5 text-[10px] text-stone-500">点击小节查看逐题详情</p></div><Pill tone={sections.length ? "blue" : "gray"}>{sections.length} 节</Pill></div>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 className="text-sm font-bold text-stone-900">各小节测验情况</h4><p className="mt-0.5 text-[10px] text-stone-500">点击小节查看逐题详情</p></div><Pill tone={sections.length ? "blue" : "gray"}>{sections.length} 节</Pill></div>
           <div className="space-y-2.5">
             {sections.map((section) => {
               const quizEstimate = knowledgeLectureQuizEstimate(course, section);
@@ -181,10 +181,10 @@ export function KnowledgeLectureAnalytics({
                 : undefined;
               const selected = section.id === selectedSectionId;
               return (
-                <button aria-expanded={selected} className={cn("w-full rounded-xl border p-3 text-left transition", selected ? "border-violet-300 bg-violet-50 shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-violet-200 hover:bg-white")} key={section.id} onClick={() => setSelectedSectionId((current) => current === section.id ? undefined : section.id)} type="button">
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="line-clamp-2 text-xs font-black leading-5 text-stone-800">{section.title}</p><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-stone-500">{section.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id).join(" · ")}</p></div><span className="flex shrink-0 items-center gap-1 text-xs font-black text-cyan-800">{average === undefined ? "待作答" : `${average}分`}<ChevronRight className={cn("text-stone-400 transition-transform", selected && "rotate-180 text-violet-600")} size={14} /></span></div>
+                <button aria-expanded={selected} className={cn("w-full rounded-[var(--radius-sm)] border p-3 text-left transition", selected ? "border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-[var(--pbl-teacher-border)] hover:bg-white")} key={section.id} onClick={() => setSelectedSectionId((current) => current === section.id ? undefined : section.id)} type="button">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="line-clamp-2 text-xs font-bold leading-5 text-stone-800">{section.title}</p><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-stone-500">{section.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id).join(" · ")}</p></div><span className="flex shrink-0 items-center gap-1 text-xs font-bold text-[var(--pbl-teacher)]">{average === undefined ? "待作答" : `${average}分`}<ChevronRight className={cn("text-stone-400 transition-transform", selected && "rotate-180 text-[var(--pbl-teacher)]")} size={14} /></span></div>
                   <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-stone-500"><span>{sectionAttempts.length}/{studentCount} 人完成</span><span>{quizEstimate.questionCount} 题 · 预计 {quizEstimate.estimatedMinutes} 分钟</span></div>
-                  <p className={cn("mt-2 border-t pt-2 text-right text-[10px] font-bold", selected ? "border-violet-200 text-violet-700" : "border-stone-200 text-stone-400")}>{selected ? "再次点击收起题目" : "查看本节每道题"}</p>
+                  <p className={cn("mt-2 border-t pt-2 text-right text-[10px] font-bold", selected ? "border-[var(--pbl-teacher-border)] text-[var(--pbl-teacher)]" : "border-stone-200 text-stone-400")}>{selected ? "再次点击收起题目" : "查看本节每道题"}</p>
                 </button>
               );
             })}
@@ -193,12 +193,12 @@ export function KnowledgeLectureAnalytics({
         </section>
 
         {selectedSectionId ? (
-          <section className="min-w-0 bg-violet-50/25 p-4" aria-label="所选小节逐题详情">
-            <div className="mb-3 flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="flex items-center gap-1.5 text-sm font-black text-stone-900"><ListChecks size={15} className="text-violet-600" />本节逐题详情</h4><p className="mt-1 truncate text-[10px] font-semibold text-violet-700">{selectedSection?.title}</p></div><button aria-label="收起逐题详情" className="grid size-7 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 hover:border-violet-300 hover:text-violet-700" onClick={() => setSelectedSectionId(undefined)} type="button"><X size={13} /></button></div>
+          <section className="min-w-0 bg-[var(--pbl-surface-soft)] p-4" aria-label="所选小节逐题详情">
+            <div className="mb-3 flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="flex items-center gap-1.5 text-sm font-bold text-stone-900"><ListChecks size={15} className="text-[var(--pbl-teacher)]" />本节逐题详情</h4><p className="mt-1 truncate text-[10px] font-semibold text-[var(--pbl-teacher)]">{selectedSection?.title}</p></div><button aria-label="收起逐题详情" className="grid size-7 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]" onClick={() => setSelectedSectionId(undefined)} type="button"><X size={13} /></button></div>
             <div className="max-h-[430px] space-y-2.5 overflow-y-auto pr-1">
               {selectedQuestionRows.map((question) => (
-                <article className="rounded-xl border border-stone-200 bg-white p-3" key={question.id}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-bold text-violet-700">第 {question.questionNumber} 题</p><p className="mt-1 text-xs font-black leading-5 text-stone-800">{question.prompt}</p></div><strong className={cn("shrink-0 text-sm tabular-nums", question.accuracy >= 80 ? "text-emerald-700" : question.accuracy >= 60 ? "text-amber-700" : "text-rose-700")}>{question.accuracy}%</strong></div>
+                <article className="rounded-[var(--radius-sm)] border border-stone-200 bg-white p-3" key={question.id}>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-bold text-[var(--pbl-teacher)]">第 {question.questionNumber} 题</p><p className="mt-1 text-xs font-bold leading-5 text-stone-800">{question.prompt}</p></div><strong className={cn("shrink-0 text-sm tabular-nums", question.accuracy >= 80 ? "text-emerald-700" : question.accuracy >= 60 ? "text-amber-700" : "text-rose-700")}>{question.accuracy}%</strong></div>
                   <p className="mt-1.5 text-[10px] leading-4 text-stone-500">对应知识点：{question.knowledgePointNames.join(" · ") || "未关联"}</p>
                   <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-stone-500"><span>{question.answeredStudents} 人作答</span><span>{question.correctStudents}/{question.answeredStudents} 人达到 80%</span></div>
                   {question.commonFeedback ? <p className="mt-2 rounded-md bg-rose-50 px-2 py-1.5 text-[10px] leading-4 text-rose-700">典型问题：{question.commonFeedback}</p> : null}

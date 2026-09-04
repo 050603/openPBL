@@ -23,6 +23,7 @@ import {
   reflectionSurveyAverage,
   reflectionSurveyDistribution,
 } from "@/lib/reflection-survey";
+import { StagePageHeader } from "@/components/classroom/classroom-ui";
 
 const SCORE_FIELDS: Array<{
   key: "aiHelpfulness" | "systemUsability" | "reuseIntention";
@@ -62,24 +63,19 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
   const exportHref = `/api/courses/${encodeURIComponent(course.id)}/reflections/export`;
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-col gap-3 border-b border-stone-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold text-[var(--pbl-teacher)]">第五阶段 · 学习反思</p>
-          <h1 className="mt-1 font-editorial text-2xl font-semibold">学生反思数据</h1>
-          <p className="mt-2 text-sm text-stone-500">查看课程收获、系统体验与 AI 组员使用反馈；反思不计入课程成绩。</p>
-        </div>
-        <PrimaryButton disabled={!submittedCount} onClick={() => { window.location.href = exportHref; }} size="sm" tone="blue">
-          <Download size={15} />导出 CSV
-        </PrimaryButton>
-      </header>
+    <div className="classroom-stage space-y-5">
+      <StagePageHeader
+        action={<PrimaryButton disabled={!submittedCount} onClick={() => { window.location.href = exportHref; }} size="sm" tone="blue"><Download size={15} />导出 CSV</PrimaryButton>}
+        description="查看课程收获、系统体验与 AI 组员反馈。"
+        title="学生反思数据"
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Users className="text-blue-600" size={20} />} label="已提交" value={`${submittedCount} / ${totalStudents}`} detail={`提交率 ${completionRate}%`} />
         {SCORE_FIELDS.map(({ key, label }) => (
           <MetricCard
             detail="有效回答平均分"
-            icon={<BarChart3 className="text-violet-600" size={20} />}
+            icon={<BarChart3 className="text-[var(--pbl-teacher)]" size={20} />}
             key={key}
             label={label}
             value={reflectionSurveyAverage(submittedRecords, key)?.toFixed(1) ?? "—"}
@@ -90,7 +86,7 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
       <Card>
         <div className="flex flex-col gap-3 border-b border-stone-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold"><BarChart3 className="text-violet-700" size={19} />量表分布</h2>
+            <h2 className="flex items-center gap-2 text-lg font-bold"><BarChart3 className="text-[var(--pbl-teacher)]" size={19} />量表分布</h2>
             <p className="mt-1 text-xs leading-5 text-stone-500">只统计已提交且有完整结构化回答的学生；每个量表单独计算。</p>
           </div>
           <Pill tone={submittedCount ? "green" : "gray"}>{submittedCount ? `${submittedCount} 份有效回答` : "暂无有效回答"}</Pill>
@@ -101,7 +97,7 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
             const scoreCount = Object.values(distribution).reduce((sum, count) => sum + count, 0);
             return (
               <section key={key}>
-                <div className="flex items-center justify-between gap-3 text-sm font-semibold"><span>{label}</span><span className="text-violet-700">{reflectionSurveyAverage(submittedRecords, key)?.toFixed(1) ?? "—"} / 5</span></div>
+                <div className="flex items-center justify-between gap-3 text-sm font-semibold"><span>{label}</span><span className="text-[var(--pbl-teacher)]">{reflectionSurveyAverage(submittedRecords, key)?.toFixed(1) ?? "—"} / 5</span></div>
                 <div className="mt-3 space-y-2">
                   {REFLECTION_SURVEY_SCALE.map((option) => {
                     const count = distribution[option.value];
@@ -109,7 +105,7 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
                     return (
                       <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_3.25rem] items-center gap-2 text-xs" key={option.value}>
                         <span className="font-semibold text-stone-600">{option.value}分</span>
-                        <ProgressBar className="h-2" tone="violet" value={percent} />
+                        <ProgressBar className="h-2" tone="blue" value={percent} />
                         <span className="text-right text-stone-500">{count} 人</span>
                       </div>
                     );
@@ -161,7 +157,7 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
                   </div>
                   {survey ? (
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      {SCORE_FIELDS.map(({ key, label }) => <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs" key={key}><span className="text-stone-500">{label}</span><strong className="ml-2 text-sm text-violet-700">{survey[key]} / 5</strong></div>)}
+                      {SCORE_FIELDS.map(({ key, label }) => <div className="rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] px-3 py-2 text-xs" key={key}><span className="text-stone-500">{label}</span><strong className="ml-2 text-sm text-[var(--pbl-teacher)]">{survey[key]} / 5</strong></div>)}
                     </div>
                   ) : reflection?.content ? (
                     <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">检测到旧版反思记录，尚未包含本阶段问卷数据。</p>

@@ -76,6 +76,8 @@ export async function GET(
   const start = range?.start ?? 0;
   const end = range?.end ?? info.size - 1;
   const stream = createReadStream(target, { start, end });
+  const download = new URL(request.url).searchParams.get("download") === "1";
+  const disposition = download || pdf!.kind === "file" ? "attachment" : "inline";
   return new Response(Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>, {
     status: range ? 206 : 200,
     headers: {
@@ -83,7 +85,7 @@ export async function GET(
       "Content-Length": String(end - start + 1),
       ...(range ? { "Content-Range": `bytes ${start}-${end}/${info.size}` } : {}),
       "Accept-Ranges": "bytes",
-      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",

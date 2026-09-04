@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bot, Clock3, Download, FileCode2, FileText, MessageSquareText, ShieldAlert, UserRound, Users } from "lucide-react";
+import { Bot, Clock3, Download, FileCode2, FileText, MessageSquareText, ShieldAlert, UserRound } from "lucide-react";
 import { Card, Pill } from "@/components/ui";
 import { RichDocumentPreview } from "@/components/teacher/rich-document-preview";
 import { parseCodeArtifact } from "@/lib/ai-collaboration/code-artifact";
 import { buildStudentAiInteractionTurns } from "@/lib/ai-collaboration/interaction-transcript";
 import type { ClassroomSubmission, Course } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
+import { StageEmptyState, StagePageHeader, StageSplitLayout } from "@/components/classroom/classroom-ui";
 
 function payloadRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -64,59 +65,77 @@ export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
   const selected = rows.find((row) => row.student.id === selectedStudentId)
     ?? rows.find((row) => row.artifact)
     ?? rows[0];
+  const savedCount = rows.filter((row) => row.artifact).length;
+  const submittedVersionCount = rows.reduce((total, row) => total + row.documentVersions.filter((version) => version.status === "submitted").length, 0);
+  const interactionCount = rows.reduce((total, row) => total + row.aiEvents.length, 0);
 
   return (
-    <div className="space-y-4">
-      <Card className="border-[var(--pbl-ai-border)]" compact>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-sm)] bg-[var(--pbl-ai-soft)] text-[var(--pbl-ai)]"><Users size={21} /></span>
-            <div><p className="text-xs font-semibold text-[var(--pbl-ai)]">项目实践</p><h2 className="mt-0.5 text-xl font-bold text-[var(--pbl-text-strong)]">学习进度</h2><p className="mt-1 text-sm text-[var(--pbl-text-muted)]">查看学生的文档、代码与小组协作情况。</p></div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <a
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-stone-700 transition hover:border-emerald-300 hover:text-emerald-700"
-              download
-              href={`/api/project-practice/export?courseId=${encodeURIComponent(course.id)}`}
-            >
-              <Download size={13} />导出过程档案
-            </a>
-          </div>
-        </div>
-      </Card>
+    <div className="classroom-stage space-y-4">
+      <StagePageHeader
+        action={(
+          <a
+            className="inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white px-3.5 text-sm font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]"
+            download
+            href={`/api/project-practice/export?courseId=${encodeURIComponent(course.id)}`}
+          >
+            <Download size={14} />导出过程档案
+          </a>
+        )}
+        description="查看学生成果与 AI 协作进度，优先处理尚未形成成果的学生。"
+        title="项目实践进度"
+      />
 
-      <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)]">
-        <Card compact>
-          <h3 className="font-bold text-[var(--pbl-text-strong)]">学生列表</h3>
-          <div className="mt-3 space-y-2">
-            {rows.map((row) => (
-              <button
-                className={cn("w-full rounded-[var(--radius-sm)] border p-3 text-left transition", selected?.student.id === row.student.id ? "border-[var(--pbl-ai-border)] bg-[var(--pbl-ai-soft)]" : "border-[var(--pbl-border)] hover:border-[var(--pbl-ai-border)]")}
-                key={row.student.id}
-                onClick={() => setSelectedStudentId(row.student.id)}
-                type="button"
-              >
-                <div className="flex items-center justify-between gap-2"><span className="truncate font-bold text-stone-900">{row.student.name}</span><Pill tone={row.artifact ? "green" : "gray"}>{row.artifact ? "已保存" : "未保存"}</Pill></div>
-                <p className="mt-1 truncate text-xs text-[var(--pbl-text-muted)]">{row.artifact?.title ?? "尚未保存学习成果"}</p>
-              </button>
-            ))}
-            {!rows.length ? <p className="rounded-xl border border-dashed border-stone-300 py-8 text-center text-sm text-stone-500">尚无学生进入课堂。</p> : null}
-          </div>
-        </Card>
+      <section aria-label="项目实践班级指标" className="grid gap-3 sm:grid-cols-3">
+        <MonitorMetric label="已保存成果" value={`${savedCount}/${rows.length}`} hint="文档或代码" />
+        <MonitorMetric label="已提交版本" value={`${submittedVersionCount}`} hint="保留全部有效提交" />
+        <MonitorMetric label="AI 协作记录" value={`${interactionCount}`} hint="对话与建议事件" />
+      </section>
 
-        <Card compact>
-          {selected ? (
-            <ArtifactPreview
-              aiEvents={selected.aiEvents}
-              artifact={selected.artifact}
-              documentVersions={selected.documentVersions}
-              courseId={course.id}
-              studentId={selected.student.id}
-              studentName={selected.student.name}
-            />
-          ) : <div className="grid min-h-72 place-items-center text-sm text-[var(--pbl-text-muted)]">暂无学生学习成果</div>}
-        </Card>
-      </div>
+      <StageSplitLayout
+        aside={(
+          <Card className="classroom-panel" compact>
+            <div className="flex items-center justify-between gap-3"><h2 className="font-bold text-[var(--pbl-text-strong)]">学生列表</h2><Pill tone="gray">{rows.length} 人</Pill></div>
+            <div className="mt-3 max-h-[42rem] space-y-2 overflow-y-auto pr-1">
+              {rows.map((row) => (
+                <button
+                  className={cn("w-full rounded-[var(--radius-sm)] border p-3 text-left transition", selected?.student.id === row.student.id ? "border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/70" : "border-[var(--pbl-border)] bg-white hover:border-[var(--pbl-teacher-border)]")}
+                  key={row.student.id}
+                  onClick={() => setSelectedStudentId(row.student.id)}
+                  type="button"
+                >
+                  <div className="flex items-center justify-between gap-2"><span className="truncate font-semibold text-stone-900">{row.student.name}</span><Pill size="sm" tone={row.artifact ? "green" : "gray"}>{row.artifact ? "已保存" : "未保存"}</Pill></div>
+                  <p className="mt-1 truncate text-xs text-[var(--pbl-text-muted)]">{row.artifact?.title ?? "尚未保存学习成果"}</p>
+                </button>
+              ))}
+              {!rows.length ? <StageEmptyState description="学生加入课堂后，成果会显示在这里。" title="暂无学生进入课堂" /> : null}
+            </div>
+          </Card>
+        )}
+        main={(
+          <Card className="classroom-panel" compact>
+            {selected ? (
+              <ArtifactPreview
+                aiEvents={selected.aiEvents}
+                artifact={selected.artifact}
+                documentVersions={selected.documentVersions}
+                courseId={course.id}
+                studentId={selected.student.id}
+                studentName={selected.student.name}
+              />
+            ) : <StageEmptyState description="从右侧学生列表选择一名学生查看成果。" title="暂无可查看的学习成果" />}
+          </Card>
+        )}
+      />
+    </div>
+  );
+}
+
+function MonitorMetric({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="classroom-metric">
+      <div className="text-sm text-[var(--pbl-text-muted)]">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums text-[var(--pbl-text-strong)]">{value}</div>
+      <div className="mt-1 text-xs text-[var(--pbl-text-subtle)]">{hint}</div>
     </div>
   );
 }
@@ -158,7 +177,7 @@ function ArtifactPreview({
         <div className="mt-4 rounded-xl border border-dashed border-stone-300 bg-stone-50 px-5 py-8 text-center text-sm text-stone-500">该生尚未保存文档或代码。</div>
       ) : code ? (
         <div className="mt-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-bold text-stone-800"><FileCode2 size={17} className="text-violet-600" />{code.language === "python" ? "Python" : "C"} · {code.files.length} 个文件</div>
+          <div className="flex items-center gap-2 text-sm font-bold text-stone-800"><FileCode2 size={17} className="text-[var(--pbl-teacher)]" />{code.language === "python" ? "Python" : "C"} · {code.files.length} 个文件</div>
           {code.files.map((file) => <section className="overflow-hidden rounded-xl border border-stone-800 bg-stone-950" key={file.id}><header className="border-b border-stone-800 px-4 py-2 font-mono text-xs text-stone-300">{file.path}</header><pre className="max-h-80 overflow-auto p-4 text-xs leading-6 text-stone-100"><code>{file.content}</code></pre></section>)}
         </div>
       ) : artifact ? (
@@ -205,7 +224,7 @@ function ArtifactPreview({
                         </p>
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       </div>
-                      {message.modification ? <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/70 p-3 text-xs text-violet-950"><div className="flex flex-wrap items-center justify-between gap-2"><strong>AI 修改 · {message.modification.title ?? (message.modification.type === "work-delivery" ? "组员交付" : "局部建议")}</strong><span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold">{message.modification.undoneAt ? "已撤销" : message.modification.decision === "adopted" ? "学生已采用" : message.modification.decision === "revision" ? "已退回修改" : message.modification.decision === "rejected" ? "学生未采用" : "等待决定"}</span></div>{message.modification.targetText ? <div className="mt-2 rounded-md bg-rose-50 px-2.5 py-2"><span className="font-semibold text-rose-700">原内容：</span><span className="whitespace-pre-wrap text-stone-700">{message.modification.targetText}</span></div> : null}{message.modification.replacement ? <div className="mt-1.5 rounded-md bg-emerald-50 px-2.5 py-2"><span className="font-semibold text-emerald-700">AI 建议：</span><span className="whitespace-pre-wrap text-stone-700">{message.modification.replacement}</span></div> : null}{message.modification.decisionSummary ? <p className="mt-2 text-[11px] text-violet-800">{message.modification.decisionSummary}</p> : null}</div> : null}
+                      {message.modification ? <div className="mt-2 rounded-lg border border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)]/70 p-3 text-xs text-stone-900"><div className="flex flex-wrap items-center justify-between gap-2"><strong>AI 修改 · {message.modification.title ?? (message.modification.type === "work-delivery" ? "组员交付" : "局部建议")}</strong><span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold">{message.modification.undoneAt ? "已撤销" : message.modification.decision === "adopted" ? "学生已采用" : message.modification.decision === "revision" ? "已退回修改" : message.modification.decision === "rejected" ? "学生未采用" : "等待决定"}</span></div>{message.modification.targetText ? <div className="mt-2 rounded-md bg-rose-50 px-2.5 py-2"><span className="font-semibold text-rose-700">原内容：</span><span className="whitespace-pre-wrap text-stone-700">{message.modification.targetText}</span></div> : null}{message.modification.replacement ? <div className="mt-1.5 rounded-md bg-emerald-50 px-2.5 py-2"><span className="font-semibold text-emerald-700">AI 建议：</span><span className="whitespace-pre-wrap text-stone-700">{message.modification.replacement}</span></div> : null}{message.modification.decisionSummary ? <p className="mt-2 text-[11px] text-[var(--pbl-teacher)]">{message.modification.decisionSummary}</p> : null}</div> : null}
                     </div>
                   ))}
                 </div>

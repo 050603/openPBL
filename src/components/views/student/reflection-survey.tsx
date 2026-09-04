@@ -7,7 +7,6 @@ import {
   Clock3,
   RefreshCw,
   Send,
-  Sparkles,
 } from "lucide-react";
 import { Card, Pill, PrimaryButton, TextArea, toast } from "@/components/ui";
 import { buildReflectionEvidencePrompts } from "@/lib/teaching-ai/client-api";
@@ -26,6 +25,7 @@ import {
   normalizeReflectionSurvey,
   reflectionToLegacyContent,
 } from "@/lib/reflection-survey";
+import { StagePageHeader } from "@/components/classroom/classroom-ui";
 
 type SurveyFields = {
   learningReflection: string;
@@ -204,13 +204,13 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
   }
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-col gap-3 border-b border-stone-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="font-editorial text-2xl font-semibold">第五阶段 · 学习反思</h1>
-        <Pill tone={submitted ? "green" : complete ? "blue" : "gray"}>
-          {submitted ? "已提交，可更新" : complete ? "可以提交" : "待完成"}
-        </Pill>
-      </header>
+    <div className="classroom-stage space-y-5">
+      <StagePageHeader
+        description="完成五项反思后提交，课程结束前仍可更新。"
+        status={<Pill tone={submitted ? "green" : complete ? "blue" : "gray"}>{submitted ? "已提交，可更新" : complete ? "可以提交" : "待完成"}</Pill>}
+        title="学习反思"
+        variant="student-card"
+      />
 
       <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <Card className="border-[var(--pbl-student-border)] shadow-sm">
@@ -293,14 +293,15 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
           {!canEdit ? <p className="mt-3 text-xs text-stone-500">课程已结束，反思内容仅供查看。</p> : null}
         </Card>
 
-        <Card className="border-violet-100 bg-[linear-gradient(155deg,rgba(245,243,255,.96),rgba(255,255,255,.98)_55%)] shadow-sm xl:sticky xl:top-4">
+        <Card className="classroom-panel border-[var(--pbl-border)] bg-[var(--pbl-surface)] xl:sticky xl:top-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-2 text-base font-bold"><Sparkles className="text-[var(--pbl-ai)]" size={18} />AI 组员提示</h2>
+              <p className="classroom-eyebrow text-[var(--pbl-student)]">写作辅助</p>
+              <h2 className="mt-1 flex items-center gap-2 text-base font-bold"><BookOpenCheck className="text-[var(--pbl-student)]" size={18} />反思提示</h2>
             </div>
             <button
               aria-label="换一组反思提示"
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-violet-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-50 disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[var(--pbl-text-muted)] transition hover:border-[var(--pbl-student-border)] hover:text-[var(--pbl-student)] disabled:cursor-wait disabled:opacity-60"
               disabled={generatingPrompts || !canEdit}
               onClick={() => void generatePrompts()}
               type="button"
@@ -310,8 +311,8 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
           </div>
           <ol className="mt-4 space-y-3">
             {suggestions.slice(0, 2).map((suggestion, index) => (
-              <li className="flex gap-2.5 rounded-xl border border-violet-100 bg-white/80 p-3 text-sm leading-6 text-stone-700" key={`${suggestion}-${index}`}>
-                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-violet-100 text-[10px] font-bold text-violet-700">{index + 1}</span>
+              <li className="flex gap-2.5 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-[var(--pbl-surface-soft)] p-3 text-sm leading-6 text-stone-700" key={`${suggestion}-${index}`}>
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-[var(--pbl-student-soft)] text-[10px] font-bold text-[var(--pbl-student)]">{index + 1}</span>
                 <span>{suggestion}</span>
               </li>
             ))}

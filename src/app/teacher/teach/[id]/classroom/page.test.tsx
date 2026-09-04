@@ -75,10 +75,14 @@ describe("TimerPanel", () => {
 });
 
 describe("classroom data sidebar", () => {
-  it("stays hidden during showcase and focus mode", () => {
+  it("can expand in every teaching stage except showcase", () => {
     expect(shouldShowClassroomDataSidebar("showcase", false)).toBe(false);
+    expect(shouldShowClassroomDataSidebar("launch", false)).toBe(true);
+    expect(shouldShowClassroomDataSidebar("ai-learning", false)).toBe(true);
+    expect(shouldShowClassroomDataSidebar("proposal", false)).toBe(true);
     expect(shouldShowClassroomDataSidebar("make", true)).toBe(false);
     expect(shouldShowClassroomDataSidebar("make", false)).toBe(true);
+    expect(shouldShowClassroomDataSidebar("reflection", false)).toBe(true);
   });
 });
 
