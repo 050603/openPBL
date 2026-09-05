@@ -205,3 +205,6 @@ export function useShowcasePresentation(courseId: string | undefined) {
 
   return useMemo(() => ({ ...state, runAction, reload: load }), [load, runAction, state]);
 }
+
+/** Shared controller shape used by the classroom shell and both showcase views. */
+export type ShowcasePresentationController = ReturnType<typeof useShowcasePresentation>;

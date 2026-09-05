@@ -1,4 +1,6 @@
 import type { Course, StageViewKey } from "@/lib/session/types";
+import type { TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
+import type { ShowcasePresentationController } from "@/hooks/use-showcase-presentation";
 import { AiLearningTeacherView } from "./ai-learning";
 import { ProjectLaunchTeacherView } from "./project-launch";
 import { ReflectionTeacherView } from "./reflection";
@@ -23,11 +25,15 @@ export function TeacherStageView({
   course,
   onSelectStudent,
   onSelectGroup,
+  focus,
+  showcaseController,
 }: {
   view: StageViewKey;
   course: Course;
   onSelectStudent?: (studentId: string) => void;
   onSelectGroup?: (groupId: string) => void;
+  focus?: TeacherStageFocus;
+  showcaseController?: ShowcasePresentationController;
 }) {
   // Normalize old persisted five-stage courses whose fourth stage still uses
   // the generic resource view. Legacy six-stage courses retain their original
@@ -50,6 +56,7 @@ export function TeacherStageView({
         <AiLearningTeacherView
           course={course}
           onSelectStudent={onSelectStudent}
+          focus={focus?.stageKey === "ai-learning" ? focus : undefined}
         />
       );
     case "simple-resource":
@@ -57,10 +64,11 @@ export function TeacherStageView({
         <SimplifiedTeacherStageView
           course={course}
           stageKey={course.stages[course.currentStageIndex]?.key ?? "launch"}
+          focus={focus?.stageKey === "launch" ? focus : undefined}
         />
       );
     case "ai-collaboration":
-      return <AiCollaborationTeacherMonitor course={course} />;
+      return <AiCollaborationTeacherMonitor course={course} focus={focus?.stageKey === "make" ? focus : undefined} />;
     case "group":
       return <CompanionMonitor className="mt-0" course={course} stageKey="proposal" />;
     case "workspace":
@@ -68,13 +76,13 @@ export function TeacherStageView({
     case "proposal-review":
       return <CompanionMonitor className="mt-0" course={course} stageKey="proposal" />;
     case "project-making":
-      return <AiCollaborationTeacherMonitor course={course} />;
+      return <AiCollaborationTeacherMonitor course={course} focus={focus?.stageKey === "make" ? focus : undefined} />;
     case "showcase-reporting":
-      return <NewShowcaseTeacherView course={course} />;
+      return <NewShowcaseTeacherView course={course} focus={focus?.stageKey === "showcase" ? focus : undefined} controller={showcaseController} />;
     case "showcase":
       return <ShowcaseTeacherView course={course} onSelectGroup={onSelectGroup} />;
     case "reflection-survey":
-      return <NewReflectionTeacherView course={course} />;
+      return <NewReflectionTeacherView course={course} focus={focus?.stageKey === "reflection" ? focus : undefined} />;
     case "reflection":
       return <ReflectionTeacherView course={course} onSelectStudent={onSelectStudent} />;
     default:

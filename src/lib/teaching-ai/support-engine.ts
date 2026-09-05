@@ -53,6 +53,18 @@ export type TeacherInterventionSignal = {
   supportCard: string;
 };
 
+export type TeacherDashboardAdvice = {
+  summary: string;
+  actions: Array<{
+    title: string;
+    detail: string;
+    kind: "offline-task" | "patrol" | "next-step";
+    studentIds: string[];
+  }>;
+  generatedAt: string;
+  source: "llm";
+};
+
 export type ArtifactFocus = "steps" | "evidence" | "risk" | "overall";
 
 const TEACHER_SIGNAL_CACHE_TTL_MS = 120_000;
@@ -61,6 +73,12 @@ type TeacherSignalCacheEntry = {
   expiresAt: number;
   promise?: Promise<TeacherInterventionSignal[]>;
   value?: TeacherInterventionSignal[];
+};
+
+type TeacherDashboardAdviceCacheEntry = {
+  expiresAt: number;
+  promise?: Promise<TeacherDashboardAdvice>;
+  value?: TeacherDashboardAdvice;
 };
 
 export type SupportCallOptions = { abortSignal?: AbortSignal };
@@ -79,6 +97,7 @@ export type ProjectSkeletonTarget =
   | "drivingQuestions";
 
 const teacherSignalCache = new Map<string, TeacherSignalCacheEntry>();
+const teacherDashboardAdviceCache = new Map<string, TeacherDashboardAdviceCacheEntry>();
 
 // ============================================================
 // 第一部分：LLM 调用辅助函数
@@ -673,7 +692,7 @@ export async function buildTeacherInterventionSignals(
     }
   }
 
-  const promise = callLLMForJson<{
+  const promise: Promise<TeacherInterventionSignal[]> = callLLMForJson<{
     groups: Array<{
       groupId: string;
       riskLevel: "high" | "medium" | "low";
@@ -750,6 +769,122 @@ ${course.groups.map((g) => {
     });
   }
   return result;
+}
+
+/**
+ * Generate the compact teacher-side advice shown beside the five-stage
+ * classroom. The model receives only a bounded snapshot of this course and
+ * must return no action when the evidence is insufficient. There is
+ * deliberately no rule-based or generic fallback.
+ */
+export async function buildTeacherDashboardAdvice(
+  course: Course,
+  stageKey: string,
+  opts: SupportCallOptions = {},
+): Promise<TeacherDashboardAdvice> {
+  throwIfAborted(opts.abortSignal);
+  const studentIds = new Set(course.students.map((student) => student.id));
+  const studentName = new Map(course.students.map((student) => [student.id, student.name]));
+  const stageSignals = (course.learningSignals ?? [])
+    .filter((signal) => signal.stageKey === stageKey && signal.status === "open")
+    .sort((left, right) => Date.parse(right.lastDetectedAt) - Date.parse(left.lastDetectedAt))
+    .slice(0, 12)
+    .map((signal) => ({
+      studentId: signal.studentId,
+      studentName: studentName.get(signal.studentId),
+      severity: signal.severity,
+      title: signal.title,
+      summary: signal.summary,
+      detectedAt: signal.lastDetectedAt,
+    }));
+  const stageEvents = (course.learningEvents ?? [])
+    .filter((event) => event.stageKey === stageKey)
+    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
+    .slice(0, 80);
+  const eventCounts = stageEvents.reduce<Record<string, number>>((counts, event) => {
+    counts[event.type] = (counts[event.type] ?? 0) + 1;
+    return counts;
+  }, {});
+  const progress = course.students.map((student) => ({
+    studentId: student.id,
+    studentName: student.name,
+    stageProgress: student.stageProgress?.[stageKey],
+    aiLearning: stageKey === "ai-learning" ? formatAiLearningProgress(course.aiLearningProgress?.[student.id]) : undefined,
+  }));
+  const evidenceSnapshot = {
+    course: {
+      id: course.id,
+      name: course.name,
+      subject: course.subject,
+      grade: course.grade,
+      drivingQuestion: course.drivingQuestion,
+      stage: learningStageLabel(stageKey, course.stages),
+      studentCount: course.students.length,
+    },
+    progress,
+    openSignals: stageSignals,
+    commonIssues: (course.classCommonIssues ?? [])
+      .filter((issue) => issue.stageKey === stageKey && issue.status === "open")
+      .slice(0, 6)
+      .map((issue) => ({ title: issue.title, summary: issue.summary, severity: issue.severity, affectedStudentCount: issue.studentIds.length })),
+    recentEventCounts: eventCounts,
+    resources: stageKey === "launch" ? (course.resources ?? []).filter((resource) => resource.stageKey === "launch" || !resource.stageKey).slice(0, 12).map((resource) => ({ id: resource.id, title: resource.title, type: resource.type })) : undefined,
+    artifacts: stageKey === "make" ? {
+      documentVersions: (course.projectDocumentVersions ?? []).filter((version) => version.stageKey === "make").length,
+      pdfVersions: (course.projectPdfVersions ?? []).filter((version) => version.stageKey === "make").length,
+      submittedDocuments: (course.projectDocumentVersions ?? []).filter((version) => version.stageKey === "make" && version.status === "submitted").length,
+      submittedPdfs: (course.projectPdfVersions ?? []).filter((version) => version.stageKey === "make" && version.status === "submitted").length,
+      aiDecisions: (course.studentAiDecisions ?? []).filter((decision) => decision.stageKey === "make").slice(-20).map((decision) => ({ studentId: decision.studentId, decision: decision.decision })),
+    } : undefined,
+    showcase: stageKey === "showcase" ? (course.showcasePresentations ?? []).slice(-20).map((presentation) => ({ studentId: presentation.studentId, studentName: presentation.studentName, status: presentation.status, startedAt: presentation.startedAt, endedAt: presentation.endedAt })) : undefined,
+    reflections: stageKey === "reflection" ? (course.reflections ?? []).slice(-30).map((reflection) => ({ studentId: reflection.studentId, studentName: reflection.studentName, submittedAt: reflection.updatedAt, hasStructuredSurvey: Boolean(reflection.survey) })) : undefined,
+    recentOfflineInterventions: (course.offlineInterventions ?? []).filter((item) => item.stageKey === stageKey).slice(-8).map((item) => ({ kind: item.kind, studentIds: item.targetStudentIds, note: item.note, createdAt: item.createdAt })),
+  };
+  const cacheKey = `${course.id}:${stageKey}:${course.updatedAt}:${stageEvents[0]?.occurredAt ?? "none"}:${stageSignals[0]?.detectedAt ?? "none"}`;
+  const cached = teacherDashboardAdviceCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.value) return cached.value;
+    if (cached.promise) return cached.promise;
+  }
+
+  const promise: Promise<TeacherDashboardAdvice> = callLLMForJson<{
+    summary?: unknown;
+    actions?: Array<{ title?: unknown; detail?: unknown; kind?: unknown; studentIds?: unknown }>;
+  }>(
+    stageSystemPrompt(stageKey),
+    `请仅依据下面这节课当前阶段的实时证据，为教师生成侧栏教学建议。
+
+实时证据：
+${JSON.stringify(evidenceSnapshot)}
+
+要求：
+1. 不得输出通用课堂常识、固定流程或未被证据支持的提醒。
+2. 最多 3 条，每条必须对应上方具体数据；证据不足时 actions 返回空数组。
+3. 建议必须是教师现在可执行的线下任务、巡场动作或阶段下一步。
+4. 只有证据明确指向某名学生时才填写 studentIds，且只能使用证据中的真实 studentId。
+5. summary 用一句话概括当前最值得教师关注的事实，不作无依据推断。
+
+仅返回 JSON：{ "summary": "string", "actions": [{ "title": "string", "detail": "string", "kind": "offline-task"|"patrol"|"next-step", "studentIds": ["string"] }] }`,
+    { abortSignal: opts.abortSignal },
+  ).then((result) => {
+    const summary = typeof result?.summary === "string" ? result.summary.trim() : "";
+    if (!summary || !Array.isArray(result.actions)) return invalidAiResult("教师侧栏实时建议");
+    const actions = result.actions.flatMap((action) => {
+      const title = typeof action.title === "string" ? action.title.trim() : "";
+      const detail = typeof action.detail === "string" ? action.detail.trim() : "";
+      const kind: TeacherDashboardAdvice["actions"][number]["kind"] | undefined = action.kind === "offline-task" || action.kind === "patrol" || action.kind === "next-step" ? action.kind : undefined;
+      if (!title || !detail || !kind) return [];
+      const validStudentIds = Array.isArray(action.studentIds)
+        ? action.studentIds.filter((id): id is string => typeof id === "string" && studentIds.has(id)).slice(0, 3)
+        : [];
+      return [{ title, detail, kind, studentIds: validStudentIds }];
+    }).slice(0, 3);
+    return { summary, actions, generatedAt: new Date().toISOString(), source: "llm" as const };
+  });
+  teacherDashboardAdviceCache.set(cacheKey, { expiresAt: Date.now() + TEACHER_SIGNAL_CACHE_TTL_MS, promise });
+  const advice = await promise;
+  teacherDashboardAdviceCache.set(cacheKey, { expiresAt: Date.now() + TEACHER_SIGNAL_CACHE_TTL_MS, value: advice });
+  return advice;
 }
 
 // ============================================================

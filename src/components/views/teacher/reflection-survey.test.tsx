@@ -68,7 +68,9 @@ describe("NewReflectionTeacherView", () => {
     render(<NewReflectionTeacherView course={makeCourse()} />);
 
     expect(screen.queryByText("提交率 50%")).toBeNull();
-    expect(screen.getAllByText(/4\.0 \/ 5/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("4.0").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("img", { name: "AI 引导帮助：1分0人、2分0人、3分0人、4分1人、5分0人" })).toBeTruthy();
+    expect(screen.getAllByText("同意 100%").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("小周")).toBeTruthy();
     expect(screen.getByText("待提交")).toBeTruthy();
     expect((screen.getByRole("button", { name: "导出 CSV" }) as HTMLButtonElement).disabled).toBe(false);

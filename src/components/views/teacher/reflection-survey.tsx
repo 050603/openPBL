@@ -19,7 +19,6 @@ import {
   DialogTitle,
   Pill,
   PrimaryButton,
-  ProgressBar,
 } from "@/components/ui";
 import type {
   AiSupportRecord,
@@ -43,6 +42,7 @@ import {
 } from "@/lib/reflection-summary";
 import { StagePageHeader } from "@/components/classroom/classroom-ui";
 import { ReflectionWordCloud } from "./reflection-word-cloud";
+import type { TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
 
 const SCORE_FIELDS: Array<{
   key: "aiHelpfulness" | "systemUsability" | "reuseIntention";
@@ -52,6 +52,14 @@ const SCORE_FIELDS: Array<{
   { key: "systemUsability", label: "系统易理解" },
   { key: "reuseIntention", label: "继续使用意愿" },
 ];
+
+const SCORE_SEGMENT_CLASSES = {
+  1: "bg-rose-500",
+  2: "bg-orange-300",
+  3: "bg-stone-300",
+  4: "bg-emerald-300",
+  5: "bg-emerald-600",
+} as const;
 
 function formatDate(value?: string): string {
   if (!value) return "—";
@@ -120,10 +128,12 @@ function InsightCard({
   );
 }
 
-export function NewReflectionTeacherView({ course }: { course: Course }) {
+export function NewReflectionTeacherView({ course, focus }: { course: Course; focus?: Extract<TeacherStageFocus, { stageKey: "reflection" }> }) {
   const [selectedStudentId, setSelectedStudentId] = useState<string>();
   const [selectedTerm, setSelectedTerm] = useState<{ category: ReflectionSummaryCategory; term: ReflectionSummaryTerm }>();
   const [localSummary, setLocalSummary] = useState<{ courseId: string; support: AiSupportRecord }>();
+  const [studentQuery, setStudentQuery] = useState("");
+  const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "low-score">("all");
   const latest = useMemo(() => latestReflectionByStudent(course.reflections), [course.reflections]);
   const submitted = useMemo(
     () => course.students
@@ -137,6 +147,26 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
     .filter((reflection): reflection is ReflectionRecord => Boolean(surveyFor(reflection)));
   const submittedCount = submitted.length;
   const exportHref = `/api/courses/${encodeURIComponent(course.id)}/reflections/export`;
+  const visibleStudents = useMemo(() => course.students
+    .filter((student) => student.name.toLocaleLowerCase().includes(studentQuery.trim().toLocaleLowerCase()))
+    .filter((student) => {
+      const survey = surveyFor(latest.get(student.id));
+      if (studentFilter === "pending") return !survey;
+      if (studentFilter === "low-score") return Boolean(survey && [survey.aiHelpfulness, survey.systemUsability, survey.reuseIntention].some((score) => score <= 2));
+      return true;
+    }), [course.students, latest, studentFilter, studentQuery]);
+
+  useEffect(() => {
+    if (!focus) return;
+    setStudentFilter(focus.filter);
+    if (focus.studentId) {
+      const focusedStudent = course.students.find((student) => student.id === focus.studentId);
+      const survey = surveyFor(latest.get(focus.studentId));
+      if (focusedStudent) setStudentQuery(focusedStudent.name);
+      setSelectedStudentId(survey ? focus.studentId : undefined);
+      window.setTimeout(() => document.getElementById(`reflection-student-${focus.studentId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+    }
+  }, [course.students, focus?.filter, focus?.studentId, latest]);
   useEffect(() => {
     const onSummaryUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ courseId?: string; support?: AiSupportRecord }>).detail;
@@ -192,30 +222,58 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
 
       <Card className="border-stone-200/80 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-stone-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold"><BarChart3 className="text-stone-500" size={19} />量表分布</h2>
-          </div>
-          <Pill tone={submittedCount ? "green" : "gray"}>{submittedCount ? `${submittedCount} 份有效回答` : "暂无有效回答"}</Pill>
+          <h2 className="flex items-center gap-2 text-lg font-bold"><BarChart3 className="text-stone-500" size={19} />量表分布</h2>
+          <Pill tone={submittedCount ? "green" : "gray"}>{submittedCount ? "逐生证据" : "暂无有效回答"}</Pill>
         </div>
-        <div className="mt-5 grid gap-5 lg:grid-cols-3">
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2" aria-label="量表颜色图例">
+          {REFLECTION_SURVEY_SCALE.map((option) => (
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-stone-500" key={option.value}>
+              <span className={`size-2.5 rounded-sm ${SCORE_SEGMENT_CLASSES[option.value]}`} />
+              {option.value} {option.label}
+            </span>
+          ))}
+        </div>
+        <div className="mt-5 space-y-4">
           {SCORE_FIELDS.map(({ key, label }) => {
             const distribution = reflectionSurveyDistribution(submittedRecords, key);
             const scoreCount = Object.values(distribution).reduce((sum, count) => sum + count, 0);
+            const average = reflectionSurveyAverage(submittedRecords, key);
+            const negativePercent = scoreCount ? Math.round((distribution[1] + distribution[2]) / scoreCount * 100) : 0;
+            const neutralPercent = scoreCount ? Math.round(distribution[3] / scoreCount * 100) : 0;
+            const positivePercent = scoreCount ? Math.max(0, 100 - negativePercent - neutralPercent) : 0;
             return (
-              <section key={key}>
-                <div className="flex items-center justify-between gap-3 text-sm font-semibold"><span>{label}</span><span className="text-stone-600">{reflectionSurveyAverage(submittedRecords, key)?.toFixed(1) ?? "—"} / 5</span></div>
-                <div className="mt-3 space-y-2">
+              <section className="rounded-xl border border-stone-200 bg-stone-50/55 px-4 py-4" key={key}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-stone-800">{label}</h3>
+                    <p className="mt-1 text-xs text-stone-400">{scoreCount ? `${scoreCount} 份回答` : "等待有效回答"}</p>
+                  </div>
+                  <span className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs text-stone-500 shadow-sm">均分 <strong className="text-base text-stone-900">{average?.toFixed(1) ?? "—"}</strong> / 5</span>
+                </div>
+                <div
+                  aria-label={`${label}：${REFLECTION_SURVEY_SCALE.map((option) => `${option.value}分${distribution[option.value]}人`).join("、")}`}
+                  className="mt-4 flex h-9 overflow-hidden rounded-lg bg-stone-200 ring-1 ring-inset ring-stone-200"
+                  role="img"
+                >
                   {REFLECTION_SURVEY_SCALE.map((option) => {
                     const count = distribution[option.value];
-                    const percent = scoreCount ? Math.round((count / scoreCount) * 100) : 0;
-                    return (
-                      <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_3.25rem] items-center gap-2 text-xs" key={option.value}>
-                        <span className="font-semibold text-stone-600">{option.value}分</span>
-                        <ProgressBar className="h-2" tone="blue" value={percent} />
-                        <span className="text-right text-stone-500">{count} 人</span>
+                    const percent = scoreCount ? count / scoreCount * 100 : 0;
+                    return count ? (
+                      <div
+                        className={`grid min-w-0 place-items-center text-[11px] font-bold ${option.value === 1 || option.value === 5 ? "text-white" : "text-stone-800"} ${SCORE_SEGMENT_CLASSES[option.value]}`}
+                        key={option.value}
+                        style={{ width: `${percent}%` }}
+                        title={`${option.value} 分（${option.label}）：${count} 人，${Math.round(percent)}%`}
+                      >
+                        {percent >= 14 ? `${option.value}分 · ${count}人` : ""}
                       </div>
-                    );
+                    ) : null;
                   })}
+                </div>
+                <div className="mt-2 grid grid-cols-3 text-[11px] font-medium">
+                  <span className="text-rose-600">不同意 {negativePercent}%</span>
+                  <span className="text-center text-stone-500">不确定 {neutralPercent}%</span>
+                  <span className="text-right text-emerald-700">同意 {positivePercent}%</span>
                 </div>
               </section>
             );
@@ -228,11 +286,15 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold"><MessageSquareText className="text-[var(--pbl-teacher)]" size={19} />逐生反思摘要</h2>
           </div>
-          <span className="text-xs text-stone-500">{submittedCount}/{course.students.length} 人已提交</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative"><span className="sr-only">搜索学生</span><input aria-label="搜索反思学生" className="h-9 w-36 rounded-lg border border-stone-200 bg-white px-3 text-xs outline-none focus:border-blue-400" onChange={(event) => setStudentQuery(event.target.value)} placeholder="搜索姓名" value={studentQuery} /></label>
+            <select aria-label="筛选反思学生" className="h-9 rounded-lg border border-stone-200 bg-white px-2 text-xs font-semibold text-stone-700" onChange={(event) => setStudentFilter(event.target.value as typeof studentFilter)} value={studentFilter}><option value="all">全部</option><option value="pending">未提交</option><option value="low-score">低分体验</option></select>
+            <span className="text-xs text-stone-500">按姓名或状态查看完整回答</span>
+          </div>
         </div>
         {course.students.length ? (
           <ul className="grid gap-3 md:grid-cols-2">
-            {course.students.map((student) => {
+            {visibleStudents.map((student) => {
               const reflection = latest.get(student.id);
               const survey = surveyFor(reflection);
               const summaryText = studentSummaries.get(student.id)
@@ -258,7 +320,7 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
                 </>
               );
               return (
-                <li key={student.id}>
+                <li id={`reflection-student-${student.id}`} key={student.id}>
                   {survey ? (
                     <button
                       aria-label={`${student.name}的反思详情`}
@@ -278,6 +340,7 @@ export function NewReflectionTeacherView({ course }: { course: Course }) {
         ) : (
           <div className="rounded-lg border border-dashed border-stone-300 py-12 text-center text-sm text-stone-500">暂无学生名单。</div>
         )}
+        {course.students.length > 0 && !visibleStudents.length ? <div className="rounded-lg border border-dashed border-stone-300 py-10 text-center text-sm text-stone-500">没有符合当前筛选的学生。</div> : null}
       </Card>
 
       <Dialog onOpenChange={(open) => { if (!open) setSelectedStudentId(undefined); }} open={Boolean(selectedStudent && selectedSurvey)}>

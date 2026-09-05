@@ -26,6 +26,9 @@ const EVENT_TYPE_LABELS: Record<LearningEventType, string> = {
   "artifact-change": "更新学习内容",
   "stage-enter": "进入学习阶段",
   "stage-goal-complete": "完成阶段目标",
+  "resource-open": "打开学习资料",
+  "resource-progress": "推进资料浏览",
+  "resource-complete": "完成资料浏览",
 };
 
 export function formatLearningEventType(type: LearningEventType): string {

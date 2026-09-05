@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowDown,
@@ -32,6 +32,7 @@ import { ClassInterventionPanel } from "./class-intervention-panel";
 import { KnowledgeLectureAnalytics } from "./knowledge-lecture-analytics";
 import { firstKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
 import { StagePageHeader } from "@/components/classroom/classroom-ui";
+import type { TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
 
 export function computeAiLearningProgress(entry?: StudentAiProgress): number {
   if (!entry || !isReliableAiProgress(entry)) return 0;
@@ -163,9 +164,11 @@ export function adaptiveResponseStatus(
 export function AiLearningTeacherView({
   course,
   onSelectStudent,
+  focus,
 }: {
   course: Course;
   onSelectStudent?: (id: string) => void;
+  focus?: Extract<TeacherStageFocus, { stageKey: "ai-learning" }>;
 }) {
   const [selectedStudentId, setSelectedStudentId] = useState<string>();
   const [studentDetailTab, setStudentDetailTab] = useState<StudentLearningDetailTab>("trajectory");
@@ -193,6 +196,13 @@ export function AiLearningTeacherView({
     setSelectedStudentId(studentId);
     onSelectStudent?.(studentId);
   }
+
+  useEffect(() => {
+    if (!focus) return;
+    setStudentDetailTab(focus.tab);
+    setSelectedStudentId(focus.studentId);
+    onSelectStudent?.(focus.studentId);
+  }, [focus?.studentId, focus?.tab, onSelectStudent]);
 
   return (
     <div className="classroom-stage space-y-5">

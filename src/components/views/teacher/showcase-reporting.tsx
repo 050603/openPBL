@@ -20,9 +20,11 @@ import {
 import { ShowcaseArtifactViewer } from "@/components/showcase/showcase-artifact-viewer";
 import { Card, Pill, PrimaryButton, TextInput } from "@/components/ui";
 import { useShowcasePresentation } from "@/hooks/use-showcase-presentation";
+import type { ShowcasePresentationController } from "@/hooks/use-showcase-presentation";
 import type { Course, FinalArtifactSummary, ShowcasePresentationSnapshot } from "@/lib/session/types";
 import type { ShowcaseQueueItem, ShowcaseQueueItemStatus } from "@/lib/showcase/types";
 import { StageEmptyState, StagePageHeader, StageSplitLayout } from "@/components/classroom/classroom-ui";
+import type { TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
 
 function artifactForPresentation(presentation: ShowcasePresentationSnapshot): FinalArtifactSummary {
   return {
@@ -63,8 +65,11 @@ const statusTones: Record<ShowcaseQueueItemStatus, "gray" | "blue" | "amber" | "
   completed: "teal",
 };
 
-export function NewShowcaseTeacherView({ course }: { course: Course }) {
-  const { data, loading, error, runAction, reload } = useShowcasePresentation(course.id);
+export function NewShowcaseTeacherView({ course, focus, controller }: { course: Course; focus?: Extract<TeacherStageFocus, { stageKey: "showcase" }>; controller?: ShowcasePresentationController }) {
+  // The classroom shell owns the request when the right rail is visible. The
+  // local hook remains as a safe fallback for standalone rendering/tests.
+  const localController = useShowcasePresentation(controller ? undefined : course.id);
+  const { data, loading, error, runAction, reload } = controller ?? localController;
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string>();
   const [note, setNote] = useState("");
@@ -96,6 +101,10 @@ export function NewShowcaseTeacherView({ course }: { course: Course }) {
   useEffect(() => {
     if (data?.minutesPerStudent) setMinutesDraft(data.minutesPerStudent);
   }, [data?.minutesPerStudent]);
+
+  useEffect(() => {
+    if (focus?.studentId) setSelectedStudentId(focus.studentId);
+  }, [focus?.studentId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
@@ -195,7 +204,7 @@ export function NewShowcaseTeacherView({ course }: { course: Course }) {
       <StageSplitLayout
         aside={(
           <Card className="classroom-panel" compact>
-            <div className="flex items-start justify-between gap-3"><div><h2 className="font-bold text-[var(--pbl-text-strong)]">汇报队列</h2><p className="mt-1 text-xs text-[var(--pbl-text-muted)]">拖动或使用箭头调整尚未开始的学生。</p></div><Pill size="sm" tone="blue">{queue.filter((item) => item.status === "completed").length}/{queue.length} 已评价</Pill></div>
+            <div className="flex items-start justify-between gap-3"><div><h2 className="font-bold text-[var(--pbl-text-strong)]">汇报队列</h2><p className="mt-1 text-xs text-[var(--pbl-text-muted)]">拖动或使用箭头调整尚未开始的学生。</p></div><Pill size="sm" tone="blue">按队列推进</Pill></div>
             <div className="mt-3 flex items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--pbl-surface-soft)] px-3 py-2"><label className="flex flex-1 items-center gap-2 text-xs font-semibold text-[var(--pbl-text-muted)]" htmlFor="showcase-minutes">每人预计</label><input aria-label="每人预计汇报分钟数" className="h-11 w-16 rounded-[var(--radius-xs)] border border-[var(--pbl-border)] bg-white px-2 text-center text-sm font-semibold" id="showcase-minutes" max={60} min={1} onChange={(event) => setMinutesDraft(Math.min(60, Math.max(1, Number(event.target.value) || 1)))} onBlur={() => { if (minutesDraft !== data?.minutesPerStudent) void saveOrder(queue.map((item) => item.studentId), minutesDraft); }} type="number" value={minutesDraft} /><span className="text-xs text-[var(--pbl-text-muted)]">分钟</span><button aria-label="恢复按成果提交顺序" className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-xs)] text-[var(--pbl-text-muted)] hover:bg-white hover:text-[var(--pbl-teacher)]" onClick={() => void saveOrder([], minutesDraft)} title="恢复按成果提交顺序" type="button"><RotateCcw size={15} /></button></div>
             <div className="mt-3 max-h-[44rem] space-y-1.5 overflow-y-auto pr-1" onDragOver={(event) => event.preventDefault()}>
               {queue.length ? queue.map((item, index) => {

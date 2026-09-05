@@ -496,7 +496,13 @@ export type LearningEventType =
   | "interaction-result"
   | "artifact-change"
   | "stage-enter"
-  | "stage-goal-complete";
+  | "stage-goal-complete"
+  /** First exposure to a stage-scoped resource (student or teacher projection). */
+  | "resource-open"
+  /** A coarse, idempotent reading milestone (25/50/75/100). */
+  | "resource-progress"
+  /** The resource reached its type-specific completion boundary. */
+  | "resource-complete";
 
 export type LearningEvent = {
   id: string;

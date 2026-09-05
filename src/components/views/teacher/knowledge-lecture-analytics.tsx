@@ -1,11 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, BookOpenCheck, ChevronRight, CircleAlert, ListChecks, X, Users } from "lucide-react";
+import { BarChart3, BookOpenCheck, ChevronRight, CircleAlert, ListChecks, Users, X } from "lucide-react";
+import {
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card, Pill } from "@/components/ui";
 import { aggregateKnowledgePointMastery, firstKnowledgeLectureAttempts, knowledgeLectureQuizEstimate } from "@/lib/knowledge-lecture";
 import type { Course, StudentAiProgress } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
+import { inferStageCollectionMode } from "@/lib/system-mode";
 
 type QuestionAnalyticsRow = {
   id: string;
@@ -19,6 +29,63 @@ type QuestionAnalyticsRow = {
   accuracy: number;
   commonFeedback?: string;
 };
+
+type SectionChartDatum = {
+  id: string;
+  fullName: string;
+  completionRate: number | null;
+  averageScore: number | null;
+};
+
+function SectionAxisTick({
+  x = 0,
+  y = 0,
+  payload,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { index?: number; value?: string };
+}) {
+  const fullName = payload?.value ?? "";
+  const displayName = fullName.length > 8 ? `${fullName.slice(0, 8)}…` : fullName;
+
+  return (
+    <g className="cursor-help" transform={`translate(${x},${y})`}>
+      <title>{fullName}</title>
+      <text fill="#78716c" fontSize="10" textAnchor="middle">
+        <tspan fontWeight="700" x="0" y="13">第 {(payload?.index ?? 0) + 1} 节</tspan>
+        <tspan fill="#a8a29e" x="0" y="28">{displayName}</tspan>
+      </text>
+    </g>
+  );
+}
+
+function SectionChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: SectionChartDatum }>;
+}) {
+  const section = payload?.[0]?.payload;
+  if (!active || !section) return null;
+
+  return (
+    <div className="min-w-48 rounded-xl border border-stone-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm">
+      <p className="max-w-64 text-xs font-bold leading-5 text-stone-900">{section.fullName}</p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-blue-50 px-2.5 py-2">
+          <p className="text-[9px] font-semibold text-blue-600">完成率</p>
+          <p className="mt-0.5 text-sm font-bold tabular-nums text-blue-900">{section.completionRate === null ? "暂无" : `${section.completionRate}%`}</p>
+        </div>
+        <div className="rounded-lg bg-emerald-50 px-2.5 py-2">
+          <p className="text-[9px] font-semibold text-emerald-600">平均得分</p>
+          <p className="mt-0.5 text-sm font-bold tabular-nums text-emerald-900">{section.averageScore === null ? "暂无" : `${section.averageScore} 分`}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function aggregateQuestionAnalytics(
   course: Course,
@@ -105,20 +172,33 @@ export function KnowledgeLectureAnalytics({
   const studentCount = studentCountOverride ?? course.students.length;
   const sections = course.content.knowledgeLectureSections ?? [];
   const rows = aggregateKnowledgePointMastery(course, progress);
+  const questionRows = aggregateQuestionAnalytics(course, progress);
   const answeredStudentIds = Object.entries(progress).flatMap(([studentId, entry]) =>
     firstKnowledgeLectureAttempts(entry).length ? [studentId] : [],
   );
   const attempts = Object.values(progress).flatMap(firstKnowledgeLectureAttempts);
-  const questionRows = aggregateQuestionAnalytics(course, progress);
+  const averageScore = attempts.length
+    ? Math.round(attempts.reduce((sum, attempt) => sum + (attempt.maxScore > 0 ? attempt.score / attempt.maxScore : 0), 0) / attempts.length * 100)
+    : 0;
+  const isNewSystem = inferStageCollectionMode(course.stages) === "new";
   const [selectedSectionId, setSelectedSectionId] = useState<string>();
   const [knowledgePointTooltip, setKnowledgePointTooltip] = useState<{ name: string; x: number; y: number }>();
   const selectedSection = sections.find((section) => section.id === selectedSectionId);
   const selectedQuestionRows = questionRows.filter((question) => question.sectionId === selectedSectionId);
-  const averageScore = attempts.length
-    ? Math.round(attempts.reduce((sum, attempt) =>
-        sum + (attempt.maxScore > 0 ? attempt.score / attempt.maxScore : 0), 0,
-      ) / attempts.length * 100)
-    : 0;
+  const sectionChartData: SectionChartDatum[] = sections.map((section) => {
+    const attempts = Object.entries(progress).flatMap(([studentId, entry]) => firstKnowledgeLectureAttempts(entry)
+      .filter((attempt) => attempt.sectionId === section.id)
+      .map((attempt) => ({ studentId, attempt })));
+    const averageScore = attempts.length
+      ? Math.round(attempts.reduce((sum, item) => sum + (item.attempt.maxScore > 0 ? item.attempt.score / item.attempt.maxScore : 0), 0) / attempts.length * 100)
+      : null;
+    return {
+      id: section.id,
+      fullName: section.title,
+      completionRate: studentCount > 0 ? Math.round(new Set(attempts.map((item) => item.studentId)).size / studentCount * 100) : null,
+      averageScore,
+    };
+  });
 
   return (
     <Card className="overflow-hidden p-0">
@@ -129,11 +209,28 @@ export function KnowledgeLectureAnalytics({
             <div><h3 className="text-base font-bold text-stone-950">{title}</h3><p className="mt-0.5 text-xs text-stone-500">按 AI 逐题得分归集到对应知识点，学生提交后实时更新</p></div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs font-bold">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-stone-700 ring-1 ring-stone-200"><Users size={13} />已作答 {new Set(answeredStudentIds).size}/{studentCount}</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]"><BookOpenCheck size={13} />班级均分 {attempts.length ? `${averageScore}分` : "—"}</span>
-        </div>
+        {isNewSystem ? <span className="max-w-[12rem] text-right text-[10px] leading-4 text-stone-400">右栏展示班级摘要；此处查看知识点、分节和逐题证据</span> : <div className="flex flex-wrap gap-2 text-xs font-bold"><span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-stone-700 ring-1 ring-stone-200"><Users size={13} />已作答 {new Set(answeredStudentIds).size}/{studentCount}</span><span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[var(--pbl-teacher)] ring-1 ring-[var(--pbl-teacher-border)]"><BookOpenCheck size={13} />班级均分 {attempts.length ? `${averageScore}分` : "—"}</span></div>}
       </header>
+
+      {isNewSystem && sectionChartData.length ? <section className="border-b border-stone-100 bg-stone-50/40 px-4 py-4" aria-labelledby="knowledge-section-chart-title">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-sm font-bold text-stone-900" id="knowledge-section-chart-title">各小节完成率与均分</h4><p className="mt-0.5 text-[10px] text-stone-500">用轻量趋势线对比完成率和得分；悬浮数据点或标题可查看完整信息。</p></div><div className="flex items-center gap-3 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-[10px] font-semibold text-stone-600 shadow-sm"><span className="inline-flex items-center gap-1.5"><span className="relative h-2 w-4 border-t border-dashed border-blue-500"><span className="absolute -top-1 left-1.5 size-2 rounded-full border-2 border-blue-500 bg-white" /></span>完成率</span><span className="inline-flex items-center gap-1.5"><span className="relative h-2 w-4 border-t-2 border-emerald-500"><span className="absolute -top-1 left-1.5 size-2 rounded-full bg-emerald-500 ring-2 ring-white" /></span>平均得分</span></div></div>
+        <div className="mt-3 overflow-x-auto rounded-2xl border border-stone-200/80 bg-white shadow-[0_8px_24px_rgba(28,25,23,0.04)]" role="img" aria-label={sectionChartData.map((item) => `${item.fullName}：完成率${item.completionRate === null ? "暂无" : `${item.completionRate}%`}，均分${item.averageScore === null ? "暂无" : `${item.averageScore}分`}`).join("；")}>
+          <div className="h-60 px-2 pb-1 pt-3" style={{ minWidth: `${Math.max(680, sectionChartData.length * 112)}px` }}>
+            <ResponsiveContainer height="100%" width="100%">
+              <ComposedChart data={sectionChartData} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
+                <CartesianGrid stroke="#e7e5e4" strokeDasharray="2 6" vertical={false} />
+                <XAxis axisLine={false} dataKey="fullName" height={48} interval={0} tick={<SectionAxisTick />} tickLine={false} />
+                <YAxis axisLine={false} domain={[0, 100]} fontSize={10} tick={{ fill: "#a8a29e" }} tickFormatter={(value) => `${value}%`} tickLine={false} ticks={[0, 25, 50, 75, 100]} width={42} />
+                <Tooltip content={<SectionChartTooltip />} cursor={{ stroke: "#cbd5e1", strokeDasharray: "4 5", strokeWidth: 1 }} />
+                <Line activeDot={{ fill: "#ffffff", r: 6, stroke: "#3b82f6", strokeWidth: 3 }} connectNulls={false} dataKey="completionRate" dot={{ fill: "#ffffff", r: 4, stroke: "#3b82f6", strokeWidth: 2 }} name="完成率" stroke="#60a5fa" strokeDasharray="4 5" strokeWidth={1.75} type="monotone" />
+                <Line activeDot={{ fill: "#10b981", r: 6, stroke: "#ffffff", strokeWidth: 3 }} connectNulls={false} dataKey="averageScore" dot={{ fill: "#10b981", r: 4, stroke: "#ffffff", strokeWidth: 2 }} name="平均得分" stroke="#10b981" strokeWidth={2.5} type="monotone" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <p className="mt-2 text-right text-[9px] text-stone-400">小节较多时可横向滑动查看</p>
+        <ul className="sr-only">{sectionChartData.map((item) => <li key={item.id}>{item.fullName}：完成率 {item.completionRate === null ? "暂无数据" : `${item.completionRate}%`}，均分 {item.averageScore === null ? "暂无数据" : `${item.averageScore} 分`}</li>)}</ul>
+      </section> : null}
 
       <div className={cn(
         "grid gap-0 bg-white transition-[grid-template-columns] duration-300",
@@ -185,7 +282,7 @@ export function KnowledgeLectureAnalytics({
               const selected = section.id === selectedSectionId;
               return (
                 <button aria-expanded={selected} className={cn("w-full rounded-[var(--radius-sm)] border p-3 text-left transition", selected ? "border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] shadow-sm" : "border-stone-200 bg-stone-50/60 hover:border-[var(--pbl-teacher-border)] hover:bg-white")} key={section.id} onClick={() => setSelectedSectionId((current) => current === section.id ? undefined : section.id)} type="button">
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="line-clamp-2 text-xs font-bold leading-5 text-stone-800">{section.title}</p><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-stone-500">{section.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id).join(" · ")}</p></div><span className="flex shrink-0 items-center gap-1 text-xs font-bold text-[var(--pbl-teacher)]">{average === undefined ? "待作答" : `${average}分`}<ChevronRight className={cn("text-stone-400 transition-transform", selected && "rotate-180 text-[var(--pbl-teacher)]")} size={14} /></span></div>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="line-clamp-2 text-xs font-bold leading-5 text-stone-800" title={section.title}>{section.title}</p><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-stone-500">{section.knowledgePointIds.map((id) => course.content.knowledgePoints.find((point) => point.id === id)?.name ?? id).join(" · ")}</p></div><span className="flex shrink-0 items-center gap-1 text-xs font-bold text-[var(--pbl-teacher)]">{average === undefined ? "待作答" : `${average}分`}<ChevronRight className={cn("text-stone-400 transition-transform", selected && "rotate-180 text-[var(--pbl-teacher)]")} size={14} /></span></div>
                   <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-stone-500"><span>{sectionAttempts.length}/{studentCount} 人完成</span><span>{quizEstimate.questionCount} 题 · 预计 {quizEstimate.estimatedMinutes} 分钟</span></div>
                   <p className={cn("mt-2 border-t pt-2 text-right text-[10px] font-bold", selected ? "border-[var(--pbl-teacher-border)] text-[var(--pbl-teacher)]" : "border-stone-200 text-stone-400")}>{selected ? "再次点击收起题目" : "查看本节每道题"}</p>
                 </button>

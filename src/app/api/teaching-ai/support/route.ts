@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 import {
   buildReflectionEvidencePrompts,
   buildShowcaseCoach,
+  buildTeacherDashboardAdvice,
   buildTeacherInterventionSignals,
   diagnoseAllProposals,
   diagnoseGroupIdea,
@@ -43,6 +44,13 @@ const HANDLERS: Record<
       stageKey: string;
     };
     return buildTeacherInterventionSignals(course, stageKey, { abortSignal: signal });
+  },
+  buildTeacherDashboardAdvice: (input, signal) => {
+    const { course, stageKey } = input as {
+      course: Parameters<typeof buildTeacherDashboardAdvice>[0];
+      stageKey: string;
+    };
+    return buildTeacherDashboardAdvice(course, stageKey, { abortSignal: signal });
   },
   generateProjectSkeleton: (input, signal) =>
     generateProjectSkeleton(input as Parameters<typeof generateProjectSkeleton>[0], { abortSignal: signal }),

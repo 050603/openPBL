@@ -26,6 +26,8 @@ import { PrimaryButton, SaveStatus, TextInput } from "@/components/ui";
 
 type Role = "student" | "teacher";
 
+export type DashboardStageOption = { index: number; label: string };
+
 export type DashboardShellProps = {
   role: Role;
   active?: string;
@@ -43,6 +45,9 @@ export type DashboardShellProps = {
   hideCourseSwitcher?: boolean;
   currentCourse?: { id: string; name: string; status: CourseStatus };
   currentStage?: { index: number; total: number; label: string };
+  /** Optional stage jump entries shown from the top classroom stage menu. */
+  stageOptions?: DashboardStageOption[];
+  onSelectStage?: (index: number) => void;
   userName?: string;
   currentTask?: string;
   leadRole?: "AI" | "教师" | "学生";
@@ -59,6 +64,8 @@ export type DashboardTopBarProps = Pick<
   | "hideCourseSwitcher"
   | "currentCourse"
   | "currentStage"
+  | "stageOptions"
+  | "onSelectStage"
   | "userName"
   | "currentTask"
   | "leadRole"
@@ -76,6 +83,8 @@ export function DashboardTopBar({
   hideCourseSwitcher = false,
   currentCourse,
   currentStage,
+  stageOptions,
+  onSelectStage,
   userName,
   currentTask,
   leadRole,
@@ -151,7 +160,7 @@ export function DashboardTopBar({
                 {currentCourse ? <StatusPill status={currentCourse.status} /> : null}
                 <ChevronDown size={14} className={cn("shrink-0 text-[var(--pbl-text-subtle)] transition", openPanel === "courses" && "rotate-180")} />
               </button>
-              {openPanel === "courses" ? <TopPopover align="left" onClose={() => setOpenPanel(null)}><CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} /></TopPopover> : null}
+              {openPanel === "courses" ? <TopPopover align="left" onClose={() => setOpenPanel(null)}><CourseMenu currentId={currentCourse?.id} isTeacher={isTeacher} onClose={() => setOpenPanel(null)} onSelectStage={onSelectStage} stageOptions={stageOptions} /></TopPopover> : null}
             </div>
           ) : null}
           {headerSlot}
@@ -206,6 +215,8 @@ export function DashboardShell({
   hideCourseSwitcher = false,
   currentCourse,
   currentStage,
+  stageOptions,
+  onSelectStage,
   userName,
   currentTask,
   leadRole,
@@ -222,7 +233,7 @@ export function DashboardShell({
         isTeacher ? "pbl-app-bg-role-teacher" : "pbl-app-bg-role-student",
       )}
     >
-      {!immersive ? <DashboardTopBar classroomBar={classroomBar} course={course} currentCourse={currentCourse} currentStage={currentStage} currentTask={currentTask} headerSlot={headerSlot} hideCourseSwitcher={hideCourseSwitcher} leadRole={leadRole} phase={phase} role={role} title={title} userName={userName} /> : null}
+      {!immersive ? <DashboardTopBar classroomBar={classroomBar} course={course} currentCourse={currentCourse} currentStage={currentStage} currentTask={currentTask} headerSlot={headerSlot} hideCourseSwitcher={hideCourseSwitcher} leadRole={leadRole} onSelectStage={onSelectStage} phase={phase} role={role} stageOptions={stageOptions} title={title} userName={userName} /> : null}
 
       <main className={immersive
         ? "h-full min-h-0 overflow-hidden p-0"
@@ -312,7 +323,7 @@ function TopPopover({ children, onClose, align }: { children: ReactNode; onClose
   );
 }
 
-function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isTeacher: boolean; onClose: () => void }) {
+function CourseMenu({ currentId, isTeacher, onClose, stageOptions, onSelectStage }: { currentId?: string; isTeacher: boolean; onClose: () => void; stageOptions?: DashboardStageOption[]; onSelectStage?: (index: number) => void }) {
   const { courses } = useSession();
   return (
     <div>
@@ -349,6 +360,24 @@ function CourseMenu({ currentId, isTeacher, onClose }: { currentId?: string; isT
           );
         })}
       </div>
+      {stageOptions?.length && onSelectStage ? (
+        <div className="mt-4 border-t border-[var(--pbl-border)] pt-3">
+          <div className="mb-2 text-xs font-bold text-[var(--pbl-text-muted)]">阶段入口</div>
+          <div className="grid gap-1">
+            {stageOptions.map((stage) => (
+              <button
+                className="flex items-center gap-2 rounded-[var(--radius-xs)] px-2.5 py-2 text-left text-xs font-semibold text-[var(--pbl-text)] transition hover:bg-[var(--pbl-teacher-soft)] hover:text-[var(--pbl-teacher)]"
+                key={stage.index}
+                onClick={() => { onSelectStage(stage.index); onClose(); }}
+                type="button"
+              >
+                <span className="grid size-5 place-items-center rounded-full bg-[var(--pbl-surface-soft)] text-[10px] tabular-nums text-[var(--pbl-text-muted)]">{stage.index + 1}</span>
+                <span className="truncate">{stage.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

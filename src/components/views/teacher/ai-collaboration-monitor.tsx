@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { StageEmptyState, StagePageHeader } from "@/components/classroom/classroom-ui";
 import { MakeArtifactModeSetting } from "@/components/teacher/make-artifact-mode-setting";
 import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import { inferStageCollectionMode } from "@/lib/system-mode";
+import type { TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
 
 function payloadRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -47,6 +49,7 @@ function latestArtifactForStudent(
   course: Course,
   studentId: string,
   includeExternalBrief = false,
+  ignoreFailed = false,
 ): ClassroomSubmission | undefined {
   const groupIds = new Set((course.groups ?? [])
     .filter((group) => group.members.some((member) => member.studentId === studentId))
@@ -54,6 +57,7 @@ function latestArtifactForStudent(
   return [...(course.submissions ?? [])]
     .filter((submission) =>
       submission.stageKey === "make"
+      && (!ignoreFailed || submission.status !== "failed")
       && (
         submission.type === "document"
         || submission.type === "code"
@@ -102,6 +106,7 @@ type StudentRow = {
   signals: NonNullable<Course["learningSignals"]>;
   completion: number;
   submitted: boolean;
+  dialogueRounds: number;
   updatedAt: string;
 };
 
@@ -109,10 +114,11 @@ function latestTimestamp(values: Array<string | undefined>): string {
   return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? "";
 }
 
-export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
+export function AiCollaborationTeacherMonitor({ course, focus }: { course: Course; focus?: Extract<TeacherStageFocus, { stageKey: "make" }> }) {
   const artifactMode = normalizePblCourseConfig(course.pblConfig).makeArtifactMode;
+  const isNewSystem = inferStageCollectionMode(course.stages) === "new";
   const rows = useMemo<StudentRow[]>(() => course.students.map((student) => {
-    const artifact = latestArtifactForStudent(course, student.id, artifactMode === "other");
+    const artifact = latestArtifactForStudent(course, student.id, artifactMode === "other", isNewSystem);
     const persistedAiEvents = (course.aiInteractionEvents ?? []).filter((item) =>
       item.stageKey === "make"
       && item.studentId === student.id
@@ -132,6 +138,7 @@ export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
       || documentVersions.some((item) => item.status === "submitted")
       || Boolean(artifact?.files?.length && artifactMode !== "other");
     const completion = submitted ? 100 : artifact ? 75 : aiEvents.length ? 35 : 0;
+    const dialogueRounds = deriveAiCollaborationMetrics(aiEvents).dialogueRounds;
     return {
       student,
       artifact,
@@ -141,6 +148,7 @@ export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
       signals,
       completion,
       submitted,
+      dialogueRounds,
       updatedAt: latestTimestamp([
         artifact?.updatedAt,
         ...aiEvents.map((item) => item.createdAt),
@@ -149,7 +157,7 @@ export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
         ...signals.map((item) => item.lastDetectedAt),
       ]),
     };
-  }), [artifactMode, course]);
+  }), [artifactMode, course, isNewSystem]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "unsubmitted" | "attention">("all");
@@ -167,16 +175,11 @@ export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
     ?? rows[0];
 
   useEffect(() => {
-    const selectStudent = (event: Event) => {
-      const detail = (event as CustomEvent<{ studentId?: string; target?: "artifact" | "conversation" | "signal" }>).detail;
-      if (detail?.studentId) {
-        setSelectedStudentId(detail.studentId);
-        setFocusTarget(detail.target ?? "artifact");
-      }
-    };
-    window.addEventListener("openpbl:select-practice-student", selectStudent);
-    return () => window.removeEventListener("openpbl:select-practice-student", selectStudent);
-  }, []);
+    if (focus) {
+      setSelectedStudentId(focus.studentId);
+      setFocusTarget(focus.section);
+    }
+  }, [focus?.studentId, focus?.section]);
 
   useEffect(() => {
     if (!selected || !focusTarget) return;
@@ -232,6 +235,7 @@ export function AiCollaborationTeacherMonitor({ course }: { course: Course }) {
                   <div className="flex items-center justify-between gap-2"><span className="truncate font-semibold text-stone-900">{row.student.name}</span><span className="text-[11px] font-black tabular-nums text-stone-500">{row.completion}%</span></div>
                   <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-stone-100"><span className={cn("block h-full rounded-full", row.completion === 100 ? "bg-emerald-500" : row.signals.length ? "bg-amber-500" : "bg-blue-500")} style={{ width: `${row.completion}%` }} /></div>
                   <div className="mt-2 flex min-w-0 items-center justify-between gap-2"><p className="truncate text-[11px] text-[var(--pbl-text-muted)]">{row.artifact?.title ?? "尚未形成成果"}</p>{row.signals.length ? <Pill size="sm" tone="red">需关注</Pill> : <Pill size="sm" tone={row.submitted ? "green" : "gray"}>{row.submitted ? "已提交" : "未提交"}</Pill>}</div>
+                  {isNewSystem ? <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-stone-400"><span>AI 对话 {row.dialogueRounds} 轮</span><span>{row.updatedAt ? `更新 ${new Date(row.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : "暂无更新"}</span></div> : null}
                 </button>
               ))}
               {!rows.length ? <StageEmptyState description="学生加入课堂后，成果会显示在这里。" title="暂无学生进入课堂" /> : null}

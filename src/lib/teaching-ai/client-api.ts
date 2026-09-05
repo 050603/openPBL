@@ -7,6 +7,7 @@
 import type {
   AiSupportDraft,
   ArtifactFocus,
+  TeacherDashboardAdvice,
   TeacherInterventionSignal,
 } from "@/lib/teaching-ai/support-engine";
 import type {
@@ -21,7 +22,7 @@ import type { LearnerProfileInput } from "@/lib/openmaic/pedagogy/teaching-const
 import type { ReflectionSummaryTrigger } from "@/lib/reflection-summary";
 
 // 重新导出类型（编译时擦除，无运行时依赖）
-export type { AiSupportDraft, ArtifactFocus, TeacherInterventionSignal };
+export type { AiSupportDraft, ArtifactFocus, TeacherDashboardAdvice, TeacherInterventionSignal };
 
 // 返回值类型（显式定义，避免客户端组件用 ReturnType<typeof xxx> 推断时引入运行时 import）
 export type ProjectSkeletonResult = {
@@ -186,6 +187,13 @@ export async function buildTeacherInterventionSignals(
   stageKey: string,
 ): Promise<TeacherInterventionSignal[]> {
   return callSupport("buildTeacherInterventionSignals", { course, stageKey });
+}
+
+export async function buildTeacherDashboardAdvice(
+  course: Course,
+  stageKey: string,
+): Promise<TeacherDashboardAdvice> {
+  return callSupport("buildTeacherDashboardAdvice", { course, stageKey });
 }
 
 export async function generateProjectSkeleton(input: {

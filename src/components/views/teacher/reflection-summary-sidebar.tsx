@@ -14,7 +14,7 @@ import {
 } from "@/lib/reflection-summary";
 import { cn } from "@/lib/utils";
 
-type Props = { course: Course };
+type Props = { course: Course; compact?: boolean };
 
 function latestSummarySupport(course: Course): AiSupportRecord | undefined {
   return (course.aiSupports ?? [])
@@ -22,7 +22,7 @@ function latestSummarySupport(course: Course): AiSupportRecord | undefined {
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
 }
 
-export function ReflectionSummarySidebar({ course }: Props) {
+export function ReflectionSummarySidebar({ course, compact = false }: Props) {
   const storedSupport = useMemo(() => latestSummarySupport(course), [course]);
   const [localSupport, setLocalSupport] = useState<AiSupportRecord>();
   const [status, setStatus] = useState<"idle" | "generating" | "error">("idle");
@@ -85,13 +85,13 @@ export function ReflectionSummarySidebar({ course }: Props) {
             : `基于 ${summary.responseCount} 份反思 · 第 ${summary.coverageBucket}% 档`;
 
   return (
-    <section className="border-b border-stone-100 bg-white/70 px-4 py-4">
-      <header className="mb-3 flex items-start justify-between gap-3">
+    <section className={cn("border-b border-stone-100 bg-white/70", compact ? "px-3 py-2.5" : "px-4 py-4")}>
+      <header className={cn("flex items-start justify-between gap-3", compact ? "mb-2" : "mb-3")}>
         <div className="flex items-center gap-2">
           <span className={cn("grid size-7 place-items-center rounded-lg", status === "error" ? "bg-amber-100 text-amber-700" : "bg-violet-100 text-violet-700")}><Bot size={14} /></span>
           <div>
-            <h3 className="text-[13px] font-black text-stone-900">AI 课程总结</h3>
-            <p className="mt-0.5 text-[10px] font-semibold text-stone-400">{statusText}</p>
+            <h3 className={cn("font-black text-stone-900", compact ? "text-xs" : "text-[13px]")}>{compact ? "AI 实时教学建议" : "AI 课程总结"}</h3>
+            <p className={cn("mt-0.5 font-semibold text-stone-400", compact ? "line-clamp-1 text-[9px]" : "text-[10px]")}>{statusText}</p>
           </div>
         </div>
         <button
@@ -108,22 +108,22 @@ export function ReflectionSummarySidebar({ course }: Props) {
 
       {summary ? (
         <>
-          <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-3 text-xs leading-5 text-violet-950">
-            <div className="mb-1 flex items-center gap-1.5 font-bold"><Sparkles size={13} />{summary.courseSummary}</div>
-            <p className="text-[10px] text-violet-700/80">覆盖 {summary.responseCount}/{summary.totalStudentCount} 人 · {new Date(summary.generatedAt).toLocaleString("zh-CN")}</p>
+          <div className={cn("rounded-xl border border-violet-100 bg-violet-50/60 text-violet-950", compact ? "px-2.5 py-2 text-[10px] leading-4" : "px-3 py-3 text-xs leading-5")}>
+            <div className="mb-1 flex items-start gap-1.5 font-bold"><Sparkles className="mt-0.5 shrink-0" size={13} /><span className={cn(compact && "line-clamp-2")}>{summary.courseSummary}</span></div>
+            <p className={cn("text-violet-700/80", compact ? "text-[9px]" : "text-[10px]")}>覆盖 {summary.responseCount}/{summary.totalStudentCount} 人 · {new Date(summary.generatedAt).toLocaleString("zh-CN")}</p>
           </div>
-          <div className="mt-3 space-y-2">
-            {summary.teachingRecommendations.slice(0, 3).map((recommendation, index) => (
-              <div className="flex gap-2 text-[11px] leading-5 text-stone-600" key={`${recommendation}-${index}`}>
+          <div className={cn("space-y-2", compact ? "mt-2" : "mt-3")}>
+            {summary.teachingRecommendations.slice(0, compact ? 1 : 3).map((recommendation, index) => (
+              <div className={cn("flex gap-2 text-stone-600", compact ? "text-[9px] leading-4" : "text-[11px] leading-5")} key={`${recommendation}-${index}`}>
                 <span className="grid size-4 shrink-0 place-items-center rounded-full bg-violet-100 text-[9px] font-bold text-violet-700">{index + 1}</span>
-                <span>{recommendation}</span>
+                <span className={cn(compact && "line-clamp-2")}>{recommendation}</span>
               </div>
             ))}
           </div>
           {errorMessage ? <p className="mt-3 text-[11px] leading-5 text-amber-700">{errorMessage}</p> : null}
         </>
       ) : (
-        <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-3 text-xs leading-5 text-stone-500">
+        <div className={cn("rounded-xl border border-dashed border-stone-200 bg-stone-50/60 text-stone-500", compact ? "px-2.5 py-2 text-[9px] leading-4" : "px-3 py-3 text-xs leading-5")}>
           {errorMessage ?? "提交率达到档位并满足样本要求后，这里会自动生成全班课程总结与教学改进建议。"}
         </div>
       )}

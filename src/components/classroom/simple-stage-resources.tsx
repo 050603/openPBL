@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
+import { Avatar } from "@/components/dashboard-shell";
 import {
   BookOpen,
   Bookmark,
@@ -17,6 +18,7 @@ import {
   Minimize2,
   Pause,
   Play,
+  Search,
   Trash2,
   Upload,
   X,
@@ -35,6 +37,9 @@ import { useSession } from "@/lib/session/store";
 import { courseResourceTypeLabel } from "@/lib/user-facing-labels";
 import { cn } from "@/lib/utils";
 import { StageEmptyState, StagePageHeader, StageSplitLayout } from "@/components/classroom/classroom-ui";
+import type { LaunchResourceStatus, TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
+import { deriveLaunchDashboardMetrics } from "@/lib/classroom/teacher-dashboard-metrics";
+import { crossedResourceProgressThresholds, createLearningEvent, postLearningEvents, resourceEventIdempotencyKey } from "@/lib/learning-analytics/telemetry";
 
 const UPLOAD_ACCEPT = [
   ".pdf", ".mp4", ".mov", ".webm", ".docx", ".xlsx",
@@ -160,9 +165,11 @@ function resourcePreviewUrl(resource: CourseResource): string | undefined {
 export function SimplifiedTeacherStageView({
   course,
   stageKey,
+  focus,
 }: {
   course: Course;
   stageKey: string;
+  focus?: Extract<TeacherStageFocus, { stageKey: "launch" }>;
 }) {
   const session = useSession();
   const resources = resourcesForStage(course.resources, stageKey);
@@ -175,11 +182,18 @@ export function SimplifiedTeacherStageView({
   const [dialogResource, setDialogResource] = useState<CourseResource>();
   const [viewerRevision, setViewerRevision] = useState(0);
   const [readingProgressByResource, setReadingProgressByResource] = useState<Record<string, PdfReadingProgress>>({});
+  const [teacherTab, setTeacherTab] = useState<"resources" | "follow-up">("resources");
   const projection = course.uiState?.resourceProjection;
   const activeResource = resources.find((resource) => projectionIsActive(course, resource));
   const selected = resources.find((resource) => resource.id === selectedId)
     ?? activeResource
     ?? resources[0];
+
+  useEffect(() => {
+    if (stageKey !== "launch" || !focus) return;
+    setTeacherTab("follow-up");
+    if (focus.resourceId) setSelectedId(focus.resourceId);
+  }, [focus?.resourceId, focus?.status, stageKey]);
 
   async function uploadResource(
     file: File,
@@ -497,7 +511,8 @@ export function SimplifiedTeacherStageView({
         title="学习资料"
       />
 
-      {resources.length ? (
+      {stageKey === "launch" ? <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--pbl-border)] bg-white p-1" role="tablist" aria-label="启动阶段工作台"><button aria-selected={teacherTab === "resources"} className={cn("rounded-[var(--radius-xs)] px-3 py-2 text-xs font-bold transition", teacherTab === "resources" ? "bg-[var(--pbl-teacher)] text-white" : "text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]")} onClick={() => setTeacherTab("resources")} role="tab" type="button">资料与投屏</button><button aria-selected={teacherTab === "follow-up"} className={cn("rounded-[var(--radius-xs)] px-3 py-2 text-xs font-bold transition", teacherTab === "follow-up" ? "bg-[var(--pbl-teacher)] text-white" : "text-[var(--pbl-text-muted)] hover:bg-[var(--pbl-surface-soft)]")} onClick={() => setTeacherTab("follow-up")} role="tab" type="button">阅读跟进</button></div> : null}
+      {stageKey === "launch" && teacherTab === "follow-up" ? <LaunchReadingFollowUp course={course} focus={focus} /> : resources.length ? (
         <div className={cn(
           "grid items-start gap-4",
           resourceListOpen
@@ -568,6 +583,54 @@ export function SimplifiedTeacherStageView({
   );
 }
 
+function LaunchReadingFollowUp({
+  course,
+  focus,
+}: {
+  course: Course;
+  focus?: Extract<TeacherStageFocus, { stageKey: "launch" }>;
+}) {
+  const metrics = useMemo(() => deriveLaunchDashboardMetrics(course), [course]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | LaunchResourceStatus>("all");
+  const [resourceFilter, setResourceFilter] = useState("all");
+  useEffect(() => {
+    if (focus?.resourceId) setResourceFilter(focus.resourceId);
+  }, [focus?.resourceId]);
+
+  useEffect(() => {
+    if (!focus?.status) return;
+    setStatusFilter(focus.status === "opened" ? "in-progress" : focus.status);
+    if (focus.studentId) {
+      const focusedStudent = course.students.find((student) => student.id === focus.studentId);
+      if (focusedStudent) setQuery(focusedStudent.name);
+    }
+  }, [course.students, focus?.status, focus?.studentId]);
+  const stateByKey = useMemo(() => new Map(metrics.states.map((state) => [`${state.studentId}:${state.resourceId}`, state])), [metrics.states]);
+  const visibleResources = metrics.resourceCoverage.filter((item) => resourceFilter === "all" || item.resource.id === resourceFilter);
+  const rows = metrics.studentRows.filter((row) => row.student.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).filter((row) => {
+    if (statusFilter === "all") return true;
+    return visibleResources.some((item) => {
+      const status = stateByKey.get(`${row.student.id}:${item.resource.id}`)?.status;
+      return status === statusFilter || (statusFilter === "in-progress" && status === "opened");
+    });
+  });
+  const statusLabel: Record<LaunchResourceStatus, string> = { "not-opened": "未打开", opened: "浏览中", "in-progress": "浏览中", completed: "已浏览" };
+  const statusClass: Record<LaunchResourceStatus, string> = { "not-opened": "border-stone-200 bg-stone-50 text-stone-500", opened: "border-amber-100 bg-amber-50 text-amber-700", "in-progress": "border-amber-100 bg-amber-50 text-amber-700", completed: "border-emerald-100 bg-emerald-50 text-emerald-700" };
+  const statusLegend: LaunchResourceStatus[] = ["not-opened", "in-progress", "completed"];
+  return (
+    <Card className="classroom-panel overflow-hidden" compact>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold text-[var(--pbl-text-strong)]">阅读跟进矩阵</h2><p className="mt-1 text-xs leading-5 text-[var(--pbl-text-muted)]">每个格子只表示资料触达状态；历史下载记录仅回退为“已打开”。</p></div><div className="flex items-center gap-2"><label className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" size={13} /><span className="sr-only">搜索学生</span><input aria-label="搜索阅读学生" className="h-9 w-32 rounded-lg border border-stone-200 bg-white pl-8 pr-2 text-xs outline-none focus:border-blue-400" onChange={(event) => setQuery(event.target.value)} placeholder="搜索学生" value={query} /></label><select aria-label="筛选阅读状态" className="h-9 rounded-lg border border-stone-200 bg-white px-2 text-xs font-semibold text-stone-700" onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} value={statusFilter}><option value="all">全部状态</option><option value="not-opened">未打开</option><option value="in-progress">浏览中</option><option value="completed">已浏览</option></select></div></div>
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-[10px] text-stone-500" aria-label="阅读状态图例">{statusLegend.map((status) => <span className={cn("rounded-full border px-2 py-1", statusClass[status])} key={status}>{statusLabel[status]}</span>)}{metrics.resourceCoverage.length > 1 ? <select aria-label="筛选资料" className="h-7 rounded-md border border-stone-200 bg-white px-1.5 text-[10px] font-semibold text-stone-600" onChange={(event) => setResourceFilter(event.target.value)} value={resourceFilter}><option value="all">全部资料</option>{metrics.resourceCoverage.map((item) => <option key={item.resource.id} value={item.resource.id}>{item.resource.title}</option>)}</select> : null}</div>
+      {rows.length && visibleResources.length ? <div className="mt-4 overflow-x-auto rounded-lg border border-stone-200"><div className="min-w-[520px]"><div className="grid border-b border-stone-200 bg-stone-50 text-[10px] font-bold text-stone-500" style={{ gridTemplateColumns: `minmax(7rem,1fr) repeat(${visibleResources.length}, minmax(7rem,1fr))` }}><div className="px-3 py-2">学生</div>{visibleResources.map((item) => <div className="truncate px-3 py-2" key={item.resource.id} title={item.resource.title}>{item.resource.title}</div>)}</div>{rows.map((row) => <div className="grid border-b border-stone-100 last:border-b-0" key={row.student.id} style={{ gridTemplateColumns: `minmax(7rem,1fr) repeat(${visibleResources.length}, minmax(7rem,1fr))` }}><div className="flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-stone-700"><Avatar name={row.student.name} size={24} /> <span className="truncate">{row.student.name}</span></div>{visibleResources.map((item) => { const state = stateByKey.get(`${row.student.id}:${item.resource.id}`) ?? { status: "not-opened" as const, progressPercent: 0 }; return <div className="px-2 py-2" key={item.resource.id}><div className={cn("rounded-lg border px-2 py-1.5 text-center text-[10px] font-semibold", statusClass[state.status])} title={`${statusLabel[state.status]} · ${state.progressPercent}%`}>{statusLabel[state.status]}<span className="ml-1 tabular-nums opacity-75">{state.progressPercent ? `${state.progressPercent}%` : ""}</span></div></div>; })}</div>)}</div></div> : <div className="mt-5"><EmptyReadingMatrix text={course.students.length ? metrics.resourceCoverage.length ? "没有符合当前筛选的学生" : "尚未发布启动资料" : "暂无学生加入课堂"} /></div>}
+    </Card>
+  );
+}
+
+function EmptyReadingMatrix({ text }: { text: string }) {
+  return <div className="rounded-lg border border-dashed border-stone-200 bg-stone-50/70 py-12 text-center text-sm text-stone-500">{text}</div>;
+}
+
 export function SimplifiedStudentStageView({
   course,
   stageKey,
@@ -581,15 +644,59 @@ export function SimplifiedStudentStageView({
   const [dialogResource, setDialogResource] = useState<CourseResource>();
   const [viewerRevision, setViewerRevision] = useState(0);
   const [readingProgressByResource, setReadingProgressByResource] = useState<Record<string, PdfReadingProgress>>({});
+  const sentResourceEventKeys = useRef<Set<string>>(new Set());
+  const reportedProgressByResource = useRef<Record<string, number>>({});
   const selected = resources.find((resource) => resource.id === selectedId) ?? resources[0];
+
+  function sendResourceEvent(resource: CourseResource, type: "open" | "progress" | "complete", progressPercent?: number, milestone?: number, source: "student" | "teacher-projection" = "student") {
+    const studentId = session.studentId;
+    if (!studentId) return;
+    const idempotencyKey = resourceEventIdempotencyKey(course.id, studentId, resource.id, type, milestone, source);
+    if (sentResourceEventKeys.current.has(idempotencyKey)) return;
+    sentResourceEventKeys.current.add(idempotencyKey);
+    const progress = progressPercent === undefined ? undefined : Math.max(0, Math.min(100, Math.round(progressPercent)));
+    const event = createLearningEvent(type === "open" ? "resource-open" : type === "complete" ? "resource-complete" : "resource-progress", {
+      courseId: course.id,
+      studentId,
+      stageKey,
+      sceneId: resource.id,
+      progressMarker: type === "complete" ? "completed" : "in-progress",
+      metadata: {
+        resourceId: resource.id,
+        ...(progress === undefined ? {} : { progressPercent: progress }),
+        source,
+      },
+      idempotencyKey,
+    });
+    void postLearningEvents({ courseId: course.id, studentId, events: [event] }).catch(() => {
+      // Telemetry must never interrupt reading. The next coarse milestone can retry.
+      sentResourceEventKeys.current.delete(idempotencyKey);
+    });
+  }
+
+  function recordResourceProgress(resource: CourseResource, progressPercent: number) {
+    const current = Math.max(0, Math.min(100, progressPercent));
+    sendResourceEvent(resource, "open");
+    const previous = reportedProgressByResource.current[resource.id] ?? 0;
+    for (const threshold of crossedResourceProgressThresholds(previous, current)) {
+      sendResourceEvent(resource, "progress", threshold, threshold);
+    }
+    // PDF, audio and video resources use a 90% completion boundary. Keep the
+    // completion event separate from the 100% progress milestone so a viewer
+    // that ends at 90% still appears as completed without fabricating reading.
+    if (current >= 90) sendResourceEvent(resource, "complete", current, 90);
+    reportedProgressByResource.current[resource.id] = Math.max(previous, current);
+  }
 
   useEffect(() => {
     if (!selected || !session.studentId) return;
+    sendResourceEvent(selected, "open");
     if (selected.downloadedBy.includes(session.studentId)) return;
     session.markResourceDownloaded(course.id, selected.id);
   }, [course.id, selected, session]);
 
   function openResource(resource: CourseResource) {
+    sendResourceEvent(resource, "open");
     session.markResourceDownloaded(course.id, resource.id);
     setSelectedId(resource.id);
   }
@@ -654,11 +761,13 @@ export function SimplifiedStudentStageView({
                       initialReadingProgress={readingProgressByResource[selected.id]}
                       key={`${selected.id}:${viewerRevision}`}
                       mode="self"
-                      onReadingProgressChange={(progress) => setReadingProgressByResource((current) => ({ ...current, [selected.id]: progress }))}
+                      onReadingProgressChange={(progress) => { setReadingProgressByResource((current) => ({ ...current, [selected.id]: progress })); recordResourceProgress(selected, progress.scrollRatio * 100); }}
+                      onResourceProgress={(progress) => recordResourceProgress(selected, progress)}
                       progressKey={`student:${session.studentId ?? "guest"}:${course.id}:${selected.id}`}
                       resource={selected}
                     />
                   </div>
+                  {selected && ["image", "text", "download"].includes(resourceKind(selected)) ? <button className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--pbl-student-border)] bg-[var(--pbl-student-soft)] px-3 text-xs font-bold text-[var(--pbl-student)] transition hover:brightness-95" onClick={() => recordResourceProgress(selected, 100)} type="button">完成浏览</button> : null}
                 </>
               ) : <StageEmptyState description="从学习资料列表选择一份资料开始阅读。" icon={FileText} title="选择一份学习资料" tone="student" />}
             </Card>
@@ -681,7 +790,8 @@ export function SimplifiedStudentStageView({
             setDialogResource(undefined);
             setViewerRevision((value) => value + 1);
           }}
-          onReadingProgressChange={(progress) => setReadingProgressByResource((current) => ({ ...current, [dialogResource.id]: progress }))}
+          onReadingProgressChange={(progress) => { setReadingProgressByResource((current) => ({ ...current, [dialogResource.id]: progress })); recordResourceProgress(dialogResource, progress.scrollRatio * 100); }}
+          onResourceProgress={(progress) => recordResourceProgress(dialogResource, progress)}
           progressKey={`student:${session.studentId ?? "guest"}:${course.id}:${dialogResource.id}`}
           resource={dialogResource}
           title="全屏阅读"
@@ -692,12 +802,46 @@ export function SimplifiedStudentStageView({
 }
 
 export function StudentResourceProjection({
+  course,
   resource,
   projection,
 }: {
+  course?: Course;
   resource: CourseResource;
   projection: ClassroomResourceProjection;
 }) {
+  const session = useSession();
+  const sentProjectionKeys = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!course || !session.studentId) return;
+    const source = "teacher-projection" as const;
+    const emit = (type: "open" | "progress" | "complete", progressPercent?: number, milestone?: number) => {
+      const key = resourceEventIdempotencyKey(course.id, session.studentId!, resource.id, type, milestone, source);
+      if (sentProjectionKeys.current.has(key)) return;
+      sentProjectionKeys.current.add(key);
+      const progress = progressPercent === undefined ? undefined : Math.max(0, Math.min(100, Math.round(progressPercent)));
+      const event = createLearningEvent(type === "open" ? "resource-open" : type === "complete" ? "resource-complete" : "resource-progress", {
+        courseId: course.id,
+        studentId: session.studentId!,
+        stageKey: projection.stageKey,
+        sceneId: resource.id,
+        progressMarker: type === "complete" ? "completed" : "in-progress",
+        metadata: { resourceId: resource.id, source, ...(progress === undefined ? {} : { progressPercent: progress }) },
+        idempotencyKey: key,
+      });
+      void postLearningEvents({ courseId: course.id, studentId: session.studentId!, events: [event] }).catch(() => sentProjectionKeys.current.delete(key));
+    };
+    emit("open");
+    const viewState = projection.viewState;
+    // A projected slide does not expose the total page count in the shared
+    // view state. Only use the continuous scroll ratio when it is available;
+    // never infer “completed” from merely moving to page two.
+    const percent = viewState?.scrollRatio !== undefined ? viewState.scrollRatio * 100 : 0;
+    for (const threshold of crossedResourceProgressThresholds(0, percent ?? 0)) {
+      emit("progress", threshold, threshold);
+    }
+    if ((percent ?? 0) >= 90) emit("complete", percent, 90);
+  }, [course, projection.stageKey, projection.viewState?.page, projection.viewState?.revision, projection.viewState?.scrollRatio, resource.id, session.studentId]);
   return (
     <div className="fixed inset-0 z-[150] bg-slate-100" role="presentation">
       <section aria-label={`教师投屏：${resource.title}`} aria-modal="true" className="relative h-full w-full overflow-hidden bg-[var(--pbl-surface)]" role="dialog">
@@ -722,6 +866,7 @@ function ResourceDialog({
   onViewStateChange,
   initialReadingProgress,
   onReadingProgressChange,
+  onResourceProgress,
 }: {
   resource: CourseResource;
   title: string;
@@ -733,6 +878,7 @@ function ResourceDialog({
   onViewStateChange?: (patch: ViewStatePatch) => void;
   initialReadingProgress?: PdfReadingProgress;
   onReadingProgressChange?: (progress: PdfReadingProgress) => void;
+  onResourceProgress?: (progressPercent: number) => void;
 }) {
   const immersive = resourceKind(resource) === "pdf";
   useEffect(() => {
@@ -761,7 +907,7 @@ function ResourceDialog({
             <div className="pointer-events-auto flex items-center gap-2">{action}<button aria-label="退出全屏阅读" className="grid size-10 place-items-center rounded-full border border-white/20 bg-slate-950/65 text-white shadow-lg backdrop-blur transition hover:bg-slate-950/80" onClick={onClose} type="button"><X size={18} /></button></div>
           </div>
         )}
-        <div className={cn("min-h-0 flex-1", !immersive && "p-2 sm:p-3")}><ResourceViewer fullscreen={immersive} initialReadingProgress={initialReadingProgress} key={`${resource.id}:${mode}`} mode={mode} onReadingProgressChange={onReadingProgressChange} onViewStateChange={onViewStateChange} progressKey={progressKey} projection={projection} resource={resource} /></div>
+        <div className={cn("min-h-0 flex-1", !immersive && "p-2 sm:p-3")}><ResourceViewer fullscreen={immersive} initialReadingProgress={initialReadingProgress} key={`${resource.id}:${mode}`} mode={mode} onReadingProgressChange={onReadingProgressChange} onResourceProgress={onResourceProgress} onViewStateChange={onViewStateChange} progressKey={progressKey} projection={projection} resource={resource} /></div>
       </section>
     </div>
   );
@@ -823,6 +969,7 @@ function ResourceViewer({
   fullscreen = false,
   initialReadingProgress,
   onReadingProgressChange,
+  onResourceProgress,
 }: {
   resource: CourseResource;
   mode: ViewerMode;
@@ -832,6 +979,7 @@ function ResourceViewer({
   fullscreen?: boolean;
   initialReadingProgress?: PdfReadingProgress;
   onReadingProgressChange?: (progress: PdfReadingProgress) => void;
+  onResourceProgress?: (progressPercent: number) => void;
 }) {
   const kind = useMemo(() => resourceKind(resource), [resource]);
   const previewUrl = resourcePreviewUrl(resource);
@@ -846,11 +994,11 @@ function ResourceViewer({
       />
     );
   }
-  if (kind === "pdf") return <PdfViewer fullscreen={fullscreen} initialReadingProgress={initialReadingProgress} mode={mode} onReadingProgressChange={onReadingProgressChange} onViewStateChange={onViewStateChange} progressKey={progressKey} projection={projection} resource={resource} />;
-  if (kind === "video") return <VideoViewer mode={mode} onViewStateChange={onViewStateChange} projection={projection} resource={resource} />;
+  if (kind === "pdf") return <PdfViewer fullscreen={fullscreen} initialReadingProgress={initialReadingProgress} mode={mode} onReadingProgressChange={onReadingProgressChange} onResourceProgress={onResourceProgress} onViewStateChange={onViewStateChange} progressKey={progressKey} projection={projection} resource={resource} />;
+  if (kind === "video") return <VideoViewer mode={mode} onResourceProgress={onResourceProgress} onViewStateChange={onViewStateChange} projection={projection} resource={resource} />;
   if (kind === "text") return <TextViewer resource={resource} />;
   if (kind === "image") return <div className="relative h-full min-h-72 overflow-hidden rounded-[var(--radius-sm)] bg-stone-950 p-3"><Image alt={resource.title} className="object-contain p-3" fill src={previewUrl} unoptimized /></div>;
-  if (kind === "audio") return <div className="grid h-full min-h-72 place-items-center rounded-[var(--radius-sm)] bg-white"><audio className="w-[min(640px,90%)]" controls src={previewUrl} /></div>;
+  if (kind === "audio") return <div className="grid h-full min-h-72 place-items-center rounded-[var(--radius-sm)] bg-white"><audio className="w-[min(640px,90%)]" controls onEnded={() => onResourceProgress?.(100)} onTimeUpdate={(event) => { const audio = event.currentTarget; if (audio.duration > 0) onResourceProgress?.(audio.currentTime / audio.duration * 100); }} src={previewUrl} /></div>;
   return <DownloadFallback resource={resource} />;
 }
 
@@ -863,6 +1011,7 @@ function PdfViewer({
   fullscreen,
   initialReadingProgress,
   onReadingProgressChange,
+  onResourceProgress,
 }: {
   resource: CourseResource;
   mode: ViewerMode;
@@ -872,6 +1021,7 @@ function PdfViewer({
   fullscreen: boolean;
   initialReadingProgress?: PdfReadingProgress;
   onReadingProgressChange?: (progress: PdfReadingProgress) => void;
+  onResourceProgress?: (progressPercent: number) => void;
 }) {
   const storageKey = progressKey ? `openpbl:pdf-reading:${progressKey}` : undefined;
   const [pdf, setPdf] = useState<PdfDocument>();
@@ -972,6 +1122,7 @@ function PdfViewer({
       zoom,
       updatedAt: new Date().toISOString(),
     });
+    onResourceProgress?.(position.ratio * 100);
     if (syncTimerRef.current !== undefined) return;
     syncTimerRef.current = window.setTimeout(() => {
       syncTimerRef.current = undefined;
@@ -1031,6 +1182,10 @@ function PdfViewer({
     window.requestAnimationFrame(() => scrollToPage(currentPage, position.ratio));
   }
 
+  useEffect(() => {
+    if (pdf?.numPages === 1) onResourceProgress?.(100);
+  }, [onResourceProgress, pdf]);
+
   async function fitToPage() {
     if (!pdf || !scrollRef.current) return;
     const position = readingPosition();
@@ -1062,6 +1217,7 @@ function PdfViewer({
         fullscreen={fullscreen}
         mode={mode}
         onReadingProgressChange={onReadingProgressChange}
+        onResourceProgress={onResourceProgress}
         onViewStateChange={onViewStateChange}
         pdf={pdf}
         projection={projection}
@@ -1130,6 +1286,7 @@ function PdfPresentationViewer({
   projection,
   onViewStateChange,
   onReadingProgressChange,
+  onResourceProgress,
   restoreImmediately,
   savedProgress,
   setSavedProgress,
@@ -1141,6 +1298,7 @@ function PdfPresentationViewer({
   projection?: ClassroomResourceProjection;
   onViewStateChange?: (patch: ViewStatePatch) => void;
   onReadingProgressChange?: (progress: PdfReadingProgress) => void;
+  onResourceProgress?: (progressPercent: number) => void;
   restoreImmediately: boolean;
   savedProgress?: PdfReadingProgress;
   setSavedProgress: (value: PdfReadingProgress | undefined) => void;
@@ -1155,6 +1313,10 @@ function PdfPresentationViewer({
   const safePage = Math.min(pdf.numPages, Math.max(1, page));
   const progressPercent = Math.round((safePage / pdf.numPages) * 100);
 
+  useEffect(() => {
+    onResourceProgress?.(progressPercent);
+  }, [onResourceProgress, progressPercent]);
+
   function changePage(nextPage: number) {
     const value = Math.min(pdf.numPages, Math.max(1, nextPage));
     setLocalPage(value);
@@ -1167,6 +1329,7 @@ function PdfPresentationViewer({
       updatedAt: new Date().toISOString(),
     };
     onReadingProgressChange?.(progress);
+    onResourceProgress?.(Math.round(value / pdf.numPages * 100));
     if (mode !== "follower") {
       persistPdfReadingProgress(storageKey, progress);
     }
@@ -1363,11 +1526,13 @@ function VideoViewer({
   mode,
   projection,
   onViewStateChange,
+  onResourceProgress,
 }: {
   resource: CourseResource;
   mode: ViewerMode;
   projection?: ClassroomResourceProjection;
   onViewStateChange?: (patch: ViewStatePatch) => void;
+  onResourceProgress?: (progressPercent: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastTimeSyncRef = useRef(0);
@@ -1417,10 +1582,13 @@ function VideoViewer({
         onRateChange={() => emit()}
         onSeeked={() => emit()}
         onTimeUpdate={() => {
+          const video = videoRef.current;
+          if (video && Number.isFinite(video.duration) && video.duration > 0) onResourceProgress?.(video.currentTime / video.duration * 100);
           if (Date.now() - lastTimeSyncRef.current < 1_500) return;
           lastTimeSyncRef.current = Date.now();
           emit();
         }}
+        onEnded={() => onResourceProgress?.(100)}
         playsInline
         preload="metadata"
         ref={videoRef}

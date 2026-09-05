@@ -1,5 +1,26 @@
 import type { LearningEvent, LearningEventType } from "@/lib/session/types";
 
+export const RESOURCE_PROGRESS_THRESHOLDS = [25, 50, 75, 100] as const;
+
+/** Return only coarse milestones crossed between two progress readings. */
+export function crossedResourceProgressThresholds(previous: number, current: number): number[] {
+  const from = Math.max(0, Math.min(100, Math.floor(previous)));
+  const to = Math.max(0, Math.min(100, Math.floor(current)));
+  if (to <= from) return [];
+  return RESOURCE_PROGRESS_THRESHOLDS.filter((threshold) => threshold > from && threshold <= to);
+}
+
+export function resourceEventIdempotencyKey(
+  courseId: string,
+  studentId: string,
+  resourceId: string,
+  type: "open" | "progress" | "complete",
+  milestone?: number,
+  source: "student" | "teacher-projection" = "student",
+): string {
+  return ["resource", courseId, studentId, resourceId, source, type, milestone ?? "once"].join(":");
+}
+
 export type LearningEventDraft = Omit<LearningEvent, "id" | "idempotencyKey" | "occurredAt"> & {
   occurredAt?: string;
   idempotencyKey?: string;

@@ -234,6 +234,7 @@ export default function StudentClassroomPage() {
       ) : null}
       {uploadedProjectionResource ? (
         <StudentResourceProjection
+          course={course}
           projection={uploadedProjection!}
           resource={uploadedProjectionResource}
         />

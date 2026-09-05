@@ -15,6 +15,7 @@ import {
   buildReflectionClassSummary,
   buildReflectionEvidencePrompts,
   buildTeacherInterventionSignals,
+  buildTeacherDashboardAdvice,
   diagnoseGroupIdea,
   diagnoseProjectArtifact,
   generateProcessEvaluation,
@@ -413,6 +414,26 @@ describe("teaching AI support engine", () => {
 
     expect(signals[0]?.groupId).toBe("g1");
     expect(signals[0]?.supportCard).toContain("10 分钟");
+  });
+
+  it("builds dashboard advice from the current course evidence without inventing student ids", async () => {
+    llmMock.callLLM.mockResolvedValueOnce(JSON.stringify({
+      summary: "小明当前阶段进度为 10%，需要教师核对实际卡点。",
+      actions: [{
+        title: "巡视小明",
+        detail: "依据当前 10% 的阶段进度，当面确认卡点后再决定是否提供支架。",
+        kind: "patrol",
+        studentIds: ["s1", "not-a-student"],
+      }],
+    }));
+
+    const advice = await buildTeacherDashboardAdvice(course, "group");
+
+    expect(advice.source).toBe("llm");
+    expect(advice.actions[0]?.studentIds).toEqual(["s1"]);
+    const messages = llmMock.callLLM.mock.calls[0]?.[0] as Array<{ content: string }>;
+    expect(messages[1]?.content).toContain("校园低碳生活");
+    expect(messages[1]?.content).toContain("证据不足时 actions 返回空数组");
   });
 
   it("creates showcase coaching from real LLM JSON", async () => {

@@ -58,6 +58,7 @@ function makeCourse(studentCount = 5, submittedCount = 0): Course {
 
 describe("reflection class summary helpers", () => {
   it("uses the current highest threshold and the minimum sample gate", () => {
+    expect(reflectionSummaryMinimumSampleSize(1)).toBe(1);
     expect(reflectionSummaryMinimumSampleSize(2)).toBe(2);
     expect(reflectionSummaryMinimumSampleSize(20)).toBe(3);
     expect(reflectionSummaryCoverage(makeCourse(100, 19)).coverageBucket).toBe(0);

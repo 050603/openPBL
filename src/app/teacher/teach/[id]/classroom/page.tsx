@@ -11,13 +11,10 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleStop,
-  ClipboardCheck,
   Clock3,
   Copy,
   Eye,
   Lightbulb,
-  MessageSquareText,
-  MonitorUp,
   QrCode,
   RefreshCw,
   UserRoundCheck,
@@ -30,9 +27,9 @@ import {
 import { DashboardShell, Avatar } from "@/components/dashboard-shell";
 import { StageGateDialog } from "@/components/classroom/classroom-chrome";
 import { TeacherStageView } from "@/components/views/teacher/stage-dispatcher";
-import { ReflectionSummarySidebar } from "@/components/views/teacher/reflection-summary-sidebar";
 import { deriveAiLearningClassMetrics } from "@/components/views/teacher/ai-learning";
 import { StudentLearningDetail } from "@/components/views/teacher/student-learning-detail";
+import { TeacherStageDashboard } from "@/components/classroom/teacher-stage-dashboard";
 import { CompanionMonitor } from "@/components/views/teacher/companion-monitor";
 import { TeacherStageResources } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, Button, FlowActionBar, SaveStatus } from "@/components/ui";
@@ -41,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { evaluateStageGate } from "@/lib/classroom/stage-gates";
 import { makeRecordId } from "@/lib/session/actions";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
+import { useShowcasePresentation } from "@/hooks/use-showcase-presentation";
 import { useCoursePresence } from "@/hooks/use-course-presence";
 import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
 import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
@@ -63,6 +61,7 @@ import { copyTextToClipboard } from "@/lib/browser/copy-text";
 import { normalizeInviteCode } from "@/lib/session/invite-code";
 import { isNewOpenPblSystem } from "@/lib/system-mode";
 import type { Course } from "@/lib/session/types";
+import type { TeacherStageFocus } from "@/lib/classroom/teacher-dashboard-metrics";
 import { resourcesForStage } from "@/lib/classroom/stage-resources";
 import { latestReflectionByStudent, normalizeReflectionSurvey } from "@/lib/reflection-survey";
 import {
@@ -97,6 +96,11 @@ export default function TeachClassroomPage() {
   const [presentationMode, setPresentationMode] = useState(false);
   const [companionMonitorOpen, setCompanionMonitorOpen] = useState(false);
   const [monitorStudentId, setMonitorStudentId] = useState<string | undefined>();
+  const [dashboardFocus, setDashboardFocus] = useState<TeacherStageFocus>();
+  const newSystem = isNewOpenPblSystem();
+  const showcaseController = useShowcasePresentation(
+    newSystem && course?.stages[course.currentStageIndex]?.key === "showcase" ? course.id : undefined,
+  );
 
   useEffect(() => {
     if (!hydrated) return;
@@ -167,7 +171,6 @@ export default function TeachClassroomPage() {
   }
 
   const currentStage = course.stages[course.currentStageIndex];
-  const newSystem = isNewOpenPblSystem();
   const showDataSidebar = shouldShowClassroomDataSidebar(currentStage?.key, focusMode);
   const companionStageActive = !newSystem
     && (currentStage?.key === "proposal" || currentStage?.key === "make");
@@ -385,6 +388,7 @@ export default function TeachClassroomPage() {
       },
     });
     setTargetStageIndex(null);
+    setDashboardFocus(undefined);
   }
 
   const toolPanelContent = toolPanel === "timer" ? (
@@ -413,6 +417,8 @@ export default function TeachClassroomPage() {
       currentStage={currentStage ? { index: course.currentStageIndex, total: course.stages.length, label: currentStage.label } : undefined}
       currentTask={currentStage ? `检查${currentStage.label}的阶段产出` : undefined}
       leadRole={currentStage?.key === "ai-learning" ? "AI" : currentStage?.key === "proposal" || currentStage?.key === "make" ? "学生" : "教师"}
+      onSelectStage={newSystem ? requestStage : undefined}
+      stageOptions={newSystem ? course.stages.map((stage, index) => ({ index, label: stage.label })) : undefined}
       wide
       headerSlot={
         <div className="hidden items-center gap-1 md:flex">
@@ -488,7 +494,8 @@ export default function TeachClassroomPage() {
       }
     >
       {/* 移动端工具栏：小屏幕上显示精简版 */}
-      <div className="mb-3 flex items-center gap-2 md:hidden">
+      <div className={cn("mb-3 flex items-center gap-2 md:hidden", newSystem && "flex-wrap")}>
+        {newSystem ? <label className="order-first w-full"><span className="sr-only">当前教学阶段</span><select aria-label="当前教学阶段" className="h-9 w-full truncate rounded-[var(--radius-sm)] border border-blue-200 bg-blue-50/70 px-2 text-xs font-bold text-blue-800 outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onChange={(event) => requestStage(Number(event.target.value))} value={course.currentStageIndex}>{course.stages.map((stage, index) => <option key={stage.key} value={index}>{index + 1}. {stage.label}</option>)}</select></label> : null}
         <button
           className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-stone-200 bg-white px-3 text-[13px] font-semibold text-stone-600"
           onClick={() => setToolPanel("timer")}
@@ -569,6 +576,8 @@ export default function TeachClassroomPage() {
                 course={course}
                 onSelectGroup={companionStageActive ? openProjectInMonitor : undefined}
                 onSelectStudent={companionStageActive ? openCompanionMonitor : undefined}
+                focus={dashboardFocus}
+                showcaseController={showcaseController}
                 view={currentStage.view}
               />
             </section>
@@ -576,8 +585,17 @@ export default function TeachClassroomPage() {
         </div>
 
         {/* 右侧：数据面板（完成度分布 + 风险预警 + AI 建议） */}
-        {showDataSidebar ? <div className="relative xl:fixed xl:bottom-[4.5rem] xl:right-0 xl:top-16 xl:z-20 xl:w-[21.25rem] min-[1920px]:right-[4vw]">
-          <aside className="flex h-[calc(100dvh-9rem)] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-white/95 shadow-[0_18px_50px_rgba(30,64,175,0.10)] backdrop-blur xl:h-full">
+        {showDataSidebar ? <div className={cn("relative", newSystem && "max-xl:fixed max-xl:bottom-3 max-xl:left-3 max-xl:right-3 max-xl:z-40 max-xl:h-[min(70dvh,560px)]", "xl:fixed xl:bottom-[4.5rem] xl:right-0 xl:top-16 xl:z-20 xl:w-[21.25rem] min-[1920px]:right-[4vw]")}>
+          <aside className={cn("flex flex-col overflow-hidden rounded-2xl border border-blue-100 bg-white/95 shadow-[0_18px_50px_rgba(30,64,175,0.10)] backdrop-blur", newSystem ? "h-full" : "h-[calc(100dvh-9rem)] xl:h-full")}>
+            {newSystem ? <TeacherStageDashboard
+              course={course}
+              degraded={presence.degraded}
+              onCollapse={() => setFocusMode(true)}
+              onFocus={setDashboardFocus}
+              onSelectStage={requestStage}
+              showcaseData={showcaseController.data}
+              stageKey={currentStage?.key ?? "launch"}
+            /> : <>
             <header className="relative overflow-hidden border-b border-blue-100 bg-[linear-gradient(145deg,#eff6ff_0%,#ffffff_60%,#ecfdf5_100%)] px-4 pb-4 pt-3.5">
               <div className="absolute -right-8 -top-10 size-28 rounded-full bg-blue-100/60 blur-2xl" />
               <div className="relative flex items-start justify-between gap-3">
@@ -620,14 +638,7 @@ export default function TeachClassroomPage() {
               onSelectStage={requestStage}
               signalRows={aiLearningSignalRows}
             />
-          ) : newSystem ? <>
-          <SidebarCourseProgress course={course} onSelectStage={requestStage} />
-          <NewSystemStageDecisionSidebar
-            course={course}
-            onOpenStudent={(studentId) => setMonitorStudentId(studentId)}
-            stageKey={currentStage?.key ?? "launch"}
-          />
-          </> : <>
+          ) : <>
           <SidebarCourseProgress course={course} onSelectStage={requestStage} />
           <DataPanelCard
             icon={<Users size={15} />}
@@ -757,6 +768,7 @@ export default function TeachClassroomPage() {
           </>}
 
             </div>
+            </>}
           </aside>
         </div> : null}
       </div>
@@ -774,7 +786,7 @@ export default function TeachClassroomPage() {
         </button>
       ) : null}
 
-      {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="pbl-wide-container mb-6 flex items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="pbl-wide-container"><TeacherStageView course={course} onSelectGroup={openProjectInMonitor} onSelectStudent={openCompanionMonitor} view={currentStage.view} /></main></div> : null}
+      {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="pbl-wide-container mb-6 flex items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="pbl-wide-container"><TeacherStageView course={course} focus={dashboardFocus} showcaseController={showcaseController} onSelectGroup={openProjectInMonitor} onSelectStudent={openCompanionMonitor} view={currentStage.view} /></main></div> : null}
 
       <FlowActionBar
         back={previousStage ? <Button onClick={() => requestStage(course.currentStageIndex - 1)} variant="text">回退到「{previousStage.label}」</Button> : null}
@@ -1015,118 +1027,6 @@ function SidebarCourseProgress({ course, onSelectStage }: { course: Course; onSe
       <p className="mt-2 text-xs font-bold text-blue-800">当前：{course.stages[course.currentStageIndex]?.label}</p>
     </section>
   );
-}
-
-function NewSystemStageDecisionSidebar({ course, stageKey, onOpenStudent }: { course: Course; stageKey: string; onOpenStudent: (studentId: string) => void }) {
-  if (stageKey === "launch") {
-    const resources = resourcesForStage(course.resources, "launch");
-    const totalSeats = course.classConfig?.totalStudents ?? course.students.length;
-    const projected = course.uiState?.resourceProjection?.stageKey === "launch";
-    return (
-      <>
-        <StageSidebarSection icon={<ClipboardCheck size={14} />} title="启动准备" hint="授课前检查">
-          <div className="grid gap-2">
-            <SidebarMetric label="学生到课" value={`${course.students.length}/${totalSeats}`} helper={course.students.length >= totalSeats ? "学生已全部进入课堂" : `还有 ${Math.max(0, totalSeats - course.students.length)} 个席位未加入`} />
-            <SidebarMetric label="启动资料" value={`${resources.length} 份`} helper={projected ? "当前有资料正在同步投屏" : "尚未开始资料投屏"} />
-            <SidebarMetric label="课堂公告" value={`${course.announcements?.length ?? 0} 条`} helper={`${course.announcements?.filter((item) => item.pinned).length ?? 0} 条已置顶`} />
-          </div>
-        </StageSidebarSection>
-        <StageSidebarSection icon={<Lightbulb size={14} />} title="当前建议" hint="下一步">
-          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3 text-xs leading-5 text-blue-900">
-            {resources.length ? projected ? "资料正在投屏，可结合左侧内容确认学生理解后进入知识讲授。" : "启动资料已准备，可从左侧选择核心材料并开始投屏。" : "请先在左侧上传或确认项目启动材料，再向学生说明任务。"}
-          </div>
-        </StageSidebarSection>
-      </>
-    );
-  }
-
-  if (stageKey === "make") {
-    const makeMetrics = deriveMakeStageLearningMetrics(course);
-    const {
-      adoptedSuggestionEvents,
-      initiatingStudentIds,
-      openSignals,
-      proactiveInterventionEvents,
-      savedStudentIds,
-      studentInitiatedConversationEvents,
-      suggestionDecisionEvents,
-    } = makeMetrics;
-    const studentsWithoutOutcome = course.students.filter((student) => !savedStudentIds.has(student.id));
-    return (
-      <>
-        <StageSidebarSection icon={<Bot size={14} />} title="AI 协作过程" hint="全班统计">
-          <div className="grid gap-2">
-            <SidebarMetric label="AI 主动介入" value={`${proactiveInterventionEvents.length} 次`} helper={proactiveInterventionEvents.length ? `AI 主动段落批注总数 · 人均 ${formatAverageInteractionCount(makeMetrics.averageProactiveInterventionCount)} 次` : "当前阶段 AI 尚未主动添加段落批注"} tone={proactiveInterventionEvents.length ? "active" : "default"} />
-            <SidebarMetric label="学生主动对话" value={`${studentInitiatedConversationEvents.length} 次`} helper={studentInitiatedConversationEvents.length ? `${initiatingStudentIds.size} 人曾从侧边栏或选区主动发起` : "当前尚无学生主动发起对话"} tone={studentInitiatedConversationEvents.length ? "active" : "warning"} />
-            <SidebarMetric label="AI 建议采纳率" value={makeMetrics.suggestionAcceptanceRate === null ? "—" : `${Math.round(makeMetrics.suggestionAcceptanceRate)}%`} helper={suggestionDecisionEvents.length ? `已决定 ${suggestionDecisionEvents.length} 条 · 采纳 ${adoptedSuggestionEvents.length} 条` : "尚无已采纳或拒绝的 AI 修改建议"} tone={makeMetrics.suggestionAcceptanceRate === null ? "default" : makeMetrics.suggestionAcceptanceRate >= 50 ? "ok" : "warning"} />
-          </div>
-        </StageSidebarSection>
-        <StageSidebarSection icon={<AlertTriangle size={14} />} title="优先巡视" hint={`${studentsWithoutOutcome.length + new Set(openSignals.map((item) => item.studentId)).size} 项关注`} tone={studentsWithoutOutcome.length || openSignals.length ? "warning" : "ok"}>
-          {studentsWithoutOutcome.length || openSignals.length ? (
-            <ul className="space-y-2">
-              {course.students.filter((student) => studentsWithoutOutcome.some((item) => item.id === student.id) || openSignals.some((signal) => signal.studentId === student.id)).slice(0, 6).map((student) => {
-                const signals = openSignals.filter((signal) => signal.studentId === student.id);
-                return <li key={student.id}><button className="w-full rounded-xl border border-amber-200 bg-amber-50/55 px-3 py-2.5 text-left transition hover:bg-amber-50" onClick={() => { onOpenStudent(student.id); window.dispatchEvent(new CustomEvent("openpbl:select-practice-student", { detail: { studentId: student.id, target: signals.length ? "signal" : "artifact" } })); }} type="button"><div className="flex items-center justify-between gap-2"><strong className="text-xs text-stone-900">{student.name}</strong><span className="text-[10px] font-bold text-amber-800">定位问题 →</span></div><p className="mt-1 text-[11px] leading-4 text-stone-600">{signals[0]?.summary ?? "尚未形成可提交成果"}</p></button></li>;
-              })}
-            </ul>
-          ) : <SidebarOk text="全班均已形成成果，暂无待处理信号" />}
-        </StageSidebarSection>
-      </>
-    );
-  }
-
-  if (stageKey === "showcase") {
-    const artifactStudentIds = new Set([
-      ...(course.projectDocumentVersions ?? []).filter((item) => item.status === "submitted").map((item) => item.studentId),
-      ...(course.projectPdfVersions ?? []).filter((item) => item.status === "submitted").map((item) => item.studentId),
-    ]);
-    const pending = (course.showcasePresentations ?? []).filter((item) => item.status === "pending");
-    const active = (course.showcasePresentations ?? []).find((item) => item.status === "active");
-    return (
-      <>
-        <StageSidebarSection icon={<MonitorUp size={14} />} title="汇报状态" hint={active ? "投屏中" : pending.length ? "等待审批" : "等待申请"}>
-          <div className="grid gap-2">
-            <SidebarMetric label="已有汇报资料" value={`${artifactStudentIds.size}/${course.students.length}`} helper="已提交主文档、PDF 或额外成果" />
-            <SidebarMetric label="待审批申请" value={`${pending.length} 项`} helper={pending.length ? "请在左侧确认是否开始投屏" : "当前没有待审批申请"} />
-            <SidebarMetric label="当前汇报学生" value={active?.studentName ?? "尚未开始"} helper={active ? `正在展示：${active.artifactTitle}` : "批准申请后开始全班同步"} />
-          </div>
-        </StageSidebarSection>
-        <StageSidebarSection icon={<ClipboardCheck size={14} />} title="待办队列" hint={`${pending.length} 项`} tone={pending.length ? "warning" : "ok"}>
-          {pending.length ? <ul className="space-y-2">{pending.slice(0, 5).map((item) => <li className="rounded-xl border border-amber-200 bg-amber-50/55 px-3 py-2.5" key={item.id}><p className="text-xs font-bold text-stone-900">{item.studentName ?? "学生"}申请汇报</p><p className="mt-1 truncate text-[11px] text-stone-600">{item.artifactTitle}</p></li>)}</ul> : <SidebarOk text={active ? "汇报正在进行，可在左侧控制投屏" : "暂无待审批申请，可继续收集成果"} />}
-        </StageSidebarSection>
-      </>
-    );
-  }
-
-  const latest = latestReflectionByStudent(course.reflections);
-  const submittedIds = new Set(course.students.flatMap((student) => normalizeReflectionSurvey(latest.get(student.id)?.survey) ? [student.id] : []));
-  const pendingStudents = course.students.filter((student) => !submittedIds.has(student.id));
-  return (
-    <>
-      <StageSidebarSection icon={<MessageSquareText size={14} />} title="反思回收" hint={`${submittedIds.size}/${course.students.length} 已提交`}>
-        <div className="grid gap-2">
-          <SidebarMetric label="完成率" value={course.students.length ? `${Math.round(submittedIds.size / course.students.length * 100)}%` : "暂无学生"} helper="结构化学习反思已提交" />
-        </div>
-      </StageSidebarSection>
-      <ReflectionSummarySidebar course={course} />
-      <StageSidebarSection icon={<Users size={14} />} title="待提交学生" hint={`${pendingStudents.length} 人`} tone={pendingStudents.length ? "warning" : "ok"}>
-        {pendingStudents.length ? <ul className="flex flex-wrap gap-1.5">{pendingStudents.map((student) => <li className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900" key={student.id}>{student.name}</li>)}</ul> : <SidebarOk text="全班均已提交学习反思" />}
-      </StageSidebarSection>
-    </>
-  );
-}
-
-function StageSidebarSection({ icon, title, hint, tone = "default", children }: { icon: ReactNode; title: string; hint: string; tone?: "default" | "warning" | "ok"; children: ReactNode }) {
-  return (
-    <section className="border-b border-stone-100 bg-white/70 px-4 py-4 last:border-b-0">
-      <header className="mb-3 flex items-start justify-between gap-3"><div className="flex items-center gap-2"><span className={cn("grid size-7 place-items-center rounded-lg", tone === "warning" ? "bg-amber-100 text-amber-700" : tone === "ok" ? "bg-emerald-100 text-emerald-700" : "bg-blue-50 text-blue-700")}>{icon}</span><h3 className="text-[13px] font-black text-stone-900">{title}</h3></div><span className="pt-1 text-[10px] font-semibold text-stone-400">{hint}</span></header>
-      {children}
-    </section>
-  );
-}
-
-function SidebarOk({ text }: { text: string }) {
-  return <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs font-semibold text-emerald-800"><CheckCircle2 size={16} />{text}</div>;
 }
 
 function SidebarMetric({ label, value, helper, tone = "default" }: { label: string; value: string; helper: string; tone?: "default" | "warning" | "ok" | "active" }) {
