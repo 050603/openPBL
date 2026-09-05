@@ -47,9 +47,27 @@ describe("StageGateDialog", () => {
     );
 
     expect(screen.queryByRole("textbox")).toBeNull();
-    const confirm = screen.getByRole("button", { name: "确认并切换" });
+    expect(screen.getByRole("heading", { name: "结束“项目启动”并进入“知识讲授”？" })).toBeTruthy();
+    const confirm = screen.getByRole("button", { name: "仍要进入“知识讲授”" });
     expect(confirm).not.toHaveProperty("disabled", true);
     fireEvent.click(confirm);
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it("uses explicit rollback wording when returning to an earlier stage", () => {
+    render(
+      <StageGateDialog
+        course={course}
+        onConfirm={vi.fn()}
+        onOpenChange={vi.fn()}
+        open
+        targetIndex={1}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "回退到“知识讲授”？" })).toBeTruthy();
+    expect(screen.getByText(/教师端和学生端都将回到“知识讲授”/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "确认回退到“知识讲授”" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /进入下一阶段/ })).toBeNull();
   });
 });

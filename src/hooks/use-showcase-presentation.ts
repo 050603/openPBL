@@ -69,6 +69,16 @@ function applyRealtimePayload(
       })),
     };
   }
+  if (payload.queue || payload.minutesPerStudent !== undefined) {
+    const queue = payload.queue ?? next.queue;
+    next = {
+      ...next,
+      queue,
+      minutesPerStudent: payload.minutesPerStudent ?? next.minutesPerStudent,
+      currentQueueItem: queue.find((item) => ["called", "pending-approval", "presenting", "evaluating", "rejected"].includes(item.status)) ?? null,
+      nextQueueItem: queue.find((item) => item.status === "waiting") ?? null,
+    };
+  }
   if (payload.snapshot) {
     const incomingRevision = payload.snapshot.revision ?? payload.snapshot.viewState?.revision ?? 0;
     const existingRevision = next.presentations.find((item) => item.id === payload.snapshot!.id)?.revision
@@ -146,6 +156,9 @@ export function useShowcasePresentation(courseId: string | undefined) {
     const unsubscribe = subscribeShowcasePresentation(courseId, (payload) => {
       if (payload.snapshot || Object.prototype.hasOwnProperty.call(payload, "presentingGroupId") || Object.prototype.hasOwnProperty.call(payload, "presentingStudentId") || Object.prototype.hasOwnProperty.call(payload, "presentingStudentName")) {
         setState((current) => current.data ? { ...current, data: applyRealtimePayload(current.data, payload), error: undefined } : current);
+        if (!payload.queue && (Object.prototype.hasOwnProperty.call(payload, "presentingStudentId") || payload.snapshot?.status !== "active")) {
+          void load();
+        }
       } else {
         void load();
       }

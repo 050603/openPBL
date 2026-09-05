@@ -335,7 +335,7 @@ model ShowcasePresentation {
   artifactVersionId String
   artifactTitle     String
   displayMode       String   @default("continuous") // continuous | slides
-  status            String   @default("pending") // pending | active | rejected | ended | cancelled
+  status            String   @default("pending") // pending | active | rejected | evaluating | ended | cancelled
   viewState         Json?
   revision          Int      @default(0)
   requestId         String?
@@ -345,6 +345,9 @@ model ShowcasePresentation {
   reviewedBy        String?
   startedAt         DateTime?
   endedAt           DateTime?
+  evaluationNote    String?  @db.Text
+  evaluatedAt       DateTime?
+  evaluatedBy       String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

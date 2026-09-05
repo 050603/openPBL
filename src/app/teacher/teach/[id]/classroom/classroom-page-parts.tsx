@@ -4,14 +4,99 @@ import type { ReactNode } from "react";
 import { Clock3, Pause, Play, RotateCcw, X } from "lucide-react";
 import { ProgressBar } from "@/components/ui";
 import type { ClassroomTimingSnapshot } from "@/lib/classroom/timing";
+import type { Course } from "@/lib/session/types";
 import { userFacingStageLabel } from "@/lib/user-facing-labels";
 import { cn } from "@/lib/utils";
 
 export function shouldShowClassroomDataSidebar(
-  stageKey: string | undefined,
+  _stageKey: string | undefined,
   focusMode: boolean,
 ): boolean {
-  return !focusMode && stageKey !== "showcase";
+  return !focusMode;
+}
+
+export function deriveMakeStageLearningMetrics(course: Course) {
+  const savedStudentIds = new Set([
+    ...(course.submissions ?? []).flatMap((submission) =>
+      submission.stageKey === "make"
+      && (submission.type === "document" || submission.type === "artifact-brief" || submission.type === "code")
+      && submission.studentId
+        ? [submission.studentId]
+        : [],
+    ),
+    ...(course.projectPdfVersions ?? [])
+      .filter((version) => version.stageKey === "make")
+      .map((version) => version.studentId),
+  ]);
+  const submittedStudentIds = new Set([
+    ...(course.projectDocumentVersions ?? [])
+      .filter((version) => version.stageKey === "make" && version.status === "submitted")
+      .map((version) => version.studentId),
+    ...(course.projectPdfVersions ?? [])
+      .filter((version) => version.stageKey === "make" && version.status === "submitted")
+      .map((version) => version.studentId),
+    ...(course.submissions ?? []).flatMap((submission) =>
+      submission.stageKey === "make" && submission.studentId && submission.files?.length
+        ? [submission.studentId]
+        : [],
+    ),
+  ]);
+  const interactionEvents = (course.aiInteractionEvents ?? []).filter((event) =>
+    event.stageKey === "make"
+    && event.actorRole === "student"
+    && event.eventType === "request",
+  );
+  const proactiveInterventionEvents = (course.aiInteractionEvents ?? []).filter((event) =>
+    event.stageKey === "make"
+    && event.actorRole === "ai"
+    && event.source === "proactive-comment"
+    && event.eventType === "comment",
+  );
+  const studentInitiatedConversationEvents = interactionEvents.filter((event) =>
+    event.source !== "proactive-comment",
+  );
+  const suggestionDecisionEvents = (course.aiInteractionEvents ?? []).filter((event) =>
+    event.stageKey === "make"
+    && event.actorRole === "student"
+    && event.eventType === "decision"
+    && (event.payload?.decision === "adopted" || event.payload?.decision === "rejected"),
+  );
+  const adoptedSuggestionEvents = suggestionDecisionEvents.filter((event) =>
+    event.payload?.decision === "adopted",
+  );
+  const activeStudentIds = new Set(interactionEvents.map((event) => event.studentId));
+  const initiatingStudentIds = new Set(studentInitiatedConversationEvents.map((event) => event.studentId));
+  const openSignals = (course.learningSignals ?? []).filter((signal) =>
+    signal.stageKey === "make" && signal.status === "open",
+  );
+  const alertedStudentIds = new Set(openSignals.map((signal) => signal.studentId));
+
+  return {
+    activeStudentIds,
+    adoptedSuggestionEvents,
+    alertedStudentIds,
+    averageInteractionCount: course.students.length
+      ? interactionEvents.length / course.students.length
+      : 0,
+    averageProactiveInterventionCount: course.students.length
+      ? proactiveInterventionEvents.length / course.students.length
+      : 0,
+    initiatingStudentIds,
+    interactionEvents,
+    openSignals,
+    proactiveInterventionEvents,
+    savedStudentIds,
+    studentInitiatedConversationEvents,
+    submittedStudentIds,
+    suggestionAcceptanceRate: suggestionDecisionEvents.length
+      ? adoptedSuggestionEvents.length / suggestionDecisionEvents.length * 100
+      : null,
+    suggestionDecisionEvents,
+  };
+}
+
+export function formatAverageInteractionCount(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, "");
 }
 
 export function ClassroomToolPopover({

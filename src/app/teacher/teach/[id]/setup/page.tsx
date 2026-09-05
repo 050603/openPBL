@@ -23,6 +23,7 @@ import { useCoursePresence } from "@/hooks/use-course-presence";
 import { normalizePblCourseConfig, type ResourceInquiryMode } from "@/lib/pbl-course-config";
 import { isNewOpenPblSystem } from "@/lib/system-mode";
 import { getNewSystemCourseReadiness } from "@/lib/classroom/new-system-course";
+import { MakeArtifactModeSetting } from "@/components/teacher/make-artifact-mode-setting";
 
 export default function TeachSetupPage() {
   const params = useParams<{ id: string }>();
@@ -160,10 +161,13 @@ export default function TeachSetupPage() {
             </Card>
           ) : null}
           <Card>
-            <h2 className="text-xl font-bold">{newSystem ? "新版五阶段课堂" : "课堂协作方式"}</h2>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 className="text-xl font-bold">{newSystem ? "新版五阶段课堂" : "课堂协作方式"}</h2>
+              {newSystem ? <MakeArtifactModeSetting course={course} /> : null}
+            </div>
             {newSystem ? (
               <div className="mt-4 space-y-3">
-                <p className="text-sm leading-6 text-stone-600">项目启动、成果汇报与评价、学习反思采用轻量资源授课；知识讲授采用分节学习、小测与助教讲解；项目实践使用文档或代码协作工作台。</p>
+                <p className="text-sm leading-6 text-stone-600">项目启动、成果汇报与评价、学习反思采用轻量资源授课；知识讲授采用分节学习、小测与助教讲解；项目实践的成果形式由教师在右上角统一设置。</p>
                 <div className="grid gap-2 sm:grid-cols-5">
                   {course.stages.map((stage, index) => <div className="rounded-[8px] border border-blue-100 bg-blue-50/70 p-3" key={stage.key}><span className="text-xs font-black text-blue-700">阶段 {index + 1}</span><p className="mt-1 text-sm font-bold text-stone-900">{stage.label}</p></div>)}
                 </div>

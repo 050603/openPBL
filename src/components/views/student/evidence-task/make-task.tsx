@@ -1,15 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
   ExternalLink,
   FileClock,
+  FilePenLine,
   FileUp,
   Layers3,
+  MessageCircleMore,
   Save,
   ShieldCheck,
+  Sparkles,
   UploadCloud,
 } from "lucide-react";
 import { PrimaryButton, Textarea } from "@/components/ui";
@@ -23,14 +27,17 @@ import { LEARNING_EVIDENCE_SCHEMA_VERSION } from "@/lib/learning-evidence/types"
 import type { ArtifactSnapshot, Course } from "@/lib/session/types";
 import { useSession } from "@/lib/session/store";
 import { evidenceRecordId, useEvidenceDraft } from "./use-evidence-draft";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 
 export function MakeEvidenceTask({
   course,
   studentId,
+  showIntro = true,
 }: {
   course: Course;
   studentId: string;
   focusActionId?: string;
+  showIntro?: boolean;
 }) {
   const session = useSession();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -58,6 +65,34 @@ export function MakeEvidenceTask({
       ]),
   ), [course.learningEvidence, studentId]);
   const nextVersionNumber = versions.length + 1;
+  const artifactMode = normalizePblCourseConfig(course.pblConfig).makeArtifactMode;
+
+  if (artifactMode !== "other") {
+    const isCode = artifactMode === "python" || artifactMode === "c";
+    const modeLabel = artifactMode === "python" ? "Python 代码" : artifactMode === "c" ? "C 语言代码" : "文档成果";
+    const workspaceLabel = isCode ? "代码工作台" : "文档工作台";
+    const workspaceHref = isCode
+      ? `/student/ai-collaboration/${course.id}?artifact=${artifactMode}`
+      : `/student/ai-collaboration/${course.id}`;
+    return (
+      <section className="rounded-2xl border border-blue-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_55%,#f5f3ff_100%)] p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-blue-700 text-white"><FilePenLine size={21} /></span>
+            <div>
+              <p className="text-xs font-black text-blue-700">教师已设置 · {modeLabel}</p>
+              <h2 className="mt-1 text-lg font-black text-stone-950">在系统内完成{isCode ? "代码项目" : "项目文档"}</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-stone-600">进入{workspaceLabel}后，可以边{isCode ? "编写和运行代码" : "写作"}边与 AI 组员讨论、修改并保留协作记录。</p>
+            </div>
+          </div>
+          <Link className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-sm font-bold text-white hover:bg-blue-800" href={workspaceHref}>
+            <FilePenLine size={16} />进入{workspaceLabel}
+          </Link>
+        </div>
+        <p className="mt-4 rounded-lg border border-blue-100 bg-white/80 px-3 py-2 text-xs text-stone-500">成果形式由教师统一设置，学生端不提供类型切换。</p>
+      </section>
+    );
+  }
 
   async function uploadVersion(file: File) {
     setUploading(true);
@@ -148,7 +183,7 @@ export function MakeEvidenceTask({
         studentName: session.studentName ?? session.user.name,
         groupId: projectId,
         stageKey: "make",
-        type: "document",
+        type: "evidence",
         title: `V${versionNumber} · ${file.name}`,
         content: note,
         files: [{ name: data.fileName, type: snapshot.fileType, size: data.size, url: data.url }],
@@ -181,6 +216,23 @@ export function MakeEvidenceTask({
 
   return (
     <div className="make-stage-workspace make-stage-workspace--simple">
+      {showIntro ? <section className="mb-4 overflow-hidden rounded-2xl border border-orange-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_48%,#f0fdfa_100%)] p-4 shadow-[0_14px_36px_rgba(120,70,35,0.08)] sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs font-black text-orange-700"><Sparkles size={15} />外部作品也能全程获得 AI 组员支持</div>
+            <h2 className="mt-1.5 text-lg font-black text-stone-950">在本机制作 PPT、视频、设计稿或其他作品</h2>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-stone-600">你可以在 AI 组员中查资料、讨论问题和梳理思路，再到本机软件完成作品。完成后把文件提交到这里，教师可直接收集和下载；系统不要求在线预览。</p>
+          </div>
+          <PrimaryButton className="min-h-11 shrink-0 px-5" disabled={uploading} onClick={() => inputRef.current?.click()} type="button">
+            <UploadCloud size={17} />{uploading ? "正在上传…" : "提交电脑中的成果"}
+          </PrimaryButton>
+        </div>
+        <ol className="mt-4 grid gap-2 sm:grid-cols-3" aria-label="外部成果协作流程">
+          <li className="flex items-center gap-2 rounded-xl border border-white bg-white/80 px-3 py-2 text-xs font-semibold text-stone-700"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-teal-100 text-teal-800">1</span><MessageCircleMore size={14} className="text-teal-700" />和 AI 组员研究与构思</li>
+          <li className="flex items-center gap-2 rounded-xl border border-white bg-white/80 px-3 py-2 text-xs font-semibold text-stone-700"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-orange-100 text-orange-800">2</span><FileUp size={14} className="text-orange-700" />在本机软件完成作品</li>
+          <li className="flex items-center gap-2 rounded-xl border border-white bg-white/80 px-3 py-2 text-xs font-semibold text-stone-700"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-blue-100 text-blue-800">3</span><ShieldCheck size={14} className="text-blue-700" />上传归档并交给教师</li>
+        </ol>
+      </section> : null}
       <div className="make-simple-workspace">
         <MakeProcessDraft
           course={course}
@@ -205,7 +257,7 @@ export function MakeEvidenceTask({
               <span>{latestDraft.trim() ? "版本说明将引用工作稿，无需重复填写。" : "可以先提交作品，之后继续补充工作稿。"}</span>
             </div>
 
-            <p className="make-version-submit__formats">支持 PDF、Word、PPT、视频、代码与压缩包</p>
+            <p className="make-version-submit__formats">支持 PDF、Word、PPT、视频、代码、设计稿与压缩包</p>
 
             <PrimaryButton
               className="make-version-submit__action"

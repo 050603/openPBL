@@ -21,13 +21,34 @@ const ALLOWED_ARTIFACTS: Record<string, AllowedArtifact> = {
   ".pdf": { detected: ["pdf"], mimeType: "application/pdf", kind: "pdf" },
   ".doc": { detected: ["doc"], mimeType: "application/msword", kind: "file" },
   ".docx": { detected: ["docx", "zip"], mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", kind: "file" },
+  // Office Open XML files are ZIP containers; file-type versions differ on
+  // whether they identify the package as the specific office subtype or just
+  // `zip`, so accept both signatures after the extension has been checked.
+  ".pptx": { detected: ["pptx", "zip"], mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", kind: "file" },
+  ".xlsx": { detected: ["xlsx", "zip"], mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", kind: "file" },
   ".zip": { detected: ["zip"], mimeType: "application/zip", kind: "file" },
   ".rar": { detected: ["rar"], mimeType: "application/vnd.rar", kind: "file" },
   ".7z": { detected: ["7z"], mimeType: "application/x-7z-compressed", kind: "file" },
+  ".mp4": { detected: ["mp4", "m4v"], mimeType: "video/mp4", kind: "file" },
+  ".mov": { detected: ["mov", "mp4", "m4v"], mimeType: "video/quicktime", kind: "file" },
+  ".webm": { detected: ["webm"], mimeType: "video/webm", kind: "file" },
+  ".mp3": { detected: ["mp3"], mimeType: "audio/mpeg", kind: "file" },
+  ".wav": { detected: ["wav"], mimeType: "audio/wav", kind: "file" },
+  ".m4a": { detected: ["m4a", "mp4"], mimeType: "audio/mp4", kind: "file" },
+  ".ogg": { detected: ["ogg", "opus"], mimeType: "audio/ogg", kind: "file" },
+  ".png": { detected: ["png"], mimeType: "image/png", kind: "file" },
+  ".jpg": { detected: ["jpg"], mimeType: "image/jpeg", kind: "file" },
+  ".jpeg": { detected: ["jpg"], mimeType: "image/jpeg", kind: "file" },
+  ".webp": { detected: ["webp"], mimeType: "image/webp", kind: "file" },
+  ".gif": { detected: ["gif"], mimeType: "image/gif", kind: "file" },
   ".txt": { mimeType: "text/plain", plainText: true, kind: "file" },
   ".md": { mimeType: "text/markdown", plainText: true, kind: "file" },
   ".csv": { mimeType: "text/csv", plainText: true, kind: "file" },
   ".json": { mimeType: "application/json", plainText: true, kind: "file" },
+  ".xml": { mimeType: "application/xml", plainText: true, kind: "file" },
+  ".yaml": { mimeType: "application/yaml", plainText: true, kind: "file" },
+  ".yml": { mimeType: "application/yaml", plainText: true, kind: "file" },
+  ".sql": { mimeType: "application/sql", plainText: true, kind: "file" },
   ".py": { mimeType: "text/x-python", plainText: true, kind: "file" },
   ".js": { mimeType: "text/javascript", plainText: true, kind: "file" },
   ".jsx": { mimeType: "text/jsx", plainText: true, kind: "file" },
@@ -53,9 +74,9 @@ export async function POST(
   if (csrfError) return csrfError;
   const auth = await authenticateRequest(request, "student");
   if ("response" in auth) return auth.response;
-  if (auth.claims.role !== "student") return errorResponse("FORBIDDEN", "只有学生可以提交额外成果。", 403);
+  if (auth.claims.role !== "student") return errorResponse("FORBIDDEN", "只有学生可以提交本地成果。", 403);
   const studentId = auth.claims.studentId;
-  if (!isDatabaseConfigured()) return errorResponse("DATABASE_REQUIRED", "额外成果提交需要连接数据库。", 503);
+  if (!isDatabaseConfigured()) return errorResponse("DATABASE_REQUIRED", "本地成果提交需要连接数据库。", 503);
   const { courseId } = await context.params;
   if (auth.claims.courseId !== courseId) return errorResponse("FORBIDDEN", "学生身份与课程不匹配。", 403);
   const limit = await checkDistributedRateLimit({
@@ -79,7 +100,7 @@ export async function POST(
       return Boolean(candidate && typeof candidate === "object" && (candidate as { key?: unknown }).key === key);
     });
   if (course.status !== "teaching" || !newFiveStageCourse || !stage || typeof stage !== "object" || (stage as { key?: unknown }).key !== "make") {
-    return errorResponse("MAKE_INACTIVE", "只能在第三阶段项目实践中提交额外成果。", 409);
+    return errorResponse("MAKE_INACTIVE", "只能在第三阶段项目实践中提交本地成果。", 409);
   }
   const member = await prisma.groupMember.findFirst({
     where: { courseId, studentId },
@@ -96,7 +117,7 @@ export async function POST(
     const originalName = path.basename(file.name).normalize("NFC");
     const extension = path.extname(originalName).toLowerCase();
     const allowed = ALLOWED_ARTIFACTS[extension];
-    if (!allowed) return errorResponse("FILE_TYPE_UNSUPPORTED", "支持 PDF、Word、ZIP 和常见代码或文本文件。", 415);
+    if (!allowed) return errorResponse("FILE_TYPE_UNSUPPORTED", "支持 PDF、Word、PPTX、表格、图片、音视频、压缩包、代码和文本文件。", 415);
     if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return errorResponse("FILE_TOO_LARGE", "成果文件不能为空且不能超过 100 MiB。", 413);
     const metadata = MetadataSchema.safeParse({
       title: form.get("title") ?? undefined,
@@ -165,7 +186,7 @@ export async function POST(
         || !lockedStage
         || typeof lockedStage !== "object"
         || (lockedStage as { key?: unknown }).key !== "make") {
-        throw new ShowcasePresentationError("MAKE_INACTIVE", "只能在第三阶段项目实践中提交额外成果。", 409);
+        throw new ShowcasePresentationError("MAKE_INACTIVE", "只能在第三阶段项目实践中提交本地成果。", 409);
       }
       const lockedMember = await tx.groupMember.findFirst({
         where: { courseId, studentId },
@@ -257,7 +278,7 @@ export async function POST(
     if (targetPath) await unlink(targetPath).catch(() => undefined);
     if (error instanceof ShowcasePresentationError) return errorResponse(error.code, error.message, error.status);
     console.error("[showcase/artifact] upload failed", error);
-    return errorResponse("ARTIFACT_SUBMIT_FAILED", "额外成果提交失败，请稍后重试。", 500);
+    return errorResponse("ARTIFACT_SUBMIT_FAILED", "成果文件提交失败，请稍后重试。", 500);
   }
 }
 

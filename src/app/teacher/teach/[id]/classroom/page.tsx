@@ -11,10 +11,13 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleStop,
+  ClipboardCheck,
   Clock3,
   Copy,
   Eye,
   Lightbulb,
+  MessageSquareText,
+  MonitorUp,
   QrCode,
   RefreshCw,
   UserRoundCheck,
@@ -22,10 +25,14 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Route,
 } from "lucide-react";
 import { DashboardShell, Avatar } from "@/components/dashboard-shell";
-import { StageGateDialog, StageProgress } from "@/components/classroom/classroom-chrome";
+import { StageGateDialog } from "@/components/classroom/classroom-chrome";
 import { TeacherStageView } from "@/components/views/teacher/stage-dispatcher";
+import { ReflectionSummarySidebar } from "@/components/views/teacher/reflection-summary-sidebar";
+import { deriveAiLearningClassMetrics } from "@/components/views/teacher/ai-learning";
+import { StudentLearningDetail } from "@/components/views/teacher/student-learning-detail";
 import { CompanionMonitor } from "@/components/views/teacher/companion-monitor";
 import { TeacherStageResources } from "@/components/openmaic-bridge/teacher-stage-resources";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, Button, FlowActionBar, SaveStatus } from "@/components/ui";
@@ -55,9 +62,14 @@ import {
 import { copyTextToClipboard } from "@/lib/browser/copy-text";
 import { normalizeInviteCode } from "@/lib/session/invite-code";
 import { isNewOpenPblSystem } from "@/lib/system-mode";
+import type { Course } from "@/lib/session/types";
+import { resourcesForStage } from "@/lib/classroom/stage-resources";
+import { latestReflectionByStudent, normalizeReflectionSurvey } from "@/lib/reflection-survey";
 import {
   ClassroomToolPopover,
+  deriveMakeStageLearningMetrics,
   formatClock,
+  formatAverageInteractionCount,
   shouldShowClassroomDataSidebar,
   TimerPanel,
 } from "./classroom-page-parts";
@@ -161,6 +173,8 @@ export default function TeachClassroomPage() {
     && (currentStage?.key === "proposal" || currentStage?.key === "make");
   const canPrev = course.currentStageIndex > 0;
   const canNext = course.currentStageIndex < course.stages.length - 1;
+  const previousStage = canPrev ? course.stages[course.currentStageIndex - 1] : undefined;
+  const nextStage = canNext ? course.stages[course.currentStageIndex + 1] : undefined;
   const timerText = timingSnapshot?.activeStage
     ? timingSnapshot.activeStage.overrunSec > 0
       ? `+${formatClock(timingSnapshot.activeStage.overrunSec)}`
@@ -249,6 +263,25 @@ export default function TeachClassroomPage() {
         .slice(-3)
         .reverse()
     : [];
+  const aiLearningMetrics = currentStage?.key === "ai-learning"
+    ? deriveAiLearningClassMetrics(course)
+    : undefined;
+  const aiLearningSignalRows = currentStage?.key === "ai-learning"
+    ? course.students.flatMap((student) => {
+        const signals = (course.learningSignals ?? []).filter((signal) =>
+          signal.stageKey === "ai-learning"
+          && signal.studentId === student.id
+          && signal.status === "open",
+        );
+        return signals.length ? [{ student, signals }] : [];
+      })
+    : [];
+  const sidebarHeaderMetrics = deriveSidebarHeaderMetrics({
+    aiLearningMetrics,
+    attentionCount: attentionRows.length,
+    course,
+    stageKey: currentStage?.key,
+  });
   const hasTeacherResources = Boolean(
     course.teacherClassroomId ||
       course.content.teacherClassroomId ||
@@ -520,15 +553,16 @@ export default function TeachClassroomPage() {
             </div>
           ) : null}
 
-          <StageProgress course={course} onSelect={requestStage} />
-
           {!newSystem && currentStage && hasTeacherResources && currentStage.key !== "ai-learning" ? (
             <TeacherStageResources course={course} stageKey={currentStage.key} />
           ) : null}
 
           {currentStage ? (
             <section
-              className="classroom-stage pbl-card overflow-hidden rounded-[var(--radius-lg)] p-3 md:p-4"
+              className={cn(
+                "classroom-stage pbl-card rounded-[var(--radius-lg)] p-3 md:p-4",
+                currentStage.key === "make" ? "overflow-visible" : "overflow-hidden",
+              )}
               key={currentStage.key}
             >
               <TeacherStageView
@@ -569,21 +603,32 @@ export default function TeachClassroomPage() {
                 </span>
               </div>
               <div className="relative mt-3 grid grid-cols-3 divide-x divide-blue-100 rounded-xl border border-white/80 bg-white/75 py-2.5 shadow-sm">
-                <div className="px-2 text-center">
-                  <div className="text-lg font-black tabular-nums text-stone-950">{onlineCount}</div>
-                  <div className="text-[10px] font-semibold text-stone-500">在线学生</div>
-                </div>
-                <div className="px-2 text-center">
-                  <div className="text-lg font-black tabular-nums text-blue-700">{readyStudentCount}</div>
-                  <div className="text-[10px] font-semibold text-stone-500">已达标</div>
-                </div>
-                <div className="px-2 text-center">
-                  <div className={cn("text-lg font-black tabular-nums", attentionRows.length ? "text-amber-600" : "text-emerald-600")}>{attentionRows.length}</div>
-                  <div className="text-[10px] font-semibold text-stone-500">需关注</div>
-                </div>
+                {sidebarHeaderMetrics.map((metric) => (
+                  <div className="min-w-0 px-2 text-center" key={metric.label}>
+                    <div className={cn("truncate text-lg font-black tabular-nums", metric.tone === "warning" ? "text-amber-600" : metric.tone === "success" ? "text-emerald-600" : "text-blue-700")}>{metric.value}</div>
+                    <div className="truncate text-[10px] font-semibold text-stone-500">{metric.label}</div>
+                  </div>
+                ))}
               </div>
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {currentStage?.key === "ai-learning" && aiLearningMetrics ? (
+            <AiLearningDecisionSidebar
+              course={course}
+              metrics={aiLearningMetrics}
+              onOpenStudent={(studentId) => setMonitorStudentId(studentId)}
+              onSelectStage={requestStage}
+              signalRows={aiLearningSignalRows}
+            />
+          ) : newSystem ? <>
+          <SidebarCourseProgress course={course} onSelectStage={requestStage} />
+          <NewSystemStageDecisionSidebar
+            course={course}
+            onOpenStudent={(studentId) => setMonitorStudentId(studentId)}
+            stageKey={currentStage?.key ?? "launch"}
+          />
+          </> : <>
+          <SidebarCourseProgress course={course} onSelectStage={requestStage} />
           <DataPanelCard
             icon={<Users size={15} />}
             title="阶段状态分布"
@@ -709,12 +754,14 @@ export default function TeachClassroomPage() {
             )}
           </DataPanelCard>
 
+          </>}
+
             </div>
           </aside>
         </div> : null}
       </div>
 
-      {currentStage?.key !== "showcase" && !showDataSidebar ? (
+      {!showDataSidebar ? (
         <button
           aria-label="显示班级概览"
           aria-expanded="false"
@@ -730,12 +777,12 @@ export default function TeachClassroomPage() {
       {presentationMode && currentStage?.key === "showcase" ? <div className="fixed inset-0 z-[70] overflow-y-auto bg-[var(--pbl-surface)] p-5 md:p-8"><header className="pbl-wide-container mb-6 flex items-center justify-between border-b border-[var(--pbl-border)] pb-4"><div><p className="text-sm text-[var(--pbl-text-muted)]">最终汇报展示 · {course.name}</p><p className="font-mono mt-1 text-2xl font-semibold tabular-nums">{timerText}</p></div><Button onClick={() => setPresentationMode(false)} variant="secondary"><Minimize2 size={16} />退出投影</Button></header><main className="pbl-wide-container"><TeacherStageView course={course} onSelectGroup={openProjectInMonitor} onSelectStudent={openCompanionMonitor} view={currentStage.view} /></main></div> : null}
 
       <FlowActionBar
-        back={canPrev ? <Button onClick={() => requestStage(course.currentStageIndex - 1)} variant="text">上一步</Button> : null}
+        back={previousStage ? <Button onClick={() => requestStage(course.currentStageIndex - 1)} variant="text">回退到「{previousStage.label}」</Button> : null}
         persistent
         reserveSpace={false}
         saveStatus={<SaveStatus lastSavedAt={session.lastSavedAt} onRetry={() => void session.retrySave()} state={session.saveState} />}
       >
-        {canNext ? <Button onClick={() => requestStage(course.currentStageIndex + 1)}>检查条件并进入下一阶段</Button> : <Button onClick={() => setEndDialogOpen(true)}>{newSystem ? "结束课程" : "检查评价并结束课程"}</Button>}
+        {nextStage ? <Button onClick={() => requestStage(course.currentStageIndex + 1)}>结束「{currentStage?.label}」并进入「{nextStage.label}」</Button> : <Button onClick={() => setEndDialogOpen(true)}>{newSystem ? "结束本次课程" : "检查评价并结束本次课程"}</Button>}
       </FlowActionBar>
 
       {targetStageIndex !== null ? <StageGateDialog course={course} onConfirm={confirmStage} onOpenChange={(open) => { if (!open) setTargetStageIndex(null); }} open targetIndex={targetStageIndex} /> : null}
@@ -764,6 +811,16 @@ export default function TeachClassroomPage() {
         </div>
       ) : null}
 
+      {currentStage?.key === "ai-learning" ? (
+        <StudentLearningDetail
+          course={course}
+          key={monitorStudentId ?? "none"}
+          onOpenChange={(open) => { if (!open) setMonitorStudentId(undefined); }}
+          open={Boolean(monitorStudentId)}
+          studentId={monitorStudentId}
+        />
+      ) : null}
+
       {/* 移动端工具弹窗；桌面端弹层直接锚定在对应顶栏按钮下方。 */}
       {toolPanel ? (
         <>
@@ -782,6 +839,302 @@ export default function TeachClassroomPage() {
         </>
       ) : null}
     </DashboardShell>
+  );
+}
+
+type SidebarHeaderMetric = {
+  label: string;
+  value: string;
+  tone?: "default" | "warning" | "success";
+};
+
+function deriveSidebarHeaderMetrics({
+  course,
+  stageKey,
+  aiLearningMetrics,
+  attentionCount,
+}: {
+  course: Course;
+  stageKey?: string;
+  aiLearningMetrics?: ReturnType<typeof deriveAiLearningClassMetrics>;
+  attentionCount: number;
+}): SidebarHeaderMetric[] {
+  if (stageKey === "launch") {
+    return [
+      { label: "启动资料", value: `${resourcesForStage(course.resources, "launch").length} 份` },
+      { label: "课堂公告", value: `${course.announcements?.length ?? 0} 条` },
+      { label: "待处理", value: `${attentionCount} 项`, tone: attentionCount ? "warning" : "success" },
+    ];
+  }
+  if (stageKey === "ai-learning") {
+    const quizStudents = aiLearningMetrics?.summaries.filter((item) => item.answeredQuestions > 0).length ?? 0;
+    return [
+      { label: "已完成小测", value: `${quizStudents} 人` },
+      { label: "平均进度", value: `${aiLearningMetrics?.averageProgress ?? 0}%` },
+      { label: "需关注", value: `${aiLearningMetrics?.summaries.filter((item) => item.signals.length > 0).length ?? 0} 人`, tone: aiLearningMetrics?.summaries.some((item) => item.signals.length > 0) ? "warning" : "success" },
+    ];
+  }
+  if (stageKey === "make") {
+    const makeMetrics = deriveMakeStageLearningMetrics(course);
+    return [
+      { label: "提交情况", value: `${makeMetrics.submittedStudentIds.size}/${course.students.length} 人`, tone: makeMetrics.submittedStudentIds.size < course.students.length ? "warning" : "success" },
+      { label: "学情预警", value: `${makeMetrics.alertedStudentIds.size} 人`, tone: makeMetrics.alertedStudentIds.size ? "warning" : "success" },
+      { label: "平均互动次数", value: `${formatAverageInteractionCount(makeMetrics.averageInteractionCount)} 次`, tone: makeMetrics.interactionEvents.length ? "default" : "warning" },
+    ];
+  }
+  if (stageKey === "showcase") {
+    const artifactStudents = new Set([
+      ...(course.projectDocumentVersions ?? []).filter((item) => item.status === "submitted").map((item) => item.studentId),
+      ...(course.projectPdfVersions ?? []).filter((item) => item.status === "submitted").map((item) => item.studentId),
+    ]);
+    const pending = (course.showcasePresentations ?? []).filter((item) => item.status === "pending").length;
+    const active = (course.showcasePresentations ?? []).some((item) => item.status === "active");
+    return [
+      { label: "成果齐备", value: `${artifactStudents.size} 人` },
+      { label: "待审批", value: `${pending} 项`, tone: pending ? "warning" : "success" },
+      { label: "投屏状态", value: active ? "进行中" : "未开始", tone: active ? "success" : "default" },
+    ];
+  }
+  if (stageKey === "reflection") {
+    const latest = latestReflectionByStudent(course.reflections);
+    const submitted = course.students.filter((student) => normalizeReflectionSurvey(latest.get(student.id)?.survey)).length;
+    const pending = Math.max(0, course.students.length - submitted);
+    return [
+      { label: "已提交反思", value: `${submitted} 人` },
+      { label: "完成率", value: course.students.length ? `${Math.round(submitted / course.students.length * 100)}%` : "0%" },
+      { label: "待提交", value: `${pending} 人`, tone: pending ? "warning" : "success" },
+    ];
+  }
+  const workingCount = course.students.length - attentionCount;
+  return [
+    { label: "正常推进", value: `${Math.max(0, workingCount)} 人` },
+    { label: "已达标", value: `${course.students.filter((student) => deriveStageReadiness(course, student.id, stageKey ?? "").status === "ready").length} 人` },
+    { label: "需关注", value: `${attentionCount} 人`, tone: attentionCount ? "warning" : "success" },
+  ];
+}
+
+function AiLearningDecisionSidebar({
+  course,
+  metrics,
+  signalRows,
+  onOpenStudent,
+  onSelectStage,
+}: {
+  course: Course;
+  metrics: ReturnType<typeof deriveAiLearningClassMetrics>;
+  signalRows: Array<{
+    student: Course["students"][number];
+    signals: NonNullable<Course["learningSignals"]>;
+  }>;
+  onOpenStudent: (studentId: string) => void;
+  onSelectStage: (index: number) => void;
+}) {
+  return (
+    <div className="divide-y divide-stone-100">
+      <SidebarCourseProgress course={course} onSelectStage={onSelectStage} />
+
+      <section className="bg-[linear-gradient(160deg,#f8fbff,#ffffff)] px-4 py-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="grid size-7 place-items-center rounded-lg bg-blue-50 text-blue-700"><Route size={14} /></span>
+          <div><h3 className="text-[13px] font-black text-stone-900">关键学情</h3><p className="text-[10px] text-stone-400">随学生学习记录实时更新</p></div>
+        </div>
+        <div className="grid gap-2">
+          <SidebarMetric
+            label="班级平均进度"
+            value={metrics.averageProgress === undefined ? "暂无数据" : `${metrics.averageProgress}%`}
+            helper="全班当前学习页面进度的平均值"
+          />
+          <SidebarMetric
+            label="平均答题速度"
+            value={metrics.averageSpeedText}
+            helper={metrics.averageSpeedHelper}
+          />
+          <SidebarMetric
+            label="班级答题准确率"
+            value={metrics.classAccuracy === undefined ? "暂无数据" : `${metrics.classAccuracy}%`}
+            helper={metrics.attemptCount ? `基于 ${metrics.attemptCount} 次有效小测提交` : "等待学生完成小测"}
+          />
+        </div>
+      </section>
+
+      <section className="bg-white/70 px-4 py-4">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div><h3 className="text-[13px] font-black text-stone-900">需要关注</h3><p className="mt-0.5 text-[10px] text-stone-400">点击学生查看信号依据与完整学习记录</p></div>
+          <span className={cn("rounded-full px-2 py-1 text-[10px] font-bold", signalRows.length ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700")}>{signalRows.length} 人</span>
+        </div>
+        {signalRows.length ? (
+          <ul className="space-y-2">
+            {signalRows.map(({ student, signals }) => (
+              <li key={student.id}>
+                <button className="w-full rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-left transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600" onClick={() => onOpenStudent(student.id)} type="button">
+                  <div className="flex items-center justify-between gap-2"><span className="font-bold text-stone-900">{student.name}</span><span className="text-[10px] font-bold text-amber-800">查看详情 →</span></div>
+                  <div className="mt-2 space-y-1.5">
+                    {signals.slice(0, 2).map((signal) => <div className="rounded-lg bg-white/85 px-2.5 py-2" key={signal.id}><p className="text-xs font-bold text-rose-800">{signal.title}</p><p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-stone-600">{signal.summary}</p></div>)}
+                  </div>
+                  {signals.length > 2 ? <p className="mt-1.5 text-[10px] font-semibold text-stone-500">另有 {signals.length - 2} 条学习信号</p> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs font-semibold text-emerald-800"><CheckCircle2 size={16} />当前无待处理学习信号，可继续授课</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function SidebarCourseProgress({ course, onSelectStage }: { course: Course; onSelectStage: (index: number) => void }) {
+  return (
+    <section className="bg-white/70 px-4 py-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-[13px] font-black text-stone-900">课程进度</h3>
+        <span className="text-[10px] font-semibold text-stone-400">第 {course.currentStageIndex + 1}/{course.stages.length} 阶段</span>
+      </div>
+      <ol className="flex items-center gap-1.5" aria-label="课堂阶段进度">
+        {course.stages.map((stage, index) => {
+          const current = index === course.currentStageIndex;
+          const done = index < course.currentStageIndex;
+          return (
+            <li className="min-w-0 flex-1" key={stage.key}>
+              <button
+                aria-current={current ? "step" : undefined}
+                aria-label={`第 ${index + 1} 阶段：${stage.label}`}
+                className={cn(
+                  "h-2 w-full rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700",
+                  current ? "bg-blue-700" : done ? "bg-emerald-500" : "bg-stone-200 hover:bg-stone-300",
+                )}
+                onClick={() => onSelectStage(index)}
+                title={stage.label}
+                type="button"
+              />
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 text-xs font-bold text-blue-800">当前：{course.stages[course.currentStageIndex]?.label}</p>
+    </section>
+  );
+}
+
+function NewSystemStageDecisionSidebar({ course, stageKey, onOpenStudent }: { course: Course; stageKey: string; onOpenStudent: (studentId: string) => void }) {
+  if (stageKey === "launch") {
+    const resources = resourcesForStage(course.resources, "launch");
+    const totalSeats = course.classConfig?.totalStudents ?? course.students.length;
+    const projected = course.uiState?.resourceProjection?.stageKey === "launch";
+    return (
+      <>
+        <StageSidebarSection icon={<ClipboardCheck size={14} />} title="启动准备" hint="授课前检查">
+          <div className="grid gap-2">
+            <SidebarMetric label="学生到课" value={`${course.students.length}/${totalSeats}`} helper={course.students.length >= totalSeats ? "学生已全部进入课堂" : `还有 ${Math.max(0, totalSeats - course.students.length)} 个席位未加入`} />
+            <SidebarMetric label="启动资料" value={`${resources.length} 份`} helper={projected ? "当前有资料正在同步投屏" : "尚未开始资料投屏"} />
+            <SidebarMetric label="课堂公告" value={`${course.announcements?.length ?? 0} 条`} helper={`${course.announcements?.filter((item) => item.pinned).length ?? 0} 条已置顶`} />
+          </div>
+        </StageSidebarSection>
+        <StageSidebarSection icon={<Lightbulb size={14} />} title="当前建议" hint="下一步">
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3 text-xs leading-5 text-blue-900">
+            {resources.length ? projected ? "资料正在投屏，可结合左侧内容确认学生理解后进入知识讲授。" : "启动资料已准备，可从左侧选择核心材料并开始投屏。" : "请先在左侧上传或确认项目启动材料，再向学生说明任务。"}
+          </div>
+        </StageSidebarSection>
+      </>
+    );
+  }
+
+  if (stageKey === "make") {
+    const makeMetrics = deriveMakeStageLearningMetrics(course);
+    const {
+      adoptedSuggestionEvents,
+      initiatingStudentIds,
+      openSignals,
+      proactiveInterventionEvents,
+      savedStudentIds,
+      studentInitiatedConversationEvents,
+      suggestionDecisionEvents,
+    } = makeMetrics;
+    const studentsWithoutOutcome = course.students.filter((student) => !savedStudentIds.has(student.id));
+    return (
+      <>
+        <StageSidebarSection icon={<Bot size={14} />} title="AI 协作过程" hint="全班统计">
+          <div className="grid gap-2">
+            <SidebarMetric label="AI 主动介入" value={`${proactiveInterventionEvents.length} 次`} helper={proactiveInterventionEvents.length ? `AI 主动段落批注总数 · 人均 ${formatAverageInteractionCount(makeMetrics.averageProactiveInterventionCount)} 次` : "当前阶段 AI 尚未主动添加段落批注"} tone={proactiveInterventionEvents.length ? "active" : "default"} />
+            <SidebarMetric label="学生主动对话" value={`${studentInitiatedConversationEvents.length} 次`} helper={studentInitiatedConversationEvents.length ? `${initiatingStudentIds.size} 人曾从侧边栏或选区主动发起` : "当前尚无学生主动发起对话"} tone={studentInitiatedConversationEvents.length ? "active" : "warning"} />
+            <SidebarMetric label="AI 建议采纳率" value={makeMetrics.suggestionAcceptanceRate === null ? "—" : `${Math.round(makeMetrics.suggestionAcceptanceRate)}%`} helper={suggestionDecisionEvents.length ? `已决定 ${suggestionDecisionEvents.length} 条 · 采纳 ${adoptedSuggestionEvents.length} 条` : "尚无已采纳或拒绝的 AI 修改建议"} tone={makeMetrics.suggestionAcceptanceRate === null ? "default" : makeMetrics.suggestionAcceptanceRate >= 50 ? "ok" : "warning"} />
+          </div>
+        </StageSidebarSection>
+        <StageSidebarSection icon={<AlertTriangle size={14} />} title="优先巡视" hint={`${studentsWithoutOutcome.length + new Set(openSignals.map((item) => item.studentId)).size} 项关注`} tone={studentsWithoutOutcome.length || openSignals.length ? "warning" : "ok"}>
+          {studentsWithoutOutcome.length || openSignals.length ? (
+            <ul className="space-y-2">
+              {course.students.filter((student) => studentsWithoutOutcome.some((item) => item.id === student.id) || openSignals.some((signal) => signal.studentId === student.id)).slice(0, 6).map((student) => {
+                const signals = openSignals.filter((signal) => signal.studentId === student.id);
+                return <li key={student.id}><button className="w-full rounded-xl border border-amber-200 bg-amber-50/55 px-3 py-2.5 text-left transition hover:bg-amber-50" onClick={() => { onOpenStudent(student.id); window.dispatchEvent(new CustomEvent("openpbl:select-practice-student", { detail: { studentId: student.id, target: signals.length ? "signal" : "artifact" } })); }} type="button"><div className="flex items-center justify-between gap-2"><strong className="text-xs text-stone-900">{student.name}</strong><span className="text-[10px] font-bold text-amber-800">定位问题 →</span></div><p className="mt-1 text-[11px] leading-4 text-stone-600">{signals[0]?.summary ?? "尚未形成可提交成果"}</p></button></li>;
+              })}
+            </ul>
+          ) : <SidebarOk text="全班均已形成成果，暂无待处理信号" />}
+        </StageSidebarSection>
+      </>
+    );
+  }
+
+  if (stageKey === "showcase") {
+    const artifactStudentIds = new Set([
+      ...(course.projectDocumentVersions ?? []).filter((item) => item.status === "submitted").map((item) => item.studentId),
+      ...(course.projectPdfVersions ?? []).filter((item) => item.status === "submitted").map((item) => item.studentId),
+    ]);
+    const pending = (course.showcasePresentations ?? []).filter((item) => item.status === "pending");
+    const active = (course.showcasePresentations ?? []).find((item) => item.status === "active");
+    return (
+      <>
+        <StageSidebarSection icon={<MonitorUp size={14} />} title="汇报状态" hint={active ? "投屏中" : pending.length ? "等待审批" : "等待申请"}>
+          <div className="grid gap-2">
+            <SidebarMetric label="已有汇报资料" value={`${artifactStudentIds.size}/${course.students.length}`} helper="已提交主文档、PDF 或额外成果" />
+            <SidebarMetric label="待审批申请" value={`${pending.length} 项`} helper={pending.length ? "请在左侧确认是否开始投屏" : "当前没有待审批申请"} />
+            <SidebarMetric label="当前汇报学生" value={active?.studentName ?? "尚未开始"} helper={active ? `正在展示：${active.artifactTitle}` : "批准申请后开始全班同步"} />
+          </div>
+        </StageSidebarSection>
+        <StageSidebarSection icon={<ClipboardCheck size={14} />} title="待办队列" hint={`${pending.length} 项`} tone={pending.length ? "warning" : "ok"}>
+          {pending.length ? <ul className="space-y-2">{pending.slice(0, 5).map((item) => <li className="rounded-xl border border-amber-200 bg-amber-50/55 px-3 py-2.5" key={item.id}><p className="text-xs font-bold text-stone-900">{item.studentName ?? "学生"}申请汇报</p><p className="mt-1 truncate text-[11px] text-stone-600">{item.artifactTitle}</p></li>)}</ul> : <SidebarOk text={active ? "汇报正在进行，可在左侧控制投屏" : "暂无待审批申请，可继续收集成果"} />}
+        </StageSidebarSection>
+      </>
+    );
+  }
+
+  const latest = latestReflectionByStudent(course.reflections);
+  const submittedIds = new Set(course.students.flatMap((student) => normalizeReflectionSurvey(latest.get(student.id)?.survey) ? [student.id] : []));
+  const pendingStudents = course.students.filter((student) => !submittedIds.has(student.id));
+  return (
+    <>
+      <StageSidebarSection icon={<MessageSquareText size={14} />} title="反思回收" hint={`${submittedIds.size}/${course.students.length} 已提交`}>
+        <div className="grid gap-2">
+          <SidebarMetric label="完成率" value={course.students.length ? `${Math.round(submittedIds.size / course.students.length * 100)}%` : "暂无学生"} helper="结构化学习反思已提交" />
+        </div>
+      </StageSidebarSection>
+      <ReflectionSummarySidebar course={course} />
+      <StageSidebarSection icon={<Users size={14} />} title="待提交学生" hint={`${pendingStudents.length} 人`} tone={pendingStudents.length ? "warning" : "ok"}>
+        {pendingStudents.length ? <ul className="flex flex-wrap gap-1.5">{pendingStudents.map((student) => <li className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900" key={student.id}>{student.name}</li>)}</ul> : <SidebarOk text="全班均已提交学习反思" />}
+      </StageSidebarSection>
+    </>
+  );
+}
+
+function StageSidebarSection({ icon, title, hint, tone = "default", children }: { icon: ReactNode; title: string; hint: string; tone?: "default" | "warning" | "ok"; children: ReactNode }) {
+  return (
+    <section className="border-b border-stone-100 bg-white/70 px-4 py-4 last:border-b-0">
+      <header className="mb-3 flex items-start justify-between gap-3"><div className="flex items-center gap-2"><span className={cn("grid size-7 place-items-center rounded-lg", tone === "warning" ? "bg-amber-100 text-amber-700" : tone === "ok" ? "bg-emerald-100 text-emerald-700" : "bg-blue-50 text-blue-700")}>{icon}</span><h3 className="text-[13px] font-black text-stone-900">{title}</h3></div><span className="pt-1 text-[10px] font-semibold text-stone-400">{hint}</span></header>
+      {children}
+    </section>
+  );
+}
+
+function SidebarOk({ text }: { text: string }) {
+  return <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs font-semibold text-emerald-800"><CheckCircle2 size={16} />{text}</div>;
+}
+
+function SidebarMetric({ label, value, helper, tone = "default" }: { label: string; value: string; helper: string; tone?: "default" | "warning" | "ok" | "active" }) {
+  return (
+    <div className={cn("rounded-xl border bg-white px-3 py-2.5 shadow-[0_5px_16px_rgba(30,64,175,0.05)]", tone === "warning" ? "border-amber-200" : tone === "ok" ? "border-emerald-200" : "border-blue-100")}>
+      <div className="flex items-baseline justify-between gap-3"><span className="text-[11px] font-semibold text-stone-500">{label}</span><strong className="text-sm text-stone-950">{value}</strong></div>
+      <p className={cn("mt-1 text-[10px] leading-4", tone === "warning" ? "font-semibold text-amber-700" : tone === "ok" ? "font-semibold text-emerald-700" : tone === "active" ? "text-blue-700" : "text-stone-400")}>{helper}</p>
+    </div>
   );
 }
 

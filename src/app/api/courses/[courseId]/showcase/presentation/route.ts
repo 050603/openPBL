@@ -20,6 +20,11 @@ const ActionSchema = z.discriminatedUnion("action", [
     studentId: z.string().min(1).max(128).nullable().optional(),
   }).strict(),
   z.object({
+    action: z.literal("save-queue"),
+    orderedStudentIds: z.array(z.string().min(1).max(128)).max(500),
+    minutesPerStudent: z.number().finite().int().min(1).max(60),
+  }).strict(),
+  z.object({
     action: z.literal("request"),
     artifactKind: z.enum(["document", "pdf"]),
     artifactVersionId: z.string().min(1).max(128),
@@ -51,6 +56,11 @@ const ActionSchema = z.discriminatedUnion("action", [
     }
   }),
   z.object({ action: z.literal("end"), presentationId: z.string().uuid() }).strict(),
+  z.object({
+    action: z.literal("finish-evaluation"),
+    presentationId: z.string().uuid(),
+    note: z.string().trim().max(2_000).nullable().optional(),
+  }).strict(),
 ]);
 
 export async function GET(

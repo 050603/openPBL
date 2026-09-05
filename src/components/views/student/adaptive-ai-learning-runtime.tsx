@@ -606,7 +606,7 @@ export function AdaptiveAiLearningRuntime({
           adaptiveInsertions={adaptiveInsertions}
           backHref={backHref}
           classroomId={classroomId}
-          className="rounded-none border-0"
+          className="rounded-none border-0 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_42%)]"
           courseId={course.id}
           knowledgeGraph={course.content.knowledgeGraph}
           knowledgePoints={course.content.knowledgePoints ?? []}

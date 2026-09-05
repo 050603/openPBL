@@ -3,6 +3,7 @@ import { isReliableAiProgress } from "@openmaic/lib/progress/completion-model";
 import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
 import { isReadyMadeDeliverableRequest } from "@/lib/learning-evidence/ai-policy";
 import { isNewOpenPblSystem } from "@/lib/system-mode";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 
 export type StageGateItem = {
   code: string;
@@ -40,21 +41,29 @@ export function evaluateStageGate(course: Course, stageIndex = course.currentSta
 
   if (isNewOpenPblSystem()) {
     if (stage.key === "make") {
+      const makeArtifactMode = normalizePblCourseConfig(course.pblConfig).makeArtifactMode;
       const studentsWithoutArtifact = course.students
-        .filter((student) => !(course.submissions ?? []).some((submission) =>
-          submission.stageKey === "make"
-          && submission.studentId === student.id
-          && (submission.type === "document" || submission.type === "code")
-          && submission.content.trim().length > 0))
+        .filter((student) => makeArtifactMode === "other"
+          ? !(course.projectPdfVersions ?? []).some((version) =>
+              version.stageKey === "make"
+              && version.studentId === student.id
+              && version.status === "submitted")
+          : !(course.submissions ?? []).some((submission) =>
+              submission.stageKey === "make"
+              && submission.studentId === student.id
+              && (submission.type === "document" || submission.type === "code")
+              && submission.content.trim().length > 0))
         .map((student) => student.id);
       if (studentsWithoutArtifact.length) {
         blockers.push({
           code: "collaboration-artifact",
-          message: `${studentsWithoutArtifact.length} 名学生尚未保存文档或代码项目产物`,
+          message: makeArtifactMode === "other"
+            ? `${studentsWithoutArtifact.length} 名学生尚未上传本地成果文件`
+            : `${studentsWithoutArtifact.length} 名学生尚未保存文档或代码项目产物`,
           targetIds: studentsWithoutArtifact,
         });
       } else if (course.students.length) {
-        completed.push("所有学生均已保存项目实践产物");
+        completed.push(makeArtifactMode === "other" ? "所有学生均已上传本地成果文件" : "所有学生均已保存项目实践产物");
       } else {
         warnings.push({
           code: "participants",

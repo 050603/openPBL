@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronRight,
   CircleAlert,
@@ -16,7 +16,6 @@ import { OpenMaicResourcePlayer } from "@/components/openmaic-bridge/openmaic-re
 import { Card, Pill, toast } from "@/components/ui";
 import {
   aggregateKnowledgePointMastery,
-  firstKnowledgeLectureAttempts,
 } from "@/lib/knowledge-lecture";
 import type {
   ClassCommonIssue,
@@ -80,7 +79,6 @@ export function ClassInterventionPanel({
     () => aggregateKnowledgePointMastery(course, progress),
     [course, progress],
   );
-  const attempts = Object.values(progress).flatMap(firstKnowledgeLectureAttempts);
   const outlines = useMemo(() => teachingOutlines(course), [course]);
   const recommendations = useMemo<Recommendation[]>(() => rows
     .filter((row) => row.status === "confirmed")
@@ -121,12 +119,15 @@ export function ClassInterventionPanel({
   const [loadingOutlineId, setLoadingOutlineId] = useState("");
   const [sceneCache, setSceneCache] = useState<Scene[]>();
   const [selectionSource, setSelectionSource] = useState<"teacher" | "recommendation">("teacher");
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState("");
   const projection = course.uiState?.teacherResourceProjection;
   const selectedOutline = outlines.find((outline) => outline.id === selectedOutlineId);
   const selectedPageNumber = selectedOutline
     ? outlines.findIndex((outline) => outline.id === selectedOutline.id) + 1
     : 0;
   const isProjected = Boolean(selectedScene && projection?.sceneId === selectedScene.id);
+  const selectedRecommendation = recommendations.find((item) => item.id === selectedRecommendationId);
+  const selectedKnowledgePoint = rows.find((item) => item.knowledgePointId === selectedRecommendationId);
 
   async function resolveScene(
     outline: OpenMaicSceneOutlineSnapshot,
@@ -194,6 +195,41 @@ export function ClassInterventionPanel({
     toast.success("已投屏给全班");
   }
 
+  function scrollRecommendationIntoView() {
+    window.requestAnimationFrame(() => {
+      document.getElementById("knowledge-lecture-ppt-recommendation")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  function selectRecommendation(item: Recommendation) {
+    setSelectedRecommendationId(item.id);
+    const firstPage = item.pages[0]?.outline;
+    if (firstPage) void resolveScene(firstPage, "recommendation");
+    scrollRecommendationIntoView();
+  }
+
+  useEffect(() => {
+    const handleKnowledgePointSelection = (event: Event) => {
+      const knowledgePointId = (event as CustomEvent<{ knowledgePointId?: string }>).detail?.knowledgePointId;
+      const recommendation = recommendations.find((item) => item.id === knowledgePointId);
+      if (recommendation) {
+        selectRecommendation(recommendation);
+        return;
+      }
+      const row = rows.find((item) => item.knowledgePointId === knowledgePointId);
+      const page = outlines.find((outline) => outline.knowledgePointIds?.includes(knowledgePointId ?? ""));
+      if (row) {
+        setSelectedRecommendationId(row.knowledgePointId);
+        if (page) void resolveScene(page, "recommendation");
+        scrollRecommendationIntoView();
+      }
+    };
+    window.addEventListener("openpbl:recommend-knowledge-point", handleKnowledgePointSelection);
+    return () => window.removeEventListener("openpbl:recommend-knowledge-point", handleKnowledgePointSelection);
+    // Recommendation selection intentionally rebinds when live analytics changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recommendations, rows, outlines]);
+
   function stopProjection() {
     setUiState(course.id, { teacherResourceProjection: null });
     addActivity(course.id, "停止全班补讲页面投屏", projection?.title);
@@ -236,11 +272,11 @@ export function ClassInterventionPanel({
           {recommendations.length ? (
             <ol className="space-y-3">
               {recommendations.map((item, index) => (
-                <li className={cn("rounded-xl border p-3.5", recommendationTone(item.unmetRate))} key={item.id}>
+                <li className={cn("rounded-xl border p-3.5 transition", recommendationTone(item.unmetRate), selectedRecommendationId === item.id && "ring-2 ring-[var(--pbl-teacher)] ring-offset-2")} key={item.id}>
                   <div className="flex items-start gap-3">
                     <span className="grid size-7 shrink-0 place-items-center rounded-full bg-white text-xs font-bold text-stone-700 shadow-sm ring-1 ring-stone-200">{index + 1}</span>
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center justify-between gap-2"><h5 className="font-bold text-stone-900">{item.name}</h5><strong className={cn("text-sm", item.unmetRate >= 50 ? "text-rose-700" : "text-amber-700")}>{item.unmetRate}% 未达标率</strong></div>
+                      <div className="flex flex-wrap items-center justify-between gap-2"><button className="group text-left" onClick={() => selectRecommendation(item)} type="button"><h5 className="font-bold text-stone-900 underline decoration-transparent underline-offset-4 transition group-hover:text-[var(--pbl-teacher)] group-hover:decoration-[var(--pbl-teacher)]">{item.name}</h5><span className="mt-0.5 block text-[10px] font-bold text-[var(--pbl-teacher)]">点击自动匹配推荐 PPT</span></button><strong className={cn("text-sm", item.unmetRate >= 50 ? "text-rose-700" : "text-amber-700")}>{item.unmetRate}% 未达标率</strong></div>
                       <p className="mt-1 text-xs text-stone-600">{item.incorrectStudents}/{item.answeredStudents} 人未达 80% · 平均失分率 {item.scoreLossRate}% · 作答覆盖率 {item.responseCoverage}%</p>
                       <div className="mt-3 rounded-lg bg-white/80 px-3 py-2 ring-1 ring-black/5">
                         <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">重点补充或强调</p>
@@ -267,8 +303,8 @@ export function ClassInterventionPanel({
               ))}
             </ol>
           ) : (
-            <div className="grid min-h-40 place-items-center rounded-xl border border-dashed border-emerald-200 bg-emerald-50/50 text-center text-sm text-emerald-800">
-              <span><CircleCheck className="mx-auto mb-2" size={24} />{attempts.length ? "当前没有已确认的共性问题" : "等待学生完成第一节小测后生成建议"}</span>
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/55 px-3 py-3 text-sm font-semibold text-emerald-800">
+              <CircleCheck size={19} />当前无共性问题，可继续授课
             </div>
           )}
 
@@ -304,7 +340,7 @@ export function ClassInterventionPanel({
           ) : null}
         </section>
 
-          <section className="min-w-0 bg-stone-50/45 p-4" aria-label="补讲页面调用区">
+          <section className="min-w-0 bg-white p-4" aria-label="补讲页面调用区" id="knowledge-lecture-ppt-recommendation">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-[var(--pbl-teacher)]">{selectedOutline ? `${selectionSource === "recommendation" ? "平台推荐" : "教师自主选择"} · 第 ${selectedPageNumber} 页` : "教师自主选择 PPT"}</p><h4 className="mt-1 truncate text-sm font-bold text-stone-900">{selectedOutline?.title ?? "选择需要补充讲解的知识讲授页面"}</h4></div>
               <div className="flex items-center gap-2">
@@ -312,6 +348,12 @@ export function ClassInterventionPanel({
                 <button className={cn("inline-flex h-9 items-center gap-1.5 rounded-[8px] px-3 text-xs font-bold text-white disabled:opacity-40", isProjected ? "bg-emerald-600" : "bg-[var(--pbl-teacher)] hover:bg-[var(--pbl-teacher-hover)]")} disabled={!selectedScene || !selectedOutline || course.status !== "teaching"} onClick={() => selectedOutline && selectedScene && void projectOutline(selectedOutline, selectionSource)} type="button"><MonitorUp size={14} />{isProjected ? "正在投屏" : "投屏给全班"}</button>
               </div>
             </div>
+            {selectedKnowledgePoint ? (
+              <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+                <p className="text-[10px] font-black uppercase tracking-[.12em] text-blue-700">推荐原因</p>
+                <p className="mt-1 text-xs leading-5 text-stone-700">“{selectedKnowledgePoint.name}”当前有 {selectedKnowledgePoint.incorrectStudents}/{selectedKnowledgePoint.answeredStudents} 人未达标；推荐页面直接覆盖该知识点。{selectedRecommendation?.explanation ?? "可回到原讲解页面澄清判断依据，并用一道快速检查题确认理解。"}</p>
+              </div>
+            ) : null}
             <label className="mb-3 block text-[11px] font-bold text-stone-600">
               从全部知识讲授 PPT 中选择
               <select aria-label="自主选择知识讲授PPT页面" className="mt-1.5 h-10 w-full rounded-[8px] border border-stone-200 bg-white px-3 text-xs font-semibold text-stone-700 outline-none focus:border-[var(--pbl-teacher)]" onChange={(event) => {

@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpenCheck,
   CheckCircle2,
-  Clock3,
   RefreshCw,
   Send,
 } from "lucide-react";
+import { RadioGroup } from "radix-ui";
 import { Card, Pill, PrimaryButton, TextArea, toast } from "@/components/ui";
 import { buildReflectionEvidencePrompts } from "@/lib/teaching-ai/client-api";
 import { useSession } from "@/lib/session/store";
@@ -74,6 +74,31 @@ function isComplete(fields: SurveyFields): fields is ReflectionSurveyResponseV1 
   );
 }
 
+function completedFieldCount(fields: SurveyFields): number {
+  return [
+    fields.learningReflection.trim(),
+    fields.systemReflection.trim(),
+    fields.aiHelpfulness,
+    fields.systemUsability,
+    fields.reuseIntention,
+  ].filter(Boolean).length;
+}
+
+function isHeuristicPrompt(value: string): boolean {
+  return /[？?]$/.test(value.trim());
+}
+
+function ReflectionPromptHints({ items }: { items: string[] }) {
+  return (
+    <details className="mt-2 rounded-lg border border-stone-100 bg-stone-50/60 px-2.5 py-1.5 text-[11px] text-stone-500">
+      <summary className="cursor-pointer list-none font-semibold text-stone-400">需要一点思路？</summary>
+      <ul className="mt-1.5 space-y-1 border-t border-stone-100 pt-1.5 leading-5">
+        {items.map((item) => <li key={item}>· {item}</li>)}
+      </ul>
+    </details>
+  );
+}
+
 export function NewReflectionStudentView({ course }: { course: Course }) {
   const session = useSession();
   const studentId = session.studentId ?? "";
@@ -99,6 +124,16 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
   const automaticGenerationKey = useRef<string | null>(null);
   const canEdit = course.status !== "finished";
   const complete = isComplete(fields);
+  const completedCount = completedFieldCount(fields);
+  const statusLabel = !canEdit
+    ? submitted ? "反思已提交 · 课程已结束" : "课程已结束 · 未提交"
+    : submitted && !saved
+      ? "有修改待重新提交"
+      : submitted
+        ? "反思已提交"
+        : complete
+          ? "5/5 已完成，待提交"
+          : `${completedCount}/5 已完成`;
 
   const project = useMemo(
     () => course.groups?.find((group) => group.members.some((member) => member.studentId === studentId)),
@@ -146,10 +181,13 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
         courseId: course.id,
         studentName,
       });
-      if (support?.suggestions.length && support.suggestions.length >= 2) {
-        setGeneratedSuggestions(support.suggestions.slice(0, 2));
+      const heuristicSuggestions = support?.suggestions
+        .filter((suggestion) => typeof suggestion === "string" && isHeuristicPrompt(suggestion))
+        .slice(0, 2);
+      if (heuristicSuggestions?.length === 2) {
+        setGeneratedSuggestions(heuristicSuggestions);
       } else {
-        throw new Error("AI 未返回两条完整提示，已切换为固定提示。");
+        throw new Error("AI 未返回两条问句提示，已切换为固定提示。");
       }
     } catch (error) {
       // The fixed prompts remain available, so an unavailable model never
@@ -206,8 +244,7 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
   return (
     <div className="classroom-stage space-y-5">
       <StagePageHeader
-        description="完成五项反思后提交，课程结束前仍可更新。"
-        status={<Pill tone={submitted ? "green" : complete ? "blue" : "gray"}>{submitted ? "已提交，可更新" : complete ? "可以提交" : "待完成"}</Pill>}
+        status={<Pill tone={!canEdit || submitted ? "green" : complete ? "blue" : "gray"}>{statusLabel}</Pill>}
         title="学习反思"
         variant="student-card"
       />
@@ -216,10 +253,9 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
         <Card className="border-[var(--pbl-student-border)] shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 pb-4">
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-bold"><BookOpenCheck size={19} />完成 5 项反思</h2>
-              <p className="mt-1 text-xs leading-5 text-stone-500">前两项建议各写 1–3 句话（最多 300 字），后三项选择最符合你感受的程度。</p>
+              <h2 className="flex items-center gap-2 text-lg font-bold"><BookOpenCheck size={19} />学习反思问卷</h2>
             </div>
-            <Pill size="sm" tone={complete ? "green" : "gray"}>{complete ? "5 / 5" : "必填 5 项"}</Pill>
+            <Pill size="sm" tone={complete ? "green" : "gray"}>{completedCount}/5 已完成</Pill>
           </div>
 
           <div className="mt-5 space-y-5">
@@ -236,6 +272,7 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
                 value={fields.learningReflection}
               />
               <span className="mt-1 block text-right text-xs text-stone-400">{fields.learningReflection.length}/{REFLECTION_SURVEY_TEXT_MAX_LENGTH}</span>
+              <ReflectionPromptHints items={["哪个时刻让你发现自己真正学会了什么？", "最难推进的是哪一步？你如何处理？", "这次困难有没有改变你的做法？"]} />
             </label>
 
             <label className="block">
@@ -251,31 +288,37 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
                 value={fields.systemReflection}
               />
               <span className="mt-1 block text-right text-xs text-stone-400">{fields.systemReflection.length}/{REFLECTION_SURVEY_TEXT_MAX_LENGTH}</span>
+              <ReflectionPromptHints items={["AI 的哪次参与真正帮助你推进？", "有没有一条建议你没有采纳？为什么？", "下一轮课程或系统最值得调整什么？"]} />
             </label>
 
             <div className="space-y-4">
               {SCALE_FIELDS.map(({ key, label }, index) => (
                 <fieldset className="rounded-xl border border-stone-200 p-3" key={key}>
                   <legend className="px-1 text-sm font-bold">{index + 3}. {label} <span className="text-rose-600">*</span></legend>
-                  <div className="mt-3 grid grid-cols-5 gap-1.5 sm:gap-2">
+                  <RadioGroup.Root
+                    aria-label={label}
+                    className="mt-3 grid grid-cols-5 gap-1.5 sm:gap-2"
+                    disabled={!canEdit}
+                    onValueChange={(value) => {
+                      const option = REFLECTION_SURVEY_SCALE.find((item) => String(item.value) === value);
+                      if (option) updateScore(key, option.value);
+                    }}
+                    value={fields[key] ? String(fields[key]) : undefined}
+                  >
                     {REFLECTION_SURVEY_SCALE.map((option) => (
-                      <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-stone-200 px-1 py-2 text-center text-[11px] text-stone-600 transition has-[:checked]:border-[var(--pbl-student)] has-[:checked]:bg-[var(--pbl-student-soft)] has-[:checked]:font-bold has-[:checked]:text-[var(--pbl-student)]" key={option.value}>
-                        <input
-                          aria-label={`${label}：${option.value}分，${option.label}`}
-                          checked={fields[key] === option.value}
-                          className="sr-only"
-                          disabled={!canEdit}
-                          name={`reflection-${key}`}
-                          onChange={() => updateScore(key, option.value)}
-                          required
-                          type="radio"
-                          value={option.value}
-                        />
+                      <RadioGroup.Item
+                        aria-label={`${label}：${option.value}分，${option.label}`}
+                        className="relative flex min-h-10 cursor-pointer flex-col items-center justify-center rounded-lg border border-stone-200 px-1 py-1.5 text-center text-[11px] text-stone-600 outline-none transition hover:border-[var(--pbl-student-border)] focus-visible:ring-2 focus-visible:ring-[var(--pbl-student)] data-[state=checked]:border-[var(--pbl-student)] data-[state=checked]:bg-[var(--pbl-student-soft)] data-[state=checked]:font-bold data-[state=checked]:text-[var(--pbl-student)] disabled:cursor-not-allowed disabled:opacity-60"
+                        key={option.value}
+                        value={String(option.value)}
+                      >
                         <span className="text-base font-bold">{option.value}</span>
-                        <span className="leading-4">{option.label}</span>
-                      </label>
+                        <span className="sr-only">{option.label}</span>
+                        <RadioGroup.Indicator className="absolute inset-0 rounded-lg ring-1 ring-inset ring-[var(--pbl-student)]" />
+                      </RadioGroup.Item>
                     ))}
-                  </div>
+                  </RadioGroup.Root>
+                  <div className="mt-1 flex justify-between text-[10px] text-stone-400"><span>1 · 非常不同意</span><span>5 · 非常同意</span></div>
                 </fieldset>
               ))}
             </div>
@@ -283,11 +326,11 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
 
           <div className="mt-5 grid gap-3 border-t border-stone-100 pt-4 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
             <div className="text-xs text-stone-500">
-              {lastSavedAt && saved ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="text-emerald-600" size={14} />最近保存：{new Date(lastSavedAt).toLocaleString("zh-CN")}</span> : "完成所有项目后即可提交"}
+              {lastSavedAt && saved ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="text-emerald-600" size={14} />最近提交：{new Date(lastSavedAt).toLocaleString("zh-CN")}</span> : submitted && !saved ? "已修改，点击更新学习反思后生效" : "完成所有项目后即可提交"}
             </div>
             <p className="text-center text-[11px] leading-5 text-stone-400">* 回答将仅用于教学计划改进和本课程实验分析。</p>
             <PrimaryButton className="sm:justify-self-end" disabled={!canEdit || !complete} onClick={submit} size="md" tone="teal">
-              <Send size={16} />{submitted ? "更新并提交" : "提交反思"}
+              <Send size={16} />{submitted ? "更新学习反思" : "提交学习反思"}
             </PrimaryButton>
           </div>
           {!canEdit ? <p className="mt-3 text-xs text-stone-500">课程已结束，反思内容仅供查看。</p> : null}
@@ -296,8 +339,7 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
         <Card className="classroom-panel border-[var(--pbl-border)] bg-[var(--pbl-surface)] xl:sticky xl:top-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="classroom-eyebrow text-[var(--pbl-student)]">写作辅助</p>
-              <h2 className="mt-1 flex items-center gap-2 text-base font-bold"><BookOpenCheck className="text-[var(--pbl-student)]" size={18} />反思提示</h2>
+              <h2 className="flex items-center gap-2 text-base font-bold"><BookOpenCheck className="text-[var(--pbl-student)]" size={18} />反思提示</h2>
             </div>
             <button
               aria-label="换一组反思提示"
@@ -317,7 +359,6 @@ export function NewReflectionStudentView({ course }: { course: Course }) {
               </li>
             ))}
           </ol>
-          <div className="mt-4 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-stone-500"><Clock3 size={14} />保持简短，写清一个真实例子就够了。</div>
         </Card>
       </section>
 

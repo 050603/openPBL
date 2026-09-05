@@ -16,7 +16,6 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { Streamdown } from "streamdown";
 import type {
   DelegatedWorkDocumentAction,
   DocumentCollaborationResponse,
@@ -74,6 +73,8 @@ type AiMemberWorkspaceProps = {
   onRejectChange: () => void;
   onReviseDelivery: () => void;
   onSubmit: () => void;
+  /** Label for the editable proxy ("文档" for document mode). */
+  workspaceLabel?: string;
 };
 
 const DISCUSSION_STARTERS = [
@@ -113,10 +114,13 @@ export function AiMemberWorkspace({
   onRejectChange,
   onReviseDelivery,
   onSubmit,
+  workspaceLabel = "文档",
 }: AiMemberWorkspaceProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [confirmNewConversation, setConfirmNewConversation] = useState(false);
-  const starters = taskStarters.length ? taskStarters : DISCUSSION_STARTERS;
+  const starters = taskStarters.length
+    ? taskStarters
+    : DISCUSSION_STARTERS.map((starter) => starter.replace("文档", workspaceLabel));
   const deliveryChangesDocument = pendingDelivery?.documentActions
     .some((action) => action.operation !== "none") ?? false;
 
@@ -298,7 +302,7 @@ export function AiMemberWorkspace({
               <div className="space-y-2.5 p-3">
                 <div className="max-h-72 overflow-y-auto rounded-lg border border-stone-200 bg-stone-50 px-3 py-2.5">
                   <div className="prose prose-sm max-w-none text-stone-800 prose-headings:mb-2 prose-headings:mt-3 prose-p:my-2 prose-li:my-0.5 prose-table:text-xs prose-th:bg-stone-100 prose-th:p-2 prose-td:p-2">
-                    <Streamdown>{pendingDelivery.content}</Streamdown>
+                    <AiMemberMarkdown content={pendingDelivery.content} />
                   </div>
                 </div>
 
@@ -317,7 +321,7 @@ export function AiMemberWorkspace({
                 ) : null}
 
                 <div className="rounded-lg border border-stone-200 bg-stone-50/80 p-2.5">
-                  <p className="flex items-center gap-1.5 text-[10px] font-bold text-stone-600"><FileInput size={12} />计划应用到文档</p>
+                <p className="flex items-center gap-1.5 text-[10px] font-bold text-stone-600"><FileInput size={12} />计划应用到{workspaceLabel}</p>
                   <div className="mt-1.5 space-y-1.5">
                     {pendingDelivery.documentActions.map((action, index) => (
                       <div className="rounded-md border border-stone-200 bg-white px-2.5 py-1.5" key={`${action.operation}-${index}`}>
@@ -331,7 +335,7 @@ export function AiMemberWorkspace({
                   <p className="mt-1.5 text-[10px] leading-4 text-stone-500">
                     {deliveryChangesDocument
                       ? "位置和内容已经由 AI 确定；确认后会一次性应用，仍可撤销。"
-                      : "这次交付只提供资料，不会修改当前文档。"}
+                      : `这次交付只提供资料，不会修改当前${workspaceLabel}。`}
                   </p>
                 </div>
                 {pendingDelivery.error ? <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700" role="alert">{pendingDelivery.error}</p> : null}
@@ -339,7 +343,7 @@ export function AiMemberWorkspace({
                 <div className="grid grid-cols-2 gap-2">
                   <button className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-700 transition hover:bg-stone-50" onClick={onRejectDelivery} type="button">暂不采用</button>
                   <button className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-700 transition hover:bg-stone-50" onClick={onReviseDelivery} type="button"><Undo2 size={13} />退回修改</button>
-                  <button className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-stone-950 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-stone-800" onClick={onAdoptDelivery} type="button"><CheckCircle2 size={14} />{deliveryChangesDocument ? "确认并应用到文档" : "完成审阅"}</button>
+                  <button className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-stone-950 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-stone-800" onClick={onAdoptDelivery} type="button"><CheckCircle2 size={14} />{deliveryChangesDocument ? `确认并应用到${workspaceLabel}` : "完成审阅"}</button>
                 </div>
               </div>
             </section>

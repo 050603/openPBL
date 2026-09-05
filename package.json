@@ -120,6 +120,7 @@
     "@tldraw/tlschema": "5.2.5",
     "@tweenjs/tween.js": "25.0.0",
     "@udecode/cn": "^52.3.4",
+    "@visx/wordcloud": "4.0.0",
     "@xyflow/react": "^12.11.2",
     "ai": "^7.0.79",
     "animate.css": "4.1.1",

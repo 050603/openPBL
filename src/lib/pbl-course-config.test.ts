@@ -16,6 +16,7 @@ describe("PBL course configuration", () => {
     const config = normalizePblCourseConfig();
 
     expect(config.projectMode).toBe("personal");
+    expect(config.makeArtifactMode).toBe("document");
     expect(config.generationTemplate).toBe("pbl-six-stage");
     expect(config.evaluationModel).toBe("tri-party");
     expect(config.companionIds).toContain("recorder");
@@ -25,6 +26,13 @@ describe("PBL course configuration", () => {
     expect(config.evidenceRequirements.map((item) => item.kind)).not.toEqual(
       expect.arrayContaining(["ai-decision-log", "artifact-version"]),
     );
+  });
+
+  it("preserves the teacher-selected project-practice artifact mode", () => {
+    expect(normalizePblCourseConfig({ makeArtifactMode: "other" }).makeArtifactMode).toBe("other");
+    expect(normalizePblCourseConfig({ makeArtifactMode: "document" }).makeArtifactMode).toBe("document");
+    expect(normalizePblCourseConfig({ makeArtifactMode: "python" }).makeArtifactMode).toBe("python");
+    expect(normalizePblCourseConfig({ makeArtifactMode: "c" }).makeArtifactMode).toBe("c");
   });
 
   it("preserves the explicit new-system AI-only generation template", () => {

@@ -25,6 +25,16 @@ import {
   learningEvidenceStatusLabel,
   learningStageLabel,
 } from "@/lib/evaluation/process-assessment";
+import {
+  normalizeReflectionSummaryDraft,
+  latestReflectionSurveyEntries,
+  reflectionSummaryCoverage,
+  reflectionSummaryMinimumSampleSize,
+  reflectionSummarySourceRevision,
+  reflectionSummarySourceRefs,
+  type ReflectionSummaryTrigger,
+} from "@/lib/reflection-summary";
+import type { ReflectionClassSummaryV1 } from "@/lib/session/types";
 
 export type AiSupportDraft = Omit<
   AiSupportRecord,
@@ -452,7 +462,7 @@ ${context}
 
 要求：
 1. diagnosis：一句话说明本次反思关注点。
-2. suggestions：严格返回 2 条，第一条聚焦课程内容、项目决策或收获，第二条聚焦系统或 AI 组员的使用体验；每条不超过 60 个汉字，使用“回想/说明/举例”等开放式措辞。
+2. suggestions：严格返回 2 条。第一条启发学生同时回顾“主要收获”和“常见困难”，第二条启发学生同时回顾“AI 协作看法”和“下一轮课程改进”；每条不超过 60 个汉字，必须是启发式问句，不复述学生具体经历，不提供示例答案，不评价答案。
 3. evidence：列出最多 2 条可引用的真实过程证据。
 
 仅返回 JSON：{ "diagnosis": "string", "suggestions": ["string", "string"], "evidence": ["string"] }`
@@ -482,9 +492,9 @@ ${context}
       .filter((suggestion): suggestion is string => typeof suggestion === "string")
       .map((suggestion) => suggestion.trim())
       .filter(Boolean)
-      .slice(0, format === "compact" ? 2 : 5)
       .map((suggestion) => format === "compact" ? suggestion.slice(0, 60) : suggestion);
-    if (format === "compact" && suggestions.length < 2) {
+    const compactSuggestions = suggestions.filter((suggestion) => /[？?]$/.test(suggestion)).slice(0, 2);
+    if (format === "compact" && compactSuggestions.length < 2) {
       return invalidAiResult("紧凑反思提示");
     }
     return {
@@ -498,13 +508,139 @@ ${context}
       trigger: "AI 反思证据提示",
       inputSummary: `课程：${course.name}；学生：${student?.name ?? "未识别学生"}；个人项目：${group?.name ?? "待同步"}；支架记录：${supports.length}`,
       diagnosis: llmResult.diagnosis,
-      suggestions,
+      suggestions: format === "compact" ? compactSuggestions : suggestions.slice(0, 5),
       evidence: llmResult.evidence?.slice(0, 5) ?? invalidAiResult("反思证据提示"),
       status: "draft",
       source: "llm",
     };
   }
   return invalidAiResult("反思证据提示");
+}
+
+// ============================================================
+// 第五部分：新版五阶段班级反思摘要
+// ============================================================
+
+/**
+ * 生成教师端课程级反思摘要。
+ *
+ * 送入模型的学生身份始终是一次性临时 ID，主题词的来源字段和学生 ID
+ * 会在服务端重新映射并校验，弹窗原文不依赖模型返回的任何引文。
+ */
+export async function buildReflectionClassSummary(
+  input: { course: Course; trigger: ReflectionSummaryTrigger },
+  opts: SupportCallOptions = {},
+): Promise<AiSupportDraft> {
+  throwIfAborted(opts.abortSignal);
+  const { course, trigger } = input;
+  const entries = latestReflectionSurveyEntries(course);
+  const minimumSampleSize = reflectionSummaryMinimumSampleSize(course.students.length);
+  if (entries.length < minimumSampleSize) {
+    throw new Error(`反思样本不足：至少需要 ${minimumSampleSize} 份有效反思。`);
+  }
+
+  const aliasByStudentId = new Map(
+    entries.map((entry, index) => [entry.studentId, `respondent-${index + 1}`]),
+  );
+  const promptRows = entries.map(({ survey, studentId }) => ({
+    studentId: aliasByStudentId.get(studentId),
+    learningReflection: survey.learningReflection,
+    systemReflection: survey.systemReflection,
+    scores: {
+      aiHelpfulness: survey.aiHelpfulness,
+      systemUsability: survey.systemUsability,
+      reuseIntention: survey.reuseIntention,
+    },
+  }));
+  const userPrompt = `请分析以下新版五阶段“学习反思”数据，生成教师可直接使用的课程洞察。
+
+课程背景：${course.name}（${course.subject}，${course.grade}）
+有效反思数：${entries.length}/${course.students.length}
+触发方式：${trigger}
+字段含义：learningReflection 同时回答“主要收获”和“常见困难”；systemReflection 同时回答“AI 协作看法”和“下一轮课程改进”。
+
+重要约束：
+1. 不得输出、推断或改写学生姓名；只能使用输入中的临时 studentId。
+2. 只能根据真实回答归纳，不得补造主题。证据不足的类别 summary 必须写“当前反思中尚未形成明确共识”，terms 返回空数组。
+3. 每个主题词必须给出来源 studentId 和原文字段 fields；fields 只能是 learningReflection 或 systemReflection。
+4. 主题词最多 16 个，去掉重复词。不要生成或保存引文，来源映射足够。
+5. studentSummaries 为每位有效反思各写一句不超过 140 字的摘要，不得添加回答中不存在的事实。
+6. teachingRecommendations 返回 2–3 条可执行的课程改进建议。
+
+固定四类 categories key：learning-gains、common-difficulties、ai-collaboration、course-improvements。
+
+数据：
+${JSON.stringify(promptRows)}
+
+仅返回 JSON：
+{
+  "courseSummary": "string",
+  "teachingRecommendations": ["string", "string"],
+  "categories": [
+    { "key": "learning-gains", "summary": "string", "terms": [{ "label": "string", "sources": [{ "studentId": "respondent-1", "fields": ["learningReflection"] }] }] },
+    { "key": "common-difficulties", "summary": "string", "terms": [] },
+    { "key": "ai-collaboration", "summary": "string", "terms": [] },
+    { "key": "course-improvements", "summary": "string", "terms": [] }
+  ],
+  "studentSummaries": [{ "studentId": "respondent-1", "summary": "string" }]
+}`;
+
+  const llmResult = await callLLMForJson<unknown>(
+    stageSystemPrompt("reflection"),
+    userPrompt,
+    { abortSignal: opts.abortSignal },
+  );
+  const draft = normalizeReflectionSummaryDraft(llmResult, new Set(aliasByStudentId.values()));
+  if (!draft) return invalidAiResult("班级反思摘要");
+  if (draft.studentSummaries.length < entries.length) return invalidAiResult("班级反思逐生摘要");
+
+  const coverage = reflectionSummaryCoverage(course);
+  const sourceRefs = reflectionSummarySourceRefs(course);
+  const studentIdByAlias = new Map(
+    [...aliasByStudentId.entries()].map(([studentId, alias]) => [alias, studentId]),
+  );
+  const summary: ReflectionClassSummaryV1 = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    coveragePercent: coverage.coveragePercent,
+    coverageBucket: coverage.coverageBucket,
+    trigger,
+    responseCount: entries.length,
+    totalStudentCount: course.students.length,
+    sourceRevision: reflectionSummarySourceRevision(course),
+    sourceRefs,
+    courseSummary: draft.courseSummary,
+    teachingRecommendations: draft.teachingRecommendations,
+    categories: draft.categories.map((category) => ({
+      ...category,
+      terms: category.terms.map((term) => ({
+        ...term,
+        sources: term.sources.flatMap((source) => {
+          const studentId = studentIdByAlias.get(source.studentId);
+          return studentId ? [{ ...source, studentId }] : [];
+        }),
+      })).filter((term) => term.sources.length),
+    })),
+    studentSummaries: draft.studentSummaries.flatMap((item) => {
+      const studentId = studentIdByAlias.get(item.studentId);
+      return studentId ? [{ studentId, summary: item.summary }] : [];
+    }),
+  };
+
+  return {
+    stageKey: "reflection",
+    targetType: "course",
+    targetId: course.id,
+    kind: "reflection-class-summary",
+    trigger: `AI 课程总结（${trigger}）`,
+    inputSummary: `课程：${course.name}；有效反思：${entries.length}/${course.students.length}；覆盖档位：${coverage.coverageBucket}%`,
+    diagnosis: summary.courseSummary,
+    suggestions: summary.teachingRecommendations,
+    evidence: sourceRefs.map((source) => `反思记录 ${source.reflectionId}`),
+    status: "draft",
+    source: "llm",
+    structuredPayload: summary,
+  };
 }
 
 // ============================================================

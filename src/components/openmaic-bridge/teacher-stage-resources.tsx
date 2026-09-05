@@ -360,12 +360,14 @@ export function TeacherStageResources({
 
 export function StudentProjectedTeacherResource({
   projection,
+  fullscreen = false,
 }: {
   projection: TeacherResourceProjection;
+  fullscreen?: boolean;
 }) {
   return (
-    <section data-openpbl-embed className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--pbl-border)] bg-[var(--pbl-surface)]">
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-4 py-3">
+    <section data-openpbl-embed className={cn("overflow-hidden bg-[var(--pbl-surface)]", fullscreen ? "h-full" : "rounded-[var(--radius-lg)] border border-[var(--pbl-border)]")}>
+      {!fullscreen ? <div className="flex items-center justify-between gap-3 border-b border-[var(--pbl-teacher-border)] bg-[var(--pbl-teacher-soft)] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-bold text-[var(--pbl-teacher)]">
             <MonitorUp size={17} /> 教师正在投屏
@@ -375,9 +377,9 @@ export function StudentProjectedTeacherResource({
         <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-[var(--pbl-success)] ring-1 ring-[var(--pbl-student-border)]">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--pbl-success)]" /> 实时同步
         </span>
-      </div>
+      </div> : null}
       <OpenMaicResourcePlayer
-        className="h-[min(760px,calc(100vh-170px))] min-h-[620px]"
+        className={fullscreen ? "h-full min-h-0" : "h-[min(760px,calc(100vh-170px))] min-h-[620px]"}
         classroomId={projection.classroomId}
         sceneId={projection.sceneId}
         experience="projected-readonly"

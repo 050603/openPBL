@@ -149,6 +149,7 @@ const CLASSROOM_SUBMISSION_TYPES = [
   "idea",
   "plan",
   "document",
+  "artifact-brief",
   "code",
   "resource",
   "showcase",
@@ -1290,7 +1291,7 @@ export async function saveCourse(course: Course): Promise<Course> {
         data: { status: "cancelled", endedAt: showcaseEndedAt, revision: { increment: 1 } },
       });
       await tx.showcasePresentation.updateMany({
-        where: { courseId: course.id, status: "active" },
+        where: { courseId: course.id, status: { in: ["active", "evaluating"] } },
         data: { status: "ended", endedAt: showcaseEndedAt, revision: { increment: 1 } },
       });
       if (course.status !== "teaching" || activeStageKey !== "showcase") {
@@ -2243,7 +2244,7 @@ async function dispatchActionUnlocked(
           data: { status: "cancelled", endedAt: showcaseEndedAt, revision: { increment: 1 } },
         });
         await tx.showcasePresentation.updateMany({
-          where: { courseId: action.payload.courseId, status: "active" },
+          where: { courseId: action.payload.courseId, status: { in: ["active", "evaluating"] } },
           data: { status: "ended", endedAt: showcaseEndedAt, revision: { increment: 1 } },
         });
       });

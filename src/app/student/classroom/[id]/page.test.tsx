@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { Course } from "@/lib/session/types";
+import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 import StudentClassroomPage from "./page";
 
 const runtimeStats = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
@@ -174,6 +175,27 @@ describe("student classroom workspace policy", () => {
       description: "文档或代码协作",
       view: "ai-collaboration",
     }] as Course["stages"];
+    course.uiState = {};
+
+    render(<StudentClassroomPage />);
+
+    expect(navigation.replace).toHaveBeenCalledWith("/student/ai-collaboration/course-1");
+    expect(screen.getByText("正在进入项目实践协作工作台…")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "companion-workspace" })).toBeNull();
+  });
+
+  it("opens the dedicated full-screen workspace for other artifacts", () => {
+    vi.stubEnv("NEXT_PUBLIC_OPENPBL_SYSTEM_MODE", "new");
+    course.stages = [{
+      key: "make",
+      label: "项目实践",
+      description: "本机制作并上传成果",
+      view: "ai-collaboration",
+    }] as Course["stages"];
+    course.pblConfig = {
+      ...DEFAULT_PBL_COURSE_CONFIG,
+      makeArtifactMode: "other",
+    };
     course.uiState = {};
 
     render(<StudentClassroomPage />);

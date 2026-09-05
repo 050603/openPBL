@@ -71,8 +71,8 @@ export function StageGateDialog({ course, onOpenChange, onConfirm, open, targetI
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{movingForward ? "确认进入下一阶段" : "回看上一阶段"}</DialogTitle>
-          <DialogDescription>{movingForward ? `系统已检查“${gate.stage.label}”的推进条件。切换后，学生将看到“${target?.label ?? "目标阶段"}”的任务。` : "回看不会删除已完成记录，学生端将同步到所选阶段。"}</DialogDescription>
+          <DialogTitle>{movingForward ? `结束“${gate.stage.label}”并进入“${target?.label ?? "下一阶段"}”？` : `回退到“${target?.label ?? "上一阶段"}”？`}</DialogTitle>
+          <DialogDescription>{movingForward ? `系统已检查“${gate.stage.label}”的结束条件。确认后，学生端将切换到“${target?.label ?? "下一阶段"}”。` : `确认后，教师端和学生端都将回到“${target?.label ?? "上一阶段"}”；已经产生的课堂记录不会被删除。`}</DialogDescription>
         </DialogHeader>
         {movingForward ? (
           <div className="space-y-4">
@@ -83,7 +83,7 @@ export function StageGateDialog({ course, onOpenChange, onConfirm, open, targetI
         ) : null}
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)} variant="secondary">取消</Button>
-          <Button onClick={onConfirm}>{blocked ? "确认并切换" : "确认切换"}</Button>
+          <Button onClick={onConfirm}>{movingForward ? blocked ? `仍要进入“${target?.label ?? "下一阶段"}”` : `进入“${target?.label ?? "下一阶段"}”` : `确认回退到“${target?.label ?? "上一阶段"}”`}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

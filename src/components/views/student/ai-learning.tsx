@@ -49,7 +49,7 @@ export function AiLearningView({ course }: { course?: Course }) {
 
   return (
     <div className="h-full min-h-0">
-      <section className="h-full min-h-0 overflow-hidden bg-white">
+      <section className="h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_42%)]">
         <AdaptiveAiLearningRuntime
           backHref={course?.id ? `/student/classroom/${course.id}` : '/student'}
           classroomId={classroomId}

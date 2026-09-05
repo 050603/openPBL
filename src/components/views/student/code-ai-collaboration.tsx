@@ -60,8 +60,6 @@ import { collaborationBackHref, isNewOpenPblSystem } from "@/lib/system-mode";
 import { DashboardTopBar } from "@/components/dashboard-shell";
 import { StudentClassroomHeaderStatus } from "@/components/classroom/student-classroom-header-status";
 import { useCoursePresence } from "@/hooks/use-course-presence";
-import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
-import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
 
 loader.config({
   paths: { vs: "/api/openmaic/interactive-runtime/monaco" },
@@ -194,9 +192,6 @@ export function CodeAiCollaboration({
   const newSystem = isNewOpenPblSystem();
   const supportedStage = (stageKey === "proposal" || stageKey === "make")
     && (!newSystem || course?.status === "teaching");
-  const readiness = course && stage && studentId
-    ? deriveStageReadiness(course, studentId, stage.key)
-    : null;
   const onlineCount = course
     ? course.students.filter((student) => presence.onlineStudentIds.has(student.id)).length
     : 0;
@@ -1026,7 +1021,7 @@ export function CodeAiCollaboration({
         currentCourse={{ id: course.id, name: course.name, status: course.status }}
         currentStage={{ index: course.currentStageIndex, total: course.stages.length, label: stage?.label ?? "项目实践" }}
         currentTask={stage?.description}
-        headerSlot={stage ? <StudentClassroomHeaderStatus currentIndex={course.currentStageIndex} onlineCount={onlineCount} readinessLabel={readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"} stageLabel={stage.label} total={course.stages.length} /> : undefined}
+        headerSlot={stage ? <StudentClassroomHeaderStatus currentIndex={course.currentStageIndex} onlineCount={onlineCount} stageLabel={stage.label} total={course.stages.length} /> : undefined}
         hideCourseSwitcher
         leadRole="学生"
         role="student"
@@ -1039,7 +1034,7 @@ export function CodeAiCollaboration({
             <h1 className="mt-1 truncate text-base font-bold leading-tight text-stone-950 sm:text-lg">{projectTitle}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <ArtifactTypeSelector onValueChange={changeArtifactType} value={language} />
+            {!newSystem ? <ArtifactTypeSelector onValueChange={changeArtifactType} value={language} /> : null}
             <span className={cn("hidden items-center gap-1.5 text-xs sm:inline-flex", saveStatus === "error" ? "text-red-600" : "text-stone-500")}>{saveStatus === "saved" ? <Check size={13} /> : null}{saveStateLabel(saveStatus)}</span>
             <PrimaryButton disabled={saveStatus === "saving"} onClick={() => persistArtifact(serializedArtifact)} size="sm" tone="slate" variant="outline"><Save size={14} />保存</PrimaryButton>
           </div>

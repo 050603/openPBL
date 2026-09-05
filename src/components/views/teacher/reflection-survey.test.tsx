@@ -64,12 +64,11 @@ function makeCourse(overrides: Partial<Course> = {}): Course {
 describe("NewReflectionTeacherView", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows completion, averages, distributions, and unsubmitted students", () => {
+  it("keeps detailed distributions and unsubmitted students in the main work area", () => {
     render(<NewReflectionTeacherView course={makeCourse()} />);
 
-    expect(screen.getByText("1 / 2")).toBeTruthy();
-    expect(screen.getByText("提交率 50%")).toBeTruthy();
-    expect(screen.getAllByText("4.0").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("提交率 50%")).toBeNull();
+    expect(screen.getAllByText(/4\.0 \/ 5/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("小周")).toBeTruthy();
     expect(screen.getByText("待提交")).toBeTruthy();
     expect((screen.getByRole("button", { name: "导出 CSV" }) as HTMLButtonElement).disabled).toBe(false);
@@ -79,8 +78,8 @@ describe("NewReflectionTeacherView", () => {
     render(<NewReflectionTeacherView course={makeCourse()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "小林的反思详情" }));
-    expect(screen.getByText("通过数据修改了方案。")).toBeTruthy();
-    expect(screen.getByText("AI 提问很有帮助。")).toBeTruthy();
+    expect(screen.getAllByText("通过数据修改了方案。").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("AI 提问很有帮助。").length).toBeGreaterThanOrEqual(1);
   });
 
   it("disables export when no structured responses exist", () => {
@@ -90,4 +89,3 @@ describe("NewReflectionTeacherView", () => {
     expect(screen.getByText("暂无有效回答")).toBeTruthy();
   });
 });
-

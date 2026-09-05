@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpenCheck, CheckCircle2, CircleX, Route } from "lucide-react";
+import { BookOpenCheck, CheckCircle2, CircleAlert, CircleX, Route } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
 import { DialogDescription, DialogTitle, Drawer, DrawerContent } from "@/components/ui";
 import { firstKnowledgeLectureAttempts } from "@/lib/knowledge-lecture";
@@ -58,6 +58,11 @@ export function StudentLearningDetail({
   const earned = attempts.reduce((sum, attempt) => sum + attempt.score, 0);
   const maxScore = attempts.reduce((sum, attempt) => sum + attempt.maxScore, 0);
   const accuracy = maxScore > 0 ? Math.round(earned / maxScore * 100) : undefined;
+  const signals = (course.learningSignals ?? []).filter((signal) =>
+    signal.studentId === studentId
+    && signal.stageKey === "ai-learning"
+    && signal.status === "open",
+  );
 
   return (
     <Drawer onOpenChange={onOpenChange} open={open}>
@@ -67,6 +72,20 @@ export function StudentLearningDetail({
           <span>{student?.name ?? "学生详情"}</span>
         </DialogTitle>
         <DialogDescription>查看该学生的知识讲授学习轨迹与每道题的真实作答记录。</DialogDescription>
+
+        {signals.length ? (
+          <section className="mt-4 rounded-xl border border-rose-200 bg-rose-50/65 p-3" aria-label="待处理学习信号">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-rose-950"><CircleAlert size={16} />待处理学习信号 · {signals.length} 条</h3>
+            <ul className="mt-2 divide-y divide-rose-100">
+              {signals.map((signal) => (
+                <li className="py-2 first:pt-0 last:pb-0" key={signal.id}>
+                  <p className="text-xs font-bold text-rose-900">{signal.title}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-rose-800/80">{signal.summary}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <nav aria-label="学生详情内容" className="mt-5 flex gap-1 border-b border-stone-200">
           {TABS.map((item) => (

@@ -41,6 +41,9 @@ export type PblOutcomeSpec = {
 
 export type ResourceInquiryMode = "llm" | "web-search";
 
+/** The project-practice outcome format selected by the teacher. */
+export type MakeArtifactMode = "document" | "other" | "python" | "c";
+
 export type CourseGenerationTemplate =
   | "pbl-six-stage"
   | "new-ai-learning-only";
@@ -57,6 +60,8 @@ export type PblCourseConfig = {
   companionIds: PblCompanionId[];
   /** Controls how the student resource corner answers newly entered questions. */
   resourceInquiryMode: ResourceInquiryMode;
+  /** Students follow this setting and cannot switch the project-practice format. */
+  makeArtifactMode: MakeArtifactMode;
   /** Teacher-authored open PBL questions students can choose as their project focus. */
   inquiryQuestions: string[];
   evaluationModel: "tri-party";
@@ -130,6 +135,7 @@ export const DEFAULT_PBL_COURSE_CONFIG: PblCourseConfig = {
   outcome: DEFAULT_PBL_OUTCOME,
   companionIds: PBL_COMPANION_ORDER,
   resourceInquiryMode: "llm",
+  makeArtifactMode: "document",
   inquiryQuestions: [],
   evaluationModel: "tri-party",
   generationTemplate: "pbl-six-stage",
@@ -210,6 +216,12 @@ export function normalizePblCourseConfig(
     },
     companionIds,
     resourceInquiryMode: input?.resourceInquiryMode === "web-search" ? "web-search" : "llm",
+    makeArtifactMode:
+      input?.makeArtifactMode === "other"
+      || input?.makeArtifactMode === "python"
+      || input?.makeArtifactMode === "c"
+        ? input.makeArtifactMode
+        : "document",
     inquiryQuestions,
     evaluationModel: "tri-party",
     generationTemplate:

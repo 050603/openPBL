@@ -24,6 +24,7 @@ const EventSchema = z.object({
   actorRole: z.literal("student"),
   content: z.string().max(12_000).optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
+  workspaceKind: z.enum(["document", "external-artifact"]).optional(),
   requestId: z.string().max(160).optional(),
 }).strict();
 
@@ -58,10 +59,12 @@ export async function POST(request: Request) {
   if (event.courseId !== auth.claims.courseId || (event.studentId && event.studentId !== auth.claims.studentId)) {
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });
   }
+  const { workspaceKind, ...eventData } = event;
   const [created] = await appendAiInteractionEvents([{
-    ...event,
+    ...eventData,
     studentId: auth.claims.studentId,
     actorId: auth.claims.studentId,
+    payload: { ...(event.payload ?? {}), workspaceKind: workspaceKind ?? "document" },
     id: randomUUID(),
     requestId: event.requestId ?? request.headers.get("x-request-id") ?? undefined,
   }]);

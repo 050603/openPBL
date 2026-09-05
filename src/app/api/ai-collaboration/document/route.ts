@@ -75,6 +75,11 @@ import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
 import type { CompanionMessage, Course, Student } from "@/lib/session/types";
 import { resolveClassroomWebSearchConfig } from "@openmaic/lib/server/web-search-config";
 import { formatSearchResultsAsContext, searchWeb } from "@openmaic/lib/web-search";
+import {
+  collaborationWorkspaceInstruction,
+  normalizeCollaborationWorkspaceKind,
+  type CollaborationWorkspaceKind,
+} from "@/lib/ai-collaboration/workspace-kind";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,9 +97,15 @@ const COLLABORATION_TRANSIENT_RETRIES = 2;
 
 async function recordInteractionEvents(
   events: Parameters<typeof appendAiInteractionEvents>[0],
+  workspaceKind?: CollaborationWorkspaceKind,
 ): Promise<void> {
   try {
-    await appendAiInteractionEvents(events);
+    await appendAiInteractionEvents(workspaceKind
+      ? events.map((event) => ({
+          ...event,
+          payload: { ...(event.payload ?? {}), workspaceKind },
+        }))
+      : events);
   } catch (error) {
     // Collaboration remains usable if an audit replica is temporarily down;
     // the error is visible in server logs and can be retried by reconciliation.
@@ -121,6 +132,7 @@ type DocumentCollaborationRequest = {
   blockId?: unknown;
   paragraphs?: unknown;
   contributionId?: unknown;
+  workspaceKind?: unknown;
 };
 
 type ProactiveParagraph = {
@@ -158,12 +170,30 @@ function boundedString(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-function collaborationThreadKey(stageKey: string): string {
-  return `${THREAD_PREFIX}:${stageKey}`;
+function collaborationThreadKey(
+  stageKey: string,
+  workspaceKind: CollaborationWorkspaceKind = "document",
+): string {
+  return workspaceKind === "external-artifact"
+    ? `${THREAD_PREFIX}:external-artifact:${stageKey}`
+    : `${THREAD_PREFIX}:${stageKey}`;
 }
 
-function documentCommentThreadKey(stageKey: string): string {
-  return `${COMMENT_THREAD_PREFIX}:${stageKey}`;
+function documentCommentThreadKey(
+  stageKey: string,
+  workspaceKind: CollaborationWorkspaceKind = "document",
+): string {
+  return workspaceKind === "external-artifact"
+    ? `${COMMENT_THREAD_PREFIX}:external-artifact:${stageKey}`
+    : `${COMMENT_THREAD_PREFIX}:${stageKey}`;
+}
+
+function withWorkspaceInstruction(
+  system: string,
+  workspaceKind: CollaborationWorkspaceKind,
+): string {
+  const instruction = collaborationWorkspaceInstruction(workspaceKind);
+  return instruction ? `${system}\n\n${instruction}` : system;
 }
 
 type DocumentCommentMeta = {
@@ -355,6 +385,7 @@ async function executeDelegatedWork(input: {
   history: Array<{ role: "user" | "assistant"; content: string }>;
   signal: AbortSignal;
   revisionOf?: DelegatedWorkRevision;
+  workspaceKind: CollaborationWorkspaceKind;
 }): Promise<DocumentCollaborationResponse> {
   const assessmentPrompts = buildDelegatedWorkAssessmentPrompts({
     course: input.course,
@@ -367,7 +398,7 @@ async function executeDelegatedWork(input: {
     revisionOf: input.revisionOf,
   });
   const assessmentRaw = await callDelegatedWorkModel([
-    { role: "system", content: assessmentPrompts.system },
+    { role: "system", content: withWorkspaceInstruction(assessmentPrompts.system, input.workspaceKind) },
     { role: "user", content: assessmentPrompts.user },
   ], input.signal);
   const assessment = normalizeDelegatedWorkAssessment(
@@ -424,7 +455,7 @@ async function executeDelegatedWork(input: {
     revisionOf: input.revisionOf,
   });
   const deliveryRaw = await callDelegatedWorkModel([
-    { role: "system", content: executionPrompts.system },
+    { role: "system", content: withWorkspaceInstruction(executionPrompts.system, input.workspaceKind) },
     { role: "user", content: executionPrompts.user },
   ], input.signal);
   return normalizeDelegatedWorkDelivery({
@@ -577,6 +608,7 @@ async function loadCollaborationScope(input: {
   courseId: string;
   requestedStudentId: string;
   stageKey: string;
+  workspaceKind: CollaborationWorkspaceKind;
 }) {
   if (!COLLABORATION_STAGE_KEYS.has(input.stageKey)) {
     return Response.json(
@@ -592,6 +624,20 @@ async function loadCollaborationScope(input: {
   if (authentication instanceof Response) return authentication;
   const course = await getCourse(input.courseId);
   if (!course) return Response.json({ error: "COURSE_NOT_FOUND" }, { status: 404 });
+  const configuredMode = normalizePblCourseConfig(course.pblConfig).makeArtifactMode;
+  if (input.workspaceKind === "external-artifact") {
+    if (input.stageKey !== "make" || configuredMode !== "other") {
+      return Response.json(
+        { error: "WORKSPACE_NOT_AVAILABLE", message: "当前课程尚未开放其他成果协作空间。" },
+        { status: 409 },
+      );
+    }
+  } else if (input.stageKey === "make" && configuredMode === "other") {
+    return Response.json(
+      { error: "WORKSPACE_CHANGED", message: "当前课程已切换为其他成果协作空间，请重新进入项目实践。" },
+      { status: 409 },
+    );
+  }
   const student = course.students.find((item) => item.id === authentication.studentId);
   if (!student) {
     return Response.json({ error: "STUDENT_NOT_IN_COURSE" }, { status: 403 });
@@ -611,6 +657,7 @@ export async function GET(request: NextRequest) {
   const courseId = boundedString(url.searchParams.get("courseId"), 120);
   const studentId = boundedString(url.searchParams.get("studentId"), 120);
   const stageKey = boundedString(url.searchParams.get("stageKey"), 80);
+  const workspaceKind = normalizeCollaborationWorkspaceKind(url.searchParams.get("workspaceKind"));
   if (!courseId || !stageKey) {
     return Response.json({ error: "MISSING_PARAMETERS" }, { status: 400 });
   }
@@ -619,17 +666,18 @@ export async function GET(request: NextRequest) {
     courseId,
     requestedStudentId: studentId,
     stageKey,
+    workspaceKind,
   });
   if (scope instanceof Response) return scope;
   const thread = await getCompanionThread(
     courseId,
     scope.student.id,
-    collaborationThreadKey(stageKey),
+    collaborationThreadKey(stageKey, workspaceKind),
   );
   const commentStore = await getCompanionThread(
     courseId,
     scope.student.id,
-    documentCommentThreadKey(stageKey),
+    documentCommentThreadKey(stageKey, workspaceKind),
   );
   const conversationId = activeConversationId(thread?.messages ?? []);
   const messages = visibleConversationMessages(thread?.messages ?? [], conversationId)
@@ -637,6 +685,7 @@ export async function GET(request: NextRequest) {
   return Response.json({
     messages,
     conversationId,
+    workspaceKind,
     commentThreads: documentCommentThreads(commentStore?.messages ?? []),
     reviewedParagraphFingerprints: documentReviewedParagraphFingerprints(
       commentStore?.messages ?? [],
@@ -649,6 +698,7 @@ export async function DELETE(request: NextRequest) {
   const courseId = boundedString(url.searchParams.get("courseId"), 120);
   const requestedStudentId = boundedString(url.searchParams.get("studentId"), 120);
   const stageKey = boundedString(url.searchParams.get("stageKey"), 80);
+  const workspaceKind = normalizeCollaborationWorkspaceKind(url.searchParams.get("workspaceKind"));
   const messageId = boundedString(url.searchParams.get("messageId"), 160);
   const requestedConversationId = boundedString(url.searchParams.get("conversationId"), 160);
   if (!courseId || !stageKey || !messageId || !requestedConversationId) {
@@ -659,9 +709,10 @@ export async function DELETE(request: NextRequest) {
     courseId,
     requestedStudentId,
     stageKey,
+    workspaceKind,
   });
   if (scope instanceof Response) return scope;
-  const thread = await getCompanionThread(courseId, scope.student.id, collaborationThreadKey(stageKey));
+  const thread = await getCompanionThread(courseId, scope.student.id, collaborationThreadKey(stageKey, workspaceKind));
   const currentConversationId = activeConversationId(thread?.messages ?? []);
   if (requestedConversationId !== currentConversationId) {
     return Response.json(
@@ -672,7 +723,7 @@ export async function DELETE(request: NextRequest) {
   const changed = await softDeleteCompanionMessage({
     courseId,
     studentId: scope.student.id,
-    stageKey: collaborationThreadKey(stageKey),
+    stageKey: collaborationThreadKey(stageKey, workspaceKind),
     messageId,
     conversationId: currentConversationId,
   });
@@ -691,6 +742,7 @@ export async function POST(request: NextRequest) {
   const courseId = boundedString(body.courseId, 120);
   const requestedStudentId = boundedString(body.studentId, 120);
   const stageKey = boundedString(body.stageKey, 80);
+  const workspaceKind = normalizeCollaborationWorkspaceKind(body.workspaceKind);
   const action = boundedString(body.action, 80);
   const message = boundedString(body.message, 1_200);
   const documentHtml = boundedString(body.documentHtml, MAX_DOCUMENT_HTML_LENGTH);
@@ -726,13 +778,14 @@ export async function POST(request: NextRequest) {
     courseId,
     requestedStudentId,
     stageKey,
+    workspaceKind,
   });
   if (scope instanceof Response) return scope;
 
   const thread = await getCompanionThread(
     courseId,
     scope.student.id,
-    collaborationThreadKey(stageKey),
+    collaborationThreadKey(stageKey, workspaceKind),
   );
   const currentConversationId = activeConversationId(thread?.messages ?? []);
   if (action === "reset-conversation") {
@@ -740,7 +793,7 @@ export async function POST(request: NextRequest) {
     await appendCompanionMessages({
       courseId,
       studentId: scope.student.id,
-      stageKey: collaborationThreadKey(stageKey),
+      stageKey: collaborationThreadKey(stageKey, workspaceKind),
       messages: [companionMessage({
         role: "system-trigger",
         content: "学生在 AI 协作界面开始了新对话；此前记录保留用于学习过程分析。",
@@ -761,8 +814,8 @@ export async function POST(request: NextRequest) {
       content: "学生开始了新的 AI 协作对话，旧记录保留。",
       payload: { action: "reset-conversation" },
       requestId,
-    }]);
-    return Response.json({ ok: true, conversationId });
+    }], workspaceKind);
+    return Response.json({ ok: true, conversationId, workspaceKind });
   }
   if (action === "read-document-comment") {
     if (!commentThreadId) {
@@ -771,7 +824,7 @@ export async function POST(request: NextRequest) {
     const commentStore = await getCompanionThread(
       courseId,
       scope.student.id,
-      documentCommentThreadKey(stageKey),
+      documentCommentThreadKey(stageKey, workspaceKind),
     );
     const existing = documentCommentThreads(commentStore?.messages ?? [])
       .find((item) => item.id === commentThreadId);
@@ -789,7 +842,7 @@ export async function POST(request: NextRequest) {
     await appendCompanionMessages({
       courseId,
       studentId: scope.student.id,
-      stageKey: documentCommentThreadKey(stageKey),
+      stageKey: documentCommentThreadKey(stageKey, workspaceKind),
       messages: [companionMessage({
         role: "system-trigger",
         content: `${COMMENT_READ_PREFIX}${JSON.stringify({ id: commentThreadId, readAt })}`,
@@ -812,7 +865,7 @@ export async function POST(request: NextRequest) {
     const commentStore = await getCompanionThread(
       courseId,
       scope.student.id,
-      documentCommentThreadKey(stageKey),
+      documentCommentThreadKey(stageKey, workspaceKind),
     );
     const existingMessages = commentStore?.messages ?? [];
     const existingThreads = documentCommentThreads(existingMessages);
@@ -864,7 +917,7 @@ export async function POST(request: NextRequest) {
         });
         try {
           const raw = await callCollaborationModel([
-            { role: "system", content: prompts.system },
+            { role: "system", content: withWorkspaceInstruction(prompts.system, workspaceKind) },
             { role: "user", content: prompts.user },
           ], request.signal);
           reviewResults.push(...normalizeBatchProactiveDocumentComments(
@@ -966,7 +1019,7 @@ export async function POST(request: NextRequest) {
         await appendCompanionMessages({
           courseId,
           studentId: scope.student.id,
-          stageKey: documentCommentThreadKey(stageKey),
+          stageKey: documentCommentThreadKey(stageKey, workspaceKind),
           messages,
         });
         // Every paragraph comment is an independent contextual conversation.
@@ -993,7 +1046,7 @@ export async function POST(request: NextRequest) {
             candidateCount: candidates.length,
           },
           requestId,
-        })));
+        })), workspaceKind);
       }
       return Response.json({
         commentThreads,
@@ -1014,7 +1067,7 @@ export async function POST(request: NextRequest) {
     const commentStore = await getCompanionThread(
       courseId,
       scope.student.id,
-      documentCommentThreadKey(stageKey),
+      documentCommentThreadKey(stageKey, workspaceKind),
     );
     const existing = documentCommentThreads(commentStore?.messages ?? [])
       .find((item) => {
@@ -1033,7 +1086,7 @@ export async function POST(request: NextRequest) {
     });
     try {
       const raw = await callCollaborationModel([
-        { role: "system", content: prompts.system },
+        { role: "system", content: withWorkspaceInstruction(prompts.system, workspaceKind) },
         { role: "user", content: prompts.user },
       ], request.signal);
       const result = normalizeProactiveDocumentComment(parseLLMJson(raw));
@@ -1063,7 +1116,7 @@ export async function POST(request: NextRequest) {
       await appendCompanionMessages({
         courseId,
         studentId: scope.student.id,
-        stageKey: documentCommentThreadKey(stageKey),
+        stageKey: documentCommentThreadKey(stageKey, workspaceKind),
         messages,
       });
       await recordInteractionEvents([{
@@ -1077,7 +1130,7 @@ export async function POST(request: NextRequest) {
         content: result.comment,
         payload: { commentThreadId: id, blockIndex, blockId, targetText, initialComment: true },
         requestId,
-      }]);
+      }], workspaceKind);
       return Response.json({
         commentThread: {
           ...meta,
@@ -1103,7 +1156,7 @@ export async function POST(request: NextRequest) {
     const commentStore = await getCompanionThread(
       courseId,
       scope.student.id,
-      documentCommentThreadKey(stageKey),
+      documentCommentThreadKey(stageKey, workspaceKind),
     );
     const existing = documentCommentThreads(commentStore?.messages ?? [])
       .find((item) => item.id === commentThreadId);
@@ -1131,7 +1184,7 @@ export async function POST(request: NextRequest) {
     });
     try {
       const raw = await callCollaborationModel([
-        { role: "system", content: prompts.system },
+        { role: "system", content: withWorkspaceInstruction(prompts.system, workspaceKind) },
         { role: "user", content: prompts.user },
       ], request.signal);
       const reply = normalizeDocumentCommentReply(
@@ -1171,7 +1224,7 @@ export async function POST(request: NextRequest) {
       await appendCompanionMessages({
         courseId,
         studentId: scope.student.id,
-        stageKey: documentCommentThreadKey(stageKey),
+        stageKey: documentCommentThreadKey(stageKey, workspaceKind),
         messages,
       });
       await recordInteractionEvents([
@@ -1200,7 +1253,7 @@ export async function POST(request: NextRequest) {
           payload: { commentThreadId, contributionId, kind: reply.kind, suggestion: reply.suggestion ?? null },
           requestId,
         },
-      ]);
+      ], workspaceKind);
       return Response.json({
         commentThread: {
           ...existing,
@@ -1238,7 +1291,7 @@ export async function POST(request: NextRequest) {
     });
     try {
       const raw = await callDelegatedWorkModel([
-        { role: "system", content: prompts.system },
+        { role: "system", content: withWorkspaceInstruction(prompts.system, workspaceKind) },
         { role: "user", content: prompts.user },
       ], request.signal);
       const candidates = normalizeDelegatedWorkStarters(parseLLMJson(raw));
@@ -1251,7 +1304,7 @@ export async function POST(request: NextRequest) {
         candidates,
       });
       const reviewedRaw = await callDelegatedWorkModel([
-        { role: "system", content: reviewPrompts.system },
+        { role: "system", content: withWorkspaceInstruction(reviewPrompts.system, workspaceKind) },
         { role: "user", content: reviewPrompts.user },
       ], request.signal);
       const reviewed = normalizeDelegatedWorkStarters(parseLLMJson(reviewedRaw));
@@ -1265,7 +1318,7 @@ export async function POST(request: NextRequest) {
         content: reviewed.join("\n"),
         payload: { action: "suggest-delegated-work", starters: reviewed },
         requestId,
-      }]);
+      }], workspaceKind);
       return Response.json({ starters: reviewed });
     } catch (error) {
       if (request.signal.aborted) {
@@ -1326,6 +1379,7 @@ export async function POST(request: NextRequest) {
         history,
         signal: request.signal,
         revisionOf,
+        workspaceKind,
       });
     } else {
       const prompts = buildDocumentCollaborationPrompts({
@@ -1342,7 +1396,7 @@ export async function POST(request: NextRequest) {
         proactive,
       });
       let llmMessages = [
-        { role: "system" as const, content: prompts.system },
+        { role: "system" as const, content: withWorkspaceInstruction(prompts.system, workspaceKind) },
         { role: "user" as const, content: prompts.user },
       ];
       let raw: string;
@@ -1368,7 +1422,7 @@ export async function POST(request: NextRequest) {
           compact: true,
         });
         llmMessages = [
-          { role: "system" as const, content: compactPrompts.system },
+          { role: "system" as const, content: withWorkspaceInstruction(compactPrompts.system, workspaceKind) },
           { role: "user" as const, content: compactPrompts.user },
         ];
         raw = await callLLM(llmMessages, {
@@ -1407,7 +1461,7 @@ export async function POST(request: NextRequest) {
     await appendCompanionMessages({
       courseId,
       studentId: scope.student.id,
-      stageKey: collaborationThreadKey(stageKey),
+      stageKey: collaborationThreadKey(stageKey, workspaceKind),
       messages: persistedMessages,
     });
     const source = selectedText || intent === "edit" ? "selection" : "sidebar";
@@ -1455,11 +1509,12 @@ export async function POST(request: NextRequest) {
         },
         requestId,
       },
-    ]);
+    ], workspaceKind);
     return Response.json({
       result,
       companionId,
       conversationId: currentConversationId,
+      workspaceKind,
       messages: persistedMessages,
     });
   } catch (error) {
@@ -1485,7 +1540,7 @@ export async function POST(request: NextRequest) {
       content: error instanceof Error ? error.message : "AI 组员请求失败",
       payload: { intent, effectiveIntent },
       requestId,
-    }]);
+    }], workspaceKind);
     return collaborationFailureResponse(error, effectiveIntent);
   }
 }

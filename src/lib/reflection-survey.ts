@@ -8,17 +8,17 @@ export const REFLECTION_SURVEY_SCHEMA_VERSION = 1 as const;
 
 export const REFLECTION_SURVEY_QUESTIONS = {
   learningReflection:
-    "这门课/项目中，你最重要的收获是什么？请结合一个具体经历说明。",
+    "回顾这门课或项目：你最重要的收获是什么？遇到的主要困难是什么，你是怎样应对的？",
   systemReflection:
-    "使用本系统和 AI 组员时，哪一点最有帮助？哪一点最需要改进？",
+    "回顾与 AI 组员及系统的协作：什么最有帮助？如果下一轮只能改进一处，你希望调整什么？",
   aiHelpfulness: "AI 组员的引导帮助我推进了课程或项目任务。",
   systemUsability: "系统的阶段与操作容易理解。",
   reuseIntention: "我愿意在类似课程中继续使用这个系统。",
 } as const;
 
 export const REFLECTION_SURVEY_FALLBACK_SUGGESTIONS = [
-  "回想一个让你的想法、方案或作品发生变化的具体时刻：你当时做了什么，结果怎样？",
-  "回想一次使用系统或 AI 组员的经历：哪一步最有帮助，哪一步最需要调整？",
+  "你最重要的收获和最难的一步分别是什么？它们之间有什么联系？",
+  "AI 协作中什么真正帮助了你？下一轮课程最值得调整什么？",
 ] as const;
 
 export const REFLECTION_SURVEY_SCALE = [

@@ -10,6 +10,7 @@ import { AiDecisionInbox } from "./ai-decision-inbox";
 import { StageMissionHud } from "../stage-mission-hud";
 import { StudioProjectWorkbench } from "../studio-project-workbench";
 import type { CompanionRuntimeContextValue } from "../companion-runtime";
+import { DEFAULT_PBL_COURSE_CONFIG } from "@/lib/pbl-course-config";
 
 const session = vi.hoisted(() => ({
   studentId: "student-1",
@@ -38,6 +39,7 @@ function makeCourse(overrides: Partial<Course> = {}): Course {
     summary: "校园节水",
     drivingQuestion: "如何减少校园用水浪费？",
     status: "teaching",
+    pblConfig: { ...DEFAULT_PBL_COURSE_CONFIG, makeArtifactMode: "other" },
     stages: DEFAULT_STAGES,
     currentStageIndex: 0,
     content: {

@@ -104,6 +104,8 @@ type PlateDocumentEditorProps = {
   minHeight?: number;
   stickyToolbarTop?: number;
   onImageUpload?: (file: File) => Promise<string>;
+  /** Human-readable name of the editable proxy shown in status/error copy. */
+  workspaceLabel?: string;
 };
 
 const EMPTY_VALUE: Value = [{ type: 'p', children: [{ text: '' }] }];
@@ -309,7 +311,9 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
     placeholder = '在这里输入内容…',
     stickyToolbarTop = 0,
     value,
+    workspaceLabel = '文档',
   }, ref) {
+    const workspaceNoun = workspaceLabel;
     const editor = usePlateEditor({ plugins: EditorKit, value: value || EMPTY_VALUE });
     const unifiedEditorStyle = React.useMemo<React.CSSProperties>(
       () => ({ minHeight: `max(${minHeight}px, calc(100vh - 210px))` }),
@@ -543,7 +547,7 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
           if (beforeHtml === afterHtml) return { ok: false, reason: '内容未能写入，请将光标放到希望插入的位置后重试。' };
           return { ok: true, beforeHtml, afterHtml };
         } catch {
-          return { ok: false, reason: '当前插入位置已经失效，请将光标放到文档中后重试。' };
+          return { ok: false, reason: `当前插入位置已经失效，请将光标放到${workspaceNoun}中后重试。` };
         }
       },
       applyDelegatedWorkPlan: (actions) => {
@@ -563,7 +567,7 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
               const needsTarget = action.operation !== 'append';
               if (needsTarget && matchingPaths.length !== 1) {
                 throw new Error(matchingPaths.length > 1
-                  ? `文档中存在多个相同的目标段落：“${action.targetText.slice(0, 80)}”`
+                  ? `${workspaceNoun}中存在多个相同的目标段落：“${action.targetText.slice(0, 80)}”`
                   : `AI 计划定位的段落已经发生变化：“${action.targetText.slice(0, 80)}”`);
               }
               const targetPath = matchingPaths[0];
@@ -593,7 +597,7 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
           });
           const afterHtml = serializePlateDocument(editor.children);
           if (beforeHtml === afterHtml) {
-            return { ok: false, reason: '这份交付不包含需要写入文档的变化。' };
+            return { ok: false, reason: `这份交付不包含需要写入${workspaceNoun}的变化。` };
           }
           return { ok: true, beforeHtml, afterHtml };
         } catch (error) {
@@ -602,7 +606,7 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
             ok: false,
             reason: error instanceof Error
               ? `${error.message} 请退回交付，让 AI 根据最新文档重新规划。`
-              : '文档操作计划无法应用，已恢复原文。请退回交付后重新规划。',
+              : `${workspaceNoun}操作计划无法应用，已恢复原文。请退回交付后重新规划。`,
           };
         }
       },
@@ -630,7 +634,7 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
       previewAiSuggestion: (input) => {
         try {
           if (aiPreviewRef.current || hasTransientPlateSuggestion(editor.children)) {
-            return { ok: false, reason: '文档中已有一项待确认的修改，请先接受或拒绝后再继续。' };
+            return { ok: false, reason: `${workspaceNoun}中已有一项待确认的修改，请先接受或拒绝后再继续。` };
           }
 
           const beforeValue = structuredClone(editor.children) as Value;
@@ -787,10 +791,10 @@ export const PlateDocumentEditor = React.forwardRef<PlateDocumentEditorHandle, P
         } catch {
           editor.tf.setValue(preview.beforeValue);
           aiPreviewRef.current = null;
-          return { ok: false, reason: '修改确认失败，已恢复生成建议前的文档。' };
+          return { ok: false, reason: `修改确认失败，已恢复生成建议前的${workspaceNoun}。` };
         }
       },
-    }), [editor]);
+    }), [editor, workspaceNoun]);
 
     const updateSelection = React.useCallback((selection: PlateDocumentSelection) => {
       window.requestAnimationFrame(() => {

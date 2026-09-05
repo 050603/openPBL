@@ -136,9 +136,9 @@ export function KnowledgeLectureAnalytics({
       </header>
 
       <div className={cn(
-        "grid gap-0 transition-[grid-template-columns] duration-300",
+        "grid gap-0 bg-white transition-[grid-template-columns] duration-300",
         selectedSectionId
-          ? "xl:grid-cols-[minmax(0,.95fr)_minmax(280px,.8fr)_minmax(340px,1.1fr)]"
+          ? "min-h-[calc(100dvh-13rem)] xl:grid-cols-[minmax(0,.9fr)_minmax(280px,.75fr)_minmax(420px,1.2fr)]"
           : "xl:grid-cols-[minmax(0,1fr)_minmax(380px,1fr)]",
       )}>
         <section className="border-b border-stone-100 p-4 xl:border-b-0 xl:border-r">
@@ -148,8 +148,9 @@ export function KnowledgeLectureAnalytics({
               <article className="grid grid-cols-[28px_minmax(0,1fr)_52px] items-center gap-2" key={row.knowledgePointId}>
                 <span className={cn("grid size-7 place-items-center rounded-full text-xs font-bold", index < 3 && row.unmetRate > 0 ? "bg-amber-100 text-amber-900" : "bg-stone-100 text-stone-500")}>{index + 1}</span>
                 <div className="min-w-0">
-                  <div className="flex items-start justify-between gap-2"><strong
-                    className="line-clamp-2 cursor-help text-xs leading-5 text-stone-800"
+                  <div className="flex items-start justify-between gap-2"><button
+                    className="line-clamp-2 cursor-pointer text-left text-xs font-bold leading-5 text-stone-800 underline decoration-transparent underline-offset-4 transition hover:text-[var(--pbl-teacher)] hover:decoration-[var(--pbl-teacher)]"
+                    onClick={() => window.dispatchEvent(new CustomEvent("openpbl:recommend-knowledge-point", { detail: { knowledgePointId: row.knowledgePointId } }))}
                     onMouseEnter={(event) => setKnowledgePointTooltip({ name: row.name, x: event.clientX, y: event.clientY })}
                     onMouseLeave={() => setKnowledgePointTooltip(undefined)}
                     onMouseMove={(event) => setKnowledgePointTooltip({
@@ -157,7 +158,9 @@ export function KnowledgeLectureAnalytics({
                       x: Math.max(8, Math.min(event.clientX + 12, window.innerWidth - 332)),
                       y: Math.max(8, Math.min(event.clientY + 12, window.innerHeight - 90)),
                     })}
-                  >{row.name}</strong><span className="shrink-0 pt-0.5 text-[10px] text-stone-400">{row.incorrectStudents}/{row.answeredStudents} 人未达 80%</span></div>
+                    title="查看对应补讲 PPT 推荐"
+                    type="button"
+                  >{row.name}</button><span className="shrink-0 pt-0.5 text-[10px] text-stone-400">{row.incorrectStudents}/{row.answeredStudents} 人未达 80%</span></div>
                   <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100"><div className={cn("h-full rounded-full", row.unmetRate >= 50 ? "bg-rose-500" : row.unmetRate >= 30 ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${row.unmetRate}%` }} /></div>
                   <p className="mt-1 text-[9px] text-stone-400">平均失分率 {row.scoreLossRate}% · 覆盖全班 {row.responseCoverage}% · {row.status === "confirmed" ? "已确认共性" : row.status === "observing" ? `观察中，需 ${row.minimumSampleSize} 人作答` : row.status === "collecting" ? `收集中，需 ${row.minimumSampleSize} 人作答` : "未达到共性阈值"}</p>
                 </div>
@@ -193,9 +196,9 @@ export function KnowledgeLectureAnalytics({
         </section>
 
         {selectedSectionId ? (
-          <section className="min-w-0 bg-[var(--pbl-surface-soft)] p-4" aria-label="所选小节逐题详情">
+          <section className="min-w-0 border-l border-stone-100 bg-white p-4" aria-label="所选小节逐题详情">
             <div className="mb-3 flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="flex items-center gap-1.5 text-sm font-bold text-stone-900"><ListChecks size={15} className="text-[var(--pbl-teacher)]" />本节逐题详情</h4><p className="mt-1 truncate text-[10px] font-semibold text-[var(--pbl-teacher)]">{selectedSection?.title}</p></div><button aria-label="收起逐题详情" className="grid size-7 shrink-0 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 hover:border-[var(--pbl-teacher-border)] hover:text-[var(--pbl-teacher)]" onClick={() => setSelectedSectionId(undefined)} type="button"><X size={13} /></button></div>
-            <div className="max-h-[430px] space-y-2.5 overflow-y-auto pr-1">
+            <div className="space-y-2.5 pr-1">
               {selectedQuestionRows.map((question) => (
                 <article className="rounded-[var(--radius-sm)] border border-stone-200 bg-white p-3" key={question.id}>
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-bold text-[var(--pbl-teacher)]">第 {question.questionNumber} 题</p><p className="mt-1 text-xs font-bold leading-5 text-stone-800">{question.prompt}</p></div><strong className={cn("shrink-0 text-sm tabular-nums", question.accuracy >= 80 ? "text-emerald-700" : question.accuracy >= 60 ? "text-amber-700" : "text-rose-700")}>{question.accuracy}%</strong></div>

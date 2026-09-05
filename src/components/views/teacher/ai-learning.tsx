@@ -5,14 +5,11 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  BookOpenCheck,
   CircleAlert,
   CircleCheck,
-  Clock3,
   Eye,
   PauseCircle,
   Settings2,
-  Users,
   X,
 } from "lucide-react";
 import { Avatar } from "@/components/dashboard-shell";
@@ -44,7 +41,7 @@ export function computeAiLearningProgress(entry?: StudentAiProgress): number {
   return Math.min(99, Math.round((reachedCount / Math.max(1, entry.totalScenes)) * 100));
 }
 
-function summarizeStudent(course: Course, student: Student) {
+export function summarizeAiLearningStudent(course: Course, student: Student) {
   const events = (course.learningEvents ?? [])
     .filter((event) => event.studentId === student.id && event.stageKey === "ai-learning")
     .sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
@@ -90,6 +87,37 @@ function summarizeStudent(course: Course, student: Student) {
     hasEvidence: events.length > 0,
     accuracy: quizMaxScore > 0 ? Math.round(quizEarned / quizMaxScore * 100) : undefined,
     answeredQuestions: quizAttempts.reduce((sum, attempt) => sum + attempt.questions.length, 0),
+  };
+}
+
+export function deriveAiLearningClassMetrics(course: Course) {
+  const summaries = course.students.map((student) => summarizeAiLearningStudent(course, student));
+  const timedStudents = summaries.filter((summary) => summary.hasEvidence && summary.expectedDurationMs > 0);
+  const averageVariance = timedStudents.length
+    ? Math.round(timedStudents.reduce((sum, item) =>
+        sum + ((item.effectiveDurationMs - item.expectedDurationMs) / item.expectedDurationMs) * 100, 0,
+      ) / timedStudents.length)
+    : undefined;
+  const attempts = Object.values(course.aiLearningProgress ?? {}).flatMap(firstKnowledgeLectureAttempts);
+  const earned = attempts.reduce((sum, attempt) => sum + attempt.score, 0);
+  const maxScore = attempts.reduce((sum, attempt) => sum + attempt.maxScore, 0);
+  return {
+    averageProgress: summaries.length
+      ? Math.round(summaries.reduce((sum, item) => sum + item.progress, 0) / summaries.length)
+      : undefined,
+    averageSpeedText: averageVariance === undefined
+      ? "暂无数据"
+      : averageVariance === 0
+        ? "与预期一致"
+        : averageVariance < 0
+          ? `比预期快 ${Math.abs(averageVariance)}%`
+          : `比预期慢 ${averageVariance}%`,
+    averageSpeedHelper: averageVariance === undefined
+      ? "等待学生产生有效学习记录"
+      : "按实际用时与课程预计用时比较",
+    classAccuracy: maxScore > 0 ? Math.round(earned / maxScore * 100) : undefined,
+    attemptCount: attempts.length,
+    summaries,
   };
 }
 
@@ -145,27 +173,11 @@ export function AiLearningTeacherView({
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const hasClassroom = Boolean(course.aiLearningClassroomId);
   const summaries = useMemo(
-    () => course.students.map((student) => summarizeStudent(course, student)),
+    () => course.students.map((student) => summarizeAiLearningStudent(course, student)),
     [course],
   );
-  const evidenceStudents = summaries.filter((summary) => summary.hasEvidence);
-  const avgProgress = summaries.length
-    ? Math.round(summaries.reduce((sum, item) => sum + item.progress, 0) / summaries.length)
-    : 0;
-  const avgVariance = evidenceStudents.length
-    ? Math.round(
-        evidenceStudents.reduce((sum, item) => {
-          if (!item.expectedDurationMs) return sum;
-          return sum + ((item.effectiveDurationMs - item.expectedDurationMs) / item.expectedDurationMs) * 100;
-        }, 0) / evidenceStudents.length,
-      )
-    : undefined;
   const unresolvedSignals = summaries.flatMap((summary) => summary.signals);
   const commonIssues = aggregateCommonIssues(unresolvedSignals, course.students.length);
-  const allQuizAttempts = Object.values(course.aiLearningProgress ?? {}).flatMap(firstKnowledgeLectureAttempts);
-  const quizEarned = allQuizAttempts.reduce((sum, attempt) => sum + attempt.score, 0);
-  const quizMaxScore = allQuizAttempts.reduce((sum, attempt) => sum + attempt.maxScore, 0);
-  const classAccuracy = quizMaxScore > 0 ? Math.round(quizEarned / quizMaxScore * 100) : undefined;
   const sortedSummaries = useMemo(() => [...summaries].sort((left, right) => {
     const leftValue = sortMetric === "progress" ? left.progress : left.accuracy;
     const rightValue = sortMetric === "progress" ? right.progress : right.accuracy;
@@ -194,12 +206,6 @@ export function AiLearningTeacherView({
           <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 text-[var(--pbl-warning)]" size={21} /><div><h3 className="font-bold text-[var(--pbl-warning)]">知识讲授课堂尚未生成</h3><p className="mt-1 text-sm text-[var(--pbl-warning)]">完成备课生成后，教师可以预览课程并查看真实学习数据。</p></div></div>
         </Card>
       ) : null}
-
-      <section aria-label="知识讲授班级指标" className="grid gap-3 sm:grid-cols-3">
-        <MetricCard icon={<Users size={19} />} label="班级平均进度" value={summaries.length ? `${avgProgress}%` : "—"} helper={summaries.length ? "基于学生实际场景进度" : "暂无学生"} />
-        <MetricCard icon={<Clock3 size={19} />} label="容忍时长偏差" value={avgVariance === undefined ? "—" : `${avgVariance >= 0 ? "+" : ""}${avgVariance}%`} helper={avgVariance === undefined ? "暂无足够证据" : "相对设计、实际语音与思考操作余量"} />
-        <MetricCard icon={<BookOpenCheck size={19} />} label="班级答题准确率" value={classAccuracy === undefined ? "—" : `${classAccuracy}%`} helper={classAccuracy === undefined ? "等待学生完成小测" : `基于 ${allQuizAttempts.length} 次有效小测提交`} />
-      </section>
 
       {hasClassroom ? <AiLearningTeacherPreview course={course} /> : null}
 
@@ -619,8 +625,4 @@ function TriggerAuditCard({
       )}
     </article>
   );
-}
-
-function MetricCard({ icon, label, value, helper, tone = "default" }: { icon: React.ReactNode; label: string; value: string; helper: string; tone?: "default" | "danger" }) {
-  return <Card className={tone === "danger" ? "border-[var(--pbl-danger-border)] bg-[var(--pbl-danger-soft)]/40" : undefined}><div className="flex items-center justify-between text-sm text-stone-500"><span>{label}</span><span className={tone === "danger" ? "text-[var(--pbl-danger)]" : "text-[var(--pbl-teacher)]"}>{icon}</span></div><div className={`mt-2 text-2xl font-bold ${tone === "danger" ? "text-[var(--pbl-danger)]" : "text-stone-950"}`}>{value}</div><p className="mt-1 text-xs text-stone-400">{helper}</p></Card>;
 }

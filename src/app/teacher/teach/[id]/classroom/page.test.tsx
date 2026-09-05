@@ -1,7 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ClassroomToolPopover, shouldShowClassroomDataSidebar, TimerPanel } from "./classroom-page-parts";
+import {
+  ClassroomToolPopover,
+  deriveMakeStageLearningMetrics,
+  formatAverageInteractionCount,
+  shouldShowClassroomDataSidebar,
+  TimerPanel,
+} from "./classroom-page-parts";
 import type { ClassroomTimingSnapshot } from "@/lib/classroom/timing";
+import type { Course } from "@/lib/session/types";
 
 const snapshot: ClassroomTimingSnapshot = {
   status: "running",
@@ -76,13 +83,53 @@ describe("TimerPanel", () => {
 
 describe("classroom data sidebar", () => {
   it("can expand in every teaching stage except showcase", () => {
-    expect(shouldShowClassroomDataSidebar("showcase", false)).toBe(false);
+    expect(shouldShowClassroomDataSidebar("showcase", false)).toBe(true);
     expect(shouldShowClassroomDataSidebar("launch", false)).toBe(true);
     expect(shouldShowClassroomDataSidebar("ai-learning", false)).toBe(true);
     expect(shouldShowClassroomDataSidebar("proposal", false)).toBe(true);
     expect(shouldShowClassroomDataSidebar("make", true)).toBe(false);
     expect(shouldShowClassroomDataSidebar("make", false)).toBe(true);
     expect(shouldShowClassroomDataSidebar("reflection", false)).toBe(true);
+  });
+
+  it("separates submission, learning alerts, and average AI interactions", () => {
+    const course = {
+      students: [{ id: "student-1" }, { id: "student-2" }],
+      submissions: [],
+      projectDocumentVersions: [
+        { stageKey: "make", status: "submitted", studentId: "student-1" },
+      ],
+      projectPdfVersions: [],
+      aiInteractionEvents: [
+        { stageKey: "make", actorRole: "student", eventType: "request", source: "sidebar", studentId: "student-1" },
+        { stageKey: "make", actorRole: "student", eventType: "request", source: "proactive-comment", studentId: "student-1" },
+        { stageKey: "make", actorRole: "student", eventType: "request", source: "selection", studentId: "student-2" },
+        { stageKey: "make", actorRole: "ai", eventType: "response", studentId: "student-1" },
+        { stageKey: "make", actorRole: "ai", eventType: "comment", source: "proactive-comment", studentId: "student-1" },
+        { stageKey: "make", actorRole: "ai", eventType: "comment", source: "proactive-comment", studentId: "student-2" },
+        { stageKey: "make", actorRole: "student", eventType: "decision", payload: { decision: "adopted" }, studentId: "student-1" },
+        { stageKey: "make", actorRole: "student", eventType: "decision", payload: { decision: "rejected" }, studentId: "student-2" },
+      ],
+      learningSignals: [
+        { stageKey: "make", status: "open", severity: "warning", studentId: "student-2" },
+        { stageKey: "make", status: "open", severity: "high", studentId: "student-2" },
+        { stageKey: "make", status: "resolved", severity: "high", studentId: "student-1" },
+      ],
+    } as unknown as Course;
+
+    const metrics = deriveMakeStageLearningMetrics(course);
+
+    expect(metrics.submittedStudentIds).toEqual(new Set(["student-1"]));
+    expect(metrics.alertedStudentIds).toEqual(new Set(["student-2"]));
+    expect(metrics.interactionEvents).toHaveLength(3);
+    expect(formatAverageInteractionCount(metrics.averageInteractionCount)).toBe("1.5");
+    expect(metrics.proactiveInterventionEvents).toHaveLength(2);
+    expect(formatAverageInteractionCount(metrics.averageProactiveInterventionCount)).toBe("1");
+    expect(metrics.studentInitiatedConversationEvents).toHaveLength(2);
+    expect(metrics.initiatingStudentIds).toEqual(new Set(["student-1", "student-2"]));
+    expect(metrics.suggestionDecisionEvents).toHaveLength(2);
+    expect(metrics.adoptedSuggestionEvents).toHaveLength(1);
+    expect(metrics.suggestionAcceptanceRate).toBe(50);
   });
 });
 

@@ -68,7 +68,7 @@ export function TeacherStageView({
     case "proposal-review":
       return <CompanionMonitor className="mt-0" course={course} stageKey="proposal" />;
     case "project-making":
-      return <CompanionMonitor className="mt-0" course={course} stageKey="make" />;
+      return <AiCollaborationTeacherMonitor course={course} />;
     case "showcase-reporting":
       return <NewShowcaseTeacherView course={course} />;
     case "showcase":

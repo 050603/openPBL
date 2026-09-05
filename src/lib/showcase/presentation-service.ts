@@ -20,8 +20,16 @@ import type {
   ShowcaseAction,
   ShowcaseData,
   ShowcaseEventPayload,
+  ShowcaseQueueConfig,
   ShowcaseStudentSummary,
 } from "./types";
+import {
+  buildShowcaseQueue,
+  defaultShowcaseQueueOrder,
+  normalizeMinutesPerStudent,
+  normalizeShowcaseQueueOrder,
+  preserveShowcaseQueueLockedPositions,
+} from "./queue";
 
 export class ShowcasePresentationError extends Error {
   constructor(
@@ -87,7 +95,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function asShowcaseStatus(value: string): ShowcasePresentationStatus {
-  return ["pending", "active", "rejected", "ended", "cancelled"].includes(value)
+  return ["pending", "active", "rejected", "evaluating", "ended", "cancelled"].includes(value)
     ? value as ShowcasePresentationStatus
     : "ended";
 }
@@ -115,6 +123,9 @@ function rowToSnapshot(
     reviewedBy: string | null;
     startedAt: Date | null;
     endedAt: Date | null;
+    evaluationNote?: string | null;
+    evaluatedAt?: Date | null;
+    evaluatedBy?: string | null;
     updatedAt: Date;
   },
   studentName?: string,
@@ -147,6 +158,9 @@ function rowToSnapshot(
     reviewedBy: row.reviewedBy ?? undefined,
     startedAt: row.startedAt?.toISOString(),
     endedAt: row.endedAt?.toISOString(),
+    evaluationNote: row.evaluationNote ?? undefined,
+    evaluatedAt: row.evaluatedAt?.toISOString(),
+    evaluatedBy: row.evaluatedBy ?? undefined,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -200,6 +214,24 @@ function latestByStudent(
   return byStudent;
 }
 
+function firstPresentableSubmissionByStudent(
+  documents: ProjectDocumentVersion[],
+  pdfs: ProjectPdfVersion[],
+): Map<string, string> {
+  const first = new Map<string, string>();
+  const record = (studentId: string, submittedAt: string) => {
+    const previous = first.get(studentId);
+    if (!previous || Date.parse(submittedAt) < Date.parse(previous)) first.set(studentId, submittedAt);
+  };
+  for (const version of documents) {
+    if (version.status === "submitted") record(version.studentId, version.submittedAt ?? version.createdAt);
+  }
+  for (const version of pdfs) {
+    if (version.status === "submitted" && version.kind === "pdf") record(version.studentId, version.submittedAt);
+  }
+  return first;
+}
+
 function isNewerVersion(leftDate: string, rightDate: string, leftSequence: number, rightSequence: number): boolean {
   const left = Date.parse(leftDate);
   const right = Date.parse(rightDate);
@@ -221,9 +253,26 @@ async function loadCourseGate(courseId: string): Promise<CourseGate | null> {
   });
 }
 
+function parseShowcaseQueueConfig(value: unknown): Partial<ShowcaseQueueConfig> | undefined {
+  const raw = asRecord(asRecord(value).showcaseReporting);
+  const orderedStudentIds = Array.isArray(raw.orderedStudentIds)
+    ? raw.orderedStudentIds.filter((studentId): studentId is string => typeof studentId === "string")
+    : undefined;
+  const minutesPerStudent = typeof raw.minutesPerStudent === "number"
+    ? normalizeMinutesPerStudent(raw.minutesPerStudent)
+    : undefined;
+  if (!orderedStudentIds && minutesPerStudent === undefined) return undefined;
+  return {
+    schemaVersion: 1,
+    ...(orderedStudentIds ? { orderedStudentIds } : {}),
+    ...(minutesPerStudent === undefined ? {} : { minutesPerStudent }),
+    ...(typeof raw.updatedAt === "string" ? { updatedAt: raw.updatedAt } : {}),
+  };
+}
+
 async function loadStudentAndGroupRows(courseId: string) {
   const [students, members] = await Promise.all([
-    prisma.student.findMany({ where: { courseId }, select: { id: true, name: true } }),
+    prisma.student.findMany({ where: { courseId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
     prisma.groupMember.findMany({ where: { courseId }, orderBy: { joinedAt: "asc" }, select: { groupId: true, studentId: true, studentName: true, joinedAt: true } }),
   ]);
   return { students: students as StudentRow[], members: members as GroupMemberRow[] };
@@ -366,8 +415,11 @@ export async function getShowcaseData(
   for (const member of members) memberByStudent.set(member.studentId, member);
   const effectivePresentingStudentId = course.presentingStudentId
     ?? members.find((member) => member.groupId === course.presentingGroupId)?.studentId;
-  const finalVersions = await loadFinalVersions(courseId, claims.role === "student" ? claims.studentId : undefined);
+  // Load the full roster's readiness timestamps to derive one shared queue.
+  // Student-facing responses redact other students' artifact metadata below.
+  const finalVersions = await loadFinalVersions(courseId);
   const artifactsByStudent = latestByStudent(finalVersions.documents, finalVersions.pdfs);
+  const firstPresentableByStudent = firstPresentableSubmissionByStudent(finalVersions.documents, finalVersions.pdfs);
 
   const studentSummaries: ShowcaseStudentSummary[] = students.map((student) => {
     const member = memberByStudent.get(student.id);
@@ -379,25 +431,63 @@ export async function getShowcaseData(
         && student.id === effectivePresentingStudentId
         && member?.groupId === course.presentingGroupId),
       artifacts: artifactsByStudent.get(student.id) ?? [],
+      firstPresentableSubmissionAt: firstPresentableByStudent.get(student.id),
     };
   });
   const presentingStudent = studentSummaries.find((student) => student.isAssigned);
-  const presentationRows = await prisma.showcasePresentation.findMany({
+  const allPresentationRows = await prisma.showcasePresentation.findMany({
     where: {
       courseId,
-      ...(claims.role === "student"
-        ? { OR: [{ studentId: claims.studentId }, { status: "active" }] }
-        : {}),
-      status: { in: claims.role === "teacher" ? ["pending", "active", "rejected"] : ["pending", "active", "rejected"] },
+      status: { in: ["pending", "active", "rejected", "evaluating", "ended"] },
     },
-    orderBy: { updatedAt: "desc" },
+  orderBy: { updatedAt: "desc" },
   });
   const names = new Map(students.map((student) => [student.id, student.name]));
-  const presentations = presentationRows.map((row) => rowToSnapshot(row, names.get(row.studentId)));
+  const allPresentations = allPresentationRows.map((row) => rowToSnapshot(row, names.get(row.studentId)));
+  const presentations = claims.role === "teacher"
+    ? allPresentations
+    : allPresentations
+      .filter((presentation) => presentation.studentId === claims.studentId || ["active", "evaluating"].includes(presentation.status))
+      .map((presentation) => ({ ...presentation, evaluationNote: undefined, evaluatedBy: undefined }));
   const activePresentation = presentations.find((presentation) => presentation.status === "active");
   const ownArtifacts = claims.role === "student"
     ? artifactsByStudent.get(claims.studentId) ?? []
     : [];
+  const queueStudents = studentSummaries.length > 0
+    ? studentSummaries
+    : students.map((student) => {
+        const member = memberByStudent.get(student.id);
+        return {
+          studentId: student.id,
+          name: student.name,
+          groupId: member?.groupId,
+          isAssigned: Boolean(effectivePresentingStudentId && student.id === effectivePresentingStudentId && member?.groupId === course.presentingGroupId),
+          artifacts: artifactsByStudent.get(student.id) ?? [],
+          firstPresentableSubmissionAt: firstPresentableByStudent.get(student.id),
+        } satisfies ShowcaseStudentSummary;
+      });
+  const queueResult = buildShowcaseQueue(
+    queueStudents,
+    allPresentations.map((presentation) => claims.role === "teacher"
+      ? presentation
+      : { ...presentation, evaluationNote: undefined, evaluatedBy: undefined }),
+    effectivePresentingStudentId,
+    parseShowcaseQueueConfig(course.uiState),
+  );
+  const queue = claims.role === "teacher"
+    ? queueResult.items
+    : queueResult.items.map((item) => {
+        if (item.studentId === claims.studentId) return { ...item, evaluationNote: undefined };
+        return {
+          ...item,
+          artifacts: [],
+          primaryArtifactTitle: undefined,
+          readyAt: undefined,
+          evaluationNote: undefined,
+        };
+      });
+  const currentQueueItem = queue.find((item) => item.studentId === queueResult.current?.studentId) ?? null;
+  const nextQueueItem = queue.find((item) => item.studentId === queueResult.next?.studentId) ?? null;
 
   return {
     courseId,
@@ -409,6 +499,10 @@ export async function getShowcaseData(
     ownArtifacts,
     activePresentation: activePresentation ?? null,
     presentations,
+    queue,
+    minutesPerStudent: queueResult.minutesPerStudent,
+    currentQueueItem,
+    nextQueueItem,
   };
 }
 
@@ -428,6 +522,17 @@ async function assignPresenter(courseId: string, groupId: string | null, request
     });
     if (!course) throw new ShowcasePresentationError("COURSE_NOT_FOUND", "课程不存在。", 404);
     assertShowcaseStage({ ...course, id: courseId, presentingGroupId: null, presentingStudentId: null, uiState: null });
+    const inProgress = await tx.showcasePresentation.findFirst({
+      where: { courseId, status: { in: ["active", "evaluating"] } },
+      select: { id: true, status: true },
+    });
+    if (inProgress) {
+      throw new ShowcasePresentationError(
+        inProgress.status === "evaluating" ? "EVALUATION_IN_PROGRESS" : "PRESENTATION_ACTIVE",
+        inProgress.status === "evaluating" ? "请先结束当前教师点评，再点名下一位学生。" : "当前已有学生正在汇报。",
+        409,
+      );
+    }
     let presentingStudent: { studentId: string; studentName: string } | null = null;
     if (groupId) {
       const group = await tx.projectGroup.findFirst({ where: { courseId, id: groupId }, select: { id: true } });
@@ -490,6 +595,89 @@ async function assignPresenter(courseId: string, groupId: string | null, request
       : { scope: "student", studentId: snapshot.studentId, snapshot });
   }
   return getShowcaseData(courseId, claims);
+}
+
+async function saveShowcaseQueue(
+  courseId: string,
+  action: Extract<ShowcaseAction, { action: "save-queue" }>,
+  claims: AuthClaims,
+) {
+  if (claims.role !== "teacher") throw new ShowcasePresentationError("FORBIDDEN", "只有教师可以调整汇报顺序。", 403);
+  const course = await loadCourseGate(courseId);
+  assertCourseExists(course);
+  assertShowcaseStage(course);
+  const { students, members } = await loadStudentAndGroupRows(courseId);
+  const finalVersions = await loadFinalVersions(courseId);
+  const artifactsByStudent = latestByStudent(finalVersions.documents, finalVersions.pdfs);
+  const firstPresentableByStudent = firstPresentableSubmissionByStudent(finalVersions.documents, finalVersions.pdfs);
+  const memberByStudent = new Map(members.map((member) => [member.studentId, member]));
+  const queueStudents = students.map((student) => ({
+    studentId: student.id,
+    name: student.name,
+    groupId: memberByStudent.get(student.id)?.groupId,
+    isAssigned: false,
+    artifacts: artifactsByStudent.get(student.id) ?? [],
+    firstPresentableSubmissionAt: firstPresentableByStudent.get(student.id),
+  } satisfies ShowcaseStudentSummary));
+  const defaultOrder = defaultShowcaseQueueOrder(queueStudents);
+  const requestedKnownOrder = action.orderedStudentIds.filter((studentId) => students.some((student) => student.id === studentId));
+  if (requestedKnownOrder.length !== new Set(requestedKnownOrder).size) {
+    throw new ShowcasePresentationError("INVALID_QUEUE", "汇报顺序中不能有重复学生。", 400);
+  }
+  const baseOrder = action.orderedStudentIds.length > 0 ? requestedKnownOrder : defaultOrder;
+  const mergedOrder = [...baseOrder, ...students.map((student) => student.id).filter((studentId) => !baseOrder.includes(studentId))];
+  await prisma.$transaction(async (tx) => {
+    await lockCourseMutation(tx, courseId);
+    const locked = await tx.course.findUnique({ where: { id: courseId }, select: { status: true, currentStageIndex: true, stages: true, uiState: true, presentingGroupId: true, presentingStudentId: true } });
+    if (!locked) throw new ShowcasePresentationError("COURSE_NOT_FOUND", "课程不存在。", 404);
+    assertShowcaseStage({ ...locked, id: courseId, uiState: locked.uiState });
+    const previousOrder = normalizeShowcaseQueueOrder(queueStudents, parseShowcaseQueueConfig(locked.uiState)?.orderedStudentIds);
+    const activeRows = await tx.showcasePresentation.findMany({
+      where: { courseId, status: { in: ["pending", "active", "rejected", "evaluating", "ended"] } },
+      select: { studentId: true },
+    });
+    const lockedStudentIds = new Set(activeRows.map((row) => row.studentId));
+    const assignedStudentId = locked.presentingStudentId
+      ?? queueStudents.find((student) => student.groupId === locked.presentingGroupId)?.studentId;
+    if (assignedStudentId) lockedStudentIds.add(assignedStudentId);
+    const nextOrder = action.orderedStudentIds.length === 0
+      ? preserveShowcaseQueueLockedPositions(previousOrder, mergedOrder, lockedStudentIds)
+      : mergedOrder;
+    for (const studentId of lockedStudentIds) {
+      if (previousOrder.indexOf(studentId) !== nextOrder.indexOf(studentId)) {
+        throw new ShowcasePresentationError("QUEUE_LOCKED", "已经开始或完成汇报的学生不能调整顺序。", 409);
+      }
+    }
+    const nextConfig = {
+      schemaVersion: 1 as const,
+      orderedStudentIds: nextOrder,
+      minutesPerStudent: normalizeMinutesPerStudent(action.minutesPerStudent),
+      updatedAt: new Date().toISOString(),
+    } satisfies ShowcaseQueueConfig;
+    const uiState = asRecord(locked.uiState);
+    await tx.course.update({
+      where: { id: courseId },
+      data: {
+        uiState: { ...uiState, showcaseReporting: nextConfig } as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+  });
+  await publishCourseEvent(courseId, {
+    type: "course-updated",
+    courseId,
+    at: new Date().toISOString(),
+    payload: { actionType: "SET_UI_STATE" },
+  }).catch(() => undefined);
+  const result = await getShowcaseData(courseId, claims);
+  await publishShowcaseEvent(courseId, {
+    scope: "course",
+    minutesPerStudent: result.minutesPerStudent,
+    presentingGroupId: result.presentingGroupId ?? null,
+    presentingStudentId: result.presentingStudentId ?? null,
+    presentingStudentName: result.presentingStudentName,
+  });
+  return result;
 }
 
 async function requestPresentation(courseId: string, action: Extract<ShowcaseAction, { action: "request" }>, claims: AuthClaims) {
@@ -635,6 +823,13 @@ async function reviewPresentation(courseId: string, action: Extract<ShowcaseActi
   await publishShowcaseEvent(courseId, {
     scope: action.decision === "approve" ? "course" : "student",
     ...(action.decision === "reject" ? { studentId: snapshot!.studentId } : {}),
+    ...(action.decision === "approve"
+      ? {
+          presentingGroupId: snapshot!.groupId,
+          presentingStudentId: snapshot!.studentId,
+          presentingStudentName: snapshot!.studentName,
+        }
+      : {}),
     snapshot,
   });
   if (action.decision === "approve") {
@@ -703,16 +898,152 @@ async function endPresentation(courseId: string, action: Extract<ShowcaseAction,
     }
     const updated = await tx.showcasePresentation.update({
       where: { id: current.id },
-      data: { status: current.status === "pending" ? "cancelled" : "ended", endedAt: new Date(), revision: { increment: 1 } },
+      data: current.status === "pending"
+        ? { status: "cancelled", endedAt: new Date(), revision: { increment: 1 } }
+        : { status: "evaluating", endedAt: new Date(), revision: { increment: 1 } },
     });
     snapshot = rowToSnapshot(updated);
   });
   if (!snapshot) throw new ShowcasePresentationError("PRESENTATION_FAILED", "汇报状态未能更新。", 500);
-  const visibility = snapshot.status === "active"
-    ? { scope: "course" as const }
-    : { scope: "student" as const, studentId: snapshot.studentId };
-  await publishShowcaseEvent(courseId, { ...visibility, snapshot });
+  await publishShowcaseEvent(courseId, {
+    scope: snapshot.status === "evaluating" ? "course" : "student",
+    ...(snapshot.status === "cancelled" ? { studentId: snapshot.studentId } : {}),
+    snapshot: snapshot.status === "evaluating"
+      ? { ...snapshot, evaluationNote: undefined, evaluatedBy: undefined }
+      : snapshot,
+  });
   return snapshot;
+}
+
+async function finishEvaluation(
+  courseId: string,
+  action: Extract<ShowcaseAction, { action: "finish-evaluation" }>,
+  claims: AuthClaims,
+) {
+  if (claims.role !== "teacher") throw new ShowcasePresentationError("FORBIDDEN", "只有教师可以结束现场评价。", 403);
+  const course = await loadCourseGate(courseId);
+  assertCourseExists(course);
+  assertShowcaseStage(course);
+  let snapshot: ShowcasePresentationSnapshot | undefined;
+  const nextPresenterRef: { value: { groupId: string; studentId: string; studentName: string } | null } = { value: null };
+  let alreadyCompleted = false;
+  await prisma.$transaction(async (tx) => {
+    await lockCourseMutation(tx, courseId);
+    const lockedCourse = await tx.course.findUnique({
+      where: { id: courseId },
+      select: { id: true, status: true, currentStageIndex: true, stages: true, presentingGroupId: true, presentingStudentId: true, uiState: true },
+    });
+    if (!lockedCourse) throw new ShowcasePresentationError("COURSE_NOT_FOUND", "课程不存在。", 404);
+    assertShowcaseStage(lockedCourse);
+    const current = await tx.showcasePresentation.findFirst({ where: { courseId, id: action.presentationId } });
+    if (!current) throw new ShowcasePresentationError("PRESENTATION_NOT_FOUND", "汇报记录不存在。", 404);
+    if (current.status === "ended") {
+      snapshot = rowToSnapshot(current);
+      alreadyCompleted = true;
+      return;
+    }
+    if (current.status !== "evaluating") throw new ShowcasePresentationError("EVALUATION_NOT_PENDING", "当前汇报尚未进入教师点评阶段。", 409);
+    const evaluatedAt = new Date();
+    const updated = await tx.showcasePresentation.update({
+      where: { id: current.id },
+      data: {
+        status: "ended",
+        evaluationNote: action.note?.trim() || null,
+        evaluatedAt,
+        evaluatedBy: claims.sub,
+        revision: { increment: 1 },
+      },
+    });
+    const [students, members, documents, pdfs, rows] = await Promise.all([
+      tx.student.findMany({ where: { courseId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
+      tx.groupMember.findMany({ where: { courseId }, orderBy: { joinedAt: "asc" }, select: { groupId: true, studentId: true, studentName: true, joinedAt: true } }),
+      tx.projectDocumentVersion.findMany({ where: { courseId, stageKey: "make", status: "submitted" }, orderBy: { sequence: "desc" }, select: { id: true, studentId: true, title: true, sequence: true, submittedAt: true, createdAt: true } }),
+      tx.projectPdfVersion.findMany({ where: { courseId, stageKey: "make", status: "submitted", kind: "pdf" }, orderBy: { sequence: "desc" }, select: { id: true, studentId: true, title: true, sequence: true, submittedAt: true, createdAt: true } }),
+      tx.showcasePresentation.findMany({ where: { courseId, status: { in: ["pending", "active", "rejected", "evaluating", "ended"] } } }),
+    ]);
+    const updatedIndex = rows.findIndex((row) => row.id === updated.id);
+    if (updatedIndex >= 0) rows.splice(updatedIndex, 1, updated);
+    const firstPresentableByStudent = new Map<string, string>();
+    const recordFirstSubmission = (studentId: string, submittedAt: string) => {
+      const previous = firstPresentableByStudent.get(studentId);
+      if (!previous || Date.parse(submittedAt) < Date.parse(previous)) firstPresentableByStudent.set(studentId, submittedAt);
+    };
+    for (const version of documents) {
+      if (version.submittedAt) recordFirstSubmission(version.studentId, version.submittedAt.toISOString());
+      else recordFirstSubmission(version.studentId, version.createdAt.toISOString());
+    }
+    for (const version of pdfs) recordFirstSubmission(version.studentId, version.submittedAt.toISOString());
+    const artifactsByStudent = new Map<string, FinalArtifactSummary[]>();
+    for (const version of documents) {
+      const previous = artifactsByStudent.get(version.studentId)?.find((artifact) => artifact.kind === "document");
+      const submittedAt = version.submittedAt?.toISOString() ?? version.createdAt.toISOString();
+      if (!previous || isNewerVersion(submittedAt, previous.submittedAt, version.sequence, previous.sequence)) {
+        artifactsByStudent.set(version.studentId, [{
+          kind: "document",
+          versionId: version.id,
+          title: version.title,
+          sequence: version.sequence,
+          submittedAt,
+          displayModes: ["continuous"],
+        }, ...(artifactsByStudent.get(version.studentId) ?? []).filter((artifact) => artifact.kind !== "document")]);
+      }
+    }
+    for (const version of pdfs) {
+      const list = artifactsByStudent.get(version.studentId) ?? [];
+      if (!list.some((artifact) => artifact.versionId === version.id)) {
+        list.push({ kind: "pdf", versionId: version.id, title: version.title, sequence: version.sequence, submittedAt: version.submittedAt.toISOString(), displayModes: ["continuous", "slides"] });
+        artifactsByStudent.set(version.studentId, list);
+      }
+    }
+    const memberByStudent = new Map(members.map((member) => [member.studentId, member]));
+    const names = new Map(students.map((student) => [student.id, student.name]));
+    const queueStudents = students.map((student) => ({
+      studentId: student.id,
+      name: student.name,
+      groupId: memberByStudent.get(student.id)?.groupId,
+      isAssigned: false,
+      artifacts: artifactsByStudent.get(student.id) ?? [],
+      firstPresentableSubmissionAt: firstPresentableByStudent.get(student.id),
+    } satisfies ShowcaseStudentSummary));
+    const rowSnapshots = rows.map((row) => rowToSnapshot(row, names.get(row.studentId)));
+    const queue = buildShowcaseQueue(queueStudents, rowSnapshots, lockedCourse.presentingStudentId, parseShowcaseQueueConfig(lockedCourse.uiState));
+    const currentIndex = queue.items.findIndex((item) => item.studentId === current.studentId);
+    const candidate = queue.items.find((item, index) => index > currentIndex && item.status === "waiting" && item.groupId)
+      ?? queue.items.find((item) => item.status === "waiting" && item.groupId && item.studentId !== current.studentId);
+    if (candidate?.groupId) {
+      nextPresenterRef.value = { groupId: candidate.groupId, studentId: candidate.studentId, studentName: candidate.studentName };
+    }
+    await tx.course.update({
+      where: { id: courseId },
+      data: {
+        presentingGroupId: nextPresenterRef.value?.groupId ?? null,
+        presentingStudentId: nextPresenterRef.value?.studentId ?? null,
+        version: { increment: 1 },
+      },
+    });
+    snapshot = rowToSnapshot(updated, names.get(updated.studentId));
+  });
+  if (!snapshot) throw new ShowcasePresentationError("PRESENTATION_FAILED", "评价状态未能更新。", 500);
+  if (alreadyCompleted) return getShowcaseData(courseId, claims);
+  const presenterGroupId = nextPresenterRef.value?.groupId ?? null;
+  const presenterStudentId = nextPresenterRef.value?.studentId ?? null;
+  const presenterStudentName = nextPresenterRef.value?.studentName;
+  const result = await getShowcaseData(courseId, claims);
+  await publishShowcaseEvent(courseId, {
+    scope: "course",
+    snapshot: { ...snapshot, evaluationNote: undefined, evaluatedBy: undefined },
+    presentingGroupId: presenterGroupId,
+    presentingStudentId: presenterStudentId,
+    presentingStudentName: presenterStudentName,
+    minutesPerStudent: result.minutesPerStudent,
+  });
+  await publishCourseEvent(courseId, {
+    type: "course-updated",
+    courseId,
+    at: new Date().toISOString(),
+    payload: { actionType: "SET_PRESENTING_GROUP" },
+  }).catch(() => undefined);
+  return result;
 }
 
 export async function executeShowcaseAction(
@@ -723,6 +1054,8 @@ export async function executeShowcaseAction(
   switch (action.action) {
     case "assign":
       return assignPresenter(courseId, action.groupId, action.studentId, claims);
+    case "save-queue":
+      return saveShowcaseQueue(courseId, action, claims);
     case "request":
       return requestPresentation(courseId, action, claims);
     case "review":
@@ -731,6 +1064,8 @@ export async function executeShowcaseAction(
       return updateViewState(courseId, action, claims);
     case "end":
       return endPresentation(courseId, action, claims);
+    case "finish-evaluation":
+      return finishEvaluation(courseId, action, claims);
     default:
       throw new ShowcasePresentationError("INVALID_ACTION", "汇报操作无效。", 400);
   }

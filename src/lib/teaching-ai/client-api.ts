@@ -18,6 +18,7 @@ import type {
   WorkPlanItem,
 } from "@/lib/session/types";
 import type { LearnerProfileInput } from "@/lib/openmaic/pedagogy/teaching-constraints";
+import type { ReflectionSummaryTrigger } from "@/lib/reflection-summary";
 
 // 重新导出类型（编译时擦除，无运行时依赖）
 export type { AiSupportDraft, ArtifactFocus, TeacherInterventionSignal };
@@ -155,6 +156,29 @@ export async function buildReflectionEvidencePrompts(input: {
   format?: "full" | "compact";
 }): Promise<AiSupportDraft> {
   return callSupport("buildReflectionEvidencePrompts", input);
+}
+
+export async function buildReflectionClassSummary(
+  courseId: string,
+  trigger: ReflectionSummaryTrigger = "manual",
+): Promise<AiSupportRecord> {
+  const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/reflections/summary`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trigger }),
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    support?: AiSupportRecord;
+    message?: string;
+    code?: string;
+  };
+  if (!response.ok || !payload.support) {
+    const error = new Error(payload.message ?? "AI 课程总结暂时不可用。");
+    (error as Error & { code?: string }).code = payload.code;
+    throw error;
+  }
+  return payload.support;
 }
 
 export async function buildTeacherInterventionSignals(

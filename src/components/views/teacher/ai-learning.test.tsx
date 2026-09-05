@@ -6,7 +6,7 @@ import { DEFAULT_STAGES } from "@/lib/session/types";
 vi.mock("@/lib/session/store", () => ({ useSession: () => ({ addActivity: vi.fn(), setUiState: vi.fn() }) }));
 vi.mock("./ai-learning-preview", () => ({ AiLearningTeacherPreview: () => <button>预览学生 AI 课程</button> }));
 
-import { adaptiveResponseStatus, AiLearningTeacherView, computeAiLearningProgress } from "./ai-learning";
+import { adaptiveResponseStatus, AiLearningTeacherView, computeAiLearningProgress, deriveAiLearningClassMetrics } from "./ai-learning";
 
 const course: Course = {
   id: "course-1", name: "测试课", subject: "科学", grade: "六年级", hours: 2, summary: "", drivingQuestion: "", status: "teaching",
@@ -33,10 +33,10 @@ describe("AiLearningTeacherView", () => {
     })).toBe(25);
   });
 
-  it("uses the requested page hierarchy and replaces unresolved risk with answer accuracy", () => {
+  it("keeps the main work area free of duplicated sidebar metrics", () => {
     render(<AiLearningTeacherView course={course} />);
-    expect(screen.getByText("容忍时长偏差")).toBeTruthy();
-    expect(screen.getByText("班级答题准确率")).toBeTruthy();
+    expect(screen.queryByText("容忍时长偏差")).toBeNull();
+    expect(screen.queryByText("班级答题准确率")).toBeNull();
     expect(screen.queryByText("未解决风险")).toBeNull();
     expect(screen.getByText("学生学习情况")).toBeTruthy();
     expect(screen.getByLabelText("学生状态总览")).toBeTruthy();
@@ -59,6 +59,16 @@ describe("AiLearningTeacherView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "查看张三的学习轨迹" }));
     expect(screen.getByRole("tab", { name: "学习轨迹" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("describes answer speed in natural language instead of signed variance", () => {
+    const fastCourse = {
+      ...course,
+      learningEvents: course.learningEvents?.map((event) => ({ ...event, durationMs: 60_000 })),
+    };
+    const text = deriveAiLearningClassMetrics(fastCourse).averageSpeedText;
+    expect(text).toMatch(/^比预期快 \d+%$/);
+    expect(text).not.toContain("-");
   });
 
   it("turns shared quiz weaknesses into page-linked whole-class teaching guidance", () => {

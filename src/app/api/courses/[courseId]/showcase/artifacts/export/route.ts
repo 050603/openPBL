@@ -77,7 +77,7 @@ export async function GET(
     const document = latestDocumentByStudent.get(student.id);
     if (document?.docxUploadId) await addUpload(folderName, `主文档-v${document.sequence}`, document.docxUploadId);
     for (const outcome of outcomes.filter((item) => item.studentId === student.id)) {
-      await addUpload(folderName, `${outcome.kind === "pdf" ? "展示PDF" : "额外成果"}-v${outcome.sequence}`, outcome.uploadId);
+      await addUpload(folderName, `${outcome.kind === "pdf" ? "展示PDF" : "本地成果"}-v${outcome.sequence}`, outcome.uploadId);
     }
   }
 

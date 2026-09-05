@@ -12,6 +12,7 @@ vi.mock("@/lib/llm/client", () => ({
 
 import {
   buildShowcaseCoach,
+  buildReflectionClassSummary,
   buildReflectionEvidencePrompts,
   buildTeacherInterventionSignals,
   diagnoseGroupIdea,
@@ -217,6 +218,82 @@ describe("teaching AI support engine", () => {
     await expect(diagnoseGroupIdea({ course, group, tasks: [] })).rejects.toThrow("LLM disabled in test");
   });
 
+  it("generates an anonymous persisted-ready class reflection summary with source mappings", async () => {
+    const summaryCourse: Course = {
+      ...course,
+      students: [
+        ...course.students,
+        { id: "s2", name: "小红", joinedAt: "2026-01-01T00:00:00.000Z", stageProgress: {} },
+        { id: "s3", name: "小刚", joinedAt: "2026-01-01T00:00:00.000Z", stageProgress: {} },
+      ],
+      reflections: [
+        {
+          id: "r1",
+          courseId: "c1",
+          studentId: "s1",
+          studentName: "小明",
+          content: "",
+          survey: { schemaVersion: 1, learningReflection: "用数据调整了方案。", systemReflection: "AI 帮助整理资料。", aiHelpfulness: 4, systemUsability: 4, reuseIntention: 4 },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T01:00:00.000Z",
+        },
+        {
+          id: "r2",
+          courseId: "c1",
+          studentId: "s2",
+          studentName: "小红",
+          content: "",
+          survey: { schemaVersion: 1, learningReflection: "学会比较证据。", systemReflection: "分工还不够清楚。", aiHelpfulness: 3, systemUsability: 4, reuseIntention: 4 },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T01:01:00.000Z",
+        },
+        {
+          id: "r3",
+          courseId: "c1",
+          studentId: "s3",
+          studentName: "小刚",
+          content: "",
+          survey: { schemaVersion: 1, learningReflection: "重新理解了验证。", systemReflection: "没有采纳一次建议，因为不符合数据。", aiHelpfulness: 4, systemUsability: 3, reuseIntention: 5 },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T01:02:00.000Z",
+        },
+      ],
+    };
+    llmMock.callLLM.mockResolvedValueOnce(JSON.stringify({
+      courseSummary: "学生逐渐用证据解释方案调整，但分工仍需提前约定。",
+      teachingRecommendations: ["在实践前明确分工与交付物", "增加一次证据互查复盘"],
+      categories: [
+        { key: "learning-gains", summary: "证据意识增强", terms: [{ label: "证据", sources: [{ studentId: "respondent-1", fields: ["learningReflection"] }, { studentId: "unknown", fields: ["learningReflection"] }] }] },
+        { key: "common-difficulties", summary: "分工仍有困难", terms: [{ label: "分工", sources: [{ studentId: "respondent-2", fields: ["systemReflection"] }] }] },
+        { key: "ai-collaboration", summary: "AI 用于整理与比较", terms: [] },
+        { key: "course-improvements", summary: "需要更多复盘", terms: [] },
+      ],
+      studentSummaries: [
+        { studentId: "respondent-1", summary: "用数据调整方案。" },
+        { studentId: "respondent-2", summary: "比较了不同证据。" },
+        { studentId: "respondent-3", summary: "重新理解了验证。" },
+        { studentId: "unknown", summary: "不应进入持久化结果。" },
+      ],
+    }));
+
+    const draft = await buildReflectionClassSummary({ course: summaryCourse, trigger: "threshold" });
+    expect(draft.kind).toBe("reflection-class-summary");
+    expect(draft.targetType).toBe("course");
+    expect(draft.structuredPayload).toMatchObject({ responseCount: 3, coverageBucket: 100 });
+    expect(JSON.stringify(llmMock.callLLM.mock.calls[0])).not.toContain("小红");
+    expect(draft.structuredPayload).toMatchObject({
+      categories: expect.arrayContaining([
+        expect.objectContaining({ key: "learning-gains", terms: [{ label: "证据", sources: [{ studentId: "s1", fields: ["learningReflection"] }] }] }),
+      ]),
+      studentSummaries: expect.arrayContaining([
+        { studentId: "s1", summary: "用数据调整方案。" },
+        { studentId: "s2", summary: "比较了不同证据。" },
+        { studentId: "s3", summary: "重新理解了验证。" },
+      ]),
+    });
+    expect(JSON.stringify(draft.structuredPayload)).not.toContain("unknown");
+  });
+
   it("diagnoses group ideas from real LLM JSON", async () => {
     llmMock.callLLM.mockResolvedValueOnce(JSON.stringify({
       diagnosis: "方案方向清晰，但证据计划需要更具体。",
@@ -362,8 +439,8 @@ describe("teaching AI support engine", () => {
     llmMock.callLLM.mockResolvedValueOnce(JSON.stringify({
       diagnosis: "结合课程证据与系统体验回顾。",
       suggestions: [
-        "回想一次关键方案调整，并说明它带来的变化。",
-        "回想一次 AI 组员帮助你的经历，并指出还可改进之处。",
+        "有没有一次关键方案调整改变了你的想法？",
+        "AI 的建议中有没有你没有采纳的？为什么？",
         "这条多余提示不应显示。",
       ],
       evidence: ["过程记录"],
@@ -378,8 +455,12 @@ describe("teaching AI support engine", () => {
 
     expect(draft.suggestions).toHaveLength(2);
     expect(draft.suggestions.every((suggestion) => suggestion.length <= 60)).toBe(true);
+    expect(draft.suggestions.every((suggestion) => /[？?]$/.test(suggestion))).toBe(true);
     const prompt = llmMock.callLLM.mock.calls[0]?.[0] as Array<{ content: string }>;
     expect(prompt[1]?.content).toContain("严格返回 2 条");
-    expect(prompt[1]?.content).toContain("系统或 AI 组员的使用体验");
+    expect(prompt[1]?.content).toContain("主要收获");
+    expect(prompt[1]?.content).toContain("常见困难");
+    expect(prompt[1]?.content).toContain("AI 协作看法");
+    expect(prompt[1]?.content).toContain("下一轮课程改进");
   });
 });

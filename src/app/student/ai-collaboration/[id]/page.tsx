@@ -11,6 +11,8 @@ import {
 } from "@/lib/ai-collaboration/artifact-types";
 import { useCourse, useHydrated } from "@/lib/session/store";
 import { isNewOpenPblSystem } from "@/lib/system-mode";
+import { normalizePblCourseConfig } from "@/lib/pbl-course-config";
+import { OtherArtifactCollaboration } from "@/components/views/student/other-artifact-collaboration";
 
 export default function StudentAiCollaborationPage() {
   const params = useParams<{ id: string }>();
@@ -22,14 +24,18 @@ export default function StudentAiCollaborationPage() {
   const newSystem = isNewOpenPblSystem();
   useRealtimeSync(params.id);
   const currentStage = course?.stages[course.currentStageIndex];
+  const makeArtifactMode = normalizePblCourseConfig(course?.pblConfig).makeArtifactMode;
   const returningToClassroom = Boolean(
     hydrated
     && newSystem
     && course
-    && (course.status !== "teaching" || currentStage?.view !== "ai-collaboration"),
+    && (course.status !== "teaching"
+      || currentStage?.view !== "ai-collaboration"),
   );
   const requestedArtifact = searchParams.get("artifact");
-  const artifactType: CollaborationArtifactType = isCollaborationArtifactType(requestedArtifact)
+  const artifactType: CollaborationArtifactType = newSystem
+    ? makeArtifactMode === "python" || makeArtifactMode === "c" ? makeArtifactMode : "document"
+    : isCollaborationArtifactType(requestedArtifact)
     ? requestedArtifact
     : "document";
 
@@ -52,6 +58,10 @@ export default function StudentAiCollaborationPage() {
         正在进入新的课堂阶段…
       </div>
     );
+  }
+
+  if (newSystem && currentStage?.key === "make" && makeArtifactMode === "other") {
+    return <OtherArtifactCollaboration courseId={params.id} />;
   }
 
   if (artifactType === "python" || artifactType === "c") {

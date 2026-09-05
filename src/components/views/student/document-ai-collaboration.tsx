@@ -20,6 +20,7 @@ import {
 import { PrimaryButton } from "@/components/ui";
 import { ArtifactTypeSelector } from "@/components/views/student/artifact-type-selector";
 import { FinalPdfSubmission } from "@/components/views/student/project-making";
+import { ExternalArtifactSubmission } from "@/components/views/student/external-artifact-submission";
 import {
   AiMemberWorkspace,
   type AiMemberWorkspaceMessage,
@@ -46,8 +47,10 @@ import { collaborationBackHref, inferStageCollectionMode, isNewOpenPblSystem } f
 import { DashboardTopBar } from "@/components/dashboard-shell";
 import { StudentClassroomHeaderStatus } from "@/components/classroom/student-classroom-header-status";
 import { useCoursePresence } from "@/hooks/use-course-presence";
-import { deriveStageReadiness } from "@/lib/learning-evidence/readiness";
-import { STAGE_READINESS_LABEL } from "@/lib/learning-evidence/types";
+import {
+  EXTERNAL_ARTIFACT_COLLABORATION_TEMPLATE,
+  type CollaborationWorkspaceKind,
+} from "@/lib/ai-collaboration/workspace-kind";
 
 type CollaborationMessage = AiMemberWorkspaceMessage;
 
@@ -121,9 +124,11 @@ function inferMemberIntent(request: string, selectedText?: string): DocumentColl
 export function DocumentAiCollaboration({
   courseId,
   onArtifactTypeChange,
+  workspaceKind = "document",
 }: {
   courseId: string;
   onArtifactTypeChange: (value: CollaborationArtifactType) => void;
+  workspaceKind?: CollaborationWorkspaceKind;
 }) {
   const router = useRouter();
   const hydrated = useHydrated();
@@ -140,7 +145,9 @@ export function DocumentAiCollaboration({
   });
   const stageKey = stage?.key ?? "";
   const newSystem = isNewOpenPblSystem();
-  const supportedStage = (stageKey === "proposal" || stageKey === "make")
+  const isExternalArtifact = workspaceKind === "external-artifact";
+  const workspaceNoun = isExternalArtifact ? "成果协作稿" : "文档";
+  const supportedStage = (isExternalArtifact ? stageKey === "make" : (stageKey === "proposal" || stageKey === "make"))
     && (!newSystem || course?.status === "teaching");
   const editorRef = useRef<PlateDocumentEditorHandle>(null);
   const submissionIdRef = useRef<string | undefined>(undefined);
@@ -187,20 +194,19 @@ export function DocumentAiCollaboration({
     : [...(course.submissions ?? [])]
       .filter((item) =>
         item.stageKey === stageKey
-        && item.type === "document"
+        && item.type === (isExternalArtifact ? "artifact-brief" : "document")
         && (
           item.studentId === studentId
           || Boolean(group?.id && item.groupId === group.id)
         ))
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
-  const documentTitle = stageKey === "proposal"
-    ? "项目方案协作文档"
-    : "项目成果协作文档";
+  const documentTitle = isExternalArtifact
+    ? "成果协作稿"
+    : stageKey === "proposal"
+      ? "项目方案协作文档"
+      : "项目成果协作文档";
   const projectTitle = group?.topic || course?.drivingQuestion || course?.name || documentTitle;
-  const canSubmitFinal = stageKey === "make";
-  const readiness = course && stage && studentId
-    ? deriveStageReadiness(course, studentId, stage.key)
-    : null;
+  const canSubmitFinal = stageKey === "make" && !isExternalArtifact;
   const onlineCount = course
     ? course.students.filter((student) => presence.onlineStudentIds.has(student.id)).length
     : 0;
@@ -223,16 +229,20 @@ export function DocumentAiCollaboration({
 
   useEffect(() => {
     if (!course || !studentId || !supportedStage) return;
-    const scopeKey = `${course.id}:${studentId}:${stageKey}`;
+    const scopeKey = `${course.id}:${studentId}:${stageKey}:${workspaceKind}`;
     if (loadedScopeRef.current === scopeKey) return;
     loadedScopeRef.current = scopeKey;
-    const initialContent = existingDocument?.content ?? "";
+    const initialContent = existingDocument?.content
+      ?? (isExternalArtifact ? EXTERNAL_ARTIFACT_COLLABORATION_TEMPLATE : "");
     submissionIdRef.current = existingDocument?.id;
     submissionVersionRef.current = existingDocument?.version ?? 1;
-    savedContentRef.current = initialContent;
+    // A new external workspace starts with a real, editable proxy draft.  Mark
+    // it unsaved once so the normal autosave persists the template exactly once;
+    // subsequent refreshes load that submission instead of reinserting it.
+    savedContentRef.current = existingDocument ? initialContent : (isExternalArtifact ? "" : initialContent);
     setDocumentHtml(initialContent);
     setDocumentReady(true);
-    setSaveStatus("saved");
+    setSaveStatus(existingDocument || !isExternalArtifact ? "saved" : "unsaved");
     setSelection(null);
     setPendingSuggestion(null);
     setPendingDelivery(null);
@@ -244,7 +254,7 @@ export function DocumentAiCollaboration({
     paragraphSnapshotRef.current = new Map();
     setAiCommentThreads([]);
     setUndoableEdit(null);
-  }, [course, existingDocument?.content, existingDocument?.id, existingDocument?.version, stageKey, studentId, supportedStage]);
+  }, [course, existingDocument, existingDocument?.content, existingDocument?.id, existingDocument?.version, isExternalArtifact, stageKey, studentId, supportedStage, workspaceKind]);
 
   useEffect(() => {
     const latest = (course?.projectDocumentVersions ?? [])
@@ -262,7 +272,7 @@ export function DocumentAiCollaboration({
   useEffect(() => {
     if (!resolvedCourseId || !studentId || !supportedStage) return;
     const controller = new AbortController();
-    const query = new URLSearchParams({ courseId: resolvedCourseId, studentId, stageKey });
+    const query = new URLSearchParams({ courseId: resolvedCourseId, studentId, stageKey, workspaceKind });
     void fetch(`/api/ai-collaboration/document?${query.toString()}`, {
       cache: "no-store",
       signal: controller.signal,
@@ -303,7 +313,7 @@ export function DocumentAiCollaboration({
       if (!controller.signal.aborted) setHistoryLoaded(true);
     });
     return () => controller.abort();
-  }, [resolvedCourseId, stageKey, studentId, supportedStage]);
+  }, [resolvedCourseId, stageKey, studentId, supportedStage, workspaceKind]);
 
   useEffect(() => {
     if (!memberOpen || !course || !studentId || !supportedStage) return;
@@ -328,6 +338,7 @@ export function DocumentAiCollaboration({
           courseId: course.id,
           studentId,
           stageKey,
+          workspaceKind,
           documentHtml,
         }),
       }).then(async (response) => {
@@ -343,7 +354,7 @@ export function DocumentAiCollaboration({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [course, documentHtml, memberOpen, stageKey, studentId, supportedStage]);
+  }, [course, documentHtml, memberOpen, stageKey, studentId, supportedStage, workspaceKind]);
 
   const persistDocument = useCallback(async (
     content: string,
@@ -365,7 +376,7 @@ export function DocumentAiCollaboration({
       studentName: session.studentName ?? session.user.name,
       groupId: group?.id,
       stageKey,
-      type: "document",
+      type: isExternalArtifact ? "artifact-brief" : "document",
       title: documentTitle,
       content,
     });
@@ -379,7 +390,7 @@ export function DocumentAiCollaboration({
     setSaveStatus("saved");
     void source;
     return true;
-  }, [course, documentTitle, group, session, stageKey, studentId, supportedStage]);
+  }, [course, documentTitle, group, isExternalArtifact, session, stageKey, studentId, supportedStage]);
 
   useEffect(() => {
     if (!documentReady || !course || !studentId || !supportedStage) return;
@@ -391,7 +402,7 @@ export function DocumentAiCollaboration({
   useEffect(() => {
     if (!documentReady || !historyLoaded || !course || !studentId || !supportedStage) return;
     if (plainTextLength(documentHtml) < 120 || busy || pendingSuggestion || pendingDelivery) return;
-    const scopeKey = `${course.id}:${studentId}:${stageKey}`;
+    const scopeKey = `${course.id}:${studentId}:${stageKey}:${workspaceKind}`;
     const storageKey = `openpbl:ai-collaboration:paragraph-review:v${DOCUMENT_COMMENT_REVIEW_VERSION}:${scopeKey}`;
     const timer = window.setTimeout(() => {
       const candidates = editorRef.current?.getBlockCandidates() ?? [];
@@ -446,6 +457,7 @@ export function DocumentAiCollaboration({
           courseId: course.id,
           studentId,
           stageKey,
+          workspaceKind,
           paragraphs: requests.map(({ candidate }) => ({
             candidateId: candidate.blockId
               ? `block:${candidate.blockId}`
@@ -478,7 +490,7 @@ export function DocumentAiCollaboration({
       });
     }, 12_000);
     return () => window.clearTimeout(timer);
-  }, [aiCommentThreads, busy, course, documentHtml, documentReady, historyLoaded, pendingDelivery, pendingSuggestion, stageKey, studentId, supportedStage]);
+  }, [aiCommentThreads, busy, course, documentHtml, documentReady, historyLoaded, pendingDelivery, pendingSuggestion, stageKey, studentId, supportedStage, workspaceKind]);
 
   const replyToDocumentComment = useCallback(async ({
     threadId,
@@ -505,6 +517,7 @@ export function DocumentAiCollaboration({
         courseId: course.id,
         studentId,
         stageKey,
+        workspaceKind,
         documentHtml,
         message,
         contributionId,
@@ -604,7 +617,7 @@ export function DocumentAiCollaboration({
       source: "agent",
       companionId: "critic",
     });
-  }, [aiCommentThreads, course, documentHtml, documentTitle, pendingSuggestion, session, stageKey, studentId, supportedStage]);
+  }, [aiCommentThreads, course, documentHtml, documentTitle, pendingSuggestion, session, stageKey, studentId, supportedStage, workspaceKind]);
 
   const markDocumentCommentRead = useCallback(async ({ threadId }: { threadId: string }) => {
     if (!course || !studentId || !supportedStage) return;
@@ -621,6 +634,7 @@ export function DocumentAiCollaboration({
         courseId: course.id,
         studentId,
         stageKey,
+        workspaceKind,
       }),
     });
     const payload = await response.json().catch(() => ({})) as { readAt?: string };
@@ -629,7 +643,7 @@ export function DocumentAiCollaboration({
         thread.id === threadId ? { ...thread, readAt: payload.readAt } : thread
       ));
     }
-  }, [course, stageKey, studentId, supportedStage]);
+  }, [course, stageKey, studentId, supportedStage, workspaceKind]);
 
   function handleDocumentChange(html: string) {
     setDocumentHtml(html);
@@ -653,6 +667,7 @@ export function DocumentAiCollaboration({
         courseId: course.id,
         studentId,
         stageKey,
+        workspaceKind,
         conversationId: targetConversationId ?? conversationId,
         actorRole: "student",
         ...event,
@@ -687,7 +702,7 @@ export function DocumentAiCollaboration({
       : null;
     if (MODIFICATION_INTENTS.has(requestedIntent) && !selectionSnapshot) {
       setIntent(requestedIntent);
-      setError("局部修改必须先选中文字。这样 AI 只能处理你指定的范围，不会接管整篇文档。");
+      setError(`局部修改必须先选中文字。这样 AI 只能处理你指定的范围，不会接管整篇${workspaceNoun}。`);
       return null;
     }
     const optimistic: CollaborationMessage = {
@@ -716,6 +731,7 @@ export function DocumentAiCollaboration({
           courseId: course.id,
           studentId,
           stageKey,
+          workspaceKind,
           conversationId,
           intent: requestedIntent,
           message: requestText,
@@ -784,7 +800,7 @@ export function DocumentAiCollaboration({
           ? "AI 组员守住了协作边界"
           : payload.result.kind === "work-delivery"
             ? "AI 组员提交了辅助工作"
-            : "AI 组员参与文档协作",
+            : `AI 组员参与${workspaceNoun}协作`,
         summary: payload.result.message.slice(0, 260),
         source: "agent",
         companionId: contribution.companionId,
@@ -918,6 +934,7 @@ export function DocumentAiCollaboration({
           courseId: course.id,
           studentId,
           stageKey,
+          workspaceKind,
         }),
       });
       const payload = await response.json().catch(() => ({})) as {
@@ -944,6 +961,7 @@ export function DocumentAiCollaboration({
       courseId: course.id,
       studentId,
       stageKey,
+      workspaceKind,
       conversationId,
       messageId,
     });
@@ -961,7 +979,7 @@ export function DocumentAiCollaboration({
     if (!course) throw new Error("课程尚未加载，暂时不能上传图片。");
     const form = new FormData();
     form.set("file", file);
-    form.set("title", file.name || "项目文档图片");
+    form.set("title", file.name || `${workspaceNoun}图片`);
     form.set("courseId", course.id);
     const response = await fetch("/api/uploads", { method: "POST", body: form });
     const payload = await response.json().catch(() => ({})) as { url?: string; message?: string };
@@ -998,7 +1016,7 @@ export function DocumentAiCollaboration({
         studentId,
         stageKey,
         title: `拒绝 AI 修改“${pendingSuggestion.suggestion.title}”`,
-        summary: "文档没有发生变化，学生保留了原文。",
+        summary: `${workspaceNoun}没有发生变化，学生保留了原文。`,
         source: "student",
         companionId: pendingSuggestion.contribution.companionId,
       });
@@ -1088,8 +1106,8 @@ export function DocumentAiCollaboration({
         contributionId: contribution.id,
         decision: "rejected",
         reason: decision === "revision"
-          ? "学生作为组长审阅交付后退回修改，原交付未写入文档。"
-          : "学生作为组长审阅交付后决定暂不采用，文档未发生变化。",
+          ? `学生作为组长审阅交付后退回修改，原交付未写入${workspaceNoun}。`
+          : `学生作为组长审阅交付后决定暂不采用，${workspaceNoun}未发生变化。`,
         resultingEvidenceIds: [],
         decidedAt: new Date().toISOString(),
       });
@@ -1102,7 +1120,7 @@ export function DocumentAiCollaboration({
           : `暂不采用组员交付“${deliverable.title}”`,
         summary: decision === "revision"
           ? "等待组长补充修改意见后重新交付。"
-          : "文档没有发生变化。",
+          : `${workspaceNoun}没有发生变化。`,
         source: "student",
         companionId: contribution.companionId,
       });
@@ -1130,7 +1148,7 @@ export function DocumentAiCollaboration({
     if (documentActions.length && (!result?.ok || !result.beforeHtml || !result.afterHtml)) {
       setPendingDelivery((current) => current ? {
         ...current,
-        error: result?.reason ?? "AI 规划的文档位置已经失效，请退回交付后重新规划。",
+        error: result?.reason ?? `AI 规划的${workspaceNoun}位置已经失效，请退回交付后重新规划。`,
       } : current);
       return;
     }
@@ -1144,8 +1162,8 @@ export function DocumentAiCollaboration({
       contributionId: contribution.id,
       decision: "adopted",
       reason: documentActions.length
-        ? "学生作为组长审阅独立交付和文档操作计划后，主动确认应用。"
-        : "学生作为组长审阅了本次不涉及文档修改的独立交付。",
+        ? `学生作为组长审阅独立交付和${workspaceNoun}操作计划后，主动确认应用。`
+        : `学生作为组长审阅了本次不涉及${workspaceNoun}修改的独立交付。`,
       appliedChangeSummary: deliverable.title,
       resultingEvidenceIds: [],
       decidedAt: new Date().toISOString(),
@@ -1157,7 +1175,7 @@ export function DocumentAiCollaboration({
       title: `采纳组员交付“${deliverable.title}”`,
       summary: documentActions.length
         ? `学生确认执行：${documentActions.map((action) => action.description).join("；")}`
-        : "本次交付只作为参考资料完成审阅，文档没有变化。",
+        : `本次交付只作为参考资料完成审阅，${workspaceNoun}没有变化。`,
       source: "student",
       companionId: contribution.companionId,
     });
@@ -1189,7 +1207,7 @@ export function DocumentAiCollaboration({
     if (!undoableEdit || !course) return;
     if (documentHtml !== undoableEdit.afterHtml) {
       setUndoableEdit(null);
-      setError("文档在 AI 修改后又发生了变化。为避免覆盖新内容，本次不能整体撤销。");
+      setError(`${workspaceNoun}在 AI 修改后又发生了变化。为避免覆盖新内容，本次不能整体撤销。`);
       return;
     }
     setDocumentHtml(undoableEdit.beforeHtml);
@@ -1306,8 +1324,8 @@ export function DocumentAiCollaboration({
         message={newSystem
           ? course.status === "finished"
             ? "课堂已经结束，协作成果现已只读保存。"
-            : "AI 文档协作目前仅在项目实践阶段开放。"
-          : "AI 文档协作实验目前在方案构思与项目实践阶段开放。"}
+            : `${workspaceNoun}协作目前仅在项目实践阶段开放。`
+          : `${workspaceNoun}协作实验目前在方案构思与项目实践阶段开放。`}
         onBack={() => router.replace(collaborationBackHref(course.id))}
       />
     );
@@ -1319,7 +1337,7 @@ export function DocumentAiCollaboration({
         currentCourse={{ id: course.id, name: course.name, status: course.status }}
         currentStage={{ index: course.currentStageIndex, total: course.stages.length, label: stage?.label ?? "项目实践" }}
         currentTask={stage?.description}
-        headerSlot={stage ? <StudentClassroomHeaderStatus currentIndex={course.currentStageIndex} onlineCount={onlineCount} readinessLabel={readiness ? STAGE_READINESS_LABEL[readiness.status] : "未开始"} stageLabel={stage.label} total={course.stages.length} /> : undefined}
+        headerSlot={stage ? <StudentClassroomHeaderStatus currentIndex={course.currentStageIndex} onlineCount={onlineCount} stageLabel={stage.label} total={course.stages.length} /> : undefined}
         hideCourseSwitcher
         leadRole="学生"
         role="student"
@@ -1328,11 +1346,11 @@ export function DocumentAiCollaboration({
       <header className="sticky top-16 z-[60] h-16 border-b border-[var(--pbl-border)] bg-[color-mix(in_srgb,var(--pbl-surface)_96%,transparent)] backdrop-blur-sm">
         <div className="flex h-full w-full items-center justify-between gap-3 px-2 sm:px-3 lg:px-4">
           <div className="min-w-0">
-            <p className="text-[10px] font-medium leading-none text-stone-500">选题方向</p>
+            <p className="text-[10px] font-medium leading-none text-stone-500">{isExternalArtifact ? "本地成果协作" : "选题方向"}</p>
             <h1 className="mt-1 truncate text-base font-bold leading-tight text-stone-950 sm:text-lg">{projectTitle}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <ArtifactTypeSelector onValueChange={changeArtifactType} value="document" />
+            {!newSystem ? <ArtifactTypeSelector onValueChange={changeArtifactType} value="document" /> : null}
             <span className="hidden sm:inline-flex"><SaveState status={session.saveState === "error" ? "error" : saveStatus} /></span>
             <PrimaryButton
               disabled={saveStatus === "saving"}
@@ -1352,6 +1370,16 @@ export function DocumentAiCollaboration({
               >
                 {submitting ? <LoaderCircle className="animate-spin" size={14} /> : <Send size={14} />}
                 {submitting ? "生成 Word…" : submittedVersion ? `提交第 ${submittedVersion.sequence + (saveStatus === "unsaved" || saveStatus === "error" ? 1 : 0)} 版` : "提交最终版"}
+              </PrimaryButton>
+            ) : null}
+            {isExternalArtifact ? (
+              <PrimaryButton
+                disabled={saveStatus === "saving" || session.saveState === "saving" || Boolean(pendingSuggestion) || Boolean(pendingDelivery)}
+                onClick={() => window.dispatchEvent(new Event("openpbl:open-external-upload"))}
+                size="sm"
+                tone="blue"
+              >
+                <Send size={14} />提交成果
               </PrimaryButton>
             ) : null}
           </div>
@@ -1378,6 +1406,7 @@ export function DocumentAiCollaboration({
                 }}
                 minHeight={700}
                 stickyToolbarTop={140}
+                workspaceLabel={isExternalArtifact ? "成果协作稿" : "文档"}
                 onChange={handleDocumentChange}
                 onAiCommentRead={markDocumentCommentRead}
                 onAiCommentReply={replyToDocumentComment}
@@ -1402,12 +1431,16 @@ export function DocumentAiCollaboration({
             ) : null}
           </div>
           <footer className="border-t border-stone-100 px-5 py-3 text-xs text-stone-500">
-            <span>{plainTextLength(documentHtml)} 字 · 当前草稿自动保存</span>
+            <span>{plainTextLength(documentHtml)} 字 · {isExternalArtifact ? "成果协作稿自动保存" : "当前草稿自动保存"}</span>
             {canSubmitFinal && submittedVersion ? <a className="ml-3 font-semibold text-emerald-700 hover:underline" download href={submittedVersion.downloadUrl}>下载第 {submittedVersion.sequence} 版 Word</a> : null}
           </footer>
         </section>
 
-        {stageKey === "make" && inferStageCollectionMode(course.stages) === "new" ? (
+        {isExternalArtifact ? (
+          <div className="mt-4">
+            <ExternalArtifactSubmission course={course} studentId={studentId} />
+          </div>
+        ) : stageKey === "make" && inferStageCollectionMode(course.stages) === "new" ? (
           <div className="mt-4">
             <FinalPdfSubmission course={course} />
           </div>
@@ -1439,6 +1472,7 @@ export function DocumentAiCollaboration({
             onRejectDelivery={() => resolveDelivery("rejected")}
             onReviseDelivery={() => resolveDelivery("revision")}
             onSubmit={submitMemberRequest}
+            workspaceLabel={isExternalArtifact ? "成果协作稿" : "文档"}
             pendingChange={pendingSuggestion && !pendingSuggestion.sourceThreadId ? {
               title: pendingSuggestion.suggestion.title,
               reason: pendingSuggestion.suggestion.reason,

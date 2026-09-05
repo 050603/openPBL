@@ -315,6 +315,7 @@ export type AiSupportKind =
   | "artifact-diagnosis"
   | "showcase-coach"
   | "reflection-evidence"
+  | "reflection-class-summary"
   | "teacher-intervention"
   // 新增：AI 介入模式扩展类型
   | "project-skeleton" // 阶段一：AI 生成项目骨架
@@ -410,6 +411,13 @@ export type CourseUiState = {
   >;
   /** 教师选择并向当前阶段全班投屏的上传资源。 */
   resourceProjection?: ClassroomResourceProjection | null;
+  /** 第四阶段个人汇报队列配置。 */
+  showcaseReporting?: {
+    schemaVersion: 1;
+    orderedStudentIds: string[];
+    minutesPerStudent: number;
+    updatedAt: string;
+  };
 };
 
 export type ClassroomResourceProjection = {
@@ -585,7 +593,7 @@ export type ProjectDocumentVersion = {
   createdAt: string;
 };
 
-/** Immutable additional outcome submitted from the project-practice stage. */
+/** Immutable local-artifact outcome version submitted from project practice. */
 export type ProjectPdfVersion = {
   id: string;
   courseId: string;
@@ -626,6 +634,7 @@ export type ShowcasePresentationStatus =
   | "active"
   | "rejected"
   | "ended"
+  | "evaluating"
   | "cancelled";
 
 export type ShowcaseViewState = {
@@ -658,6 +667,9 @@ export type ShowcasePresentationSnapshot = {
   reviewedBy?: string;
   startedAt?: string;
   endedAt?: string;
+  evaluationNote?: string;
+  evaluatedAt?: string;
+  evaluatedBy?: string;
   updatedAt: string;
 };
 
@@ -1669,6 +1681,7 @@ export type ClassroomSubmission = {
     | "idea"
     | "plan"
     | "document"
+    | "artifact-brief"
     | "code"
     | "resource"
     | "showcase"
@@ -1741,6 +1754,53 @@ export type ReflectionSurveyResponseV1 = {
   aiHelpfulness: ReflectionSurveyScore;
   systemUsability: ReflectionSurveyScore;
   reuseIntention: ReflectionSurveyScore;
+};
+
+export type ReflectionSummaryCategoryKey =
+  | "learning-gains"
+  | "common-difficulties"
+  | "ai-collaboration"
+  | "course-improvements";
+
+export type ReflectionSummaryAnswerField = "learningReflection" | "systemReflection";
+
+export type ReflectionSummarySource = {
+  studentId: string;
+  fields: ReflectionSummaryAnswerField[];
+};
+
+export type ReflectionSummaryTerm = {
+  label: string;
+  sources: ReflectionSummarySource[];
+};
+
+export type ReflectionSummaryCategory = {
+  key: ReflectionSummaryCategoryKey;
+  title: string;
+  summary: string;
+  terms: ReflectionSummaryTerm[];
+};
+
+export type ReflectionSummarySourceRef = {
+  reflectionId: string;
+  studentId: string;
+  updatedAt: string;
+};
+
+export type ReflectionClassSummaryV1 = {
+  schemaVersion: 1;
+  generatedAt: string;
+  coveragePercent: number;
+  coverageBucket: 0 | 20 | 40 | 60 | 80 | 100;
+  trigger: "threshold" | "course-finished" | "manual";
+  responseCount: number;
+  totalStudentCount: number;
+  sourceRevision: string;
+  sourceRefs: ReflectionSummarySourceRef[];
+  courseSummary: string;
+  teachingRecommendations: string[];
+  categories: ReflectionSummaryCategory[];
+  studentSummaries: Array<{ studentId: string; summary: string }>;
 };
 
 export type ActivityRecord = {

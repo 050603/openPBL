@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Course } from "@/lib/session/types";
 import { AiCollaborationTeacherMonitor, deriveAiCollaborationMetrics } from "./ai-collaboration-monitor";
+
+vi.mock("@/lib/session/store", () => ({
+  useSession: () => ({ updateCourse: vi.fn() }),
+}));
 
 const course = {
   students: [{ id: "student-1", name: "小明" }],
@@ -15,11 +19,27 @@ describe("AI collaboration teacher monitor", () => {
     render(<AiCollaborationTeacherMonitor course={course} />);
 
     expect(screen.getByRole("heading", { name: "项目实践进度" })).toBeTruthy();
-    expect(screen.getByText("已保存成果")).toBeTruthy();
+    expect(screen.queryByText("成果完成情况")).toBeNull();
+    expect(screen.queryByText("已保存成果")).toBeNull();
     expect(screen.getByRole("heading", { name: "学生列表" })).toBeTruthy();
     expect(screen.queryByText(/真实产物/)).toBeNull();
     expect(screen.queryByText(/名学生/)).toBeNull();
     expect(screen.queryByText(/\d+\/\d+ 已保存/)).toBeNull();
+  });
+
+  it("renders student and AI message Markdown without changing the source transcript", () => {
+    render(<AiCollaborationTeacherMonitor course={{
+      ...course,
+      aiInteractionEvents: [
+        { id: "md-student", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-md", source: "sidebar", eventType: "request", actorRole: "student", content: "**我的问题**\n\n- 数据是否充分？", createdAt: "2026-09-01T01:00:00.000Z" },
+        { id: "md-ai", courseId: "course-1", studentId: "student-1", stageKey: "make", conversationId: "conversation-md", source: "sidebar", eventType: "response", actorRole: "ai", content: "## 核查建议\n\n1. 补充样本\n2. 说明来源", createdAt: "2026-09-01T01:00:01.000Z" },
+      ],
+    } as Course} />);
+
+    expect(screen.getByText("我的问题").getAttribute("data-streamdown")).toBe("strong");
+    expect(screen.getByRole("heading", { name: "核查建议" })).toBeTruthy();
+    expect(screen.getByText("数据是否充分？").closest("li")).toBeTruthy();
+    expect(screen.getByText("补充样本").closest("li")).toBeTruthy();
   });
 
   it("shows student and AI messages as a located conversation without read receipts", () => {
